@@ -1,84 +1,104 @@
 # Blink Market
 
-一個把 **預測研究、可追溯證據與鏈上測試交易** 放在同一條流程上的實驗平台。
+An experimental platform connecting **prediction research, traceable evidence, and on-chain testnet trading**.
 
-Blink Market 以 Base Sepolia 為目標網路：從有明確判定規則的題目出發，保存來源證據、收集模型與外部預測，透過 RFQ 報價交易 YES／NO 份數，再依人工提案與爭議流程完成結算。重點不只是「猜對了嗎」，也包括預測的依據、成本、可重現性與長期品質。
+以預測研究為核心，串連可追溯證據與鏈上測試交易的實驗平台。
 
-> 目前完成 M0 共用資料契約與基礎元件、M1 合約帳本及本機驗證。產品介面、認證、研究流程、RFQ 與服務整合仍待實作；沒有 Sepolia 部署，也尚未開放公開交易。
+Blink Market targets Base Sepolia. It starts with questions that have explicit resolution rules, preserves source evidence, collects model and external forecasts, and enables trading in YES/NO shares through signed RFQ quotes. Human-led proposals and a dispute process determine settlement. The goal is to understand not just whether a prediction was right, but also its evidence, cost, reproducibility, and quality over time.
 
-## 一張圖看懂架構
+> **Current status:** M0 shared data contracts and foundational components, plus the M1 smart-contract ledger, are implemented and locally verified. Product UI, authentication, research workflows, RFQ services, and service integration remain planned. There is no Sepolia deployment or public trading yet.
+>
+> 目前完成 M0 基礎元件與 M1 合約帳本的本機實作及驗證；產品與服務尚未整合，未部署 Sepolia，也未開放公開交易。
 
-![Blink Market 手繪目標架構：Web 與錢包向 API 請求報價，後端協調研究、資料儲存與私有 Signer；錢包直接向 Base Sepolia 合約成交與贖回，Indexer 將事件同步回 PostgreSQL。](docs/assets/architecture-sketch-light.png)
+## Architecture at a Glance · 架構概覽
 
-_目標架構示意，並非目前已上線的服務。合約與基礎元件已在本機實作；圖中的端到端業務接線尚未完成。_
+![Hand-drawn Blink Market target architecture: Web and wallets request quotes from the API; the backend coordinates research, storage, and a private signer; wallets trade and redeem directly on Base Sepolia; the indexer syncs chain events into PostgreSQL.](docs/assets/architecture-sketch-light.png)
 
-可以把系統理解成三個部分：
+_Target architecture, not a live deployment. Contracts and foundational components are implemented locally; end-to-end service integration is still planned._
 
-- **研究與協調在鏈下**：API 接收請求，Worker 處理研究及背景工作，PostgreSQL 保存業務紀錄，物件儲存保留原始證據與規格。
-- **資金與結果在鏈上**：BlinkMarket 驗證報價、管理完整抵押、記錄持倉並執行結算贖回；錢包由使用者自己掌握。
-- **簽署與同步各自獨立**：私有 Signer 重新檢查簽署政策，Indexer 把鏈上事件轉成可查詢、可重建的資料庫投影。
+Three responsibilities shape the system:
 
-## 專案包含哪些功能？
+- **Off-chain research and coordination.** The API receives requests, workers handle research and background jobs, PostgreSQL stores application records, and object storage preserves original evidence and specification bytes.
+- **On-chain funds and outcomes.** BlinkMarket validates quotes, maintains full collateralization, records positions, and enforces settlement and redemption. Users retain control of their wallets.
+- **Separate signing and synchronization.** A private signer independently checks signing policies. An indexer turns chain events into queryable, rebuildable database projections.
 
-| 分類       | 設計範圍                                                          |
-| ---------- | ----------------------------------------------------------------- |
-| 題目與證據 | 來源 allowlist、候選題目、人工核准、固定規格與原始證據快照        |
-| 預測研究   | 預測窗口、平台雙模型、外部預測、獨立 baseline、成本及預算追蹤     |
-| 報價與交易 | 單一 maker 的 RFQ、EIP-712 簽章報價、YES／NO 份數、抵押與風險預留 |
-| 結算與爭議 | 人工結果提案、挑戰期、裁決、逾時 INVALID、持倉贖回                |
-| 品質評估   | Brier score、缺失與無效結果分類、研究成本與延遲分析               |
-| 平台治理   | 身份與權限、測試幣 faucet、audit、持久工作、事件同步及故障恢復    |
+中文摘要：研究與協調在鏈下，資金與最終結果在鏈上；Signer 控制簽署風險，Indexer 同步鏈上資料。圖中服務接線是目標設計，並非已上線功能。
 
-這些是模組化單體中的業務分類，不是各自獨立的微服務。初期以較少的部署與維護成本，保留未來按負載和安全需求拆分的空間。
+## Scope · 功能範圍
 
-## 整體如何運作？
+| Area                  | Planned capabilities                                                                                            |
+| --------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Questions & evidence  | Source allowlists, candidate questions, human approval, frozen specifications, and original evidence snapshots  |
+| Prediction research   | Forecast windows, two platform models, external forecasts, an independent baseline, and cost/budget tracking    |
+| Quotes & trading      | Single-maker RFQ, EIP-712 signed quotes, YES/NO shares, collateral, and risk reservations                       |
+| Resolution & disputes | Human outcome proposals, challenge periods, arbitration, INVALID timeout settlement, and position redemption    |
+| Quality measurement   | Brier scores, classification of missing forecasts and invalid outcomes, research costs, and latency             |
+| Platform operations   | Identity and permissions, a test-token faucet, audit records, durable jobs, event synchronization, and recovery |
 
-1. **形成題目**：研究流程保存來源證據，人工核准後凍結規格，透過管理錢包建市。
-2. **產生預測**：在指定窗口收集預測；只有符合政策的固定雙模型快照可用於 maker 報價，baseline 與外部預測分開比較。
-3. **取得報價並成交**：taker 請求 RFQ，服務預留額度並取得簽章；taker 自己用錢包提交交易，合約再次驗證。
-4. **結算與贖回**：到期後人工提案，必要時挑戰及裁決；結果確定後，每位持倉人各自贖回。
-5. **同步與評估**：Indexer 更新可查詢的鏈上投影，分析模組評估預測品質與成本。
+These are business modules within a modular monolith, not separate microservices. The design keeps initial deployment and maintenance costs low while leaving room to split components as load and security needs evolve.
 
-例如買入 **100 份 YES，報價 6000 bps**：taker 支付 60 bUSD，maker 提供 40 bUSD，合約共保管 100 bUSD。taker 持有 100 YES，maker 持有相反的 100 NO；YES 勝出時 taker 可領 100 bUSD，NO 勝出時 maker 可領 100 bUSD，INVALID 則雙方各領 50 bUSD。
+中文摘要：功能分為題目證據、預測研究、報價交易、結算爭議、品質評估與平台營運；以模組區分責任，不為每個功能另建微服務。
 
-YES／NO 是合約內部份數帳本，不是可轉讓代幣。研究機率、maker 報價與實際成交價也是不同概念，不混為同一個數字。
+## How It Works · 運行方式
 
-## 技術選擇
+The intended end-to-end workflow:
 
-| 層級       | 技術                                                       | 選擇理由                                                          |
-| ---------- | ---------------------------------------------------------- | ----------------------------------------------------------------- |
-| Web        | Next.js／React／TypeScript                                 | 產品介面與 API 共用資料契約；目前只有 host 骨架                   |
-| 後端       | Node.js／TypeScript／Fastify                               | 適合 RPC、資料庫與模型 API 等 I/O 工作，降低跨語言維護成本        |
-| 業務資料   | PostgreSQL                                                 | 交易、鎖、冪等紀錄、audit、transactional outbox 與持久工作        |
-| 證據與規格 | 原始 bytes＋Keccak-256；本機 adapter，正式目標 S3 相容儲存 | 保存可驗證內容，避免重新序列化造成 hash 不一致                    |
-| 鏈上帳本   | Solidity 0.8.30／OpenZeppelin／Base Sepolia                | 用整數與不可升級合約固定資金及結算規則                            |
-| 鏈互動     | viem／EIP-712                                              | 型別化鏈上呼叫、結構化報價簽章與部署驗證                          |
-| 驗證       | Foundry／Anvil／Node test／PGlite                          | 合約 fuzz、多使用者 invariant、本機重播與 PostgreSQL 語意回歸測試 |
-| 工程組織   | pnpm workspace／分層套件                                   | 共用契約，保持 domain、application、ports、adapters 的依賴方向    |
+1. **Define a market.** Preserve source evidence, obtain human approval, freeze the specification, and create the market through an administrator's wallet.
+2. **Collect forecasts.** Gather predictions within defined windows. Only policy-compliant snapshots from the two fixed platform models inform maker pricing; baseline and external forecasts are evaluated separately.
+3. **Request a quote and trade.** A taker requests an RFQ. The service reserves capacity and obtains a signed quote. The taker submits the transaction from their own wallet, and the contract validates it again.
+4. **Resolve and redeem.** After market close, a human proposes an outcome, with challenges and arbitration when needed. Once finalized, each position holder redeems independently.
+5. **Synchronize and evaluate.** The indexer updates chain-derived projections, while analytics assess prediction quality and cost.
 
-後端採用 **模組化單體、按責任拆程序**：Web、API、Worker、Indexer、Signer 共用領域程式碼，但有不同的工作與信任邊界。這個選擇優先平衡開發速度、穩定性與初期成本；不在缺乏壓測資料時宣稱語言本身具有吞吐優勢。
+For example, buying **100 YES shares at 6,000 bps** costs the taker 60 bUSD. The maker contributes 40 bUSD, so the contract holds 100 bUSD in collateral. The taker receives 100 YES shares and the maker holds the opposing 100 NO shares. A YES outcome pays the taker 100 bUSD; a NO outcome pays the maker 100 bUSD; INVALID pays each 50 bUSD.
 
-## 設計上刻意保留的邊界
+YES/NO shares are entries in the contract's internal ledger, not transferable tokens. Research probabilities, maker quotes, and execution prices are distinct concepts.
 
-- **只使用測試網與測試資產**：BlinkTestUSD 為 6 位小數的 bUSD；不提供主網交易。
-- **模型沒有裁決權或私鑰**：模型輸出只能是研究或建議，建市、提案、挑戰與裁決有明確角色。
-- **報價不等於成交**：DB reservation 不是鏈上鎖款，實際成交仍由合約驗證餘額、期限、cap 與簽章。
-- **鏈上帳本才是資金真相**：資料庫投影可重建；RPC 逾時或交易狀態未知時，不直接視為失敗並重送。
-- **暫停新交易不凍結既有持倉**：結算與贖回依固定合約規則繼續。
-- **LIVE 與 REPLAY 分開**：真實待發生事件與測試重播不混合評估，測試通過也不代表完成安全審計。
+中文摘要：題目核准 → 預測 → 簽章報價與成交 → 人工結算與贖回 → 同步及評估。每筆交易由雙方提供完整抵押；YES／NO 是合約內部份數，不是可轉讓代幣。
 
-## 目前進度
+## Technology & Rationale · 技術選型
 
-| 階段                                                                | 狀態                                   |
-| ------------------------------------------------------------------- | -------------------------------------- |
-| M0：資料／API 契約、部署驗證、DB 與規格封存基礎元件                 | 已實作並本機驗證，尚未接入業務 handler |
-| M1：測試資產、抵押成交帳本、結算贖回、多使用者測試                  | 已實作並本機驗證，未部署外部鏈         |
-| M2／M3／M4：身份、業務資料、研究流程、RFQ、Indexer、Signer、產品 UI | 待後續實作與整合                       |
+| Layer                     | Technology                                                                      | Why it fits                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Web                       | Next.js / React / TypeScript                                                    | Shared data contracts with the API; currently a host scaffold, not a product UI                  |
+| Backend                   | Node.js / TypeScript / Fastify                                                  | Suited to RPC, database, and model-API I/O, with less cross-language maintenance                 |
+| Application data          | PostgreSQL                                                                      | Transactions, locks, idempotency records, audit trails, a transactional outbox, and durable jobs |
+| Evidence & specifications | Original bytes + Keccak-256; local adapter today, S3-compatible storage planned | Verifiable content without hash drift from reserialization                                       |
+| On-chain ledger           | Solidity 0.8.30 / OpenZeppelin / Base Sepolia                                   | Integer accounting and fixed collateral/settlement rules in non-upgradeable contracts            |
+| Chain interaction         | viem / EIP-712                                                                  | Typed contract calls, structured quote signatures, and deployment verification                   |
+| Verification              | Foundry / Anvil / Node test / PGlite                                            | Contract fuzzing, multi-user invariants, local replay, and PostgreSQL-semantics regression tests |
+| Repository structure      | pnpm workspace / layered packages                                               | Shared contracts with explicit dependencies between domain, application, ports, and adapters     |
 
-## 延伸閱讀
+The backend is a **modular monolith with separate processes by responsibility**. Web, API, Worker, Indexer, and Signer belong to one codebase, with shared domain definitions but distinct workloads and trust boundaries. This balances development effort, reliability, and early operating costs; it does not assume a language-level throughput advantage without benchmarks.
 
-- [架構圖解與運行方式](docs/ARCHITECTURE_GUIDE.md)：五張圖看現況、服務分工、交易、結算與恢復。
-- [整體架構](docs/ARCHITECTURE.md) · [資料模型](docs/DATA_MODEL.md) · [細部設計](docs/design/README.md)。
-- [交付與驗證記錄](docs/M0_M1_DELIVERY.md) · [Roadmap](docs/ROADMAP.md) · [技術決策](docs/adr/0001-platform.md)。
-- [開發指南](docs/DEVELOPMENT.md) · [運行與部署](docs/OPERATIONS.md) · [領域用語](CONTEXT.md)。
-- [原始 MVP 規格](Blink_MVP_v0.1_Base_Sepolia_Spec.md)。
+中文摘要：以 TypeScript 共用契約、PostgreSQL 保護鏈下交易一致性、Solidity 固定資金規則。按責任拆程序，在開發難度、穩定性與初期成本之間取得平衡。
+
+## Design Boundaries · 設計邊界
+
+- **Testnet and test assets only.** BlinkTestUSD is a six-decimal test token, bUSD. Mainnet trading is out of scope.
+- **Models hold neither keys nor adjudication authority.** Their outputs are research or recommendations. Market creation, proposals, challenges, and arbitration have explicit roles.
+- **A quote is not a trade.** A database reservation is not an on-chain lock. Execution still depends on contract checks for balances, deadlines, caps, and signatures.
+- **The chain is the source of truth for funds.** Database projections can be rebuilt. RPC timeouts or unknown transaction states do not justify blindly treating an operation as failed and resubmitting it.
+- **Pausing new trades does not freeze existing positions.** Settlement and redemption continue under the contract's rules.
+- **LIVE and REPLAY stay separate.** Prospective real-world events and test replays are evaluated separately. Passing tests is not a security audit.
+
+中文摘要：僅限測試網；模型不能掌握私鑰或裁決；報價不保證成交；資金以鏈上帳本為準。交易暫停不阻擋既有部位依規則結算與贖回。
+
+## Project Status · 目前進度
+
+| Milestone                                                                                        | Status                                                              |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| M0 — Data/API contracts, deployment verification, database and specification-archive foundations | Implemented and locally verified; not wired into business handlers  |
+| M1 — Test token, collateralized trading ledger, settlement/redemption, and multi-user tests      | Implemented and locally verified; not deployed to an external chain |
+| M2 / M3 / M4 — Identity, business data, research workflows, RFQ, Indexer, Signer, and product UI | Implementation and integration planned                              |
+
+中文摘要：M0／M1 已完成本機驗證；M2–M4 為後續業務與產品整合。本專案尚未進入公開測試階段。
+
+## Further Reading · 延伸閱讀
+
+Detailed project documents are currently primarily in Traditional Chinese.
+
+- [Architecture walkthrough · 架構圖解](docs/ARCHITECTURE_GUIDE.md) — Five diagrams covering implementation status, service responsibilities, trading, settlement, and recovery.
+- [Architecture · 整體架構](docs/ARCHITECTURE.md) · [Data model · 資料模型](docs/DATA_MODEL.md) · [Detailed design · 細部設計](docs/design/README.md).
+- [Delivery & verification · 交付與驗證](docs/M0_M1_DELIVERY.md) · [Roadmap · 實作進度](docs/ROADMAP.md) · [Architecture decisions · 技術決策](docs/adr/0001-platform.md).
+- [Development guide · 開發指南](docs/DEVELOPMENT.md) · [Operations · 運行與部署](docs/OPERATIONS.md) · [Domain terminology · 領域用語](CONTEXT.md).
+- [Original MVP specification · 原始規格](Blink_MVP_v0.1_Base_Sepolia_Spec.md).
