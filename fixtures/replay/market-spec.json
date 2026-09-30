@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "blink.market.v0.1",
+  "mode": "REPLAY",
+  "templateId": "GM_LT_V1",
+  "entityId": "fixture-company-not-real",
+  "fiscalPeriod": "FY2025Q1",
+  "periodStart": "2025-01-01",
+  "periodEnd": "2025-03-31",
+  "metric": "quarterly_gaap_reported_gross_margin",
+  "thresholdBps": 7000,
+  "comparator": "LT",
+  "sourceAllowlist": [
+    "https://example.com/fixture-only"
+  ],
+  "valueVersion": "FIRST_QUALIFYING_RELEASE",
+  "missingValueOutcome": "INVALID",
+  "invalidYesPayoutMicros": 500000,
+  "invalidNoPayoutMicros": 500000,
+  "closeAt": "1746057600",
+  "proposalDeadline": "1746662400",
+  "hardDeadline": "1746921600",
+  "challengeSeconds": 120,
+  "fundingType": "PLATFORM_RESEARCH_SUBSIDY",
+  "sourceEvidenceIds": [
+    "fixture-evidence-not-fetched"
+  ]
+}

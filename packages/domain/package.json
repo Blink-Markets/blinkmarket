@@ -1,0 +1,10 @@
+{
+  "name": "@blink/domain",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@blink/schemas": "workspace:*"
+  }
+}

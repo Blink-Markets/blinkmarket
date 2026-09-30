@@ -1,0 +1,13 @@
+{
+  "name": "@blink/adapters",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "pg": "8.23.0",
+    "viem": "2.56.8",
+    "@blink/ports": "workspace:*",
+    "@blink/schemas": "workspace:*"
+  }
+}

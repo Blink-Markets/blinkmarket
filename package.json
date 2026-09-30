@@ -1,0 +1,41 @@
+{
+  "name": "blinkmarket",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.20.0",
+  "engines": {
+    "node": ">=22.23.1 <23"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter './apps/*' dev",
+    "typecheck": "tsc --noEmit && pnpm --filter @blink/web typecheck",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "check": "pnpm typecheck && pnpm test && pnpm check:boundaries && pnpm check:contracts",
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "check:contracts": "node scripts/check-contracts.mjs",
+    "test:contracts": "node scripts/foundry.mjs forge test --root contracts",
+    "test:contracts:seeds": "node scripts/foundry.mjs forge test --root contracts --match-contract LedgerInvariantTest --fuzz-seed 0x01 && node scripts/foundry.mjs forge test --root contracts --match-contract LedgerInvariantTest --fuzz-seed 0x02",
+    "replay": "node scripts/check-contracts.mjs && node --import tsx scripts/local-replay.ts",
+    "db:migrate": "node --import tsx scripts/migrate.ts",
+    "manifest:validate": "node --import tsx scripts/validate-manifest.ts",
+    "manifest:verify": "node --import tsx scripts/verify-deployment.ts",
+    "api:spec": "node --import tsx scripts/generate-openapi.ts",
+    "build": "pnpm --filter @blink/web build",
+    "infra:up": "docker compose -f infra/compose.yaml up -d",
+    "infra:down": "docker compose -f infra/compose.yaml down"
+  },
+  "devDependencies": {
+    "prettier": "3.9.8",
+    "@foundry-rs/forge": "1.7.1",
+    "@foundry-rs/anvil": "1.7.1",
+    "@openzeppelin/contracts": "5.6.1",
+    "@electric-sql/pglite": "0.5.8",
+    "@types/pg": "8.23.1",
+    "viem": "2.56.8",
+    "@types/node": "22.20.4",
+    "typescript": "5.9.3",
+    "tsx": "4.23.15",
+    "solc": "0.8.30"
+  }
+}

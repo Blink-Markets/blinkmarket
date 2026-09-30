@@ -1,0 +1,14 @@
+{
+  "name": "@blink/worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --import tsx --watch src/main.ts",
+    "start": "node --import tsx src/main.ts"
+  },
+  "dependencies": {
+    "@blink/runtime": "workspace:*",
+    "@blink/domain": "workspace:*"
+  }
+}

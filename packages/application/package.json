@@ -1,0 +1,12 @@
+{
+  "name": "@blink/application",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@blink/domain": "workspace:*",
+    "@blink/ports": "workspace:*",
+    "@blink/schemas": "workspace:*"
+  }
+}
