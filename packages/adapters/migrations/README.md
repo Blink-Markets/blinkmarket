@@ -1,6 +1,6 @@
 # SQL migrations
 
-M0已有0001_foundation.sql與runner；只建立uint256/address/hash domains、runtime group roles與operations基礎表。其餘業務表按docs/design/03-data-transactions.md於M2建立。
+0001_foundation 建立 domains、runtime roles 與 operations 基礎表；0002_identity 建立邀請與 wallet binding；0003_preparation 建立 approved sources、immutable evidence、candidate revisions／links 與分離的證據管理角色。建市核准及 intent 表留待後續 migration。
 
 ```sh
 DATABASE_URL=postgresql://blink:local-only@127.0.0.1:5432/blink pnpm db:migrate
@@ -10,4 +10,4 @@ DATABASE_URL=postgresql://blink:local-only@127.0.0.1:5432/blink pnpm db:migrate
 
 採forward migration；已套用的SQL檔不可修改，新增版本修正。NUMERIC domain明確檢查整數，避免欄位precision scale的自動rounding。Audit runtime僅INSERT/SELECT，trigger亦拒UPDATE/DELETE/TRUNCATE。
 
-pnpm test以PGlite engine驗DDL、grants、checksum與精度。正式PostgreSQL多connection lock contention、backup/restore與outbox重試整合留M2；不能把單session測試當成已驗證分散式併發。
+pnpm test 以 PGlite engine 驗 DDL、grants、checksum、精度及身份交易。pnpm test:postgres 另需专用 PostgreSQL，測真實多 connection 的身份鎖競爭；不能把單 session 測試當成分散式併發驗收。backup/restore 與 outbox 重試整合仍待後續切片。

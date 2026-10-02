@@ -27,9 +27,11 @@ pnpm dev
 | Indexer      | http://127.0.0.1:3003/health/live  | 活性檢查，尚未同步區塊                                  |
 | Signer       | http://127.0.0.1:3004/health/live  | 活性檢查，沒有簽章 API                                  |
 
-所有後端 /health/ready 及 API /v1/health 均回 503：程序運作不代表業務就緒。API 先做契約驗證，錯誤請求回400，格式正確的業務請求仍回501。認證、idempotency執行、資料讀寫與鏈上服務尚未接線。
+預設 scaffold 模式：API 格式錯誤回 400，有效業務請求仍回 501。identity 模式接入 PostgreSQL 與兩個 wallet auth endpoint，見 [身份交付](M2_IDENTITY_DELIVERY.md)。preparation 模式另啟用證據 metadata、候選新增／修訂／查詢／拒絕，離線匯入及權限見 [證據與候選交付](M2_PREPARATION_DELIVERY.md)。所有後端 /health/ready 及 API /v1/health 仍回 503，完整交易鏈路尚未 ready。
 
 單獨啟動可用 `pnpm --filter @blink/api dev`，其他 app 同理。Web 建置：`pnpm build`。
+
+後端独立部署產物：`pnpm build:services`；驗證不依賴 workspace／tsx 的 bundle：`pnpm test:service-build`。API 容器範本為 `infra/Dockerfile.api`，build context 使用 repo root；目前尚未完成公開部署驗收。
 
 ## 可選本機基礎設施
 

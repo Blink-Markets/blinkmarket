@@ -89,7 +89,7 @@ flowchart LR
 - runtime：最小 HTTP bootstrap；不演變成任意工具的共用資料夾。
 - client：對外契約與範例，不引用後端內部資料模型。
 
-`pnpm check:boundaries` 檢查 package dependency / 靜態 import 的基本方向；它不是私鑰隔離或完整 static analysis。現在 application/adapters 尚未接入 app，避免以假 adapter 回成功。
+`pnpm check:boundaries` 檢查 package dependency / 靜態 import 的基本方向；它不是私鑰隔離或完整 static analysis。M2.1 僅將 identity application／PostgreSQL adapter 接入可選的 API identity 模式，其他業務仍不回假成功。詳見 [身份交付](M2_IDENTITY_DELIVERY.md)。
 
 ## 關鍵資料流
 

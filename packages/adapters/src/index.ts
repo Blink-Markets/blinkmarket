@@ -7,5 +7,12 @@ export {
 } from "./spec-archive.js";
 export { fileObjectStore } from "./file-object-store.js";
 export { verifyDeploymentOnChain } from "./deployment-verifier.js";
-// Available implementations are deliberately not wired to the public API until M2.
-export const connectedAdapters: readonly string[] = [];
+export {
+  postgresIdentityStore,
+  assertIdentityRuntimeRole,
+} from "./identity-store.js";
+export { identityCrypto } from "./identity-crypto.js";
+export { identityAdmin } from "./identity-admin.js";
+// Runtime wiring is explicit: the API defaults to scaffold; identity mode uses only these adapters.
+export { postgresPreparationStore } from "./preparation-store.js";
+export { evidenceAdmin } from "./evidence-admin.js";

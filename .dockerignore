@@ -1,0 +1,14 @@
+.git
+**/node_modules
+.pnpm-store
+**/.next
+**/dist
+**/*.tsbuildinfo
+.env
+.env.*
+!.env.example
+contracts/out
+contracts/cache
+contracts/artifacts
+artifacts
+coverage

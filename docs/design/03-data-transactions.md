@@ -1,20 +1,21 @@
 # 03 — 資料與交易細部設計
 
-採明確SQL migrations + pg adapter。以下是 migration 藍圖，非已執行DDL。完整table inventory見 ../DATA_MODEL.md。
+採明確 SQL migrations + pg adapter。0001–0003 已實作；0003 範圍僅證據與候選，核准及建市意圖另開後續 migration。以下其餘內容仍是 migration 藍圖，未實作批次號將依實作順序調整。完整 table inventory 見 ../DATA_MODEL.md。
 
 ## Migration 批次
 
 | 批次 | 內容 | 完成標準 |
 | --- | --- | --- |
 | 0001 | schemas、uint256/address/hash domains、migration role/runtime grants、operations基礎 | 全新DB建立、overflow拒絕、runtime無DDL權 |
-| 0002 | operators/agents/keys/challenges/bindings、evidence/allowlists | secrets不可公開、nonce一次性、FK正確 |
-| 0003 | candidates/revisions/specs/approvals/creation_intents、markets/active_slots | revision不可覆寫、重複核准與容量併發正確 |
+| 0002 | operators/agents/keys/challenges/bindings（M2.1 已實作） | secrets不可公開、nonce一次性、FK正確 |
+| 0003 | evidence.sources/records、discovery.candidates/candidate_revisions/candidate_evidence（已實作） | 證據權限、revision不可覆寫、expectedRevision衝突與交易回滾 |
+| 後續：建市 | deployment registry、specs/approvals/creation_intents、markets/active_slots | 重複核准與容量併發正確 |
 | 0004 | forecast_windows/submissions/annotations、model_runs、budgets/cost reservations | duplicate/window/多worker預算race tests |
 | 0005 | deployments/blocks/events/cursors、economic_intents/nonce_allocations/tx_attempts/positions | reorg/replace/unknown可保留歷史 |
 | 0006 | rfqs/quotes/collateral & risk reservations、sign_requests/artifacts | atomic reserve、同intent只產生一份有效artifact |
 | 0007 | resolution/faucet/evaluation read models、indexes/permissions收尾 | 恢復重建與公開資料過濾 |
 
-0003使用deployment UUID registry先建立deployment基礎表，0005補artifact/cursor細節；FK不得指向尚未存在table。Migration按單一版本序列執行，不由五個service各自開機跑DDL；執行器持advisory lock，成功寫migration checksum。失敗回滾該批，非transactional DDL需另批明示。
+後續建市批次需先建立 deployment UUID registry，再補 artifact/cursor 細節；FK不得指向尚未存在table。Migration按單一版本序列執行，不由五個service各自開機跑DDL；執行器持advisory lock，成功寫migration checksum。失敗回滾該批，非transactional DDL需另批明示。
 
 ## 共用型別與欄位
 

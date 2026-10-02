@@ -1,5 +1,17 @@
 import { z } from "zod";
 import {
+  CandidateInput,
+  CandidateRevisionInput,
+  CandidateRecord,
+  EvidenceMetadata,
+} from "./preparation.js";
+import {
+  WalletChallengeRequest,
+  WalletChallengeResponse,
+  WalletVerificationRequest,
+  WalletVerificationResponse,
+} from "./identity.ts";
+import {
   Address,
   ApiError,
   ChainCursor,
@@ -40,7 +52,7 @@ export const RfqRequest = z.strictObject({
 });
 export const ConfigResponse = z.strictObject({
   chainId: z.literal(84532),
-  stage: z.literal("architecture"),
+  stage: z.enum(["architecture", "m2-identity", "m2-preparation"]),
   tradingEnabled: z.literal(false),
   deployment: z.null(),
   asset: z.strictObject({
@@ -111,25 +123,7 @@ const Forecast = z.strictObject({
   withdrawnAt: Time.nullable(),
   contaminated: z.boolean(),
 });
-const Candidate = z.strictObject({
-  candidateId: Id,
-  revision: z.number().int().positive(),
-  state: z.enum([
-    "DRAFT",
-    "VALIDATING",
-    "NEEDS_REVISION",
-    "REJECTED",
-    "APPROVED",
-    "DEPLOY_PENDING",
-    "DEPLOYED",
-  ]),
-  templateId: z.literal("GM_LT_V1"),
-  entityId: Text,
-  fiscalPeriod: Text,
-  thresholdBps: z.number().int().min(0).max(10000),
-  evidenceIds: EvidenceIds,
-  thesis: Text,
-});
+const Candidate = CandidateRecord;
 const Resolution = z.strictObject({
   ...Ref,
   proposedOutcome: Outcome.nullable(),
@@ -198,25 +192,17 @@ function operation(
   };
 }
 export const apiContracts: readonly HttpContract[] = [
-  operation(
-    "POST",
-    "/v1/auth/wallet-challenges",
-    z.strictObject({ challengeId: Id, message: Text, expiresAt: Time }),
-    {
-      body: z.strictObject({ address: Address }),
-      access: "invited-key",
-      status: 201,
-    },
-  ),
+  operation("POST", "/v1/auth/wallet-challenges", WalletChallengeResponse, {
+    body: WalletChallengeRequest,
+    access: "invited-key",
+    status: 201,
+  }),
   operation(
     "POST",
     "/v1/auth/wallet-verifications",
-    z.strictObject({ wallet: Address, verifiedAt: Time }),
+    WalletVerificationResponse,
     {
-      body: z.strictObject({
-        challengeId: Id,
-        signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/),
-      }),
+      body: WalletVerificationRequest,
       access: "invited-key",
     },
   ),
@@ -225,14 +211,7 @@ export const apiContracts: readonly HttpContract[] = [
     "/v1/candidates",
     Candidate.pick({ candidateId: true, revision: true, state: true }),
     {
-      body: Candidate.pick({
-        templateId: true,
-        entityId: true,
-        fiscalPeriod: true,
-        thresholdBps: true,
-        evidenceIds: true,
-        thesis: true,
-      }),
+      body: CandidateInput,
       access: "candidate:write",
       status: 201,
     },
@@ -242,6 +221,15 @@ export const apiContracts: readonly HttpContract[] = [
     "/v1/candidates/:id",
     z.strictObject({ candidate: Candidate, revisions: z.array(Candidate) }),
     { access: "owner/admin; approved public" },
+  ),
+  operation(
+    "POST",
+    "/v1/candidates/:id/revisions",
+    Candidate.pick({ candidateId: true, revision: true, state: true }),
+    {
+      body: CandidateRevisionInput,
+      access: "candidate:write",
+    },
   ),
   operation(
     "POST",
@@ -298,20 +286,9 @@ export const apiContracts: readonly HttpContract[] = [
     }),
   ),
   operation("GET", "/v1/markets/:id/spec", MarketSpec),
-  operation(
-    "GET",
-    "/v1/evidence/:id",
-    z.strictObject({
-      evidenceId: Id,
-      sourceUrl: z.url(),
-      observedAt: Time,
-      publishedAt: Time.nullable(),
-      contentHash: Hash,
-      accessPolicy: z.enum(["PUBLIC", "EXCERPT", "PRIVATE"]),
-      excerpt: z.string().nullable(),
-    }),
-    { access: "access-policy" },
-  ),
+  operation("GET", "/v1/evidence/:id", EvidenceMetadata, {
+    access: "access-policy",
+  }),
   operation("GET", "/v1/markets/:id/forecast-windows", list(Window), {
     query: ListQuery.extend({ deploymentId: DeploymentId }),
   }),
@@ -444,7 +421,7 @@ export const apiContracts: readonly HttpContract[] = [
 ];
 const json = (s: z.ZodType) =>
   z.toJSONSchema(s, { target: "draft-2020-12", io: "input" });
-export function generateOpenApi() {
+export function generateOpenApi(enabledPaths: readonly string[] = []) {
   const paths: Record<string, Record<string, unknown>> = {};
   for (const c of apiContracts) {
     const path = c.path.replace(/:([A-Za-z]+)/g, "{$1}");
@@ -485,13 +462,15 @@ export function generateOpenApi() {
       ]),
     );
     responses[c.status] = {
-      description: "Planned success contract (not yet enabled)",
+      description: enabledPaths.includes(c.path)
+        ? "Success"
+        : "Planned success contract (not yet enabled)",
       content: { "application/json": { schema: json(c.response) } },
     };
     (paths[path] ??= {})[c.method.toLowerCase()] = {
       operationId:
         c.method.toLowerCase() + c.path.replace(/[^a-zA-Z0-9]/g, "_"),
-      "x-status": "not-implemented",
+      "x-status": enabledPaths.includes(c.path) ? "enabled" : "not-implemented",
       "x-planned-access": c.access,
       parameters,
       security:
@@ -527,7 +506,7 @@ export function generateOpenApi() {
       title: "Blink v0.1 contracts",
       version: "0.1.1",
       description:
-        "M0 contracts. Business routes remain disabled (501). Refinements and ownership checks are also enforced in application code.",
+        "Shared API contracts. Enabled operations depend on configured adapters; x-status records availability. Trading remains disabled. Refinements and ownership checks are enforced in application code.",
     },
     paths,
     components: {

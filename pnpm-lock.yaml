@@ -26,6 +26,12 @@ importers:
       '@types/pg':
         specifier: 8.23.1
         version: 8.23.1
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
+      pg:
+        specifier: 8.23.0
+        version: 8.23.0
       prettier:
         specifier: 3.9.8
         version: 3.9.8
@@ -44,6 +50,12 @@ importers:
 
   apps/api:
     dependencies:
+      '@blink/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
+      '@blink/application':
+        specifier: workspace:*
+        version: link:../../packages/application
       '@blink/domain':
         specifier: workspace:*
         version: link:../../packages/domain
@@ -53,6 +65,9 @@ importers:
       '@blink/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
+      pg:
+        specifier: 8.23.0
+        version: 8.23.0
 
   apps/indexer:
     dependencies:

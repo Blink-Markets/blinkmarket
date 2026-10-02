@@ -1,5 +1,6 @@
 import type {ModuleId} from "@blink/domain";
 export const routes = [
+  { method: "POST", path: "/v1/candidates/:id/revisions", module: "discovery", access: "candidate:write", summary: "新增不可覆寫候選修訂" },
   {
     "method": "POST",
     "path": "/v1/auth/wallet-challenges",

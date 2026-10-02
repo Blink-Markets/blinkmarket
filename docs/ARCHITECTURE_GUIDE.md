@@ -6,14 +6,16 @@
 
 ## 1. 現在已經做到哪裡？
 
+M2 最新已實作範圍另見 [證據與候選資料流](M2_PREPARATION_DELIVERY.md#data-flow-and-boundaries)：離線封存 → 證據權限 → 私有候選版本 → 人工拒絕；核准建市尚未接線。
+
 這張圖只畫**目前真的存在的能力**。實線代表已存在的呼叫或驗證路徑，不代表已對外部署。
 
 ```mermaid
 flowchart TB
     User["開發者／本機使用者"]
-    subgraph Hosts["已建立的程序骨架：業務尚未接線"]
+    subgraph Hosts["程序骨架：身份可選啟用，其餘業務尚未接線"]
         Web["Web :3000<br/>目前回傳功能清單 JSON"]
-        API["API :3001<br/>config／OpenAPI／請求格式驗證<br/>業務請求仍回 501"]
+        API["API :3001<br/>config／OpenAPI／請求格式驗證<br/>identity 模式啟用 wallet auth"]
         Other["Worker :3002／Indexer :3003／Signer :3004<br/>活性與工作分類，沒有業務執行"]
     end
     subgraph M0["M0：已實作，可獨立測試的基礎元件"]
@@ -30,6 +32,8 @@ flowchart TB
     User --> API
     User --> Other
     API --> Schemas
+    API --> Identity["M2.1 identity application<br/>key／wallet／idempotency／audit"]
+    Identity --> PG[("明確設定的 PostgreSQL<br/>runtime role 無 DDL／發 key 權限")]
     NodeTests["Node 測試"] --> Adapters
     NodeTests --> Schemas
     Adapters --> Storage
@@ -38,6 +42,8 @@ flowchart TB
 ```
 
 Web 現在還不會呼叫 API 完成交易。API、Worker、Indexer、Signer 的 readiness 都不代表業務就緒；沒有正式部署地址、持續同步或自動簽章。M0 元件可用，但尚未串成線上產品。
+
+身份流程與啟用方式見 [M2.1 交付](M2_IDENTITY_DELIVERY.md)。預設仍是 scaffold，不會因存在共用 DATABASE_URL 就自行連接業務資料庫。
 
 ## 2. 完整系統將如何分工？
 

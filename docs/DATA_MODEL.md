@@ -1,6 +1,6 @@
 # 資料模型設計
 
-這是 M2 的完整邏輯模型。M0 已實作 packages/adapters/migrations/0001_foundation.sql 與 migration runner，建立 domains、group roles、audit/idempotency/outbox/jobs；其餘業務表尚待M2，見 [M0/M1交付記錄](M0_M1_DELIVERY.md)。
+這是 M2 的完整邏輯模型。0001 已有 domains、roles、audit/idempotency/outbox/jobs；0002_identity 實作 operators/agents/api_keys/wallet_challenges/wallet_bindings；0003_preparation 實作 evidence.sources/records 與 discovery.candidates/candidate_revisions/candidate_evidence。其餘業務表仍待後續切片，現況見 [M2.1 交付](M2_IDENTITY_DELIVERY.md) 與 [M2.2a 交付](M2_PREPARATION_DELIVERY.md)。下表其餘名稱是邏輯藍圖，不代表已存在 SQL 表。
 
 ## 模組與資料表
 

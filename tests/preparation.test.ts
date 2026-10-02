@@ -1,0 +1,405 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { PGlite } from "@electric-sql/pglite";
+import type { Pool } from "pg";
+import { migrate } from "../packages/adapters/src/migrations.js";
+import { identityAdmin } from "../packages/adapters/src/identity-admin.js";
+import { evidenceAdmin } from "../packages/adapters/src/evidence-admin.js";
+import { postgresIdentityStore } from "../packages/adapters/src/identity-store.js";
+import { postgresPreparationStore } from "../packages/adapters/src/preparation-store.js";
+import { identityCrypto } from "../packages/adapters/src/identity-crypto.js";
+import { createIdentityService } from "../packages/application/src/identity.js";
+import { createPreparationService } from "../packages/application/src/preparation.js";
+import { buildApi } from "../apps/api/src/server.js";
+import {
+  apiContracts,
+  EvidenceMetadata,
+} from "../packages/schemas/src/index.js";
+
+async function setup() {
+  const db = new PGlite();
+  await migrate({
+    async query(sql, params) {
+      if (params) return db.query<Record<string, unknown>>(sql, params);
+      return {
+        rows:
+          ((await db.exec(sql)).at(-1)?.rows as Record<string, unknown>[]) ??
+          [],
+      };
+    },
+  });
+  // One PGlite session: serialize checkout. This is NOT a multi-connection lock test.
+  let previous = Promise.resolve();
+  const pool = {
+    async connect() {
+      const ready = previous;
+      let release!: () => void;
+      previous = new Promise<void>((r) => {
+        release = r;
+      });
+      await ready;
+      return {
+        query: (sql: string, params?: unknown[]) => db.query(sql, params),
+        release,
+      };
+    },
+  } as unknown as Pool;
+  await db.exec("SET ROLE blink_identity_admin");
+  const admin = identityAdmin(pool);
+  const users = await Promise.all(
+    Array.from({ length: 4 }, (_, i) =>
+      admin.invite({
+        operatorName: `operator-${i}`,
+        agentName: `agent-${i}`,
+        scopes: i === 3 ? ["admin"] : ["candidate:write"],
+        reason: "test fixture",
+      }),
+    ),
+  );
+  const objects = new Map<string, Uint8Array>();
+  const importer = evidenceAdmin(pool, {
+    async putIfAbsent(bytes, hash) {
+      objects.set(hash, bytes.slice());
+      return { uri: hash };
+    },
+    async read(uri) {
+      return objects.get(uri)!;
+    },
+  });
+  await db.exec("SET ROLE blink_evidence_admin");
+  const { sourceId } = await importer.allowSource(
+    "ACME",
+    "https://ir.example.test/quarter",
+    "Reviewed replay fixture only",
+  );
+  const evidence = await Promise.all(
+    ["PUBLIC", "EXCERPT", "PRIVATE"].map((accessPolicy) =>
+      importer.importBytes(
+        {
+          sourceId,
+          operatorId: users[0]!.operatorId,
+          publishedAt: null,
+          accessPolicy,
+          excerpt: accessPolicy === "EXCERPT" ? "Reviewed excerpt" : null,
+          reason: "test",
+        },
+        new TextEncoder().encode("Original statement " + accessPolicy),
+      ),
+    ),
+  );
+  await db.exec("SET ROLE blink_api");
+  const app = buildApi({
+    identity: createIdentityService(
+      postgresIdentityStore(pool),
+      identityCrypto,
+      "https://blink.example",
+    ),
+    preparation: createPreparationService(
+      postgresPreparationStore(pool),
+      identityCrypto,
+    ),
+  });
+  const input = {
+    templateId: "GM_LT_V1",
+    entityId: "ACME",
+    fiscalPeriod: "2025Q1",
+    thresholdBps: 4000,
+    evidenceIds: [evidence[0]!.evidenceId],
+    thesis: "Replay candidate",
+  };
+  const post = (path: string, body: unknown, key: string, user = 0) =>
+    app.inject({
+      method: "POST",
+      url: path,
+      headers: {
+        authorization: "Bearer " + users[user]!.apiKey,
+        "idempotency-key": key,
+      },
+      payload: body as object,
+    });
+  const get = (path: string, user?: number) =>
+    app.inject({
+      method: "GET",
+      url: path,
+      headers:
+        user === undefined
+          ? {}
+          : { authorization: "Bearer " + users[user]!.apiKey },
+    });
+  return {
+    db,
+    pool,
+    importer,
+    sourceId,
+    users,
+    evidence,
+    app,
+    input,
+    post,
+    get,
+    async close() {
+      await app.close();
+      await db.close();
+    },
+  };
+}
+
+test("M2 preparation: evidence privacy, source allowlist and immutable records", async () => {
+  const s = await setup();
+  try {
+    for (const i of [0, 1]) {
+      const response = await s.get("/v1/evidence/" + s.evidence[i]!.evidenceId);
+      assert.equal(response.statusCode, 200, response.body);
+      EvidenceMetadata.parse(response.json());
+      assert.ok(
+        !response.body.includes("object_uri") &&
+          !response.body.includes("operatorId"),
+      );
+    }
+    const privatePath = "/v1/evidence/" + s.evidence[2]!.evidenceId;
+    assert.equal((await s.get(privatePath)).statusCode, 404);
+    assert.equal((await s.get(privatePath, 1)).statusCode, 404);
+    assert.equal((await s.get(privatePath, 0)).statusCode, 200);
+    assert.equal((await s.get(privatePath, 3)).statusCode, 200);
+    assert.equal(
+      (
+        await s.post(
+          "/v1/candidates",
+          { ...s.input, evidenceIds: [s.evidence[2]!.evidenceId] },
+          "private",
+          1,
+        )
+      ).statusCode,
+      404,
+    );
+    assert.equal(
+      (
+        await s.post(
+          "/v1/candidates",
+          { ...s.input, entityId: "OTHER" },
+          "entity",
+        )
+      ).json().code,
+      "EVIDENCE_NOT_ALLOWED",
+    );
+    await assert.rejects(
+      s.importer.allowSource("ACME", "https://evil.test/", "forbidden"),
+      /permission denied/,
+    );
+    await s.db.exec("SET ROLE blink_evidence_admin");
+    await assert.rejects(
+      s.importer.allowSource("ACME", "http://evil.test", "bad"),
+      /INVALID_SOURCE/,
+    );
+    await assert.rejects(
+      s.importer.importBytes(
+        {
+          sourceId: s.sourceId,
+          operatorId: s.users[0]!.operatorId,
+          publishedAt: null,
+          accessPolicy: "EXCERPT",
+          excerpt: null,
+          reason: "bad",
+        },
+        new Uint8Array([1]),
+      ),
+      /EXCERPT/,
+    );
+    await s.db.query("UPDATE evidence.sources SET enabled=false WHERE id=$1", [
+      s.sourceId,
+    ]);
+    await s.db.exec("SET ROLE blink_api");
+    assert.equal(
+      (await s.post("/v1/candidates", s.input, "disabled")).json().code,
+      "EVIDENCE_NOT_ALLOWED",
+    );
+    await s.db.exec("RESET ROLE");
+    await assert.rejects(
+      s.db.query("UPDATE evidence.records SET excerpt='tampered'"),
+      /append-only/,
+    );
+  } finally {
+    await s.close();
+  }
+});
+
+test("M2 preparation: idempotency, ownership, immutable revisions and rejection", async () => {
+  const s = await setup();
+  try {
+    const created = await s.post("/v1/candidates", s.input, "create");
+    assert.equal(created.statusCode, 201, created.body);
+    const id = created.json().candidateId,
+      path = "/v1/candidates/" + id;
+    assert.deepEqual(
+      (await s.post("/v1/candidates", s.input, "create")).json(),
+      created.json(),
+    );
+    assert.equal(
+      (
+        await s.post(
+          "/v1/candidates",
+          { ...s.input, thesis: "different" },
+          "create",
+        )
+      ).statusCode,
+      409,
+    );
+    assert.equal((await s.get(path)).statusCode, 404);
+    assert.equal((await s.get(path, 1)).statusCode, 404);
+    assert.equal((await s.get(path, 3)).statusCode, 200);
+    assert.equal(
+      (
+        await s.post(
+          path + "/revisions",
+          { ...s.input, expectedRevision: 1 },
+          "foreign",
+          1,
+        )
+      ).statusCode,
+      404,
+    );
+    const writes = await Promise.all(
+      Array.from({ length: 8 }, (_, i) =>
+        s.post(
+          path + "/revisions",
+          { ...s.input, thesis: `revision-${i}`, expectedRevision: 1 },
+          `r-${i}`,
+        ),
+      ),
+    );
+    assert.equal(writes.filter((r) => r.statusCode === 200).length, 1);
+    assert.equal(writes.filter((r) => r.statusCode === 409).length, 7);
+    const reject = "/v1/admin/candidates/" + id + "/reject";
+    const reason = {
+      expectedRevision: 2,
+      reasonCode: "INSUFFICIENT_EVIDENCE",
+      reason: "Add the official statement",
+    };
+    assert.equal((await s.post(reject, reason, "deny", 0)).statusCode, 403);
+    const rejected = await s.post(reject, reason, "reject", 3);
+    assert.equal(rejected.json().state, "REJECTED", rejected.body);
+    assert.equal(rejected.json().revision, 3);
+    assert.equal(
+      (
+        await s.post(
+          path + "/revisions",
+          { ...s.input, expectedRevision: 3 },
+          "resubmit",
+        )
+      ).statusCode,
+      200,
+    );
+    const history = (await s.get(path, 0)).json();
+    apiContracts
+      .find((c) => c.path === "/v1/candidates/:id")!
+      .response.parse(history);
+    assert.deepEqual(
+      history.revisions.map((r: { revision: number }) => r.revision),
+      [1, 2, 3, 4],
+    );
+    assert.equal(history.revisions[0].thesis, s.input.thesis);
+    await s.db.exec("RESET ROLE");
+    await assert.rejects(
+      s.db.query("DELETE FROM discovery.candidate_revisions"),
+      /append-only/,
+    );
+    assert.equal((await s.get("/v1/config")).json().tradingEnabled, false);
+    const openapi = (await s.get("/openapi.json")).json();
+    assert.equal(openapi.paths["/v1/candidates"].post["x-status"], "enabled");
+    assert.equal(
+      openapi.paths["/v1/admin/candidates/{id}/approve"].post["x-status"],
+      "not-implemented",
+    );
+  } finally {
+    await s.close();
+  }
+});
+
+test("M2 preparation: failed audit rolls back candidate, revision and idempotency", async () => {
+  const s = await setup();
+  try {
+    await s.db.exec(
+      "RESET ROLE; REVOKE INSERT ON operations.audit_log FROM blink_api; SET ROLE blink_api",
+    );
+    assert.equal(
+      (await s.post("/v1/candidates", s.input, "rollback")).statusCode,
+      500,
+    );
+    assert.equal(
+      (await s.db.query("SELECT * FROM discovery.candidates")).rows.length,
+      0,
+    );
+    assert.equal(
+      (
+        await s.db.query(
+          "SELECT * FROM operations.idempotency_records WHERE key='rollback'",
+        )
+      ).rows.length,
+      0,
+    );
+    await s.db.exec(
+      "RESET ROLE; GRANT INSERT ON operations.audit_log TO blink_api; SET ROLE blink_api",
+    );
+    assert.equal(
+      (await s.post("/v1/candidates", s.input, "rollback")).statusCode,
+      201,
+    );
+    await s.db.exec("SET ROLE blink_identity_admin");
+    await identityAdmin(s.pool).revoke(s.users[0]!.keyId, "test revocation");
+    await s.db.exec("SET ROLE blink_api");
+    assert.equal(
+      (await s.post("/v1/candidates", s.input, "rollback")).statusCode,
+      401,
+    );
+  } finally {
+    await s.close();
+  }
+});
+
+test("M2 preparation: seeded multi-user random revisions preserve ownership and monotonic versions", async () => {
+  const s = await setup();
+  try {
+    const ids: string[] = [];
+    for (let owner = 0; owner < 3; owner++)
+      ids.push(
+        (await s.post("/v1/candidates", s.input, "initial", owner)).json()
+          .candidateId,
+      );
+    const revisions = [1, 1, 1];
+    let seed = 0xb11a;
+    const random = (n: number) => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return seed % n;
+    };
+    for (let i = 0; i < 90; i++) {
+      const owner = random(3),
+        actor = random(3),
+        stale = random(4) === 0;
+      const expected = stale ? revisions[owner]! + 1 : revisions[owner]!;
+      const response = await s.post(
+        `/v1/candidates/${ids[owner]}/revisions`,
+        { ...s.input, thesis: `step-${i}`, expectedRevision: expected },
+        `random-${i}`,
+        actor,
+      );
+      assert.equal(
+        response.statusCode,
+        owner !== actor ? 404 : stale ? 409 : 200,
+        response.body,
+      );
+      if (response.statusCode === 200) revisions[owner]!++;
+    }
+    for (let owner = 0; owner < 3; owner++) {
+      const history = (
+        await s.get("/v1/candidates/" + ids[owner], owner)
+      ).json();
+      assert.equal(history.candidate.revision, revisions[owner]);
+      assert.deepEqual(
+        history.revisions.map((r: { revision: number }) => r.revision),
+        Array.from({ length: revisions[owner]! }, (_, i) => i + 1),
+      );
+    }
+  } finally {
+    await s.close();
+  }
+});

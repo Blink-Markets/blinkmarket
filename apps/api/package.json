@@ -8,6 +8,9 @@
     "start": "node --import tsx src/main.ts"
   },
   "dependencies": {
+    "@blink/application": "workspace:*",
+    "@blink/adapters": "workspace:*",
+    "pg": "8.23.0",
     "@blink/runtime": "workspace:*",
     "@blink/domain": "workspace:*",
     "@blink/schemas": "workspace:*"

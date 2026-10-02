@@ -6,9 +6,9 @@ An experimental platform connecting **prediction research, traceable evidence, a
 
 Blink Market targets Base Sepolia. It starts with questions that have explicit resolution rules, preserves source evidence, collects model and external forecasts, and enables trading in YES/NO shares through signed RFQ quotes. Human-led proposals and a dispute process determine settlement. The goal is to understand not just whether a prediction was right, but also its evidence, cost, reproducibility, and quality over time.
 
-> **Current status:** M0 shared data contracts and foundational components, plus the M1 smart-contract ledger, are implemented and locally verified. Product UI, authentication, research workflows, RFQ services, and service integration remain planned. There is no Sepolia deployment or public trading yet.
+> **Current status:** M0 foundations and the M1 smart-contract ledger are implemented and locally verified. M2 now includes invited identities, wallet binding, reviewed evidence imports, private candidate revisions and human rejection in opt-in modes. Approval/market creation, research automation, RFQ, Indexer/Signer integration and product UI remain planned. There is no Sepolia deployment or public trading yet.
 >
-> 目前完成 M0 基礎元件與 M1 合約帳本的本機實作及驗證；產品與服務尚未整合，未部署 Sepolia，也未開放公開交易。
+> M0／M1 已完成本機驗證；M2 已加入邀請身份、錢包綁定、人工證據匯入、候選版本與拒絕流程。核准建市及完整交易流程尚未接線，未部署 Sepolia，也未開放公開交易。
 
 ## Architecture at a Glance · 架構概覽
 
@@ -85,17 +85,22 @@ The backend is a **modular monolith with separate processes by responsibility**.
 
 ## Project Status · 目前進度
 
-| Milestone                                                                                        | Status                                                              |
-| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| M0 — Data/API contracts, deployment verification, database and specification-archive foundations | Implemented and locally verified; not wired into business handlers  |
-| M1 — Test token, collateralized trading ledger, settlement/redemption, and multi-user tests      | Implemented and locally verified; not deployed to an external chain |
-| M2 / M3 / M4 — Identity, business data, research workflows, RFQ, Indexer, Signer, and product UI | Implementation and integration planned                              |
+| Milestone                                                                                        | Status                                                                                              |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| M0 — Data/API contracts, deployment verification, database and specification-archive foundations | Implemented and locally verified; not wired into business handlers                                  |
+| M1 — Test token, collateralized trading ledger, settlement/redemption, and multi-user tests      | Implemented and locally verified; not deployed to an external chain                                 |
+| M2.1 — Invited API keys, EOA wallet binding, idempotency, audit, and service bundles             | Implemented; local identity tests pass; real PostgreSQL concurrency and Docker verification pending |
+| M2.2a — Reviewed evidence archive, access policies, candidate revisions and rejection           | Implemented and locally tested; approval and creation intents remain disabled                       |
+| Remaining M2 / M3 / M4 — Market workflows, RFQ, Indexer/Signer, research, and product UI         | Implementation and integration planned                                                              |
 
-中文摘要：M0／M1 已完成本機驗證；M2–M4 為後續業務與產品整合。本專案尚未進入公開測試階段。
+中文摘要：M0／M1 已完成；M2 已有身份、證據與候選版本切片，完整 M2 尚未完成。本專案尚未進入公開測試階段。
 
 ## Further Reading · 延伸閱讀
 
 Detailed project documents are currently primarily in Traditional Chinese.
+
+- [M2.1 identity delivery · 身份切片交付](docs/M2_IDENTITY_DELIVERY.md) — Scope, security boundaries, opt-in configuration, and verification limits.
+- [M2.2a evidence & candidates · 證據與候選交付](docs/M2_PREPARATION_DELIVERY.md) — Data flow, access policies, immutable revisions, and remaining approval work.
 
 - [Architecture walkthrough · 架構圖解](docs/ARCHITECTURE_GUIDE.md) — Five diagrams covering implementation status, service responsibilities, trading, settlement, and recovery.
 - [Architecture · 整體架構](docs/ARCHITECTURE.md) · [Data model · 資料模型](docs/DATA_MODEL.md) · [Detailed design · 細部設計](docs/design/README.md).

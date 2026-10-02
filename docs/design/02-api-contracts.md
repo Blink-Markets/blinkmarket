@@ -1,6 +1,6 @@
 # 02 — API 與資料契約
 
-所有 endpoint prefix /v1；目前骨架仍回 501。本文件定義未來接線契約，正式 OpenAPI 由同一批 schemas 產生並驗證，不維護兩份手寫契約。
+所有 endpoint prefix /v1。identity 模式啟用兩個 wallet auth endpoint；preparation 模式再啟用候選新增／查詢／修訂／拒絕與 evidence metadata，範圍見 [M2.2a](../M2_PREPARATION_DELIVERY.md)。核准及其餘業務仍回 501；下文為完整接線設計。正式 OpenAPI 由同一批 schemas 產生並依 runtime 標記啟用狀態，不維護兩份手寫契約。
 
 ## ID / 型別 / 版本
 
