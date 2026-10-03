@@ -69,6 +69,10 @@ export function createBlinkClient(baseUrl: string, apiKey?: string) {
     );
   }
   return {
+    approveCandidate: (id: string, input: unknown, key: string) =>
+      preparationRequest("/v1/admin/candidates/:id/approve", id, input, key),
+    getCreationIntent: (id: string) =>
+      preparationRequest("/v1/admin/creation-intents/:id", id),
     createCandidate: (input: unknown, key: string) =>
       preparationRequest("/v1/candidates", undefined, input, key),
     reviseCandidate: (id: string, input: unknown, key: string) =>

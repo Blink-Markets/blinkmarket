@@ -1,6 +1,6 @@
 # SQL migrations
 
-0001_foundation 建立 domains、runtime roles 與 operations 基礎表；0002_identity 建立邀請與 wallet binding；0003_preparation 建立 approved sources、immutable evidence、candidate revisions／links 與分離的證據管理角色。建市核准及 intent 表留待後續 migration。
+0001_foundation 建立 domains、runtime roles 與 operations 基礎表；0002_identity 建立邀請與 wallet binding；0003_preparation 建立證據與候選；0004_approval 建立部署驗證、specs、approvals、creation_intents 與 active_slots，以及獨立部署登錄角色。Pending slot 釋放與鏈上確認留待後續 migration，不手動刪除。
 
 ```sh
 DATABASE_URL=postgresql://blink:local-only@127.0.0.1:5432/blink pnpm db:migrate

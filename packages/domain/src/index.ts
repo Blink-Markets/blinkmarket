@@ -31,3 +31,8 @@ export type Job<T extends JobType = JobType> = {
 };
 export type Unimplemented = { status: "not-implemented"; module: string };
 // 不提供成功的預設 adapter；use case 實作前不可產生簽章或資金副作用。
+export {
+  validateReplayApproval,
+  ApprovalPolicyError,
+  type ApprovalEvidence,
+} from "./approval.js";

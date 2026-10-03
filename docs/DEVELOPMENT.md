@@ -2,6 +2,8 @@
 
 專案介紹見 [README](../README.md)。本頁集中保存啟動、驗證與基礎設施指令。
 
+人工核准最新啟用方式見 [M2 核准交付](M2_APPROVAL_DELIVERY.md#configuration--manual-operations)：approval 模式需要 migration 0004、公開 spec origin、持久化 spec 目錄與唯讀 evidence 目錄。部署登錄 CLI 使用獨立帳號；不代表本機已有真實部署，也不會自動送出交易。
+
 ## 本機啟動
 
 需求：Node.js 22.23.1、pnpm 11.20.0。版本已寫入 .nvmrc / packageManager；直接使用既有版本相符的工具即可。

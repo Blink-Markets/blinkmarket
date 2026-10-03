@@ -16,3 +16,7 @@ export { identityAdmin } from "./identity-admin.js";
 // Runtime wiring is explicit: the API defaults to scaffold; identity mode uses only these adapters.
 export { postgresPreparationStore } from "./preparation-store.js";
 export { evidenceAdmin } from "./evidence-admin.js";
+export { postgresApprovalStore } from "./approval-store.js";
+export { encodeMarketCreation } from "./creation-calldata.js";
+export { registerVerifiedDeployment } from "./deployment-registry.js";
+export { evidenceIntegrity } from "./evidence-integrity.js";

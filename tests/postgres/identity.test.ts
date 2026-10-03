@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { postgresApprovalStore } from "../../packages/adapters/src/approval-store.js";
+import { registerVerifiedDeployment } from "../../packages/adapters/src/deployment-registry.js";
+import { createSpecArchive } from "../../packages/adapters/src/spec-archive.js";
+import { evidenceIntegrity } from "../../packages/adapters/src/evidence-integrity.js";
+import { encodeMarketCreation } from "../../packages/adapters/src/creation-calldata.js";
+import { createApprovalService } from "../../packages/application/src/approval.js";
+import { deploymentFixture } from "../helpers/deployment-fixture.js";
+import type { ImmutableObjectStore } from "../../packages/ports/src/index.js";
 import pg from "pg";
 import { privateKeyToAccount } from "viem/accounts";
 import { migrate } from "../../packages/adapters/src/migrations.js";
@@ -231,6 +240,111 @@ test(
         (await owner.query("SELECT * FROM discovery.candidate_revisions"))
           .rowCount,
         2,
+      );
+      const fixture = deploymentFixture();
+      await registerVerifiedDeployment(
+        owner,
+        fixture.manifest,
+        "test",
+        fixture.client,
+        fixture.abis,
+        "Mock deployment; real PG locks",
+      );
+      const approver = await admin.invite({
+        operatorName: "Approver",
+        agentName: "Human admin",
+        scopes: ["admin"],
+        reason: "Test approval races",
+      });
+      const objects: ImmutableObjectStore = {
+        async putIfAbsent(bytes, hash) {
+          objectMap.set(hash, bytes.slice());
+          return { uri: hash };
+        },
+        async read(uri) {
+          return objectMap.get(uri)!;
+        },
+      };
+      const approvals = createApprovalService({
+        store: postgresApprovalStore(apiPool),
+        crypto: identityCrypto,
+        archive: createSpecArchive(objects),
+        verifyEvidence: evidenceIntegrity(objects),
+        publicOrigin: "https://blink.example",
+        encodeCreation: encodeMarketCreation,
+      });
+      const candidates = await Promise.all(
+        Array.from({ length: 4 }, (_, i) =>
+          preparation.handle("/v1/candidates", {
+            ...prepRequest,
+            idempotencyKey: `capacity-candidate-${i}`,
+            body: { ...input, thresholdBps: 4000 + i },
+          }),
+        ),
+      );
+      const legacy = JSON.parse(
+        await readFile("fixtures/replay/market-spec.json", "utf8"),
+      );
+      const now = Math.floor(Date.now() / 1000);
+      const outcomes = await Promise.all(
+        candidates.map((c, i) =>
+          approvals
+            .approve(String(c.body.candidateId), {
+              authorization: "Bearer " + approver.apiKey,
+              idempotencyKey: `capacity-${i}`,
+              requestId: "capacity-race",
+              body: {
+                deploymentId: "test",
+                expectedRevision: 1,
+                budgetMicros: "2000000",
+                reason: "REPLAY approval race",
+                spec: {
+                  ...legacy,
+                  schemaVersion: "blink.market.v0.1.1",
+                  entityId: "ACME",
+                  fiscalPeriod: "2025Q1",
+                  thresholdBps: 4000 + i,
+                  sourceEvidenceIds: [evidence.evidenceId],
+                  sourceAllowlist: ["https://ir.example.test/replay"],
+                  closeAt: String(now + 3600),
+                  proposalDeadline: String(now + 7200),
+                  hardDeadline: String(now + 10800),
+                  resolutionPolicy: {
+                    hardDeadlineOutcome: "INVALID",
+                    unfinalizedProposalAtHardDeadline: "INVALID",
+                    invalidPayoutRule: "HALF_PER_SIDE_NOT_PURCHASE_REFUND",
+                    authorityModel: "TEAM_OPERATED_WHITELISTED_ROLES",
+                  },
+                },
+              },
+            })
+            .then((r) => r.status)
+            .catch((error: unknown) => {
+              assert.ok(
+                error instanceof IdentityError &&
+                  error.code === "MARKET_CAPACITY_CONFLICT",
+              );
+              return 409;
+            }),
+        ),
+      );
+      assert.equal(outcomes.filter((s) => s === 202).length, 1);
+      assert.equal(outcomes.filter((s) => s === 409).length, 3);
+      assert.equal(
+        (await owner.query("SELECT * FROM markets.active_slots")).rowCount,
+        1,
+      );
+      assert.equal(
+        (await owner.query("SELECT * FROM markets.creation_intents")).rowCount,
+        1,
+      );
+      assert.equal(
+        (
+          await owner.query(
+            "SELECT * FROM operations.outbox WHERE event_type='market.creation_requested'",
+          )
+        ).rowCount,
+        1,
       );
       await admin.revoke(invited.keyId, "Post-race revocation");
       await assert.rejects(

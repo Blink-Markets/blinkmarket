@@ -1,6 +1,6 @@
 # 03 — 資料與交易細部設計
 
-採明確 SQL migrations + pg adapter。0001–0003 已實作；0003 範圍僅證據與候選，核准及建市意圖另開後續 migration。以下其餘內容仍是 migration 藍圖，未實作批次號將依實作順序調整。完整 table inventory 見 ../DATA_MODEL.md。
+採明確 SQL migrations + pg adapter。0001–0004 已實作；0004 加入 deployment registry、核准及未簽署建市意圖。以下其餘內容仍是 migration 藍圖，未實作批次號依實作順序決定。完整 table inventory 見 ../DATA_MODEL.md。
 
 ## Migration 批次
 
@@ -9,13 +9,13 @@
 | 0001 | schemas、uint256/address/hash domains、migration role/runtime grants、operations基礎 | 全新DB建立、overflow拒絕、runtime無DDL權 |
 | 0002 | operators/agents/keys/challenges/bindings（M2.1 已實作） | secrets不可公開、nonce一次性、FK正確 |
 | 0003 | evidence.sources/records、discovery.candidates/candidate_revisions/candidate_evidence（已實作） | 證據權限、revision不可覆寫、expectedRevision衝突與交易回滾 |
-| 後續：建市 | deployment registry、specs/approvals/creation_intents、markets/active_slots | 重複核准與容量併發正確 |
-| 0004 | forecast_windows/submissions/annotations、model_runs、budgets/cost reservations | duplicate/window/多worker預算race tests |
-| 0005 | deployments/blocks/events/cursors、economic_intents/nonce_allocations/tx_attempts/positions | reorg/replace/unknown可保留歷史 |
-| 0006 | rfqs/quotes/collateral & risk reservations、sign_requests/artifacts | atomic reserve、同intent只產生一份有效artifact |
-| 0007 | resolution/faucet/evaluation read models、indexes/permissions收尾 | 恢復重建與公開資料過濾 |
+| 0004 | markets.deployments/deployment_checks/specs/approvals/creation_intents/active_slots（已實作） | 原子化核准；真 PostgreSQL 容量競爭測試已加入、待執行 |
+| 待排：預測 | forecast_windows/submissions/annotations、model_runs、budgets/cost reservations | duplicate/window/多worker預算race tests |
+| 待排：鏈上 | blocks/events/cursors、economic_intents/nonce_allocations/tx_attempts/positions | reorg/replace/unknown可保留歷史 |
+| 待排：交易 | rfqs/quotes/collateral & risk reservations、sign_requests/artifacts | atomic reserve、同intent只產生一份有效artifact |
+| 待排：查詢 | resolution/faucet/evaluation read models、indexes/permissions收尾 | 恢復重建與公開資料過濾 |
 
-後續建市批次需先建立 deployment UUID registry，再補 artifact/cursor 細節；FK不得指向尚未存在table。Migration按單一版本序列執行，不由五個service各自開機跑DDL；執行器持advisory lock，成功寫migration checksum。失敗回滾該批，非transactional DDL需另批明示。
+Deployment registry 使用既有 DeploymentId 字串作主鍵；後續補 chain artifact/cursor 細節。FK不得指向尚未存在table。Migration按單一版本序列執行，不由五個service各自開機跑DDL；執行器持advisory lock，成功寫migration checksum。失敗回滾該批，非transactional DDL需另批明示。
 
 ## 共用型別與欄位
 

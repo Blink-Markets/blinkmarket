@@ -4,6 +4,7 @@ import {
   CandidateRevisionInput,
   CandidateRecord,
   EvidenceMetadata,
+  CandidateApprovalRequest,
 } from "./preparation.js";
 import {
   WalletChallengeRequest,
@@ -18,7 +19,6 @@ import {
   DeploymentId,
   Hash,
   MarketSpec,
-  MarketSpecV011,
   Mode,
   Outcome,
   PositiveUint256,
@@ -52,7 +52,12 @@ export const RfqRequest = z.strictObject({
 });
 export const ConfigResponse = z.strictObject({
   chainId: z.literal(84532),
-  stage: z.enum(["architecture", "m2-identity", "m2-preparation"]),
+  stage: z.enum([
+    "architecture",
+    "m2-identity",
+    "m2-preparation",
+    "m2-approval",
+  ]),
   tradingEnabled: z.literal(false),
   deployment: z.null(),
   asset: z.strictObject({
@@ -169,7 +174,7 @@ function operation(
     params[name!] =
       name === "address"
         ? Address
-        : name === "txHash" || name === "quoteId"
+        : name === "txHash" || name === "quoteId" || name === "specHash"
           ? Hash
           : path.startsWith("/v1/markets/")
             ? PositiveUint256
@@ -192,6 +197,25 @@ function operation(
   };
 }
 export const apiContracts: readonly HttpContract[] = [
+  operation("GET", "/v1/specs/:specHash", MarketSpec),
+  operation(
+    "GET",
+    "/v1/admin/creation-intents/:id",
+    z.strictObject({
+      creationIntentId: Id,
+      approvalId: Id,
+      deploymentId: DeploymentId,
+      state: z.literal("AWAITING_ADMIN_SIGNATURE"),
+      chainId: z.literal(84532),
+      to: Address,
+      requiredSender: Address,
+      value: z.literal("0"),
+      specHash: Hash,
+      specUri: z.url(),
+      calldata: z.string().regex(/^0x[0-9a-f]+$/),
+    }),
+    { access: "admin" },
+  ),
   operation("POST", "/v1/auth/wallet-challenges", WalletChallengeResponse, {
     body: WalletChallengeRequest,
     access: "invited-key",
@@ -241,13 +265,7 @@ export const apiContracts: readonly HttpContract[] = [
       state: z.literal("DEPLOY_PENDING"),
     }),
     {
-      body: z.strictObject({
-        deploymentId: DeploymentId,
-        expectedRevision: z.number().int().positive(),
-        spec: MarketSpecV011,
-        budgetMicros: Uint256,
-        reason: Text,
-      }),
+      body: CandidateApprovalRequest,
       access: "admin",
       status: 202,
     },

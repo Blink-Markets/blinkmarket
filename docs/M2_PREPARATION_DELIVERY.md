@@ -1,5 +1,7 @@
 # M2.2a — Evidence and candidate preparation
 
+**Follow-up:** Human approval and unsigned creation intents are now available in a separate opt-in approval mode; see [M2 approval delivery](M2_APPROVAL_DELIVERY.md). This document records the earlier preparation-only slice.
+
 Implemented locally; not a complete M2 delivery. This slice follows the identity foundation and stops **before approval, deployment registration, market-creation intents or chain submission**. Those routes remain disabled rather than returning a pretend market or transaction.
 
 中文摘要：目前完成證據封存／權限與候選版本流程；規格核准、建市意圖及鏈上整合仍未完成。

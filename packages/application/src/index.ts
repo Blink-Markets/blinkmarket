@@ -10,3 +10,9 @@ export {
   preparationPaths,
   type PreparationService,
 } from "./preparation.js";
+export { prepareReplayApproval } from "./approval-preflight.js";
+export {
+  createApprovalService,
+  approvalPaths,
+  type ApprovalService,
+} from "./approval.js";

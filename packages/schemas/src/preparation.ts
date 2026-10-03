@@ -1,7 +1,15 @@
 import { z } from "zod";
-import { Hash } from "./core.js";
+import { Hash, DeploymentId, MarketSpecV011, Uint256 } from "./core.js";
 
 const Label = z.string().trim().min(1).max(4000);
+export const CandidateApprovalRequest = z.strictObject({
+  deploymentId: DeploymentId,
+  expectedRevision: z.number().int().positive(),
+  spec: MarketSpecV011,
+  budgetMicros: Uint256,
+  reason: Label,
+});
+export type CandidateApprovalRequest = z.infer<typeof CandidateApprovalRequest>;
 export const CandidateInput = z.strictObject({
   templateId: z.literal("GM_LT_V1"),
   entityId: Label,

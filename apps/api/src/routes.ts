@@ -1,5 +1,7 @@
 import type {ModuleId} from "@blink/domain";
 export const routes = [
+  { method: "GET", path: "/v1/specs/:specHash", module: "markets", access: "public", summary: "讀取已核准規格原始 bytes" },
+  { method: "GET", path: "/v1/admin/creation-intents/:id", module: "markets", access: "admin", summary: "管理員讀取未簽署建市意圖" },
   { method: "POST", path: "/v1/candidates/:id/revisions", module: "discovery", access: "candidate:write", summary: "新增不可覆寫候選修訂" },
   {
     "method": "POST",

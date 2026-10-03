@@ -4,12 +4,18 @@ import pg from "pg";
 import {
   createIdentityService,
   createPreparationService,
+  createApprovalService,
 } from "@blink/application";
 import {
   identityCrypto,
   postgresIdentityStore,
   assertIdentityRuntimeRole,
   postgresPreparationStore,
+  postgresApprovalStore,
+  fileObjectStore,
+  createSpecArchive,
+  encodeMarketCreation,
+  evidenceIntegrity,
 } from "@blink/adapters";
 import { apiConfig } from "./config.js";
 
@@ -32,13 +38,31 @@ try {
   if (pool) {
     await assertIdentityRuntimeRole(pool);
     await pool.query("SELECT id FROM identity.api_keys LIMIT 0");
-    if (config.mode === "preparation")
+    if (config.mode === "preparation" || config.mode === "approval")
       await pool.query("SELECT id FROM discovery.candidates LIMIT 0");
+    if (config.mode === "approval")
+      await pool.query("SELECT id FROM markets.creation_intents LIMIT 0");
   }
   const app = buildApi(
     pool
       ? {
-          ...(config.mode === "preparation"
+          ...(config.mode === "approval"
+            ? {
+                approval: createApprovalService({
+                  store: postgresApprovalStore(pool),
+                  crypto: identityCrypto,
+                  archive: createSpecArchive(
+                    fileObjectStore(config.specDirectory!),
+                  ),
+                  publicOrigin: config.specOrigin!,
+                  verifyEvidence: evidenceIntegrity(
+                    fileObjectStore(config.evidenceDirectory!),
+                  ),
+                  encodeCreation: encodeMarketCreation,
+                }),
+              }
+            : {}),
+          ...(config.mode === "preparation" || config.mode === "approval"
             ? {
                 preparation: createPreparationService(
                   postgresPreparationStore(pool),

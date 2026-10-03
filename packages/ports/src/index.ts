@@ -2,6 +2,7 @@ import type { ChainCursor, MarketRef, NewMarketSpec } from "@blink/schemas";
 import type { Job, SignRequest, SignResult } from "@blink/domain";
 export type * from "./identity.js";
 export type * from "./preparation.js";
+export type * from "./approval.js";
 
 // 邊界合約：實作留到後續 milestone；不公開 ORM 或私鑰。
 export interface ImmutableObjectStore {

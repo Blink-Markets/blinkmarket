@@ -22,6 +22,7 @@
     "evidence:admin": "node --import tsx scripts/evidence-admin.ts",
     "manifest:validate": "node --import tsx scripts/validate-manifest.ts",
     "manifest:verify": "node --import tsx scripts/verify-deployment.ts",
+    "deployment:register": "node --import tsx scripts/register-deployment.ts",
     "api:spec": "node --import tsx scripts/generate-openapi.ts",
     "build": "pnpm --filter @blink/web build",
     "build:services": "node scripts/build-services.mjs",

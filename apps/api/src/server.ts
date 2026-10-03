@@ -13,6 +13,8 @@ import {
   type IdentityService,
   preparationPaths,
   type PreparationService,
+  approvalPaths,
+  type ApprovalService,
 } from "@blink/application";
 import type { ApiScope } from "@blink/schemas";
 
@@ -20,15 +22,18 @@ export function buildApi(
   options: {
     identity?: IdentityService;
     preparation?: PreparationService;
+    approval?: ApprovalService;
   } = {},
 ) {
-  if (options.preparation && !options.identity)
+  if ((options.preparation || options.approval) && !options.identity)
     throw new Error("IDENTITY_REQUIRED");
-  const stage = options.preparation
-    ? "m2-preparation"
-    : options.identity
-      ? "m2-identity"
-      : "architecture";
+  const stage = options.approval
+    ? "m2-approval"
+    : options.preparation
+      ? "m2-preparation"
+      : options.identity
+        ? "m2-identity"
+        : "architecture";
   const app = createService("api", stage);
   app.get("/v1/config", async () => ({
     chainId: CHAIN_ID,
@@ -54,6 +59,7 @@ export function buildApi(
     generateOpenApi([
       ...(options.identity ? identityPaths : []),
       ...(options.preparation ? preparationPaths : []),
+      ...(options.approval ? approvalPaths : []),
     ]),
   );
   for (const contract of apiContracts) {
@@ -63,6 +69,53 @@ export function buildApi(
       handler: async (request, reply) => {
         if (options.identity) {
           try {
+            if (
+              options.approval &&
+              approvalPaths.includes(
+                contract.path as (typeof approvalPaths)[number],
+              )
+            ) {
+              reply.header("Cache-Control", "no-store");
+              const params = contract.params.safeParse(request.params);
+              if (
+                !params.success ||
+                !contract.query.safeParse(request.query).success
+              )
+                throw new IdentityError(400, "INVALID_REQUEST");
+              if (contract.path === approvalPaths[2]) {
+                const bytes = await options.approval.spec(
+                  String(params.data.specHash).toLowerCase(),
+                );
+                return reply.type("application/json").send(Buffer.from(bytes));
+              }
+              const id = String(params.data.id).toLowerCase();
+              if (contract.path === approvalPaths[1])
+                return await options.approval.intent(
+                  id,
+                  request.headers.authorization,
+                );
+              const result = await options.approval.approve(id, {
+                authorization: request.headers.authorization,
+                idempotencyKey:
+                  typeof request.headers["idempotency-key"] === "string"
+                    ? request.headers["idempotency-key"]
+                    : undefined,
+                body: request.body,
+                requestId: request.id,
+              });
+              if (
+                "code" in result.body &&
+                result.body.code === "REQUEST_IN_PROGRESS"
+              )
+                reply.header("Retry-After", "1");
+              return reply
+                .code(result.status)
+                .send(
+                  result.status >= 400
+                    ? { ...result.body, requestId: request.id }
+                    : result.body,
+                );
+            }
             if (
               options.preparation &&
               preparationPaths.includes(

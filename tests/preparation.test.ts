@@ -1,5 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { decodeFunctionData, parseAbi, keccak256 } from "viem";
+import type { ImmutableObjectStore } from "../packages/ports/src/index.js";
+import { createApprovalService } from "../packages/application/src/approval.js";
+import { postgresApprovalStore } from "../packages/adapters/src/approval-store.js";
+import { registerVerifiedDeployment } from "../packages/adapters/src/deployment-registry.js";
+import { createSpecArchive } from "../packages/adapters/src/spec-archive.js";
+import { evidenceIntegrity } from "../packages/adapters/src/evidence-integrity.js";
+import { encodeMarketCreation } from "../packages/adapters/src/creation-calldata.js";
+import { deploymentFixture } from "./helpers/deployment-fixture.js";
+import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import type { Pool } from "pg";
 import { migrate } from "../packages/adapters/src/migrations.js";
@@ -16,7 +26,7 @@ import {
   EvidenceMetadata,
 } from "../packages/schemas/src/index.js";
 
-async function setup() {
+async function setup(approval = false) {
   const db = new PGlite();
   await migrate({
     async query(sql, params) {
@@ -57,7 +67,7 @@ async function setup() {
     ),
   );
   const objects = new Map<string, Uint8Array>();
-  const importer = evidenceAdmin(pool, {
+  const objectStore: ImmutableObjectStore = {
     async putIfAbsent(bytes, hash) {
       objects.set(hash, bytes.slice());
       return { uri: hash };
@@ -65,7 +75,8 @@ async function setup() {
     async read(uri) {
       return objects.get(uri)!;
     },
-  });
+  };
+  const importer = evidenceAdmin(pool, objectStore);
   await db.exec("SET ROLE blink_evidence_admin");
   const { sourceId } = await importer.allowSource(
     "ACME",
@@ -87,8 +98,38 @@ async function setup() {
       ),
     ),
   );
+  if (approval) {
+    await db.exec("SET ROLE blink_deployment_admin");
+    const fixture = deploymentFixture();
+    await registerVerifiedDeployment(
+      pool,
+      fixture.manifest,
+      "test",
+      fixture.client,
+      fixture.abis,
+      "Mock RPC fixture only",
+    );
+  }
   await db.exec("SET ROLE blink_api");
+  const archive = createSpecArchive(objectStore);
+  let freezeHook = async () => {};
+  const approvalService = createApprovalService({
+    store: postgresApprovalStore(pool),
+    crypto: identityCrypto,
+    archive: {
+      read: archive.read,
+      async freeze(spec, now) {
+        const result = await archive.freeze(spec, now);
+        await freezeHook();
+        return result;
+      },
+    },
+    publicOrigin: "https://blink.example",
+    verifyEvidence: evidenceIntegrity(objectStore),
+    encodeCreation: encodeMarketCreation,
+  });
   const app = buildApi({
+    ...(approval ? { approval: approvalService } : {}),
     identity: createIdentityService(
       postgresIdentityStore(pool),
       identityCrypto,
@@ -128,6 +169,11 @@ async function setup() {
     });
   return {
     db,
+    objects,
+    approvalService,
+    setFreezeHook(hook: () => Promise<void>) {
+      freezeHook = hook;
+    },
     pool,
     importer,
     sourceId,
@@ -143,6 +189,335 @@ async function setup() {
     },
   };
 }
+
+async function approvalInput(
+  s: Awaited<ReturnType<typeof setup>>,
+  threshold = 4000,
+) {
+  const legacy = JSON.parse(
+    await readFile("fixtures/replay/market-spec.json", "utf8"),
+  );
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    deploymentId: "test",
+    expectedRevision: 1,
+    budgetMicros: "2000000",
+    reason: "Reviewed REPLAY market",
+    spec: {
+      ...legacy,
+      schemaVersion: "blink.market.v0.1.1",
+      entityId: s.input.entityId,
+      fiscalPeriod: s.input.fiscalPeriod,
+      thresholdBps: threshold,
+      sourceEvidenceIds: s.input.evidenceIds,
+      sourceAllowlist: ["https://ir.example.test/quarter"],
+      closeAt: String(now + 3600),
+      proposalDeadline: String(now + 7200),
+      hardDeadline: String(now + 10800),
+      resolutionPolicy: {
+        hardDeadlineOutcome: "INVALID",
+        unfinalizedProposalAtHardDeadline: "INVALID",
+        invalidPayoutRule: "HALF_PER_SIDE_NOT_PURCHASE_REFUND",
+        authorityModel: "TEAM_OPERATED_WHITELISTED_ROLES",
+      },
+    },
+  };
+}
+
+test("M2 approval: atomic approval, exact public bytes and unsigned admin calldata", async () => {
+  const s = await setup(true);
+  try {
+    const id = (await s.post("/v1/candidates", s.input, "create")).json()
+      .candidateId;
+    const path = `/v1/admin/candidates/${id}/approve`,
+      input = await approvalInput(s);
+    assert.equal((await s.post(path, input, "denied", 0)).statusCode, 403);
+    const approved = await s.post(path, input, "approve", 3);
+    assert.equal(approved.statusCode, 202, approved.body);
+    const body = approved.json();
+    assert.deepEqual((await s.post(path, input, "approve", 3)).json(), body);
+    assert.equal(
+      (await s.post(path, { ...input, reason: "Changed" }, "approve", 3)).json()
+        .code,
+      "IDEMPOTENCY_CONFLICT",
+    );
+    assert.equal(
+      (await s.post(path, input, "different-key", 3)).statusCode,
+      409,
+    );
+    const intentPath = `/v1/admin/creation-intents/${body.creationIntentId}`;
+    assert.equal((await s.get(intentPath)).statusCode, 401);
+    assert.equal((await s.get(intentPath, 0)).statusCode, 403);
+    const response = await s.get(intentPath, 3);
+    assert.equal(response.statusCode, 200, response.body);
+    const intent = response.json();
+    assert.equal(intent.state, "AWAITING_ADMIN_SIGNATURE");
+    assert.equal(intent.value, "0");
+    assert.equal(
+      intent.requiredSender,
+      deploymentFixture().manifest.roles.admin,
+    );
+    assert.ok(!("marketId" in intent) && !("txHash" in intent));
+    const decoded = decodeFunctionData({
+      abi: parseAbi([
+        "function createMarket(bytes32,string,uint8,uint64,uint64,uint64,uint32,uint64,uint64) returns (uint256)",
+      ]),
+      data: intent.calldata,
+    });
+    assert.deepEqual(decoded.args, [
+      body.specHash,
+      intent.specUri,
+      1,
+      BigInt(input.spec.closeAt),
+      BigInt(input.spec.proposalDeadline),
+      BigInt(input.spec.hardDeadline),
+      120,
+      10000n,
+      500n,
+    ]);
+    const specResponse = await s.get(new URL(intent.specUri).pathname);
+    assert.equal(specResponse.statusCode, 200, specResponse.body);
+    assert.equal(
+      keccak256(new TextEncoder().encode(specResponse.body)),
+      body.specHash,
+    );
+    assert.equal(
+      (await s.get(`/v1/candidates/${id}`, 0)).json().candidate.state,
+      "DEPLOY_PENDING",
+    );
+    assert.equal(
+      (
+        await s.post(
+          `/v1/candidates/${id}/revisions`,
+          { ...s.input, expectedRevision: 2 },
+          "edit-after",
+        )
+      ).json().code,
+      "CANDIDATE_LOCKED",
+    );
+    for (const table of ["approvals", "creation_intents", "active_slots"])
+      assert.equal(
+        (await s.db.query(`SELECT * FROM markets.${table}`)).rows.length,
+        1,
+      );
+    assert.equal(
+      (
+        await s.db.query(
+          "SELECT * FROM operations.outbox WHERE event_type='market.creation_requested'",
+        )
+      ).rows.length,
+      1,
+    );
+    // A completed response survives disabled/stale deployment policy, but never revoked authentication.
+    await s.db.exec(
+      "SET ROLE blink_deployment_admin; UPDATE markets.deployments SET enabled=false; SET ROLE blink_api",
+    );
+    assert.deepEqual((await s.post(path, input, "approve", 3)).json(), body);
+    await s.db.exec("SET ROLE blink_identity_admin");
+    await identityAdmin(s.pool).revoke(s.users[3]!.keyId, "test");
+    await s.db.exec("SET ROLE blink_api");
+    assert.equal((await s.post(path, input, "approve", 3)).statusCode, 401);
+  } finally {
+    await s.close();
+  }
+});
+
+test("M2 approval: different candidates and thresholds compete for one company-period slot", async () => {
+  const s = await setup(true);
+  try {
+    const ids: string[] = [];
+    for (let i = 0; i < 4; i++)
+      ids.push(
+        (
+          await s.post(
+            "/v1/candidates",
+            { ...s.input, thresholdBps: 4000 + i },
+            `create-${i}`,
+            i % 3,
+          )
+        ).json().candidateId,
+      );
+    const requests = await Promise.all(
+      ids.map((_, i) => approvalInput(s, 4000 + i)),
+    );
+    const results = await Promise.all(
+      ids.map((id, i) =>
+        s.post(
+          `/v1/admin/candidates/${id}/approve`,
+          requests[i],
+          `approve-${i}`,
+          3,
+        ),
+      ),
+    );
+    assert.equal(
+      results.filter((r) => r.statusCode === 202).length,
+      1,
+      results.map((r) => r.body).join("\n"),
+    );
+    assert.equal(
+      results.filter((r) => r.json().code === "MARKET_CAPACITY_CONFLICT")
+        .length,
+      3,
+    );
+    assert.equal(
+      (await s.db.query("SELECT * FROM markets.creation_intents")).rows.length,
+      1,
+    );
+    assert.equal(
+      (
+        await s.db.query(
+          "SELECT * FROM operations.outbox WHERE event_type='market.creation_requested'",
+        )
+      ).rows.length,
+      1,
+    );
+  } finally {
+    await s.close();
+  }
+});
+
+test("M2 approval: archive-time policy change and audit failure cannot leave partial intents", async () => {
+  const s = await setup(true);
+  try {
+    const id = (await s.post("/v1/candidates", s.input, "create")).json()
+      .candidateId;
+    const path = `/v1/admin/candidates/${id}/approve`,
+      input = await approvalInput(s);
+    s.setFreezeHook(async () => {
+      await s.db.exec(
+        "SET ROLE blink_evidence_admin; UPDATE evidence.sources SET enabled=false; SET ROLE blink_api",
+      );
+    });
+    assert.equal(
+      (await s.post(path, input, "source-change", 3)).json().code,
+      "EVIDENCE_NOT_ALLOWED",
+    );
+    s.setFreezeHook(async () => {});
+    await s.db.exec(
+      "SET ROLE blink_evidence_admin; UPDATE evidence.sources SET enabled=true; RESET ROLE; REVOKE INSERT ON operations.audit_log FROM blink_api; SET ROLE blink_api",
+    );
+    const failed = await s.post(path, input, "rollback", 3);
+    assert.equal(failed.statusCode, 500, failed.body);
+    for (const table of [
+      "approvals",
+      "specs",
+      "creation_intents",
+      "active_slots",
+    ])
+      assert.equal(
+        (await s.db.query(`SELECT * FROM markets.${table}`)).rows.length,
+        0,
+      );
+    assert.equal(
+      (await s.db.query("SELECT * FROM operations.outbox")).rows.length,
+      0,
+    );
+    assert.equal(
+      (await s.get(`/v1/candidates/${id}`, 0)).json().candidate.revision,
+      1,
+    );
+    await s.db.exec(
+      "RESET ROLE; GRANT INSERT ON operations.audit_log TO blink_api; SET ROLE blink_api",
+    );
+    assert.equal((await s.post(path, input, "rollback", 3)).statusCode, 202);
+  } finally {
+    await s.close();
+  }
+});
+
+test("M2 approval: unverified deployment and corrupt evidence fail closed; runtime cannot register deployments", async () => {
+  const s = await setup(true);
+  try {
+    const fixture = deploymentFixture();
+    await assert.rejects(
+      registerVerifiedDeployment(
+        s.pool,
+        fixture.manifest,
+        "test",
+        fixture.client,
+        fixture.abis,
+        "forbidden",
+      ),
+      /permission denied/,
+    );
+    const id = (await s.post("/v1/candidates", s.input, "create")).json()
+      .candidateId;
+    const path = `/v1/admin/candidates/${id}/approve`,
+      input = await approvalInput(s);
+    assert.equal(
+      (
+        await s.post(path, { ...input, deploymentId: "missing" }, "missing", 3)
+      ).json().code,
+      "DEPLOYMENT_NOT_VERIFIED",
+    );
+    s.objects.set(s.evidence[0]!.contentHash, new Uint8Array([0]));
+    assert.equal((await s.post(path, input, "corrupt", 3)).statusCode, 500);
+    assert.equal(
+      (await s.db.query("SELECT * FROM markets.approvals")).rows.length,
+      0,
+    );
+  } finally {
+    await s.close();
+  }
+});
+
+test("M2 approval: revision, deployment or key changes during archive IO prevent commit", async () => {
+  for (const change of ["revision", "deployment", "key"] as const) {
+    const s = await setup(true);
+    try {
+      const id = (await s.post("/v1/candidates", s.input, "create")).json()
+        .candidateId;
+      s.setFreezeHook(async () => {
+        if (change === "revision") {
+          const result = await s.post(
+            `/v1/candidates/${id}/revisions`,
+            { ...s.input, expectedRevision: 1, thesis: "Edited during IO" },
+            "edit",
+          );
+          assert.equal(result.statusCode, 200, result.body);
+        } else if (change === "deployment") {
+          await s.db.exec(
+            "SET ROLE blink_deployment_admin; UPDATE markets.deployments SET enabled=false; SET ROLE blink_api",
+          );
+        } else {
+          await s.db.exec("SET ROLE blink_identity_admin");
+          await identityAdmin(s.pool).revoke(
+            s.users[3]!.keyId,
+            "Revoked during IO",
+          );
+          await s.db.exec("SET ROLE blink_api");
+        }
+      });
+      const response = await s.post(
+        `/v1/admin/candidates/${id}/approve`,
+        await approvalInput(s),
+        "approval",
+        3,
+      );
+      assert.equal(
+        response.json().code,
+        change === "revision"
+          ? "REVISION_CONFLICT"
+          : change === "deployment"
+            ? "DEPLOYMENT_NOT_VERIFIED"
+            : "UNAUTHORIZED",
+        response.body,
+      );
+      assert.equal(
+        (await s.db.query("SELECT * FROM markets.creation_intents")).rows
+          .length,
+        0,
+      );
+      assert.equal(
+        (await s.db.query("SELECT * FROM operations.outbox")).rows.length,
+        0,
+      );
+    } finally {
+      await s.close();
+    }
+  }
+});
 
 test("M2 preparation: evidence privacy, source allowlist and immutable records", async () => {
   const s = await setup();
