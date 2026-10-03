@@ -15,4 +15,4 @@ M0契約收尾與M1帳本已完成本機實作及驗證，詳見 [交付記錄](
 
 最新現況見 [人工核准與建市意圖](M2_APPROVAL_DELIVERY.md)。下一步：MarketCreated／交易確認與 indexer/reorg → RFQ reservation/signer → 交易 client。保持 REPLAY，不依賴付費模型，不自動簽署或廣播管理員交易。
 
-核准 API 可透過 approval 模式啟用，其他模式維持原行為。真 PostgreSQL 多連線測試仍待執行；尚未對外部署，也未確認任何鏈上建市交易。
+核准 API 可透過 approval 模式啟用，其他模式維持原行為。真 PostgreSQL 多連線測試已於遠端 CI run 37099505426 通過（該 run 隨後因 Web build 引用錯誤失敗）；尚未對外部署，也未確認任何鏈上建市交易。

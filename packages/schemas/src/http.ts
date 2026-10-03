@@ -5,7 +5,7 @@ import {
   CandidateRecord,
   EvidenceMetadata,
   CandidateApprovalRequest,
-} from "./preparation.js";
+} from "./preparation.ts";
 import {
   WalletChallengeRequest,
   WalletChallengeResponse,

@@ -73,6 +73,8 @@ Scaffold remains the default. Identity/preparation modes are unchanged. `trading
 
 ## Verification and limits
 
+CI follow-up (2026-10-03): [run 37099505426](https://github.com/Blink-Markets/blinkmarket/actions/runs/37099505426) passed the real PostgreSQL suite, contract tests, extra invariant seeds and replay. It failed later at the Web build because a TS-source package referenced `approval.js`. Shared source imports were corrected to actual `.ts` files, with a boundary-check guard and local Web-build verification added. Local Docker remains unavailable; the remote PostgreSQL result supersedes the earlier unverified-remote status below.
+
 Verified locally on 2026-10-03: `pnpm check` passed (33 Node tests, TypeScript, module boundaries and Solidity compilation); 24 Foundry tests passed; service bundles and both isolated-bundle tests passed; OpenAPI generation and `git diff --check` passed.
 
 Local tests cover atomic success, exact-byte public retrieval, ABI calldata decoding, admin-only access, duplicate requests, conflicting thresholds/candidates, runtime registration denial, missing verification, corrupt evidence, source/revision/deployment/key changes during archive IO, and audit-failure rollback. Existing multi-user and contract tests remain regression coverage.

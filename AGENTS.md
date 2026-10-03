@@ -15,6 +15,10 @@ this instruction.
 - Use a descriptive commit message and push to the established project remote and
   branch. Do not force-push or overwrite remote history. If a push is blocked or
   rejected, report it and preserve the local changes.
+- When changing web-consumed shared packages (especially domain/schemas), run
+  `pnpm build` as well as `pnpm check` and the service bundle checks. Their source
+  exports must reference actual `.ts` files; passing tsx/esbuild tests does not
+  prove Turbopack compatibility.
 - Confirm the commit hash and whether the push succeeded in the handoff.
 - This authorization covers source-control checkpoints only; it does not authorize
   deployment, paid services, signing, or broadcasting blockchain transactions.

@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 const allowed = {
   schemas: [],
   domain: ["schemas"],
@@ -29,6 +29,15 @@ for (const [name, dependencies] of Object.entries(allowed)) {
       /(?:from\s*|import\s*\(?)["']([^"']+)["']/g,
     )) {
       const dep = match[1];
+      // These packages expose TS source to the web bundler, not emitted JS.
+      // Node/tsx can remap .js to .ts, but the current Turbopack config does not.
+      if (
+        ["domain", "schemas", "client"].includes(name) &&
+        dep.startsWith(".") && dep.endsWith(".js") &&
+        !existsSync(join(dirname(path), dep)) &&
+        existsSync(join(dirname(path), dep.slice(0, -3) + ".ts"))
+      )
+        errors.push(`${path}: source-exported package must reference the actual .ts file: ${dep}`);
       if (dep.startsWith("@blink/") && !dependencies.includes(dep.slice(7)))
         errors.push(`${path} -> ${dep}`);
       if (dep.includes("/apps/") || dep.includes("../.."))

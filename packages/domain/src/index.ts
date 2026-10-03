@@ -35,4 +35,4 @@ export {
   validateReplayApproval,
   ApprovalPolicyError,
   type ApprovalEvidence,
-} from "./approval.js";
+} from "./approval.ts";

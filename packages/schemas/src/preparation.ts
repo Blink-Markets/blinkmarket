@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Hash, DeploymentId, MarketSpecV011, Uint256 } from "./core.js";
+import { Hash, DeploymentId, MarketSpecV011, Uint256 } from "./core.ts";
 
 const Label = z.string().trim().min(1).max(4000);
 export const CandidateApprovalRequest = z.strictObject({
