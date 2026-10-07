@@ -49,14 +49,14 @@ Blink 主要使用者是 agent，不是人類交易者。網站負責讓訪客�
 
 不加套件：CSS scroll-driven animations、IntersectionObserver、Web Animations API。
 
-### 3.1 Hero（`components/motion/HeroHeadline.tsx`，client）
+### 3.1 Hero（`components/home/Hero.tsx`，Server Component，純 CSS keyframes）
 
 1. 文字：`every forecast` / `leaves a trail`，`trail` 為 terracotta。
 2. 每個字包在 `overflow: clip` 的遮罩中，自下方升起；間隔約 220ms，緩動 `cubic-bezier(.2,.7,.1,1)`，無彈跳。
 3. 全部出現後停頓約 600ms，`trail` 文字淡出並收成同尺寸 terracotta 色塊。
 4. 色塊高度收窄成線，接續成手繪 trail path（`stroke-dashoffset` 畫出），依序串起四個網點節點插畫：證據紙（evidence）、預測刻度盤（forecast）、報價票根（quote）、結算印章（resolution）。
 5. reduced-motion：直接渲染最終狀態（文字、`trail` 文字保留、路徑與節點完整）。
-6. SSR 輸出即為完整可讀文字（動畫只在 hydrate 後加 class 啟動），避免無 JS 時空白。
+6. 靜態樣式即最終畫面；動畫全部寫在 `@media (prefers-reduced-motion: no-preference)` 內的 CSS keyframes，無需 JS，SSR／無 JS 時都可讀。
 
 ### 3.2 捲動揭露（`components/motion/Reveal`）
 
@@ -103,8 +103,8 @@ Blink 主要使用者是 agent，不是人類交易者。網站負責讓訪客�
 
 ### 4.6 `/docs/api`
 
-- 建置時讀取 `artifacts/openapi.json`，由 `content/openapi-index.ts` 的純函式抽出 method、path、summary、tag（若有）並分組顯示。
-- 頁首註明 API 尚未對外部署，列表描述的是契約而非可用服務。
+- 建置時呼叫 `@blink/schemas` 的 `generateOpenApi()`（`artifacts/openapi.json` 被 gitignore，CI 中不存在），由 `content/openapi-index.ts` 的純函式抽出 method、path、`x-status`、`x-planned-access` 並依 `/v1/` 後第一段分組。web 需新增 workspace 依賴 `@blink/schemas`。
+- 頁首註明顯示的是預設契約狀態，而非運行中服務。
 
 ## 5. 範例市場資料（`content/sample-markets.ts`）
 
@@ -114,12 +114,13 @@ Blink 主要使用者是 agent，不是人類交易者。網站負責讓訪客�
 type SampleMarket = {
   id: string;            // "sample-01" …
   mode: "REPLAY";        // 範例一律 REPLAY
-  entity: string;        // 虛構公司名，名稱後綴不得對應真實公司
-  question: string;      // GM_LT_V1："Will <entity> report FY2025 Qn GAAP gross margin below 70.00%?"
+  entity: string;        // 虛構公司名
+  fiscalPeriod: string;  // "FY2025Q3"；問題文字由 marketQuestion() 依 GM_LT_V1 產生
   thresholdBps: number;
   forecastBps: number;   // 0–10000，平台 forecaster 平均（範例值）
-  updatedAt: string;     // ISO 日期
-  status: "OPEN" | "CLOSED" | "PROPOSED" | "FINALIZED_YES" | "FINALIZED_NO" | "INVALID";
+  updatedAt: string;     // YYYY-MM-DD
+  state: "OPEN" | "CLOSED" | "PROPOSED" | "DISPUTED" | "FINAL"; // 同 schemas effectiveState
+  outcome: "YES" | "NO" | "INVALID" | null;                    // 僅 FINAL 有值
 };
 ```
 
@@ -132,8 +133,8 @@ apps/web/
   app/layout.tsx, app/globals.css, app/page.tsx (+ page.module.css)
   app/markets/page.tsx, app/how-it-works/page.tsx, app/docs/page.tsx, app/docs/api/page.tsx
   components/SiteHeader.tsx, TestnetStrip.tsx, SiteFooter.tsx, MarketLedger.tsx
-  components/motion/HeroHeadline.tsx, components/motion/Reveal.tsx
-  components/illustrations/HalftoneDefs.tsx, Trail.tsx, Evidence.tsx, Forecast.tsx, Quote.tsx, Resolution.tsx, Architecture.tsx
+  components/home/Hero.tsx, components/motion/Reveal.tsx (RevealObserver)
+  components/illustrations/HalftoneDefs.tsx, Trail.tsx, Evidence.tsx, Forecast.tsx, Quote.tsx, Resolution.tsx, Evaluation.tsx, Architecture.tsx
   content/sample-markets.ts, content/openapi-index.ts
 ```
 
@@ -142,9 +143,9 @@ apps/web/
 
 ## 7. 測試與驗證
 
-- `tests/web-content.test.ts`（node test runner，與既有 tests 一致）：
+- `tests/web-sample-markets.test.ts` 與 `tests/web-openapi-index.test.ts`（node test runner，分檔以利平行實作）：
   - 所有範例市場 `mode === "REPLAY"`、`forecastBps` 在 0–10000、id 唯一。
-  - `openapi-index` 對 `artifacts/openapi.json` 產生的條目數等於 paths × methods 數，且每筆有 method 與 path。
+  - `openapi-index` 對 `generateOpenApi()` 產生的條目數等於 paths × methods 數；缺 vendor extension 時顯示 `unspecified`。
 - `pnpm check`、`pnpm build`。
 - 啟動 `pnpm --filter @blink/web dev`，桌面與 375px 截圖目視檢查；以 reduced-motion 模擬確認最終狀態。
 
