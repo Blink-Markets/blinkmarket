@@ -176,7 +176,8 @@ export async function assertIdentityRuntimeRole(
       AND pg_has_role(current_user, oid, 'USAGE'))
     AND NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='blink_deployment_admin'
       AND pg_has_role(current_user, oid, 'USAGE'))
-    AND NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname IN ('markets','evidence','discovery')
+    AND NOT pg_has_role(current_user, 'blink_indexer', 'USAGE')
+    AND NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname IN ('markets','evidence','discovery','chain')
       AND has_schema_privilege(current_user,oid,'CREATE'))
     AND NOT has_schema_privilege(current_user, 'identity', 'CREATE')
     AND NOT has_schema_privilege(current_user, 'operations', 'CREATE') AS allowed

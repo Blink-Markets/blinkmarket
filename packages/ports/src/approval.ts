@@ -1,4 +1,4 @@
-import type { DeploymentManifest } from "@blink/schemas";
+import type { DeploymentManifest, CreationChainStatus } from "@blink/schemas";
 import type { PreparationTransaction } from "./preparation.js";
 import type { IdentityResponse } from "./identity.js";
 
@@ -29,6 +29,7 @@ export interface ApprovalWrite {
   intent: CreationIntent;
 }
 export interface ApprovalTransaction extends PreparationTransaction {
+  creationStatus(id: string): Promise<CreationChainStatus | null>;
   evidenceObject(id: string): Promise<{ uri: string; hash: string } | null>;
   cached(
     operatorId: string,
@@ -36,9 +37,7 @@ export interface ApprovalTransaction extends PreparationTransaction {
     key: string,
     hash: string,
   ): Promise<IdentityResponse | null>;
-  deployment(
-    id: string,
-  ): Promise<{
+  deployment(id: string): Promise<{
     manifest: DeploymentManifest;
     verifiedAt: Date;
     enabled: boolean;

@@ -69,6 +69,8 @@ export function createBlinkClient(baseUrl: string, apiKey?: string) {
     );
   }
   return {
+    getCreationChainStatus: (id: string) =>
+      preparationRequest("/v1/admin/creation-intents/:id/chain-status", id),
     approveCandidate: (id: string, input: unknown, key: string) =>
       preparationRequest("/v1/admin/candidates/:id/approve", id, input, key),
     getCreationIntent: (id: string) =>

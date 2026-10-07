@@ -31,6 +31,7 @@ await build({
     "identity-admin": "scripts/identity-admin.ts",
     "evidence-admin": "scripts/evidence-admin.ts",
     "register-deployment": "scripts/register-deployment.ts",
+    "reconcile-creation": "scripts/reconcile-creation.ts",
   },
   outdir: "dist/tools",
   outExtension: { ".js": ".mjs" },

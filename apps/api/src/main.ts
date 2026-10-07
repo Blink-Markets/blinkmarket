@@ -42,6 +42,10 @@ try {
       await pool.query("SELECT id FROM discovery.candidates LIMIT 0");
     if (config.mode === "approval")
       await pool.query("SELECT id FROM markets.creation_intents LIMIT 0");
+    if (config.mode === "approval")
+      await pool.query(
+        "SELECT intent_id FROM chain.creation_projections LIMIT 0",
+      );
   }
   const app = buildApi(
     pool

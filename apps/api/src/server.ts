@@ -89,6 +89,11 @@ export function buildApi(
                 return reply.type("application/json").send(Buffer.from(bytes));
               }
               const id = String(params.data.id).toLowerCase();
+              if (contract.path === approvalPaths[3])
+                return await options.approval.chainStatus(
+                  id,
+                  request.headers.authorization,
+                );
               if (contract.path === approvalPaths[1])
                 return await options.approval.intent(
                   id,

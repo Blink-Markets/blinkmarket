@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { ApprovalStore, CreationIntent } from "@blink/ports";
-import { DeploymentManifest } from "@blink/schemas";
+import { DeploymentManifest, CreationChainStatus } from "@blink/schemas";
+import { untrackedCreation } from "./creation-tracker-store.js";
 import { randomUUID } from "node:crypto";
 import { createUnitOfWork } from "./database.js";
 import { preparationTransaction } from "./preparation-store.js";
@@ -13,6 +14,16 @@ export function postgresApprovalStore(pool: Pool): ApprovalStore {
         const db = uow.client(context);
         return work({
           ...preparationTransaction(db),
+          async creationStatus(id) {
+            const { rows } = await db.query(
+              "SELECT p.payload FROM markets.creation_intents i LEFT JOIN chain.creation_projections p ON p.intent_id=i.id WHERE i.id=$1",
+              [id],
+            );
+            if (!rows.length) return null;
+            return rows[0]!.payload
+              ? CreationChainStatus.parse(rows[0]!.payload)
+              : untrackedCreation(id);
+          },
           async evidenceObject(id) {
             const { rows } = await db.query<{ uri: string; hash: string }>(
               "SELECT object_uri AS uri,'0x'||encode(content_hash,'hex') AS hash FROM evidence.records WHERE id=$1",

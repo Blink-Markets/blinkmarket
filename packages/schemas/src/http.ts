@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CreationChainStatus } from "./creation-status.ts";
 import {
   CandidateInput,
   CandidateRevisionInput,
@@ -197,6 +198,12 @@ function operation(
   };
 }
 export const apiContracts: readonly HttpContract[] = [
+  operation(
+    "GET",
+    "/v1/admin/creation-intents/:id/chain-status",
+    CreationChainStatus,
+    { access: "admin" },
+  ),
   operation("GET", "/v1/specs/:specHash", MarketSpec),
   operation(
     "GET",

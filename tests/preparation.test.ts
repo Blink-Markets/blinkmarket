@@ -9,6 +9,11 @@ import { createSpecArchive } from "../packages/adapters/src/spec-archive.js";
 import { evidenceIntegrity } from "../packages/adapters/src/evidence-integrity.js";
 import { encodeMarketCreation } from "../packages/adapters/src/creation-calldata.js";
 import { deploymentFixture } from "./helpers/deployment-fixture.js";
+import { creationRpc, hashOf } from "./helpers/creation-rpc.js";
+import { createCreationTracker } from "../packages/application/src/creation-tracker.js";
+import { creationReceiptReader } from "../packages/adapters/src/creation-receipt-reader.js";
+import { postgresCreationTrackerStore } from "../packages/adapters/src/creation-tracker-store.js";
+import type { CreationIntent } from "../packages/ports/src/index.js";
 import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import type { Pool } from "pg";
@@ -25,6 +30,130 @@ import {
   apiContracts,
   EvidenceMetadata,
 } from "../packages/schemas/src/index.js";
+
+test("M2 creation tracker: durable observations, read-only API, CAS, rollback and reorg withdrawal", async () => {
+  const s = await setup(true);
+  try {
+    const candidateId = (
+      await s.post("/v1/candidates", s.input, "create")
+    ).json().candidateId;
+    const approved = await s.post(
+      `/v1/admin/candidates/${candidateId}/approve`,
+      await approvalInput(s),
+      "approve",
+      3,
+    );
+    assert.equal(approved.statusCode, 202, approved.body);
+    const id = approved.json().creationIntentId;
+    const intent = (
+      await s.get(`/v1/admin/creation-intents/${id}`, 3)
+    ).json() as CreationIntent;
+    const path = `/v1/admin/creation-intents/${id}/chain-status`;
+    assert.equal((await s.get(path)).statusCode, 401);
+    assert.equal((await s.get(path, 0)).statusCode, 403);
+    assert.equal((await s.get(path, 3)).json().state, "NOT_TRACKED");
+    const rpc = creationRpc(intent),
+      store = postgresCreationTrackerStore(s.pool),
+      reader = creationReceiptReader(rpc.client);
+    const tracker = createCreationTracker(store, reader);
+    await assert.rejects(
+      tracker.reconcile(id, rpc.txHash),
+      /permission denied/,
+    );
+    await s.db.exec("SET ROLE blink_indexer");
+    const included = await tracker.reconcile(id, rpc.txHash);
+    assert.equal(included.state, "INCLUDED");
+    assert.equal(included.marketId, "9007199254740993");
+    const snapshot = (await store.load(id))!;
+    rpc.state.head = 21n;
+    const observation = await reader.observe(snapshot, rpc.txHash);
+    const confirmed = await store.save(
+      id,
+      snapshot.status.version,
+      observation,
+    );
+    assert.equal(confirmed.state, "CONFIRMED");
+    await assert.rejects(
+      store.save(id, snapshot.status.version, observation),
+      /STALE_CREATION_OBSERVATION/,
+    );
+    assert.equal(
+      (await s.db.query("SELECT * FROM chain.creation_observations")).rows
+        .length,
+      2,
+    );
+    await assert.rejects(
+      tracker.reconcile(id, hashOf("different tx")),
+      /TRACKED_TRANSACTION_CONFLICT/,
+    );
+    rpc.canonical.set(10n, hashOf("orphaned block"));
+    rpc.state.receipt = null;
+    rpc.state.tx = null;
+    const reorg = await tracker.reconcile(id, rpc.txHash);
+    assert.equal(reorg.state, "REORGED");
+    assert.equal(reorg.marketId, null);
+    assert.equal(
+      (
+        await s.db.query<{ market_id: string | null }>(
+          "SELECT market_id FROM chain.creation_projections",
+        )
+      ).rows[0]!.market_id,
+      null,
+    );
+    // Immutable observations retain the previously confirmed market ID and old fork hash.
+    assert.equal(
+      (
+        await s.db.query<{ state: string }>(
+          "SELECT payload->>'state' AS state FROM chain.creation_observations ORDER BY version",
+        )
+      ).rows[1]!.state,
+      "CONFIRMED",
+    );
+    Object.assign(rpc.state, rpc.mine(22n, 99n));
+    rpc.state.head = 33n;
+    await s.db.exec(
+      "RESET ROLE; REVOKE INSERT ON operations.audit_log FROM blink_indexer; SET ROLE blink_indexer",
+    );
+    await assert.rejects(
+      tracker.reconcile(id, rpc.txHash),
+      /permission denied/,
+    );
+    assert.equal((await store.load(id))!.status.version, 3);
+    assert.equal(
+      (await s.db.query("SELECT * FROM chain.creation_observations")).rows
+        .length,
+      3,
+    );
+    await s.db.exec(
+      "RESET ROLE; GRANT INSERT ON operations.audit_log TO blink_indexer; SET ROLE blink_indexer",
+    );
+    assert.equal((await tracker.reconcile(id, rpc.txHash)).marketId, "99");
+    rpc.state.fail = true;
+    await assert.rejects(tracker.reconcile(id, rpc.txHash), /RPC unavailable/);
+    assert.equal((await store.load(id))!.status.version, 4);
+    await s.db.exec("SET ROLE blink_api");
+    const response = await s.get(path, 3);
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(response.json().state, "CONFIRMED");
+    assert.equal(response.json().marketId, "99");
+    assert.equal(
+      (await s.db.query("SELECT * FROM markets.active_slots")).rows.length,
+      1,
+    );
+    // Candidate history is approval history, not a mutable chain projection.
+    assert.equal(
+      (await s.get(`/v1/candidates/${candidateId}`, 0)).json().candidate.state,
+      "DEPLOY_PENDING",
+    );
+    await s.db.exec("RESET ROLE");
+    await assert.rejects(
+      s.db.query("DELETE FROM chain.creation_observations"),
+      /append-only/,
+    );
+  } finally {
+    await s.close();
+  }
+});
 
 async function setup(approval = false) {
   const db = new PGlite();

@@ -20,3 +20,5 @@ export { postgresApprovalStore } from "./approval-store.js";
 export { encodeMarketCreation } from "./creation-calldata.js";
 export { registerVerifiedDeployment } from "./deployment-registry.js";
 export { evidenceIntegrity } from "./evidence-integrity.js";
+export { postgresCreationTrackerStore } from "./creation-tracker-store.js";
+export { creationReceiptReader } from "./creation-receipt-reader.js";

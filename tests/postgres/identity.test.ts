@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { creationRpc } from "../helpers/creation-rpc.js";
+import { creationReceiptReader } from "../../packages/adapters/src/creation-receipt-reader.js";
+import { postgresCreationTrackerStore } from "../../packages/adapters/src/creation-tracker-store.js";
+import type { CreationIntent } from "../../packages/ports/src/index.js";
 import { readFile } from "node:fs/promises";
 import { postgresApprovalStore } from "../../packages/adapters/src/approval-store.js";
 import { registerVerifiedDeployment } from "../../packages/adapters/src/deployment-registry.js";
@@ -55,6 +59,11 @@ test(
       connectionString: databaseUrl.toString(),
       options: "-c role=blink_api",
       max: 10,
+    });
+    const indexerPool = new pg.Pool({
+      connectionString: databaseUrl.toString(),
+      options: "-c role=blink_indexer",
+      max: 3,
     });
     try {
       await control.query(`CREATE DATABASE "${name}"`);
@@ -346,6 +355,38 @@ test(
         ).rowCount,
         1,
       );
+      // Mock RPC, real independent PostgreSQL sessions racing the projection CAS.
+      const persisted = await owner.query<{ payload: CreationIntent }>(
+        "SELECT payload FROM markets.creation_intents",
+      );
+      const intent = persisted.rows[0]!.payload,
+        rpc = creationRpc(intent);
+      const tracking = postgresCreationTrackerStore(indexerPool),
+        reader = creationReceiptReader(rpc.client);
+      const snapshot = (await tracking.load(intent.creationIntentId))!;
+      const observation = await reader.observe(snapshot, rpc.txHash);
+      const cas = await Promise.allSettled([
+        tracking.save(intent.creationIntentId, 0, observation),
+        tracking.save(intent.creationIntentId, 0, observation),
+      ]);
+      assert.equal(cas.filter((r) => r.status === "fulfilled").length, 1);
+      const rejected = cas.find(
+        (r) => r.status === "rejected",
+      ) as PromiseRejectedResult;
+      assert.match(String(rejected.reason), /STALE_CREATION_OBSERVATION/);
+      assert.equal(
+        (await owner.query("SELECT * FROM chain.creation_observations"))
+          .rowCount,
+        1,
+      );
+      assert.equal(
+        (
+          await owner.query(
+            "SELECT * FROM operations.outbox WHERE event_type='market.creation_observed'",
+          )
+        ).rowCount,
+        1,
+      );
       await admin.revoke(invited.keyId, "Post-race revocation");
       await assert.rejects(
         service.mutate(challengePath, request),
@@ -353,7 +394,12 @@ test(
           error instanceof IdentityError && error.status === 401,
       );
     } finally {
-      await Promise.all([owner.end(), adminPool.end(), apiPool.end()]);
+      await Promise.all([
+        owner.end(),
+        adminPool.end(),
+        apiPool.end(),
+        indexerPool.end(),
+      ]);
       if (created) await control.query(`DROP DATABASE "${name}"`);
       await control.end();
     }

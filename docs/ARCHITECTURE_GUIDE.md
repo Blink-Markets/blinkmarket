@@ -6,7 +6,7 @@
 
 ## 1. 現在已經做到哪裡？
 
-M2 最新範圍見 [人工核准資料流](M2_APPROVAL_DELIVERY.md#flow)：證據與候選 → 部署驗證 → 規格封存 → 原子化核准與容量鎖 → 未簽署建市意圖。錢包送出及鏈上確認尚未接線。
+M2 最新範圍見 [人工核准](M2_APPROVAL_DELIVERY.md#flow) 與 [建市觀測](M2_CREATION_TRACKING.md#flow-and-states)：證據與候選 → 核准／容量鎖 → 未簽署意圖 → 管理員自行送出 → 操作員觸發 receipt 驗證與確認數／reorg 觀測。錢包 UI 與持續 Indexer 尚未接線。
 
 這張圖只畫**目前真的存在的能力**。實線代表已存在的呼叫或驗證路徑，不代表已對外部署。
 

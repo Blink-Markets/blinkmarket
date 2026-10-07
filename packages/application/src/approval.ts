@@ -17,6 +17,7 @@ export const approvalPaths = [
   "/v1/admin/candidates/:id/approve",
   "/v1/admin/creation-intents/:id",
   "/v1/specs/:specHash",
+  "/v1/admin/creation-intents/:id/chain-status",
 ] as const;
 const fail = (status: number, code: string): never => {
   throw new IdentityError(status, code);
@@ -262,6 +263,12 @@ export function createApprovalService(options: {
       return store.run(async (tx) => {
         await authenticateIdentity(tx, crypto, authorization, "admin");
         return (await tx.intent(id)) ?? fail(404, "NOT_FOUND");
+      });
+    },
+    chainStatus(id: string, authorization: string | undefined) {
+      return store.run(async (tx) => {
+        await authenticateIdentity(tx, crypto, authorization, "admin");
+        return (await tx.creationStatus(id)) ?? fail(404, "NOT_FOUND");
       });
     },
     async spec(hash: string) {

@@ -1,5 +1,7 @@
 # 02 — API 與資料契約
 
+M2.3a 增加 admin-only `GET /v1/admin/creation-intents/:id/chain-status`，回傳有 observedAt/headHash 的歷史觀測快照，不在 GET 時觸發 RPC。即使 CONFIRMED 也不代表不可 reorg；細節見 [建市追蹤](../M2_CREATION_TRACKING.md)。
+
 所有 endpoint prefix /v1。identity 模式啟用 wallet auth；preparation 模式另啟用候選／證據流程；approval 模式再啟用人工核准、管理員建市意圖查詢與公開原始 spec bytes，見 [M2 核准交付](../M2_APPROVAL_DELIVERY.md)。鏈上確認、報價交易等其餘業務仍回 501。正式 OpenAPI 由同一批 schemas 產生並依 runtime 標記啟用狀態。
 
 ## ID / 型別 / 版本

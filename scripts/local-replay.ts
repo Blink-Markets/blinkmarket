@@ -12,12 +12,19 @@ import {
   type Abi,
   type Hex,
   type Address,
+  type PublicClient,
 } from "viem";
 import { mnemonicToAccount } from "viem/accounts";
 // @ts-expect-error Plain JS tool resolver has no declaration file.
 import { foundryBinary } from "./foundry.mjs";
-import { quoteTypes } from "../packages/schemas/src/index.js";
+import {
+  quoteTypes,
+  type DeploymentManifest,
+} from "../packages/schemas/src/index.js";
 import { encodeNewSpec } from "../packages/adapters/src/spec-archive.js";
+import { creationReceiptReader } from "../packages/adapters/src/creation-receipt-reader.js";
+import { untrackedCreation } from "../packages/adapters/src/creation-tracker-store.js";
+import { encodeMarketCreation } from "../packages/adapters/src/creation-calldata.js";
 
 const artifact = async (name: string) =>
   JSON.parse(
@@ -153,6 +160,45 @@ try {
     }),
   );
   const market = marketReceipt.contractAddress!;
+  // In-memory manifest for our isolated Anvil only; never registered as a real deployment.
+  const trackingManifest: DeploymentManifest = {
+    status: "DEPLOYED",
+    chainId: 84532,
+    deploymentId: "isolated-replay",
+    deploymentBlock: String(usdReceipt.blockNumber),
+    contracts: { BlinkTestUSD: usd, BlinkMarket: market },
+    artifacts: {
+      abiHashes: {
+        BlinkTestUSD: usdArtifact.abiHash,
+        BlinkMarket: marketArtifact.abiHash,
+      },
+      bytecodeHashes: {
+        BlinkTestUSD: keccak256((await client.getCode({ address: usd }))!),
+        BlinkMarket: keccak256((await client.getCode({ address: market }))!),
+      },
+      compiler: "0.8.30",
+      gitCommit: "0".repeat(40),
+      dependencies: { openzeppelin: "5.6.1" },
+    },
+    roles: {
+      admin: admin.address,
+      maker: maker.address,
+      resultProposer: proposer.address,
+      challenger: challenger.address,
+      arbiter: arbiter.address,
+      faucetMinter: minter.address,
+    },
+    parameters: {
+      collateralDecimals: 6,
+      quoteDefaultTtlSeconds: 30,
+      quoteMaxTtlSeconds: 60,
+      makerSpreadBps: 200,
+      maxFillShares: "100",
+      maxMarketPairs: "10000",
+      maxTakerShares: "500",
+    },
+    tradingEnabled: false,
+  };
   equal(await read(usd, usdArtifact.abi, "decimals"), 6, "decimals");
   await write(
     usd,
@@ -239,6 +285,41 @@ try {
       admin,
     );
     const validAfter = (await client.getBlock()).timestamp;
+    const trackingId = "00000000-0000-4000-8000-000000000001";
+    const observed = await creationReceiptReader(
+      client as PublicClient,
+    ).observe(
+      {
+        manifest: trackingManifest,
+        status: untrackedCreation(trackingId),
+        intent: {
+          creationIntentId: trackingId,
+          approvalId: trackingId,
+          deploymentId: "isolated-replay",
+          state: "AWAITING_ADMIN_SIGNATURE",
+          chainId: 84532,
+          to: market,
+          requiredSender: admin.address,
+          value: "0",
+          specHash,
+          specUri: "fixture://REPLAY/" + scenario,
+          calldata: encodeMarketCreation(
+            frozen.spec,
+            specHash,
+            "fixture://REPLAY/" + scenario,
+          ),
+        },
+      },
+      created.transactionHash,
+    );
+    equal(observed.state, "INCLUDED", "creation receipt observed");
+    equal(observed.marketId, String(marketId), "creation event marketId");
+    console.log(
+      "PASS REPLAY creation receipt: " +
+        scenario +
+        " marketId=" +
+        observed.marketId,
+    );
     const message = {
       marketId,
       specHash,
