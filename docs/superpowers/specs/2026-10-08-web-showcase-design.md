@@ -49,14 +49,14 @@ Blink 主要使用者是 agent，不是人類交易者。網站負責讓訪客�
 
 不加套件：CSS scroll-driven animations、IntersectionObserver、Web Animations API。
 
-### 3.1 Hero（`components/home/Hero.tsx`，Server Component，純 CSS keyframes）
+### 3.1 Hero（`components/home/Hero.tsx` Server Component＋`HeroTrail.tsx` client 量測）
 
 1. 文字：`every forecast` / `leaves a trail`，`trail` 為 terracotta。
 2. 每個字包在 `overflow: clip` 的遮罩中，自下方升起；間隔約 220ms，緩動 `cubic-bezier(.2,.7,.1,1)`，無彈跳。
 3. 全部出現後停頓約 600ms，`trail` 文字淡出並收成同尺寸 terracotta 色塊。
 4. 色塊高度收窄成線，接續成手繪 trail path（`stroke-dashoffset` 畫出），依序串起四個網點節點插畫：證據紙（evidence）、預測刻度盤（forecast）、報價票根（quote）、結算印章（resolution）。
 5. reduced-motion：直接渲染最終狀態（文字、`trail` 文字保留、路徑與節點完整）。
-6. 靜態樣式即最終畫面；動畫全部寫在 `@media (prefers-reduced-motion: no-preference)` 內的 CSS keyframes，無需 JS，SSR／無 JS 時都可讀。
+6. 文字動畫為 `@media (prefers-reduced-motion: no-preference)` 內的 CSS keyframes，靜態樣式即最終畫面。trail 路徑由 `HeroTrail`（client）於執行時量測底線、文案區塊與節點中心後產生（`trail-geometry.ts` 純函式），保證從底線接出、繞開文案並穿過每個節點；resize 與字體載入後重算。無 JS 時不顯示路徑，其餘完整。
 
 ### 3.2 捲動揭露（`components/motion/Reveal`）
 
@@ -133,7 +133,7 @@ apps/web/
   app/layout.tsx, app/globals.css, app/page.tsx (+ page.module.css)
   app/markets/page.tsx, app/how-it-works/page.tsx, app/docs/page.tsx, app/docs/api/page.tsx
   components/SiteHeader.tsx, TestnetStrip.tsx, SiteFooter.tsx, MarketLedger.tsx
-  components/home/Hero.tsx, components/motion/Reveal.tsx (RevealObserver)
+  components/home/Hero.tsx, HeroTrail.tsx (client), trail-geometry.ts, components/motion/Reveal.tsx (RevealObserver)
   components/illustrations/HalftoneDefs.tsx, Trail.tsx, Evidence.tsx, Forecast.tsx, Quote.tsx, Resolution.tsx, Evaluation.tsx, Architecture.tsx
   content/sample-markets.ts, content/openapi-index.ts
 ```
@@ -143,7 +143,7 @@ apps/web/
 
 ## 7. 測試與驗證
 
-- `tests/web-sample-markets.test.ts` 與 `tests/web-openapi-index.test.ts`（node test runner，分檔以利平行實作）：
+- `tests/web-sample-markets.test.ts`、`tests/web-openapi-index.test.ts`、`tests/web-trail-geometry.test.ts`（node test runner，分檔以利平行實作；trail 測試固定路徑穿過每個點、決定性、窄螢幕退回路線）：
   - 所有範例市場 `mode === "REPLAY"`、`forecastBps` 在 0–10000、id 唯一。
   - `openapi-index` 對 `generateOpenApi()` 產生的條目數等於 paths × methods 數；缺 vendor extension 時顯示 `unspecified`。
 - `pnpm check`、`pnpm build`。

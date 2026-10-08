@@ -4,7 +4,7 @@
 
 **Goal:** Replace the placeholder `apps/web` root route with a read-only, illustrated showcase site (`/`, `/markets`, `/how-it-works`, `/docs`, `/docs/api`) in the mono-color two-ink style, with a masked word-by-word hero and scroll-driven reveals.
 
-**Architecture:** Next 16 App Router, Server Components everywhere except one tiny client `RevealObserver` (IntersectionObserver fallback). All motion is CSS (keyframes + scroll-driven `animation-timeline: view()`), gated by `prefers-reduced-motion: no-preference`. Illustrations are hand-built inline SVG sharing halftone `<pattern>`s defined once in the root layout. Content is static TypeScript modules; the API index is generated at build time from `@blink/schemas` `generateOpenApi()`.
+**Architecture:** Next 16 App Router, Server Components everywhere except two small client components: `RevealObserver` (IntersectionObserver fallback) and `HeroTrail` (measures the hero layout and draws the trail path through it). Text and reveal motion is CSS (keyframes + scroll-driven `animation-timeline: view()`), gated by `prefers-reduced-motion: no-preference`. Illustrations are hand-built inline SVG sharing halftone `<pattern>`s defined once in the root layout. Content is static TypeScript modules; the API index is generated at build time from `@blink/schemas` `generateOpenApi()`.
 
 **Tech Stack:** Next 16.3.5, React 19.3, TypeScript 5.9, CSS Modules, `next/font/google` (Geist, Geist Mono), Node test runner via `tsx`.
 
@@ -35,7 +35,7 @@
 
 ## Review Focus
 
-1. **Reduced motion:** with `prefers-reduced-motion: reduce`, the hero shows every word, the "trail" underline, the full trail path and all four nodes; reveal sections are visible. Pinned by Task 7 Step 3 (static grep check) and the screenshot check.
+1. **Reduced motion:** with `prefers-reduced-motion: reduce`, the hero shows every word, the "trail" underline, the full measured trail path (static, no draw) and all four nodes; reveal sections are visible. Pinned by Task 7 Step 3 (static grep check) and the screenshot check.
 2. **No JS / no scroll-timeline support:** content stays visible. `[data-reveal]` is hidden only under `html.reveal-fallback` (class added by JS), and only inside the no-preference media query. Pinned by Task 1's CSS and the Task 7 Step 3 grep.
 3. **Mobile width 375px:** no horizontal overflow from the hero band, the ledger, or code blocks. Pinned by Task 7 Step 5 (`scrollWidth` check in the browser).
 4. **API operations missing `x-status` / `x-planned-access`:** the index shows `unspecified` and `—` rather than crashing. Pinned by the Task 6 test `indexes operations missing vendor extensions`.
@@ -425,28 +425,217 @@ git commit -m "feat(web): add showcase foundation, tokens, chrome and motion plu
 
 ---
 
-### Task 2: Hero: masked word-by-word headline, accent morph, trail band
+### Task 2: Hero: masked word-by-word headline, accent morph, measured trail
 
 **Files:**
 - Create: `apps/web/components/home/Hero.tsx`, `apps/web/components/home/Hero.module.css`
+- Create: `apps/web/components/home/HeroTrail.tsx` (client), `apps/web/components/home/trail-geometry.ts` (pure, no imports)
+- Test: `tests/web-trail-geometry.test.ts`
 
 **Interfaces:**
 - Consumes: `Evidence`, `Forecast`, `Quote`, `Resolution` (`IllustrationProps`) from `components/illustrations/*`; `--ease-out`.
 - Produces: `export function Hero(): JSX.Element` (Server Component, no props). Task 7 places it first on `/`.
+- Internal: `type Point = { x: number; y: number }`, `trailWaypoints(input: WaypointInput): Point[]`, and `trailPath(points: readonly Point[], wobble?: number): string`, all in `trail-geometry.ts`.
 
-All motion here is pure CSS keyframes inside `@media (prefers-reduced-motion: no-preference)`. The static styles are the final frame, so server HTML, no-JS and reduced motion all show the finished composition.
+The text motion is pure CSS keyframes inside `@media (prefers-reduced-motion: no-preference)`; the static styles are the final frame. The trail path is the only JS-driven part. `HeroTrail` measures the real positions of the "trail" underline, the copy block and the four nodes, then builds a path that leaves the underline and passes through every node centre. It re-measures on resize and after fonts load. Without JS, the trail path does not render; the headline, underline and nodes are still complete.
 
-Timeline (seconds from first paint):
+Timeline (seconds from navigation start):
 
 | t | Event |
 | --- | --- |
 | 0.15 + i·0.22 | word i rises from below its clip mask (0.8s, blur 6px → 0) |
-| 1.6 | lede and status fade up |
+| 1.6 | copy block fades up |
 | 2.1–3.0 | "trail" gets a terracotta block that wipes across it (0–35%), holds, then collapses to an underline (100%) |
-| 3.0–4.6 | trail path draws through the band |
+| 3.0–4.6 | measured trail path draws from the underline through the nodes (delay = `max(0, 3000ms − performance.now())`, so a late hydration starts drawing immediately) |
 | 3.1 + n·0.32 | node n fades or scales in |
 
-- [ ] **Step 1: Write `Hero.tsx`**
+- [ ] **Step 1: Write the failing geometry test** `tests/web-trail-geometry.test.ts`
+
+```ts
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { trailPath, trailWaypoints } from "../apps/web/components/home/trail-geometry.ts";
+
+const nodes = [
+  { x: 150, y: 600 },
+  { x: 380, y: 700 },
+  { x: 640, y: 640 },
+  { x: 880, y: 710 },
+];
+
+test("wide layout leaves the underline and routes beside the copy block", () => {
+  const points = trailWaypoints({ start: { x: 700, y: 260 }, avoidRight: 520, bandTop: 480, width: 1000, nodes });
+  assert.deepEqual(points[0], { x: 700, y: 260 });
+  assert.deepEqual(points[1], { x: 700, y: 480 });
+  assert.deepEqual(points.slice(2), nodes);
+});
+
+test("copy block wider than the start pushes the corridor right", () => {
+  const points = trailWaypoints({ start: { x: 500, y: 260 }, avoidRight: 600, bandTop: 480, width: 1000, nodes });
+  assert.deepEqual(points[1], { x: 648, y: 480 });
+});
+
+test("narrow layout with no corridor starts at the band edge below the word", () => {
+  const points = trailWaypoints({ start: { x: 300, y: 200 }, avoidRight: 343, bandTop: 520, width: 343, nodes });
+  assert.deepEqual(points[0], { x: 300, y: 520 });
+  assert.deepEqual(points.slice(1), nodes);
+});
+
+test("trailPath starts at the first point and ends each segment on the next point", () => {
+  const points = [{ x: 0, y: 0 }, ...nodes];
+  const d = trailPath(points);
+  assert.ok(d.startsWith("M0 0 "));
+  const segments = d.split(" C").slice(1);
+  assert.equal(segments.length, points.length - 1);
+  segments.forEach((seg, i) => {
+    const nums = seg.trim().split(/\s+/).map(Number);
+    const target = points[i + 1];
+    assert.ok(target);
+    assert.equal(nums[4], target.x);
+    assert.equal(nums[5], target.y);
+  });
+});
+
+test("trailPath is deterministic and empty for fewer than two points", () => {
+  assert.equal(trailPath(nodes), trailPath(nodes));
+  assert.equal(trailPath([{ x: 1, y: 1 }]), "");
+  assert.equal(trailPath([]), "");
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `node --import tsx --test tests/web-trail-geometry.test.ts`
+Expected: FAIL (module not found).
+
+- [ ] **Step 3: Write `trail-geometry.ts`**
+
+```ts
+// Pure geometry for the hero trail. Coordinates are CSS pixels relative to the hero container.
+export type Point = { x: number; y: number };
+
+export type WaypointInput = {
+  start: Point; // right end of the "trail" underline
+  avoidRight: number | null; // right edge of the copy block the path must not cross
+  bandTop: number; // top edge of the node band
+  width: number; // container width
+  nodes: readonly Point[]; // node centres, in drawing order
+};
+
+const CORRIDOR_GAP = 48;
+const EDGE = 24;
+
+export function trailWaypoints({ start, avoidRight, bandTop, width, nodes }: WaypointInput): Point[] {
+  const corridor = avoidRight === null ? start.x : Math.max(start.x, avoidRight + CORRIDOR_GAP);
+  if (corridor > width - EDGE) {
+    // No clear corridor beside the copy (narrow screens): begin at the band edge below the word.
+    return [{ x: Math.min(start.x, width - EDGE), y: bandTop }, ...nodes];
+  }
+  return [start, { x: corridor, y: bandTop }, ...nodes];
+}
+
+const round = (n: number) => Math.round(n * 10) / 10;
+
+// Catmull-Rom through every point, with an alternating perpendicular nudge on the
+// control points so the line reads as hand-drawn. Same input → same path.
+export function trailPath(points: readonly Point[], wobble = 6): string {
+  if (points.length < 2) return "";
+  const at = (i: number): Point => points[Math.max(0, Math.min(points.length - 1, i))]!;
+  let d = `M${round(at(0).x)} ${round(at(0).y)}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = at(i - 1);
+    const p1 = at(i);
+    const p2 = at(i + 1);
+    const p3 = at(i + 2);
+    const len = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
+    const sign = i % 2 === 0 ? 1 : -1;
+    const nx = (-(p2.y - p1.y) / len) * wobble * sign;
+    const ny = ((p2.x - p1.x) / len) * wobble * sign;
+    const c1x = p1.x + (p2.x - p0.x) / 6 + nx;
+    const c1y = p1.y + (p2.y - p0.y) / 6 + ny;
+    const c2x = p2.x - (p3.x - p1.x) / 6 + nx;
+    const c2y = p2.y - (p3.y - p1.y) / 6 + ny;
+    d += ` C${round(c1x)} ${round(c1y)} ${round(c2x)} ${round(c2y)} ${round(p2.x)} ${round(p2.y)}`;
+  }
+  return d;
+}
+```
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `node --import tsx --test tests/web-trail-geometry.test.ts`
+Expected: 5 passing.
+
+- [ ] **Step 5: Write `HeroTrail.tsx`**
+
+It measures the accent word's **mask wrapper** (`data-trail-start`), not the rising word, so the result does not depend on the current animation frame. Node centres come from each node's inner `<svg>`; their scale-in animation scales around the centre, so the centre stays fixed.
+
+```tsx
+"use client";
+import { useEffect, useRef, useState } from "react";
+import styles from "./Hero.module.css";
+import { trailPath, trailWaypoints, type Point } from "./trail-geometry";
+
+type Geometry = { w: number; h: number; d: string };
+
+export function HeroTrail() {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [geo, setGeo] = useState<Geometry | null>(null);
+
+  useEffect(() => {
+    const svg = svgRef.current;
+    const box = svg?.parentElement;
+    if (!svg || !box) return;
+    // Start drawing once the underline has formed (3s after navigation), or immediately if hydration was late.
+    svg.style.setProperty("--draw-delay", `${Math.max(0, 3000 - performance.now())}ms`);
+
+    const measure = () => {
+      const origin = box.getBoundingClientRect();
+      const rel = (x: number, y: number): Point => ({ x: x - origin.left, y: y - origin.top });
+      const word = box.querySelector<HTMLElement>("[data-trail-start]");
+      const avoid = box.querySelector<HTMLElement>("[data-trail-avoid]");
+      const band = box.querySelector<HTMLElement>("[data-trail-band]");
+      const nodes = [...box.querySelectorAll<HTMLElement>("[data-trail-node]")];
+      if (!word || !band || nodes.length === 0) return;
+      const w = word.getBoundingClientRect();
+      const em = parseFloat(getComputedStyle(word).fontSize);
+      const points = trailWaypoints({
+        // Mask has 0.08em bottom padding; the underline sits about 0.08em above the word box bottom.
+        start: rel(w.right + 0.04 * em, w.bottom - 0.16 * em),
+        avoidRight: avoid ? avoid.getBoundingClientRect().right - origin.left : null,
+        bandTop: band.getBoundingClientRect().top - origin.top,
+        width: origin.width,
+        nodes: nodes.map((n) => {
+          const r = (n.querySelector("svg") ?? n).getBoundingClientRect();
+          return rel(r.left + r.width / 2, r.top + r.height / 2);
+        }),
+      });
+      setGeo({ w: origin.width, h: origin.height, d: trailPath(points) });
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(box);
+    void document.fonts?.ready.then(measure);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <svg
+      ref={svgRef}
+      className={styles.trailSvg}
+      aria-hidden="true"
+      fill="none"
+      viewBox={geo ? `0 0 ${geo.w} ${geo.h}` : undefined}
+      data-ready={geo ? "" : undefined}
+    >
+      {geo && <path className={styles.trailPath} pathLength={1} d={geo.d} />}
+    </svg>
+  );
+}
+```
+
+- [ ] **Step 6: Write `Hero.tsx`**
 
 ```tsx
 import type { CSSProperties, ReactNode } from "react";
@@ -454,11 +643,12 @@ import { Evidence } from "../illustrations/Evidence";
 import { Forecast } from "../illustrations/Forecast";
 import { Quote } from "../illustrations/Quote";
 import { Resolution } from "../illustrations/Resolution";
+import { HeroTrail } from "./HeroTrail";
 import styles from "./Hero.module.css";
 
 function Word({ i, accent, children }: { i: number; accent?: boolean; children: ReactNode }) {
   return (
-    <span className={styles.mask}>
+    <span className={styles.mask} data-trail-start={accent ? "" : undefined}>
       <span className={accent ? `${styles.word} ${styles.accent}` : styles.word} style={{ "--i": i } as CSSProperties}>
         {children}
       </span>
@@ -466,7 +656,7 @@ function Word({ i, accent, children }: { i: number; accent?: boolean; children: 
   );
 }
 
-// Node positions are in % of the band. Desktop band viewBox 0 0 1000 360; mobile 0 0 400 460.
+// Node centres in % of the band (desktop x/y, mobile mx/my). The trail is measured from these, so tune freely.
 const nodes = [
   { label: "Evidence", Art: Evidence, x: "15%", y: "39%", mx: "27%", my: "20%" },
   { label: "Forecast", Art: Forecast, x: "38%", y: "69%", mx: "73%", my: "36%" },
@@ -474,13 +664,11 @@ const nodes = [
   { label: "Resolution", Art: Resolution, x: "88%", y: "72%", mx: "73%", my: "82%" },
 ];
 
-const desktopPath = "M640 0 C 600 80, 260 40, 150 140 S 250 300, 380 250 S 560 140, 640 190 S 800 320, 880 260";
-const mobilePath = "M260 0 C 230 40, 90 40, 108 92 S 300 120, 292 166 S 90 250, 108 290 S 300 340, 292 377";
-
 export function Hero() {
   return (
     <section className={styles.hero}>
-      <div className="container">
+      <div className={`container ${styles.inner}`}>
+        <HeroTrail />
         <h1 className={styles.headline} aria-label="every forecast leaves a trail">
           <span className={styles.line} aria-hidden="true">
             <Word i={0}>every</Word> <Word i={1}>forecast</Word>
@@ -489,20 +677,16 @@ export function Hero() {
             <Word i={2}>leaves</Word> <Word i={3}>a</Word> <Word i={4} accent>trail</Word>
           </span>
         </h1>
-        <p className={styles.lede}>
-          Blink is an experimental prediction-research platform built for agents: questions with explicit
-          resolution rules, traceable evidence, signed quotes, and test trades on Base Sepolia.
-        </p>
-        <p className={`mono ${styles.status}`}>M0–M2 built locally · No public deployment · No trading here</p>
-        <div className={styles.band}>
-          <svg viewBox="0 0 1000 360" className={`${styles.trailSvg} ${styles.desktopOnly}`} aria-hidden="true" fill="none">
-            <path className={styles.trailPath} pathLength={1} d={desktopPath} />
-          </svg>
-          <svg viewBox="0 0 400 460" className={`${styles.trailSvg} ${styles.mobileOnly}`} aria-hidden="true" fill="none">
-            <path className={styles.trailPath} pathLength={1} d={mobilePath} />
-          </svg>
+        <div className={styles.copy} data-trail-avoid="">
+          <p className={styles.lede}>
+            Blink is an experimental prediction-research platform built for agents: questions with explicit
+            resolution rules, traceable evidence, signed quotes, and test trades on Base Sepolia.
+          </p>
+          <p className={`mono ${styles.status}`}>M0–M2 built locally · No public deployment · No trading here</p>
+        </div>
+        <div className={styles.band} data-trail-band="">
           {nodes.map(({ label, Art, x, y, mx, my }, n) => (
-            <figure key={label} className={styles.node} style={{ "--x": x, "--y": y, "--mx": mx, "--my": my, "--n": n } as CSSProperties}>
+            <figure key={label} className={styles.node} data-trail-node="" style={{ "--x": x, "--y": y, "--mx": mx, "--my": my, "--n": n } as CSSProperties}>
               <Art title={label} />
               <figcaption className="mono">{label}</figcaption>
             </figure>
@@ -514,11 +698,12 @@ export function Hero() {
 }
 ```
 
-- [ ] **Step 2: Write `Hero.module.css`**
+- [ ] **Step 7: Write `Hero.module.css`**
 
 ```css
 .hero { padding-block: clamp(48px, 8vw, 112px) clamp(56px, 8vw, 120px); }
-.headline { font-size: clamp(52px, 11.5vw, 176px); font-weight: 800; letter-spacing: -0.055em; line-height: 0.92; }
+.inner { position: relative; }
+.headline { position: relative; z-index: 1; font-size: clamp(52px, 11.5vw, 176px); font-weight: 800; letter-spacing: -0.055em; line-height: 0.92; }
 .line { display: block; }
 .mask { display: inline-block; overflow: clip; overflow-clip-margin: 0.1em; padding-bottom: 0.08em; vertical-align: bottom; }
 .word { display: inline-block; }
@@ -531,29 +716,29 @@ export function Hero() {
   background: var(--terracotta);
   clip-path: inset(88% 0 0 0);
 }
+.copy { position: relative; z-index: 1; width: fit-content; max-width: 100%; }
 .lede { max-width: 36ch; margin-top: clamp(28px, 4vw, 48px); font-size: clamp(18px, 1.6vw, 21px); }
 .status { margin-top: 16px; color: var(--cobalt); }
 
+.trailSvg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
+.trailSvg:not([data-ready]) { visibility: hidden; }
+.trailPath { stroke: var(--terracotta); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+
 .band { position: relative; aspect-ratio: 1000 / 360; margin-top: clamp(40px, 6vw, 72px); }
-.trailSvg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-.trailPath { stroke: var(--terracotta); stroke-width: 3; stroke-linecap: round; fill: none; }
-.mobileOnly { display: none; }
-.node { position: absolute; left: var(--x); top: var(--y); width: 16%; margin: 0; transform: translate(-50%, -50%); text-align: center; }
+.node { position: absolute; z-index: 1; left: var(--x); top: var(--y); width: 16%; margin: 0; transform: translate(-50%, -50%); text-align: center; }
 .node svg { display: block; width: 100%; height: auto; }
 .node figcaption { margin-top: 4px; color: var(--ink-soft); }
 
 @media (max-width: 640px) {
   .band { aspect-ratio: 400 / 460; }
-  .desktopOnly { display: none; }
-  .mobileOnly { display: block; }
   .node { left: var(--mx); top: var(--my); width: 36%; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .word { animation: rise 0.8s var(--ease-out) both; animation-delay: calc(0.15s + var(--i) * 0.22s); }
   .accent::after { animation: block-then-line 0.9s var(--ease-out) 2.1s both; }
-  .lede, .status { animation: fade-up 0.8s var(--ease-out) 1.6s both; }
-  .trailPath { stroke-dasharray: 1; animation: draw 1.6s var(--ease-out) 3s both; }
+  .copy { animation: fade-up 0.8s var(--ease-out) 1.6s both; }
+  .trailSvg[data-ready] .trailPath { stroke-dasharray: 1; animation: draw 1.6s var(--ease-out) var(--draw-delay, 0s) both; }
   .node { animation: node-in 0.7s var(--ease-out) both; animation-delay: calc(3.1s + var(--n) * 0.32s); }
 }
 @keyframes rise { from { transform: translateY(105%); filter: blur(6px); } to { transform: none; filter: none; } }
@@ -568,12 +753,14 @@ export function Hero() {
 @keyframes node-in { from { opacity: 0; transform: translate(-50%, -50%) scale(0.9); } to { opacity: 1; transform: translate(-50%, -50%); } }
 ```
 
-- [ ] **Step 3: Verify types**
+Re-measuring on resize changes only the path's `d`; it does not restart the draw animation.
 
-Run: `pnpm --filter @blink/web typecheck`
-Expected: no errors in `components/home/*`.
+- [ ] **Step 8: Verify**
 
-- [ ] **Step 4: Report** the files changed. The controller tunes path and node coordinates from screenshots in Task 7. The path must pass behind each node centre; nodes render after the SVG, so they sit on top.
+Run: `pnpm test` → all pass, including `web-trail-geometry`.
+Run: `pnpm --filter @blink/web typecheck` and `pnpm typecheck` → no errors in `components/home/*` or the new test.
+
+- [ ] **Step 9: Report** the files changed. In Task 7 the controller checks with screenshots that the path leaves the underline, avoids the copy, and crosses every node centre at 1440px and 375px.
 
 ---
 
@@ -1505,7 +1692,7 @@ Expected: listening on `http://127.0.0.1:3000`.
 For each route at 1440×900 and 375×812:
 - Screenshot the top of the page and after scrolling.
 - Run `document.documentElement.scrollWidth <= window.innerWidth` in the console. It must be `true`.
-- On `/`, screenshot at about 0.5s, 2.5s and 5s after load to confirm the word rise, the block → underline morph, and the trail drawing through the four nodes. Tune `desktopPath`, `mobilePath` and node `x`/`y`/`mx`/`my` in `Hero.tsx` until the path passes behind each node and starts under "trail".
+- On `/`, screenshot at about 0.5s, 2.5s and 5s after load to confirm the word rise, the block → underline morph, and the measured trail leaving the underline, routing around the copy block and passing every node centre. Resize between 1440px and 375px and confirm it re-measures. If the start point is off, adjust the `0.04em` / `0.16em` offsets in `HeroTrail.tsx`. If the composition feels cramped, adjust node `x`/`y`/`mx`/`my` in `Hero.tsx`.
 - Review each illustration against the Task 3 rules. Send any that break them back to the illustration implementer or fix them directly.
 
 Stop the dev server when done.
@@ -1525,7 +1712,7 @@ Update `docs/ROADMAP.md` M4 row to: `進行中：唯讀展示站` with the deliv
 - [ ] **Step 7: Commit and push** (per AGENTS.md stage checkpoints)
 
 ```bash
-git add apps/web docs/M4_WEB_SHOWCASE_DELIVERY.md docs/ROADMAP.md README.md tests/web-sample-markets.test.ts tests/web-openapi-index.test.ts
+git add apps/web docs/M4_WEB_SHOWCASE_DELIVERY.md docs/ROADMAP.md README.md tests/web-sample-markets.test.ts tests/web-openapi-index.test.ts tests/web-trail-geometry.test.ts
 git status --short   # confirm no .next, tsbuildinfo, or unrelated files
 git commit -m "feat(web): add illustrated read-only showcase site"
 git push origin main
