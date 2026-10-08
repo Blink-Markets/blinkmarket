@@ -1,0 +1,2 @@
+.footer { display: grid; gap: 12px; padding-block: 48px 64px; margin-top: clamp(48px, 8vw, 120px); border-top: 1px solid var(--rule); color: var(--ink-soft); }
+.line { max-width: 60ch; }

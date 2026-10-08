@@ -86,6 +86,9 @@ importers:
       '@blink/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@blink/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
       next:
         specifier: 16.3.5
         version: 16.3.5(@types/node@22.20.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
