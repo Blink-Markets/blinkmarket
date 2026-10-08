@@ -104,3 +104,12 @@ test("apiIndexMarkdown renders one row per operation with status", () => {
   assert.equal(md.split("\n").filter((l) => /^\| (GET|POST|PUT|PATCH|DELETE) \|/.test(l)).length, ops);
   assert.match(md, /\| Method \| Path \| Planned access \| Status \|/);
 });
+
+test("renderDoc toc text is decoded plain text and ids slugify it", () => {
+  const { html, toc } = renderDoc("## Errors & idempotency\n\n## What's `new`");
+  assert.deepEqual(toc, [
+    { id: "errors-idempotency", text: "Errors & idempotency", depth: 2 },
+    { id: "what-s-new", text: "What's new", depth: 2 },
+  ]);
+  assert.ok(html.includes('id="errors-idempotency"'));
+});

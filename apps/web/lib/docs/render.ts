@@ -3,6 +3,8 @@ import { Marked } from "marked";
 
 export type TocItem = { id: string; text: string; depth: 2 | 3 };
 const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const decodeEntities = (s: string) =>
+  s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 const slugify = (s: string) => s.toLowerCase().replace(/<[^>]+>/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "section";
 const ALERT = /^\s*<p>\[!(NOTE|PLANNED)\]\s*/;
 
@@ -15,7 +17,7 @@ export function renderDoc(body: string): { html: string; toc: TocItem[] } {
       heading({ tokens, depth }) {
         if (depth === 1) return "";
         const inner = this.parser.parseInline(tokens);
-        const text = inner.replace(/<[^>]+>/g, "");
+        const text = decodeEntities(inner.replace(/<[^>]+>/g, ""));
         const baseId = slugify(text);
         const n = (used.get(baseId) ?? 0) + 1;
         used.set(baseId, n);
