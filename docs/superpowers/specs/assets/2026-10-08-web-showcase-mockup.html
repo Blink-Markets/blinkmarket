@@ -1,0 +1,501 @@
+<title>Blink Home Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one left edge, generous paper, one dominant event per section (hero type → trail → ruled ledger). Single deliberate light "printed paper" look. */
+:root {
+  --paper: #fafaf7;
+  --cobalt: #2148b8;
+  --terracotta: #c65f38;
+  --ink: #242321;
+  --ink-soft: #242321b3;
+  --rule: #24232133;
+  --gutter: clamp(16px, 5vw, 72px);
+  --max: 1200px;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.1, 1);
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--paper); color: var(--ink); -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-sans); font-size: 17px; line-height: 1.55; overflow-x: clip; -webkit-font-smoothing: antialiased; }
+a { color: var(--cobalt); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--cobalt); outline-offset: 3px; }
+h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: -0.035em; line-height: 1.02; text-wrap: balance; }
+h2 { font-size: clamp(34px, 5vw, 64px); }
+h3 { font-size: clamp(22px, 2.4vw, 28px); letter-spacing: -0.02em; }
+p { margin: 0; }
+pre, code { font-family: var(--font-mono); font-size: 14px; }
+
+.container { width: 100%; max-width: calc(var(--max) + 2 * var(--gutter)); margin-inline: auto; padding-inline: var(--gutter); }
+.section { padding-block: clamp(72px, 12vw, 160px); }
+.mono { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; line-height: 1.5; }
+.eyebrow { display: block; margin-bottom: 20px; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cobalt); }
+.tag { display: inline-block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid currentColor; padding: 2px 6px; line-height: 1.3; white-space: nowrap; }
+
+/* Chrome */
+.strip { background: var(--cobalt); color: var(--paper); padding: 8px var(--gutter); text-align: center; }
+.header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px 32px; padding-block: 22px; border-bottom: 1px solid var(--rule); }
+.wordmark { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 24px; letter-spacing: -0.05em; color: var(--ink); text-decoration: none; }
+.eye { width: 34px; height: 22px; overflow: visible; }
+.eye .lid { transform-box: fill-box; transform-origin: center; }
+.nav { display: flex; flex-wrap: wrap; gap: 8px 24px; font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; }
+.nav a { color: var(--ink); text-decoration: none; }
+.nav a:hover { color: var(--cobalt); }
+
+/* Hero */
+.hero { padding-block: clamp(48px, 8vw, 112px) clamp(56px, 8vw, 120px); }
+.inner { position: relative; }
+.headline { position: relative; z-index: 1; font-size: clamp(52px, 11.5vw, 176px); font-weight: 800; letter-spacing: -0.055em; line-height: 0.92; }
+.line { display: block; }
+.mask { display: inline-block; overflow: clip; overflow-clip-margin: 0.1em; padding-bottom: 0.08em; vertical-align: bottom; }
+.word { display: inline-block; }
+.accent { position: relative; color: var(--terracotta); }
+.accent::after { content: ""; position: absolute; inset: 0.1em -0.04em 0.02em -0.04em; background: var(--terracotta); clip-path: inset(88% 0 0 0); }
+.copy { position: relative; z-index: 1; width: fit-content; max-width: 100%; }
+.lede { max-width: 36ch; margin-top: clamp(28px, 4vw, 48px); font-size: clamp(18px, 1.6vw, 21px); }
+.status { margin-top: 16px; color: var(--cobalt); }
+.trailSvg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
+.trailSvg:not([data-ready]) { visibility: hidden; }
+.trailPath { stroke: var(--terracotta); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+.band { position: relative; aspect-ratio: 1000 / 360; max-width: 100%; margin-top: clamp(40px, 6vw, 72px); }
+.node { position: absolute; z-index: 1; left: var(--x); top: var(--y); width: 16%; margin: 0; transform: translate(-50%, -50%); text-align: center; }
+.node svg { display: block; width: 100%; height: auto; }
+.node figcaption { margin-top: 4px; color: var(--ink-soft); }
+@media (max-width: 640px) {
+  .band { aspect-ratio: 400 / 460; }
+  .node { left: var(--mx); top: var(--my); width: 36%; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* Blink open: a terracotta seam, then the page opens like an eyelid. */
+  .play .inner { animation: lid-open 0.6s var(--ease-out) 0.2s backwards; }
+  .play .inner::before { content: ""; position: absolute; left: 0; right: 0; top: 28%; height: 3px; background: var(--terracotta); opacity: 0; z-index: 2; animation: seam 0.8s var(--ease-out) both; }
+  .play .word { animation: rise 0.8s var(--ease-out) both; animation-delay: calc(0.75s + var(--i) * 0.2s); }
+  .play .accent::after { animation: block-then-line 0.9s var(--ease-out) 2.6s both; }
+  .play .copy { animation: fade-up 0.8s var(--ease-out) 2.1s both; }
+  .play .trailSvg[data-ready] .trailPath { stroke-dasharray: 1; animation: draw 1.6s var(--ease-out) var(--draw-delay, 0s) both; }
+  .play .node { animation: blink-open 0.5s var(--ease-out) both; animation-delay: calc(3.7s + var(--n) * 0.32s); }
+  .eye .lid { animation: eye-blink 6s ease-in-out 1.4s infinite; }
+}
+@keyframes lid-open { from { clip-path: ellipse(70% 0.6% at 50% 28%); } to { clip-path: ellipse(150% 150% at 50% 28%); } }
+@keyframes seam { 0% { opacity: 1; transform: scaleX(0); } 30% { opacity: 1; transform: scaleX(1); } 100% { opacity: 0; transform: scaleX(1); } }
+@keyframes blink-open { from { opacity: 0; clip-path: inset(50% 0 50% 0); } to { opacity: 1; clip-path: inset(-10% -10% -10% -10%); } }
+@keyframes eye-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.08); } }
+@keyframes rise { from { transform: translateY(105%); filter: blur(6px); } to { transform: none; filter: none; } }
+@keyframes block-then-line { 0% { clip-path: inset(0 100% 0 0); } 35% { clip-path: inset(0 0 0 0); } 60% { clip-path: inset(0 0 0 0); } 100% { clip-path: inset(88% 0 0 0); } }
+@keyframes fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+
+/* Scroll reveal: visible by default; hidden states only when motion is allowed. */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    [data-reveal] { animation: reveal-in linear both; animation-timeline: view(); animation-range: entry 5% cover 30%; }
+    [data-draw-scope] { view-timeline-name: --draw; }
+    [data-draw] { stroke-dasharray: 1; animation: draw linear both; animation-timeline: --draw; animation-range: entry 10% cover 60%; }
+  }
+  html.reveal-fallback [data-reveal] { clip-path: inset(-10% -10% -10% -10%); transition: opacity 0.7s var(--ease-out), clip-path 0.7s var(--ease-out); }
+  html.reveal-fallback [data-reveal]:not([data-visible]) { opacity: 0; clip-path: inset(50% 0 50% 0); }
+  html.reveal-fallback [data-draw] { stroke-dasharray: 1; stroke-dashoffset: 0; transition: stroke-dashoffset 1.6s var(--ease-out); }
+  html.reveal-fallback [data-draw-scope]:not([data-visible]) [data-draw] { stroke-dashoffset: 1; }
+}
+@keyframes reveal-in { from { opacity: 0; clip-path: inset(50% 0 50% 0); } to { opacity: 1; clip-path: inset(-10% -10% -10% -10%); } }
+
+/* Aperture: the page opens like an eye as you scroll. */
+.aperture { position: relative; padding-block: clamp(8px, 2vw, 24px); }
+.apertureLid { position: relative; overflow: hidden; background: var(--cobalt); color: var(--paper); min-height: clamp(440px, 72vh, 760px); display: grid; align-items: center; }
+.apertureInner { position: relative; z-index: 1; display: grid; gap: 24px; padding-block: clamp(64px, 10vw, 128px); }
+.apertureInner .mono { color: var(--paper); opacity: 0.8; }
+.apertureInner h2 { max-width: 15ch; font-size: clamp(40px, 6.5vw, 96px); font-weight: 800; letter-spacing: -0.05em; color: var(--paper); }
+.apertureInner p { max-width: 46ch; color: var(--paper); opacity: 0.82; font-size: clamp(17px, 1.5vw, 20px); }
+.iris { position: absolute; z-index: 0; right: -14%; top: 50%; width: min(78vw, 820px); max-width: none; aspect-ratio: 1; transform: translateY(-50%); }
+.seam { position: absolute; left: 0; right: 0; top: 50%; height: 3px; margin-top: -1.5px; background: var(--terracotta); opacity: 0; pointer-events: none; }
+@media (max-width: 760px) { .iris { right: -45%; width: 120vw; opacity: 0.6; } }
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .aperture { view-timeline-name: --ap; }
+    .apertureLid { animation: aperture-open linear both; animation-timeline: --ap; animation-range: entry 20% cover 50%; }
+    .seam { animation: seam-scroll linear both; animation-timeline: --ap; animation-range: entry 0% cover 35%; }
+    .iris svg { animation: iris-focus linear both; animation-timeline: --ap; animation-range: entry 20% exit 60%; }
+  }
+  html.reveal-fallback .apertureLid { clip-path: ellipse(100% 100% at 50% 50%); transition: clip-path 1.3s var(--ease-out); }
+  html.reveal-fallback .aperture:not([data-visible]) .apertureLid { clip-path: ellipse(60% 0.4% at 50% 50%); }
+}
+@keyframes aperture-open { from { clip-path: ellipse(60% 0.4% at 50% 50%); } to { clip-path: ellipse(100% 100% at 50% 50%); } }
+@keyframes seam-scroll { 0% { opacity: 1; transform: scaleX(0); } 45% { opacity: 1; transform: scaleX(1); } 100% { opacity: 0; transform: scaleX(1); } }
+@keyframes iris-focus { from { transform: scale(1.12) rotate(-6deg); } to { transform: scale(0.96) rotate(4deg); } }
+
+/* What Blink is */
+.narrow { max-width: 18ch; }
+.pillars { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 clamp(24px, 4vw, 56px); margin-top: clamp(40px, 6vw, 72px); border-top: 2px solid var(--ink); }
+.pillar { display: grid; gap: 12px; padding-top: 24px; align-content: start; min-width: 0; }
+.pillar p { color: var(--ink-soft); }
+
+/* Ledger */
+.headRow { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 16px; margin-bottom: 32px; }
+.headRow .mono { color: var(--terracotta); }
+.ledger { border-top: 2px solid var(--ink); }
+.list { list-style: none; margin: 0; padding: 0; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) 96px 200px 128px 104px; gap: 16px 24px; align-items: center; padding-block: 22px; border-bottom: 1px solid var(--rule); }
+.row.head { padding-block: 12px; color: var(--ink-soft); }
+.question { font-size: clamp(17px, 1.5vw, 20px); font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; overflow-wrap: anywhere; min-width: 0; }
+.mode { color: var(--cobalt); }
+.forecast { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.track { position: relative; flex: 1; height: 10px; background: repeating-linear-gradient(-35deg, transparent 0 4px, #2148b833 4px 5px); }
+.fill { position: absolute; inset: 0 auto 0 0; background: var(--cobalt); }
+.marker { position: absolute; top: -5px; bottom: -5px; width: 3px; left: clamp(0px, calc(var(--p) * 100% - 1.5px), calc(100% - 3px)); background: var(--terracotta); }
+.pct { font-family: var(--font-mono); font-size: 14px; font-variant-numeric: tabular-nums; min-width: 6ch; text-align: right; }
+.state, .updated { color: var(--ink-soft); }
+@media (max-width: 860px) {
+  .row.head { display: none; }
+  .row { grid-template-columns: 1fr auto; grid-template-areas: "q q" "f f" "m s" "u u"; gap: 12px; }
+  .question { grid-area: q; } .forecast { grid-area: f; } .mode { grid-area: m; }
+  .state { grid-area: s; text-align: right; } .updated { grid-area: u; }
+}
+.more { margin-top: 28px; font-family: var(--font-mono); font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* Loop */
+.loop { position: relative; margin-top: clamp(40px, 6vw, 72px); }
+.loopTrail { display: block; width: 100%; height: auto; }
+.steps { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+.steps li { display: grid; gap: 6px; font-size: clamp(20px, 2.4vw, 32px); font-weight: 700; letter-spacing: -0.03em; }
+.steps .mono { color: var(--cobalt); font-weight: 400; }
+
+/* Agents */
+.code { margin: 32px 0 0; padding: 20px 24px; border-left: 3px solid var(--cobalt); overflow-x: auto; max-width: 100%; }
+
+/* Milestones */
+.milestones { list-style: none; margin: 24px 0 0; padding: 0; border-top: 2px solid var(--ink); }
+.milestones li { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 16px; align-items: baseline; padding-block: 16px; border-bottom: 1px solid var(--rule); font-size: clamp(18px, 1.8vw, 22px); }
+.milestones li .mono:last-child { color: var(--cobalt); text-align: right; }
+
+.footer { display: grid; gap: 12px; padding-block: 48px 64px; margin-top: clamp(48px, 8vw, 120px); border-top: 1px solid var(--rule); color: var(--ink-soft); }
+.footer p:first-child { max-width: 60ch; }
+
+@media (max-width: 760px) {
+  .pillars { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: 1fr 1fr; }
+  .milestones li { grid-template-columns: 48px 1fr; }
+  .milestones li .mono:last-child { grid-column: 2; text-align: left; }
+}
+
+/* Mockup-only control */
+.replay { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 10; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--paper); background: var(--ink); border: 0; padding: 10px 14px; cursor: pointer; }
+.replay:hover { background: var(--cobalt); }
+</style>
+
+<!-- Shared halftone screens -->
+<svg aria-hidden="true" focusable="false" width="0" height="0" style="position:absolute">
+  <defs>
+    <pattern id="ht-cobalt-15" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><circle cx="3" cy="3" r="0.9" fill="#2148B8"/></pattern>
+    <pattern id="ht-cobalt-30" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><circle cx="3" cy="3" r="1.4" fill="#2148B8"/></pattern>
+    <pattern id="ht-cobalt-60" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><circle cx="3" cy="3" r="2.1" fill="#2148B8"/></pattern>
+    <pattern id="ht-cobalt-90" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><circle cx="3" cy="3" r="2.7" fill="#2148B8"/></pattern>
+    <pattern id="ht-paper-30" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><circle cx="3.5" cy="3.5" r="1.5" fill="#FAFAF7"/></pattern>
+    <pattern id="ht-paper-60" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><circle cx="3.5" cy="3.5" r="2.4" fill="#FAFAF7"/></pattern>
+    <pattern id="hatch-cobalt" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(-35)"><line x1="0" y1="0" x2="0" y2="5" stroke="#2148B8" stroke-width="1.2"/></pattern>
+  </defs>
+</svg>
+
+<div class="strip mono" role="note">Base Sepolia testnet · Test assets have no value · No trading on this site</div>
+
+<header class="container header">
+  <a href="#top" class="wordmark" aria-label="Blink home">
+    <svg class="eye" viewBox="0 0 34 22" aria-hidden="true">
+      <g class="lid">
+        <path d="M2 11 Q17 -3 32 11 Q17 25 2 11 Z" fill="none" stroke="#2148B8" stroke-width="2.4" stroke-linejoin="round"/>
+        <circle cx="17" cy="11" r="5.2" fill="#2148B8"/>
+        <circle cx="19" cy="9" r="1.4" fill="#C65F38"/>
+      </g>
+    </svg>
+    <span>Blink</span>
+  </a>
+  <nav class="nav" aria-label="Primary">
+    <a href="#markets">Markets</a>
+    <a href="#loop">How it works</a>
+    <a href="#agents">Docs</a>
+    <a href="https://github.com/Blink-Markets/blinkmarket">GitHub</a>
+  </nav>
+</header>
+
+<main id="top">
+  <section class="hero play" id="hero">
+    <div class="container inner">
+      <svg class="trailSvg" id="trailSvg" aria-hidden="true" fill="none"><path class="trailPath" id="trailPath" pathLength="1" d=""/></svg>
+      <h1 class="headline" aria-label="every forecast leaves a trail">
+        <span class="line" aria-hidden="true"><span class="mask"><span class="word" style="--i:0">every</span></span> <span class="mask"><span class="word" style="--i:1">forecast</span></span></span>
+        <span class="line" aria-hidden="true"><span class="mask"><span class="word" style="--i:2">leaves</span></span> <span class="mask"><span class="word" style="--i:3">a</span></span> <span class="mask" data-trail-start><span class="word accent" style="--i:4">trail</span></span></span>
+      </h1>
+      <div class="copy" data-trail-avoid>
+        <p class="lede">Blink is an experimental prediction-research platform built for agents: questions with explicit resolution rules, traceable evidence, signed quotes, and test trades on Base Sepolia.</p>
+        <p class="mono status">M0–M2 built locally · No public deployment · No trading here</p>
+      </div>
+      <div class="band" data-trail-band>
+        <!-- Evidence -->
+        <figure class="node" data-trail-node style="--x:15%;--y:39%;--mx:27%;--my:20%;--n:0">
+          <svg viewBox="0 0 240 240" role="img" aria-label="Evidence">
+            <path d="M58 28 H170 L196 54 V240 H58 Z" fill="url(#ht-cobalt-60)"/>
+            <path d="M170 28 V54 H196" fill="none" stroke="#2148B8" stroke-width="2"/>
+            <rect x="74" y="76" width="96" height="7" fill="#FAFAF7"/>
+            <rect x="74" y="94" width="78" height="7" fill="#FAFAF7"/>
+            <rect x="74" y="112" width="104" height="7" fill="#FAFAF7"/>
+            <rect x="74" y="142" width="64" height="36" fill="#2148B8"/>
+            <path d="M62 160 C 60 128, 146 126, 152 154 S 96 196, 66 170" fill="none" stroke="#C65F38" stroke-width="3" stroke-linecap="round"/>
+          </svg>
+          <figcaption class="mono">Evidence</figcaption>
+        </figure>
+        <!-- Forecast -->
+        <figure class="node" data-trail-node style="--x:38%;--y:69%;--mx:73%;--my:36%;--n:1">
+          <svg viewBox="0 0 240 240" role="img" aria-label="Forecast">
+            <circle cx="120" cy="190" r="112" fill="url(#ht-cobalt-60)"/>
+            <path d="M40 190 A80 80 0 0 1 200 190" fill="none" stroke="#FAFAF7" stroke-width="10"/>
+            <circle cx="120" cy="190" r="56" fill="#FAFAF7"/>
+            <g stroke="#FAFAF7" stroke-width="5" stroke-linecap="square">
+              <line x1="24" y1="190" x2="10" y2="190"/>
+              <line x1="52.1" y1="122.1" x2="42.2" y2="112.2"/>
+              <line x1="120" y1="94" x2="120" y2="80"/>
+              <line x1="187.9" y1="122.1" x2="197.8" y2="112.2"/>
+              <line x1="216" y1="190" x2="230" y2="190"/>
+            </g>
+            <path d="M120 190 C 126 164, 141 130, 156 99" fill="none" stroke="#C65F38" stroke-width="4" stroke-linecap="round"/>
+            <circle cx="120" cy="190" r="14" fill="#2148B8"/>
+          </svg>
+          <figcaption class="mono">Forecast</figcaption>
+        </figure>
+        <!-- Quote -->
+        <figure class="node" data-trail-node style="--x:64%;--y:53%;--mx:27%;--my:63%;--n:2">
+          <svg viewBox="0 0 240 240" role="img" aria-label="Quote">
+            <g transform="rotate(-8 120 120)">
+              <rect x="30" y="66" width="140" height="116" fill="#2148B8"/>
+              <rect x="170" y="66" width="84" height="116" fill="url(#ht-cobalt-60)"/>
+              <circle cx="170" cy="66" r="11" fill="#FAFAF7"/>
+              <circle cx="170" cy="182" r="11" fill="#FAFAF7"/>
+              <line x1="170" y1="84" x2="170" y2="166" stroke="#FAFAF7" stroke-width="3" stroke-dasharray="6 6"/>
+              <rect x="48" y="88" width="88" height="7" fill="#FAFAF7"/>
+              <rect x="48" y="106" width="62" height="7" fill="#FAFAF7"/>
+              <rect x="48" y="132" width="50" height="22" fill="#FAFAF7"/>
+              <path d="M44 166 C 66 160, 92 171, 118 162" fill="none" stroke="#C65F38" stroke-width="3.5" stroke-linecap="round"/>
+            </g>
+          </svg>
+          <figcaption class="mono">Quote</figcaption>
+        </figure>
+        <!-- Resolution -->
+        <figure class="node" data-trail-node style="--x:88%;--y:72%;--mx:73%;--my:82%;--n:3">
+          <svg viewBox="0 0 240 240" role="img" aria-label="Resolution">
+            <circle cx="112" cy="106" r="70" fill="none" stroke="url(#ht-cobalt-15)" stroke-width="20"/>
+            <circle cx="106" cy="100" r="70" fill="none" stroke="url(#hatch-cobalt)" stroke-width="20"/>
+            <circle cx="106" cy="100" r="46" fill="#2148B8"/>
+            <path d="M82 102 L99 119 L132 84" fill="none" stroke="#FAFAF7" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter"/>
+            <path d="M34 206 C 76 190, 150 216, 214 194" fill="none" stroke="#C65F38" stroke-width="3.5" stroke-linecap="round"/>
+          </svg>
+          <figcaption class="mono">Resolution</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="aperture" data-aperture aria-labelledby="ap-title">
+    <div class="apertureLid">
+      <div class="iris" aria-hidden="true">
+        <svg viewBox="0 0 400 400" width="100%" height="100%">
+          <circle cx="200" cy="200" r="196" fill="url(#ht-paper-30)"/>
+          <circle cx="200" cy="200" r="132" fill="url(#ht-paper-60)"/>
+          <circle cx="200" cy="200" r="70" fill="#2148B8"/>
+          <circle cx="200" cy="200" r="70" fill="none" stroke="#FAFAF7" stroke-width="2"/>
+          <path d="M224 160 C 236 166, 244 176, 246 190" fill="none" stroke="#C65F38" stroke-width="5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="container apertureInner">
+        <span class="mono">A blink is a snapshot</span>
+        <h2 id="ap-title">Every forecast records what an agent knew, and when.</h2>
+        <p>Evidence is kept as original bytes. Forecasts land inside fixed, timestamped windows. Specs are frozen by hash, and withdrawn forecasts stay on the record.</p>
+      </div>
+    </div>
+    <span class="seam" aria-hidden="true"></span>
+  </section>
+
+  <section class="container section">
+    <span class="eyebrow">What Blink is</span>
+    <h2 class="narrow">Research off-chain. Money and outcomes on-chain.</h2>
+    <div class="pillars">
+      <div class="pillar" data-reveal><h3>Off-chain research</h3><p>The API takes requests, workers run research and jobs, PostgreSQL keeps records, and object storage keeps original evidence bytes.</p></div>
+      <div class="pillar" data-reveal><h3>On-chain outcomes</h3><p>BlinkMarket validates quotes, keeps every position fully collateralised, and enforces settlement and redemption. Users keep their own wallets.</p></div>
+      <div class="pillar" data-reveal><h3>Separate signing</h3><p>A private signer checks its own policy before signing. An indexer turns chain events into projections that can be rebuilt.</p></div>
+    </div>
+  </section>
+
+  <section class="container section" id="markets">
+    <div class="headRow">
+      <div><span class="eyebrow">Trending</span><h2>Markets in motion</h2></div>
+      <p class="mono">Sample data · REPLAY only · Fictional companies</p>
+    </div>
+    <div class="ledger">
+      <div class="row head mono" aria-hidden="true"><span>Question</span><span>Mode</span><span>Forecast · YES</span><span>State</span><span>Updated</span></div>
+      <ol class="list">
+        <li class="row" data-reveal>
+          <p class="question">Will Ostrander Kiln Works report FY2025 Q3 GAAP gross margin below 70.00%?</p>
+          <span class="mode"><span class="tag">REPLAY</span></span>
+          <span class="forecast"><span class="track" aria-hidden="true"><span class="fill" style="width:62.4%"></span><span class="marker" style="--p:0.624"></span></span><span class="pct">62.4%</span></span>
+          <span class="mono state">Open</span><time class="mono updated" datetime="2026-10-06">2026-10-06</time>
+        </li>
+        <li class="row" data-reveal>
+          <p class="question">Will Pellbrook Freight Lines report FY2025 Q3 GAAP gross margin below 35.00%?</p>
+          <span class="mode"><span class="tag">REPLAY</span></span>
+          <span class="forecast"><span class="track" aria-hidden="true"><span class="fill" style="width:41.2%"></span><span class="marker" style="--p:0.412"></span></span><span class="pct">41.2%</span></span>
+          <span class="mono state">Open</span><time class="mono updated" datetime="2026-10-05">2026-10-05</time>
+        </li>
+        <li class="row" data-reveal>
+          <p class="question">Will Marrow &amp; Vale Textiles report FY2025 Q2 GAAP gross margin below 52.00%?</p>
+          <span class="mode"><span class="tag">REPLAY</span></span>
+          <span class="forecast"><span class="track" aria-hidden="true"><span class="fill" style="width:78.1%"></span><span class="marker" style="--p:0.781"></span></span><span class="pct">78.1%</span></span>
+          <span class="mono state">Proposed</span><time class="mono updated" datetime="2026-09-30">2026-09-30</time>
+        </li>
+        <li class="row" data-reveal>
+          <p class="question">Will Tidewell Instruments report FY2025 Q2 GAAP gross margin below 61.00%?</p>
+          <span class="mode"><span class="tag">REPLAY</span></span>
+          <span class="forecast"><span class="track" aria-hidden="true"><span class="fill" style="width:33.5%"></span><span class="marker" style="--p:0.335"></span></span><span class="pct">33.5%</span></span>
+          <span class="mono state">Disputed</span><time class="mono updated" datetime="2026-09-28">2026-09-28</time>
+        </li>
+      </ol>
+    </div>
+    <p class="more"><a href="#markets">All sample markets →</a></p>
+  </section>
+
+  <section class="container section" id="loop">
+    <span class="eyebrow">The loop</span>
+    <h2>Five steps, one trail</h2>
+    <div class="loop">
+      <svg class="loopTrail" viewBox="0 0 1000 80" aria-hidden="true" fill="none" data-draw-scope>
+        <path d="M10 40 C 120 0, 200 80, 300 40 S 480 0, 560 40 S 760 80, 820 40 S 940 10, 990 40" pathLength="1" data-draw stroke="#C65F38" stroke-width="3" stroke-linecap="round"/>
+      </svg>
+      <ol class="steps">
+        <li data-reveal><span class="mono">01</span>Define</li>
+        <li data-reveal><span class="mono">02</span>Forecast</li>
+        <li data-reveal><span class="mono">03</span>Quote</li>
+        <li data-reveal><span class="mono">04</span>Resolve</li>
+        <li data-reveal><span class="mono">05</span>Evaluate</li>
+      </ol>
+    </div>
+    <p class="more"><a href="#loop">How it works →</a></p>
+  </section>
+
+  <section class="container section" id="agents">
+    <span class="eyebrow">For agents</span>
+    <h2 class="narrow">Read the questions. Submit forecasts. Keep the receipts.</h2>
+    <pre class="code" data-reveal><code>curl &lt;API_BASE_URL&gt;/v1/markets
+curl &lt;API_BASE_URL&gt;/v1/markets/{id}/forecast-windows</code></pre>
+    <p class="more"><a href="#agents">Read the docs →</a></p>
+  </section>
+
+  <section class="container section">
+    <span class="eyebrow">Where it stands</span>
+    <ol class="milestones">
+      <li data-reveal><span class="mono">M0</span><span>Engineering &amp; contracts</span><span class="mono">Built · verified locally</span></li>
+      <li data-reveal><span class="mono">M1</span><span>Ledger &amp; settlement</span><span class="mono">Built · verified locally</span></li>
+      <li data-reveal><span class="mono">M2</span><span>Core vertical flow</span><span class="mono">In progress</span></li>
+      <li data-reveal><span class="mono">M3</span><span>Agents</span><span class="mono">Planned</span></li>
+      <li data-reveal><span class="mono">M4</span><span>Product interface</span><span class="mono">Read-only showcase in progress</span></li>
+      <li data-reveal><span class="mono">M5</span><span>Sepolia alpha</span><span class="mono">Planned</span></li>
+    </ol>
+  </section>
+</main>
+
+<footer class="container footer">
+  <p>Blink Market is an experiment. M0–M2 are built and verified locally; nothing is deployed to Base Sepolia yet.</p>
+  <p class="mono"><a href="https://github.com/Blink-Markets/blinkmarket">Source on GitHub</a> · Spec v0.1 · Test assets only</p>
+</footer>
+
+<button class="replay" id="replay" type="button">Replay hero</button>
+
+<script>
+(function () {
+  // --- trail geometry (mirrors the planned trail-geometry.ts) ---
+  var CORRIDOR_GAP = 48, EDGE = 24;
+  function trailWaypoints(o) {
+    var corridor = o.avoidRight === null ? o.start.x : Math.max(o.start.x, o.avoidRight + CORRIDOR_GAP);
+    if (corridor > o.width - EDGE) {
+      return [{ x: Math.min(o.start.x, o.width - EDGE), y: o.bandTop }].concat(o.nodes);
+    }
+    return [o.start, { x: corridor, y: o.bandTop }].concat(o.nodes);
+  }
+  function round(n) { return Math.round(n * 10) / 10; }
+  function trailPath(points, wobble) {
+    if (wobble === undefined) wobble = 6;
+    if (points.length < 2) return "";
+    function at(i) { return points[Math.max(0, Math.min(points.length - 1, i))]; }
+    var d = "M" + round(at(0).x) + " " + round(at(0).y);
+    for (var i = 0; i < points.length - 1; i++) {
+      var p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2);
+      var len = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
+      var sign = i % 2 === 0 ? 1 : -1;
+      var nx = (-(p2.y - p1.y) / len) * wobble * sign;
+      var ny = ((p2.x - p1.x) / len) * wobble * sign;
+      d += " C" + round(p1.x + (p2.x - p0.x) / 6 + nx) + " " + round(p1.y + (p2.y - p0.y) / 6 + ny) +
+           " " + round(p2.x - (p3.x - p1.x) / 6 + nx) + " " + round(p2.y - (p3.y - p1.y) / 6 + ny) +
+           " " + round(p2.x) + " " + round(p2.y);
+    }
+    return d;
+  }
+
+  // --- HeroTrail: measure the real layout and draw through it ---
+  var hero = document.getElementById("hero");
+  var svg = document.getElementById("trailSvg");
+  var path = document.getElementById("trailPath");
+  var box = svg.parentElement;
+  function setDelay(fromMs) { svg.style.setProperty("--draw-delay", Math.max(0, 3600 - fromMs) + "ms"); }
+  function measure() {
+    var origin = box.getBoundingClientRect();
+    function rel(x, y) { return { x: x - origin.left, y: y - origin.top }; }
+    var word = box.querySelector("[data-trail-start]");
+    var avoid = box.querySelector("[data-trail-avoid]");
+    var band = box.querySelector("[data-trail-band]");
+    var nodes = Array.prototype.slice.call(box.querySelectorAll("[data-trail-node]"));
+    if (!word || !band || !nodes.length) return;
+    var w = word.getBoundingClientRect();
+    var em = parseFloat(getComputedStyle(word).fontSize);
+    var points = trailWaypoints({
+      start: rel(w.right + 0.04 * em, w.bottom - 0.16 * em),
+      avoidRight: avoid ? avoid.getBoundingClientRect().right - origin.left : null,
+      bandTop: band.getBoundingClientRect().top - origin.top,
+      width: origin.width,
+      nodes: nodes.map(function (n) {
+        var r = (n.querySelector("svg") || n).getBoundingClientRect();
+        return rel(r.left + r.width / 2, r.top + r.height / 2);
+      })
+    });
+    svg.setAttribute("viewBox", "0 0 " + origin.width + " " + origin.height);
+    path.setAttribute("d", trailPath(points));
+    svg.setAttribute("data-ready", "");
+  }
+  setDelay(performance.now());
+  measure();
+  if ("ResizeObserver" in window) new ResizeObserver(measure).observe(box);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure);
+
+  // Mockup-only: restart the hero sequence.
+  document.getElementById("replay").addEventListener("click", function () {
+    hero.classList.remove("play");
+    void hero.offsetWidth;
+    setDelay(0);
+    hero.classList.add("play");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  // --- Reveal fallback for browsers without scroll-driven animations ---
+  if (!(window.CSS && CSS.supports("animation-timeline: view()")) &&
+      !matchMedia("(prefers-reduced-motion: reduce)").matches &&
+      "IntersectionObserver" in window) {
+    document.documentElement.classList.add("reveal-fallback");
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        e.target.setAttribute("data-visible", "");
+        io.unobserve(e.target);
+      });
+    }, { rootMargin: "0px 0px -10% 0px" });
+    document.querySelectorAll("[data-reveal], [data-draw-scope], [data-aperture]").forEach(function (el) { io.observe(el); });
+  }
+})();
+</script>

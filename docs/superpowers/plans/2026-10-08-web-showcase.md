@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-08-web-showcase-design.md`
 
+**Approved visual reference:** `docs/superpowers/specs/assets/2026-10-08-web-showcase-mockup.html` (mockup v2, approved 2026-10-09). When this plan and the mockup differ visually, the mockup wins; port its markup and CSS rather than reinventing.
+
 ## Global Constraints
 
 - No new third-party npm dependencies. No Tailwind. CSS Modules + `apps/web/app/globals.css` tokens only. (Adding the workspace package `@blink/schemas` to `apps/web` is allowed.)
@@ -18,6 +20,7 @@
 - Fonts: Geist (display/body) and Geist Mono (labels, numbers, status) via `next/font/google`, CSS variables `--font-geist` and `--font-geist-mono`.
 - Light mode only.
 - English copy. Terse, factual, no hype.
+- Blink motif (spec §2.1): eye wordmark that blinks about every 6s; every reveal opens like an eyelid (`clip-path: inset(50% 0 50% 0)` → open), not fade/slide; the hero opens from a terracotta seam; an Aperture section opens from a seam on scroll.
 - Every page shows the testnet strip: `Base Sepolia testnet · Test assets have no value · No trading on this site`.
 - Never claim a Sepolia deployment, live markets, live API, or prior forecast record. Sample markets are `mode: "REPLAY"` with fictional companies. The API host is written as `<API_BASE_URL>`; no invented domains.
 - Any hidden-before-animation style must live inside `@media (prefers-reduced-motion: no-preference)`. Without JS or without scroll-timeline support, all content must be visible.
@@ -61,7 +64,9 @@
   - `Evidence`, `Forecast`, `Quote`, `Resolution`, `Evaluation`: `(props: IllustrationProps) => JSX.Element`, each rendering `<svg viewBox="0 0 240 240" role="img" aria-label={title}>`
   - `Architecture: (props: IllustrationProps) => JSX.Element`, rendering `<svg viewBox="0 0 960 540" role="img">`
   - `TrailSvg({ viewBox, d, className, strokeWidth? }: { viewBox: string; d: string; className?: string; strokeWidth?: number })`: decorative terracotta path drawn on scroll
-  - Pattern ids available on every page: `ht-cobalt-15`, `ht-cobalt-30`, `ht-cobalt-60`, `ht-cobalt-90`, `ht-terracotta-60`, `hatch-cobalt`
+  - Pattern ids available on every page: `ht-cobalt-15`, `ht-cobalt-30`, `ht-cobalt-60`, `ht-cobalt-90`, `ht-terracotta-60`, `ht-paper-30`, `ht-paper-60`, `hatch-cobalt`
+  - Keyframes in `globals.css` usable from CSS Modules by name: `blink-open`, `draw-in`
+  - The fallback observer also marks `[data-aperture]` elements with `data-visible`
   - Global classes: `.container`, `.section`, `.mono`, `.eyebrow`, `.tag`, `.rule`, `.visually-hidden`, `.prose`
   - Reveal hooks: put `data-reveal` on any element to fade or slide it in on scroll; put `data-draw-scope` on an `<svg>` and `data-draw` on a `pathLength={1}` path inside it to draw the path on scroll
   - CSS custom properties: `--ease-out`, `--gutter`, `--max`, `--font-sans`, `--font-mono`
@@ -153,12 +158,14 @@ pre { overflow-x: auto; max-width: 100%; }
       animation-range: entry 10% cover 60%;
     }
   }
-  html.reveal-fallback [data-reveal] { transition: opacity 0.8s var(--ease-out), transform 0.8s var(--ease-out); }
-  html.reveal-fallback [data-reveal]:not([data-visible]) { opacity: 0; transform: translateY(28px); }
+  html.reveal-fallback [data-reveal] { clip-path: inset(-10% -10% -10% -10%); transition: opacity 0.7s var(--ease-out), clip-path 0.7s var(--ease-out); }
+  html.reveal-fallback [data-reveal]:not([data-visible]) { opacity: 0; clip-path: inset(50% 0 50% 0); }
   html.reveal-fallback [data-draw] { stroke-dasharray: 1; stroke-dashoffset: 0; transition: stroke-dashoffset 1.6s var(--ease-out); }
   html.reveal-fallback [data-draw-scope]:not([data-visible]) [data-draw] { stroke-dashoffset: 1; }
 }
-@keyframes reveal-in { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }
+/* Blink: everything opens like an eyelid from its horizontal centre line. */
+@keyframes reveal-in { from { opacity: 0; clip-path: inset(50% 0 50% 0); } to { opacity: 1; clip-path: inset(-10% -10% -10% -10%); } }
+@keyframes blink-open { from { opacity: 0; clip-path: inset(50% 0 50% 0); } to { opacity: 1; clip-path: inset(-10% -10% -10% -10%); } }
 @keyframes draw-in { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
 ```
 
@@ -189,7 +196,7 @@ export function RevealObserver() {
     );
     const observe = () =>
       document
-        .querySelectorAll("[data-reveal]:not([data-visible]), [data-draw-scope]:not([data-visible])")
+        .querySelectorAll("[data-reveal]:not([data-visible]), [data-draw-scope]:not([data-visible]), [data-aperture]:not([data-visible])")
         .forEach((el) => io.observe(el));
     observe();
     const mo = new MutationObserver(observe);
@@ -238,6 +245,12 @@ const screens = [
   { id: "ht-terracotta-60", r: 2.1, color: INK.terracotta },
 ];
 
+// Paper-coloured screens for knockouts on solid cobalt (Aperture iris). Not an extra ink.
+const paperScreens = [
+  { id: "ht-paper-30", r: 1.5 },
+  { id: "ht-paper-60", r: 2.4 },
+];
+
 export function HalftoneDefs() {
   return (
     <svg aria-hidden="true" focusable="false" width="0" height="0" style={{ position: "absolute" }}>
@@ -245,6 +258,11 @@ export function HalftoneDefs() {
         {screens.map((s) => (
           <pattern key={s.id} id={s.id} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <circle cx="3" cy="3" r={s.r} fill={s.color} />
+          </pattern>
+        ))}
+        {paperScreens.map((s) => (
+          <pattern key={s.id} id={s.id} width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <circle cx="3.5" cy="3.5" r={s.r} fill={INK.paper} />
           </pattern>
         ))}
         <pattern id="hatch-cobalt" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(-35)">
@@ -319,7 +337,16 @@ const links = [
 export function SiteHeader() {
   return (
     <header className={`container ${styles.header}`}>
-      <Link href="/" className={styles.wordmark}>Blink</Link>
+      <Link href="/" className={styles.wordmark} aria-label="Blink home">
+        <svg className={styles.eye} viewBox="0 0 34 22" aria-hidden="true">
+          <g className={styles.lid}>
+            <path d="M2 11 Q17 -3 32 11 Q17 25 2 11 Z" fill="none" stroke="#2148B8" strokeWidth="2.4" strokeLinejoin="round" />
+            <circle cx="17" cy="11" r="5.2" fill="#2148B8" />
+            <circle cx="19" cy="9" r="1.4" fill="#C65F38" />
+          </g>
+        </svg>
+        <span>Blink</span>
+      </Link>
       <nav aria-label="Primary" className={styles.nav}>
         {links.map((l) => (
           <Link key={l.href} href={l.href}>{l.label}</Link>
@@ -335,7 +362,13 @@ export function SiteHeader() {
 
 ```css
 .header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px 32px; padding-block: 22px; border-bottom: 1px solid var(--rule); }
-.wordmark { font-weight: 800; font-size: 24px; letter-spacing: -0.05em; color: var(--ink); text-decoration: none; }
+.wordmark { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 24px; letter-spacing: -0.05em; color: var(--ink); text-decoration: none; }
+.eye { width: 34px; height: 22px; overflow: visible; }
+.lid { transform-box: fill-box; transform-origin: center; }
+@media (prefers-reduced-motion: no-preference) {
+  .lid { animation: eye-blink 6s ease-in-out 1.4s infinite; }
+}
+@keyframes eye-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.08); } }
 .nav { display: flex; flex-wrap: wrap; gap: 8px 24px; font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; }
 .nav a { color: var(--ink); text-decoration: none; }
 .nav a:hover { color: var(--cobalt); }
@@ -425,16 +458,17 @@ git commit -m "feat(web): add showcase foundation, tokens, chrome and motion plu
 
 ---
 
-### Task 2: Hero: masked word-by-word headline, accent morph, measured trail
+### Task 2: Hero and Aperture: blink-open intro, masked headline, measured trail, scroll aperture
 
 **Files:**
 - Create: `apps/web/components/home/Hero.tsx`, `apps/web/components/home/Hero.module.css`
 - Create: `apps/web/components/home/HeroTrail.tsx` (client), `apps/web/components/home/trail-geometry.ts` (pure, no imports)
+- Create: `apps/web/components/home/Aperture.tsx`, `apps/web/components/home/Aperture.module.css`
 - Test: `tests/web-trail-geometry.test.ts`
 
 **Interfaces:**
 - Consumes: `Evidence`, `Forecast`, `Quote`, `Resolution` (`IllustrationProps`) from `components/illustrations/*`; `--ease-out`.
-- Produces: `export function Hero(): JSX.Element` (Server Component, no props). Task 7 places it first on `/`.
+- Produces: `export function Hero(): JSX.Element` and `export function Aperture(): JSX.Element` (Server Components, no props). Task 7 places Hero first and Aperture second on `/`.
 - Internal: `type Point = { x: number; y: number }`, `trailWaypoints(input: WaypointInput): Point[]`, and `trailPath(points: readonly Point[], wobble?: number): string`, all in `trail-geometry.ts`.
 
 The text motion is pure CSS keyframes inside `@media (prefers-reduced-motion: no-preference)`; the static styles are the final frame. The trail path is the only JS-driven part. `HeroTrail` measures the real positions of the "trail" underline, the copy block and the four nodes, then builds a path that leaves the underline and passes through every node centre. It re-measures on resize and after fonts load. Without JS, the trail path does not render; the headline, underline and nodes are still complete.
@@ -443,11 +477,12 @@ Timeline (seconds from navigation start):
 
 | t | Event |
 | --- | --- |
-| 0.15 + i·0.22 | word i rises from below its clip mask (0.8s, blur 6px → 0) |
-| 1.6 | copy block fades up |
-| 2.1–3.0 | "trail" gets a terracotta block that wipes across it (0–35%), holds, then collapses to an underline (100%) |
-| 3.0–4.6 | measured trail path draws from the underline through the nodes (delay = `max(0, 3000ms − performance.now())`, so a late hydration starts drawing immediately) |
-| 3.1 + n·0.32 | node n fades or scales in |
+| 0–0.8 | terracotta seam draws across at 28% height and fades while the hero opens like an eyelid (`ellipse()` clip-path, 0.2–0.8s) |
+| 0.75 + i·0.2 | word i rises from below its clip mask (0.8s, blur 6px → 0) |
+| 2.1 | copy block fades up |
+| 2.6–3.5 | "trail" gets a terracotta block that wipes across it (0–35%), holds, then collapses to an underline (100%) |
+| 3.6–5.2 | measured trail path draws from the underline through the nodes (delay = `max(0, 3600ms − performance.now())`, so a late hydration starts drawing immediately) |
+| 3.7 + n·0.32 | node n blinks open (`blink-open`, 0.5s) |
 
 - [ ] **Step 1: Write the failing geometry test** `tests/web-trail-geometry.test.ts`
 
@@ -586,8 +621,8 @@ export function HeroTrail() {
     const svg = svgRef.current;
     const box = svg?.parentElement;
     if (!svg || !box) return;
-    // Start drawing once the underline has formed (3s after navigation), or immediately if hydration was late.
-    svg.style.setProperty("--draw-delay", `${Math.max(0, 3000 - performance.now())}ms`);
+    // Start drawing once the underline has formed (3.6s after navigation), or immediately if hydration was late.
+    svg.style.setProperty("--draw-delay", `${Math.max(0, 3600 - performance.now())}ms`);
 
     const measure = () => {
       const origin = box.getBoundingClientRect();
@@ -735,12 +770,17 @@ export function Hero() {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .word { animation: rise 0.8s var(--ease-out) both; animation-delay: calc(0.15s + var(--i) * 0.22s); }
-  .accent::after { animation: block-then-line 0.9s var(--ease-out) 2.1s both; }
-  .copy { animation: fade-up 0.8s var(--ease-out) 1.6s both; }
+  /* Blink open: a terracotta seam, then the hero opens like an eyelid. */
+  .inner { animation: lid-open 0.6s var(--ease-out) 0.2s backwards; }
+  .inner::before { content: ""; position: absolute; left: 0; right: 0; top: 28%; height: 3px; background: var(--terracotta); opacity: 0; z-index: 2; animation: seam 0.8s var(--ease-out) both; }
+  .word { animation: rise 0.8s var(--ease-out) both; animation-delay: calc(0.75s + var(--i) * 0.2s); }
+  .accent::after { animation: block-then-line 0.9s var(--ease-out) 2.6s both; }
+  .copy { animation: fade-up 0.8s var(--ease-out) 2.1s both; }
   .trailSvg[data-ready] .trailPath { stroke-dasharray: 1; animation: draw 1.6s var(--ease-out) var(--draw-delay, 0s) both; }
-  .node { animation: node-in 0.7s var(--ease-out) both; animation-delay: calc(3.1s + var(--n) * 0.32s); }
+  .node { animation: blink-open 0.5s var(--ease-out) both; animation-delay: calc(3.7s + var(--n) * 0.32s); }
 }
+@keyframes lid-open { from { clip-path: ellipse(70% 0.6% at 50% 28%); } to { clip-path: ellipse(150% 150% at 50% 28%); } }
+@keyframes seam { 0% { opacity: 1; transform: scaleX(0); } 30% { opacity: 1; transform: scaleX(1); } 100% { opacity: 0; transform: scaleX(1); } }
 @keyframes rise { from { transform: translateY(105%); filter: blur(6px); } to { transform: none; filter: none; } }
 @keyframes block-then-line {
   0% { clip-path: inset(0 100% 0 0); }
@@ -750,15 +790,79 @@ export function Hero() {
 }
 @keyframes fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
-@keyframes node-in { from { opacity: 0; transform: translate(-50%, -50%) scale(0.9); } to { opacity: 1; transform: translate(-50%, -50%); } }
 ```
 
+`blink-open` is defined globally in `globals.css` (Task 1). CSS Modules keep global keyframe names when referenced as `animation: blink-open …`. If Turbopack scopes it, define a local copy with the same frames in this file.
+
 Re-measuring on resize changes only the path's `d`; it does not restart the draw animation.
+
+- [ ] **Step 7b: Write `Aperture.tsx` and `Aperture.module.css`** (port from the mockup's `.aperture` block)
+
+```tsx
+import { INK } from "../illustrations/inks";
+import styles from "./Aperture.module.css";
+
+// A blink is a snapshot: full-bleed cobalt panel that opens from a terracotta seam as it scrolls into view.
+export function Aperture() {
+  return (
+    <section className={styles.aperture} data-aperture="" aria-labelledby="aperture-title">
+      <div className={styles.lid}>
+        <div className={styles.iris} aria-hidden="true">
+          <svg viewBox="0 0 400 400" width="100%" height="100%">
+            <circle cx="200" cy="200" r="196" fill="url(#ht-paper-30)" />
+            <circle cx="200" cy="200" r="132" fill="url(#ht-paper-60)" />
+            <circle cx="200" cy="200" r="70" fill={INK.cobalt} />
+            <circle cx="200" cy="200" r="70" fill="none" stroke={INK.paper} strokeWidth="2" />
+            <path d="M224 160 C 236 166, 244 176, 246 190" fill="none" stroke={INK.terracotta} strokeWidth="5" strokeLinecap="round" />
+          </svg>
+        </div>
+        <div className={`container ${styles.inner}`}>
+          <span className="mono">A blink is a snapshot</span>
+          <h2 id="aperture-title">Every forecast records what an agent knew, and when.</h2>
+          <p>
+            Evidence is kept as original bytes. Forecasts land inside fixed, timestamped windows. Specs are frozen by
+            hash, and withdrawn forecasts stay on the record.
+          </p>
+        </div>
+      </div>
+      <span className={styles.seam} aria-hidden="true" />
+    </section>
+  );
+}
+```
+
+```css
+.aperture { position: relative; padding-block: clamp(8px, 2vw, 24px); }
+.lid { position: relative; overflow: hidden; background: var(--cobalt); color: var(--paper); min-height: clamp(440px, 72vh, 760px); display: grid; align-items: center; }
+.inner { position: relative; z-index: 1; display: grid; gap: 24px; padding-block: clamp(64px, 10vw, 128px); }
+.inner :global(.mono) { color: var(--paper); opacity: 0.8; }
+.inner h2 { max-width: 15ch; font-size: clamp(40px, 6.5vw, 96px); font-weight: 800; letter-spacing: -0.05em; color: var(--paper); }
+.inner p { max-width: 46ch; color: var(--paper); opacity: 0.82; font-size: clamp(17px, 1.5vw, 20px); }
+.iris { position: absolute; z-index: 0; right: -14%; top: 50%; width: min(78vw, 820px); aspect-ratio: 1; transform: translateY(-50%); }
+.seam { position: absolute; left: 0; right: 0; top: 50%; height: 3px; margin-top: -1.5px; background: var(--terracotta); opacity: 0; pointer-events: none; }
+@media (max-width: 760px) { .iris { right: -45%; width: 120vw; opacity: 0.6; } }
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .aperture { view-timeline-name: --ap; }
+    .lid { animation: aperture-open linear both; animation-timeline: --ap; animation-range: entry 20% cover 50%; }
+    .seam { animation: seam-scroll linear both; animation-timeline: --ap; animation-range: entry 0% cover 35%; }
+    .iris svg { animation: iris-focus linear both; animation-timeline: --ap; animation-range: entry 20% exit 60%; }
+  }
+  :global(html.reveal-fallback) .lid { clip-path: ellipse(100% 100% at 50% 50%); transition: clip-path 1.3s var(--ease-out); }
+  :global(html.reveal-fallback) .aperture:not([data-visible]) .lid { clip-path: ellipse(60% 0.4% at 50% 50%); }
+}
+@keyframes aperture-open { from { clip-path: ellipse(60% 0.4% at 50% 50%); } to { clip-path: ellipse(100% 100% at 50% 50%); } }
+@keyframes seam-scroll { 0% { opacity: 1; transform: scaleX(0); } 45% { opacity: 1; transform: scaleX(1); } 100% { opacity: 0; transform: scaleX(1); } }
+@keyframes iris-focus { from { transform: scale(1.12) rotate(-6deg); } to { transform: scale(0.96) rotate(4deg); } }
+```
+
+The section is full-bleed (no `.container` on the outer element). The `.lid` hides overflow, so the oversized iris never causes horizontal page scroll.
 
 - [ ] **Step 8: Verify**
 
 Run: `pnpm test` → all pass, including `web-trail-geometry`.
 Run: `pnpm --filter @blink/web typecheck` and `pnpm typecheck` → no errors in `components/home/*` or the new test.
+Run: `grep -n "opacity: 0\|clip-path: inset(50%\|ellipse(60% 0.4%\|ellipse(70% 0.6%" apps/web/components/home/*.css` → every hit is inside `@keyframes` or a `prefers-reduced-motion: no-preference` block. (The `.seam` and `::before` base `opacity: 0` are decorative lines that are meant to stay invisible at rest; that is allowed.)
 
 - [ ] **Step 9: Report** the files changed. In Task 7 the controller checks with screenshots that the path leaves the underline, avoids the copy, and crosses every node centre at 1440px and 375px.
 
@@ -772,6 +876,8 @@ Run: `pnpm --filter @blink/web typecheck` and `pnpm typecheck` → no errors in 
 **Interfaces:**
 - Consumes: `INK`, `IllustrationProps`, and pattern ids from Task 1.
 - Produces: the same exports and signatures as the Task 1 stubs. Do not change them.
+
+Start from the approved mockup (`docs/superpowers/specs/assets/2026-10-08-web-showcase-mockup.html`): its inline SVGs for Evidence, Forecast, Quote and Resolution are the approved baseline. Port them to JSX first (`stroke-width` → `strokeWidth`, hex literals → `INK.*`), then refine within the rules below without changing their overall composition. Evaluation and Architecture are new; match the same density and gesture style.
 
 Rules for every specimen (from the mono-color skill, `~/.claude/skills/mono-color/SKILL.md` "Visual DNA"; read it first):
 - Use only `INK.cobalt`, `INK.terracotta`, `INK.paper` and the halftone or hatch patterns. Do not use `INK.ink` except for `<text>` in Architecture.
@@ -1547,12 +1653,13 @@ Run: `pnpm --filter @blink/web typecheck` and `pnpm typecheck` → no errors in 
 - Possibly modify: `apps/web/components/home/Hero.tsx` coordinates and illustration files, for visual fixes found in Step 5
 
 **Interfaces:**
-- Consumes: `Hero`; `MarketLedger`, `sampleMarkets`; `TrailSvg`; `data-reveal`.
+- Consumes: `Hero`, `Aperture`; `MarketLedger`, `sampleMarkets`; `TrailSvg`; `data-reveal`.
 
 - [ ] **Step 1: Write `app/page.tsx`**
 
 ```tsx
 import Link from "next/link";
+import { Aperture } from "../components/home/Aperture";
 import { Hero } from "../components/home/Hero";
 import { TrailSvg } from "../components/illustrations/Trail";
 import { MarketLedger } from "../components/MarketLedger";
@@ -1580,6 +1687,7 @@ export default function Home() {
   return (
     <>
       <Hero />
+      <Aperture />
 
       <section className="container section">
         <span className="eyebrow">What Blink is</span>
@@ -1679,8 +1787,8 @@ Run: `pnpm build` → succeeds; routes `/`, `/markets`, `/how-it-works`, `/docs`
 
 - [ ] **Step 3: Static motion-safety check**
 
-Run: `grep -rn "opacity: 0\|stroke-dashoffset: 1\|translateY(105%)" apps/web/app apps/web/components --include=*.css`
-Expected: every hit is inside `@keyframes` or inside an `@media (prefers-reduced-motion: no-preference)` block (confirm by reading each file). Fix any that are not.
+Run: `grep -rn "opacity: 0\|stroke-dashoffset: 1\|translateY(105%)\|inset(50% 0 50% 0)\|ellipse(60% 0.4%" apps/web/app apps/web/components --include=*.css`
+Expected: every hit is inside `@keyframes` or inside an `@media (prefers-reduced-motion: no-preference)` block, except the decorative `.seam`/`::before` lines whose resting state is intentionally invisible (confirm by reading each file). Fix any others.
 
 - [ ] **Step 4: Run the dev server**
 
@@ -1692,7 +1800,8 @@ Expected: listening on `http://127.0.0.1:3000`.
 For each route at 1440×900 and 375×812:
 - Screenshot the top of the page and after scrolling.
 - Run `document.documentElement.scrollWidth <= window.innerWidth` in the console. It must be `true`.
-- On `/`, screenshot at about 0.5s, 2.5s and 5s after load to confirm the word rise, the block → underline morph, and the measured trail leaving the underline, routing around the copy block and passing every node centre. Resize between 1440px and 375px and confirm it re-measures. If the start point is off, adjust the `0.04em` / `0.16em` offsets in `HeroTrail.tsx`. If the composition feels cramped, adjust node `x`/`y`/`mx`/`my` in `Hero.tsx`.
+- Compare `/` side by side with the approved mockup (open `docs/superpowers/specs/assets/2026-10-08-web-showcase-mockup.html` as a file). Check: the eye wordmark blinks, the hero opens from the seam, rows open like eyelids, and the Aperture opens from a seam while scrolling.
+- On `/`, screenshot at about 0.5s, 3s and 6s after load to confirm the word rise, the block → underline morph, and the measured trail leaving the underline, routing around the copy block and passing every node centre. Resize between 1440px and 375px and confirm it re-measures. If the start point is off, adjust the `0.04em` / `0.16em` offsets in `HeroTrail.tsx`. If the composition feels cramped, adjust node `x`/`y`/`mx`/`my` in `Hero.tsx`.
 - Review each illustration against the Task 3 rules. Send any that break them back to the illustration implementer or fix them directly.
 
 Stop the dev server when done.

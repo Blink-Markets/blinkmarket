@@ -45,6 +45,18 @@ Blink 主要使用者是 agent，不是人類交易者。網站負責讓訪客�
 - 字體：Geist（display：粗、字距收緊；body）＋ Geist Mono（標籤、數字、狀態）。經 `next/font` 載入。display 與 microcopy 約 10:1。
 - 文案語氣：簡潔、觀察式、事實清楚；不使用銷售語、hype 或 CTA 按鈕式文案（連結以文字連結呈現）。
 
+## 2.1 Blink 視覺母題（2026-10-09 依模擬頁核准）
+
+核准的視覺基準：`docs/superpowers/specs/assets/2026-10-08-web-showcase-mockup.html`（第 2 版）。
+
+- 名稱意義：blink＝一個瞬間、一張快照，對應證據快照、帶時間戳的預測窗口、凍結的規格 hash。
+- 眼睛字標：杏仁形 cobalt 眼＋實心虹膜＋terracotta 小反光，置於「Blink」字前；約每 6 秒眨一次（scaleY 1 → 0.08 → 1）。
+- 統一出場語言「睜眼」：所有揭露（`data-reveal`、hero 節點）以 `clip-path: inset(50% 0 50% 0)` 從水平中線上下撐開，取代淡入上滑。
+- 開場睜眼：hero 先出現 terracotta 眼縫線，再以橢圓 clip-path 從該線撐開，之後才逐字升起。
+- 光圈區塊（Aperture）：hero 之後的全寬 cobalt 區塊。進入視窗時先見 terracotta 縫線，隨捲動以 `ellipse()` clip-path 從縫線撐開；右側網點虹膜隨捲動輕微縮放與旋轉。文案：`A blink is a snapshot` / `Every forecast records what an agent knew, and when.` / `Evidence is kept as original bytes. Forecasts land inside fixed, timestamped windows. Specs are frozen by hash, and withdrawn forecasts stay on the record.`
+- 光圈區塊內的紙色網點（`ht-paper-30`、`ht-paper-60`）是紙色 knockout，不算新油墨。
+- 全部動作僅在 `prefers-reduced-motion: no-preference` 下啟用；否則顯示張開後的最終狀態。
+
 ## 3. 動畫
 
 不加套件：CSS scroll-driven animations、IntersectionObserver、Web Animations API。
