@@ -1,6 +1,6 @@
 .header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 32px; padding-block: 22px; border-bottom: 1px solid var(--rule); }
 .wordmark { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 24px; letter-spacing: -0.05em; color: var(--ink); text-decoration: none; }
-.eye { width: 34px; height: 22px; overflow: visible; }
+.eye { width: 34px; height: 22px; overflow: visible; color: var(--cobalt); }
 .lid { transform-box: fill-box; transform-origin: center; }
 @media (prefers-reduced-motion: no-preference) {
   .lid { animation: eye-blink 6s ease-in-out 1.4s infinite; }

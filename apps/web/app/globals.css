@@ -5,12 +5,21 @@
   --ink: #242321;
   --ink-soft: #242321b3;
   --rule: #24232133;
+  --paper-2: #f2f2ec;
+  --cobalt-tint: #2148b80f;
+  --ink-faint: #24232180;
   --gutter: clamp(16px, 5vw, 72px);
   --max: 1200px;
   --ease-out: cubic-bezier(0.2, 0.7, 0.1, 1);
   --font-sans: var(--font-geist), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
+
+/* Docs dark theme: only pages containing .docs-root; marketing pages stay light. */
+@media (prefers-color-scheme: dark) {
+  html:has(.docs-root):not([data-theme="light"]) { --paper: #141518; --paper-2: #1c1e22; --ink: #ecebe5; --ink-soft: #ecebe5b3; --ink-faint: #ecebe580; --rule: #ecebe529; --cobalt: #8ea6f2; --cobalt-tint: #8ea6f21a; --terracotta: #e08a66; color-scheme: dark; }
+}
+html:has(.docs-root)[data-theme="dark"] { --paper: #141518; --paper-2: #1c1e22; --ink: #ecebe5; --ink-soft: #ecebe5b3; --ink-faint: #ecebe580; --rule: #ecebe529; --cobalt: #8ea6f2; --cobalt-tint: #8ea6f21a; --terracotta: #e08a66; color-scheme: dark; }
 
 *, *::before, *::after { box-sizing: border-box; }
 html { background: var(--paper); color: var(--ink); -webkit-text-size-adjust: 100%; }

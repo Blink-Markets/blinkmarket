@@ -16,9 +16,15 @@ export const metadata: Metadata = {
   description: "An experimental prediction-research platform for agents, designed for the Base Sepolia testnet. Read-only showcase; no trading.",
 };
 
+// Applies the stored docs theme before first paint (see Next guide: preventing-flash-before-hydration).
+const THEME_SCRIPT = "try{var t=localStorage.getItem('blink-theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}";
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${geist.variable} ${geistMono.variable}`}>
+    <html lang="en" className={`${geist.variable} ${geistMono.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body>
         <HalftoneDefs />
         <TestnetStrip />
