@@ -5,7 +5,7 @@ import type { IllustrationProps } from "./types";
 const label: CSSProperties = { fontFamily: "var(--font-mono)", fontSize: 14, letterSpacing: "0.06em" };
 const line = { stroke: INK.cobalt, strokeWidth: 1.5, fill: "none" } as const;
 
-export function Architecture({ className, title = "Blink target architecture" }: IllustrationProps) {
+export function Architecture({ className, title = "Target architecture: web and wallets request quotes from the API; the backend (API, worker, PostgreSQL, evidence storage) asks a private signer for signed quotes; wallets fill and redeem directly on Base Sepolia (BlinkMarket, BlinkTestUSD); an indexer syncs chain events into PostgreSQL. Not a live deployment." }: IllustrationProps) {
   return (
     <svg viewBox="0 0 960 540" className={className} role="img" aria-label={title}>
       {/* Web + Wallet */}
@@ -66,7 +66,7 @@ export function Architecture({ className, title = "Blink target architecture" }:
 
       {/* Funds trail: wallets fill and redeem directly on chain */}
       <path
-        d="M94 194 C 112 120, 236 70, 420 64 C 560 60, 700 66, 790 104 C 832 122, 856 146, 866 170 M851 161 L867 172 L869 153"
+        d="M94 194 C 112 120, 236 70, 420 64 C 556 52, 700 66, 790 104 C 832 122, 856 146, 866 170 M851 161 L867 172 L869 153"
         fill="none"
         stroke={INK.terracotta}
         strokeWidth="3"
