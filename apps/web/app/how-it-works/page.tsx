@@ -86,7 +86,7 @@ export default function HowItWorksPage() {
       <section className="container section">
         <span className="eyebrow">Architecture</span>
         <h2>Who holds what</h2>
-        <Architecture className={styles.architecture} />
+        <div className={styles.archScroll}><Architecture className={styles.architecture} /></div>
         <p className={`mono ${styles.caption}`}>Target architecture, not a live deployment</p>
       </section>
 

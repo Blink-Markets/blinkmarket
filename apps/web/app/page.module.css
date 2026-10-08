@@ -1,0 +1,22 @@
+.narrow { max-width: 18ch; }
+.pillars { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 clamp(24px, 4vw, 56px); margin-top: clamp(40px, 6vw, 72px); border-top: 2px solid var(--ink); }
+.pillar { display: grid; gap: 12px; padding-top: 24px; }
+.pillar p { color: var(--ink-soft); }
+.headRow { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 16px; margin-bottom: 32px; }
+.headRow .mono { color: var(--terracotta); }
+.more { margin-top: 28px; font-family: var(--font-mono); font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; }
+.loop { position: relative; margin-top: clamp(40px, 6vw, 72px); }
+.loopTrail { display: block; width: 100%; height: auto; }
+.steps { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+.steps li { display: grid; gap: 6px; font-size: clamp(20px, 2.4vw, 32px); font-weight: 700; letter-spacing: -0.03em; }
+.steps .mono { color: var(--cobalt); font-weight: 400; }
+.code { margin-top: 32px; padding: 20px 24px; border-left: 3px solid var(--cobalt); }
+.milestones { list-style: none; margin: 24px 0 0; padding: 0; border-top: 2px solid var(--ink); }
+.milestones li { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 16px; align-items: baseline; padding-block: 16px; border-bottom: 1px solid var(--rule); font-size: clamp(18px, 1.8vw, 22px); }
+.milestones li .mono:last-child { color: var(--cobalt); text-align: right; }
+@media (max-width: 760px) {
+  .pillars { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: 1fr 1fr; }
+  .milestones li { grid-template-columns: 48px 1fr; }
+  .milestones li .mono:last-child { grid-column: 2; text-align: left; }
+}

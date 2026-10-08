@@ -11,7 +11,7 @@
 .pct { font-family: var(--font-mono); font-size: 14px; font-variant-numeric: tabular-nums; min-width: 6ch; text-align: right; }
 .state, .updated { color: var(--ink-soft); }
 
-@media (max-width: 860px) {
+@media (max-width: 1024px) {
   .head { display: none; }
   .row { grid-template-columns: 1fr auto; grid-template-areas: "q q" "f f" "m s" "u u"; gap: 12px; }
   .question { grid-area: q; }

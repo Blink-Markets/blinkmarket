@@ -6,7 +6,8 @@
 .flip .art { order: 2; }
 .art { width: min(100%, 420px); height: auto; justify-self: center; }
 .copy { display: grid; gap: 16px; background: var(--paper); padding-block: 12px; }
-.architecture { display: block; width: 100%; height: auto; margin-top: 40px; }
+.archScroll { overflow-x: auto; margin-top: 40px; }
+.architecture { display: block; width: 100%; height: auto; }
 .caption { margin-top: 12px; color: var(--ink-soft); }
 .example { display: grid; gap: 28px; margin-top: 40px; max-width: 760px; }
 .collateral { display: grid; grid-template-columns: 60fr 40fr; height: 56px; font-family: var(--font-mono); font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -19,6 +20,7 @@
 .notList li { padding-block: 14px; border-bottom: 1px solid var(--rule); font-size: clamp(18px, 1.8vw, 22px); text-decoration: line-through; text-decoration-color: var(--terracotta); text-decoration-thickness: 2px; }
 
 @media (max-width: 760px) {
+  .architecture { min-width: 720px; }
   .spine { display: none; }
   .chapter { grid-template-columns: 1fr; }
   .flip .art { order: 0; }
