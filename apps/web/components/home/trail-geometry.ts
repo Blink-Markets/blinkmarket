@@ -15,8 +15,8 @@ const EDGE = 24;
 export function trailWaypoints({ start, avoidRight, bandTop, width, nodes }: WaypointInput): Point[] {
   const corridor = avoidRight === null ? start.x : Math.max(start.x, avoidRight + CORRIDOR_GAP);
   if (corridor > width - EDGE) {
-    // No clear corridor beside the copy (narrow screens): begin at the band edge below the word.
-    return [{ x: Math.min(start.x, width - EDGE), y: bandTop }, ...nodes];
+    // No clear corridor beside the copy (narrow screens): leave the underline, then run down the right gutter.
+    return [start, { x: width - 8, y: start.y }, { x: width - 8, y: bandTop }, ...nodes];
   }
   return [start, { x: corridor, y: bandTop }, ...nodes];
 }

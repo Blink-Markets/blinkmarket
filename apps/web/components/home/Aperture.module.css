@@ -4,19 +4,19 @@
 .inner :global(.mono) { color: var(--paper); opacity: 0.8; }
 .inner h2 { max-width: 15ch; font-size: clamp(40px, 6.5vw, 96px); font-weight: 800; letter-spacing: -0.05em; color: var(--paper); }
 .inner p { max-width: 46ch; color: var(--paper); opacity: 0.82; font-size: clamp(17px, 1.5vw, 20px); }
-.iris { position: absolute; z-index: 0; right: -14%; top: 50%; width: min(78vw, 820px); aspect-ratio: 1; transform: translateY(-50%); }
+.iris { position: absolute; z-index: 0; right: -36%; top: 50%; width: min(78vw, 820px); aspect-ratio: 1; transform: translateY(-50%); }
 .seam { position: absolute; left: 0; right: 0; top: 50%; height: 3px; margin-top: -1.5px; background: var(--terracotta); opacity: 0; pointer-events: none; }
 @media (max-width: 760px) { .iris { right: -45%; width: 120vw; opacity: 0.6; } }
 @media (prefers-reduced-motion: no-preference) {
   @supports (animation-timeline: view()) {
     .aperture { view-timeline-name: --ap; }
     .lid { animation: aperture-open linear both; animation-timeline: --ap; animation-range: entry 20% cover 50%; }
-    .seam { animation: seam-scroll linear both; animation-timeline: --ap; animation-range: entry 0% cover 35%; }
+    .seam { animation: seam-scroll linear both; animation-timeline: --ap; animation-range: entry 0% cover 30%; }
     .iris svg { animation: iris-focus linear both; animation-timeline: --ap; animation-range: entry 20% exit 60%; }
   }
   :global(html.reveal-fallback) .lid { clip-path: ellipse(100% 100% at 50% 50%); transition: clip-path 1.3s var(--ease-out); }
   :global(html.reveal-fallback) .aperture:not([data-visible]) .lid { clip-path: ellipse(60% 0.4% at 50% 50%); }
 }
 @keyframes aperture-open { from { clip-path: ellipse(60% 0.4% at 50% 50%); } to { clip-path: ellipse(100% 100% at 50% 50%); } }
-@keyframes seam-scroll { 0% { opacity: 1; transform: scaleX(0); } 45% { opacity: 1; transform: scaleX(1); } 100% { opacity: 0; transform: scaleX(1); } }
+@keyframes seam-scroll { 0% { opacity: 1; transform: scaleX(0); } 40% { opacity: 1; transform: scaleX(1); } 55%, 100% { opacity: 0; transform: scaleX(1); } }
 @keyframes iris-focus { from { transform: scale(1.12) rotate(-6deg); } to { transform: scale(0.96) rotate(4deg); } }

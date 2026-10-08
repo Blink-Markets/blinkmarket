@@ -5,13 +5,13 @@
 .mask { display: inline-block; overflow: clip; overflow-clip-margin: 0.1em; padding-bottom: 0.08em; vertical-align: bottom; }
 .word { display: inline-block; }
 .accent { position: relative; color: var(--terracotta); }
-/* Final frame: a terracotta underline (bottom 12% of the block). */
+/* Final frame: a terracotta underline (bottom 10% of the block). */
 .accent::after {
   content: "";
   position: absolute;
-  inset: 0.1em -0.04em 0.02em -0.04em;
+  inset: -0.04em -0.06em -0.02em -0.04em;
   background: var(--terracotta);
-  clip-path: inset(88% 0 0 0);
+  clip-path: inset(90% 0 0 0);
 }
 .copy { position: relative; z-index: 1; width: fit-content; max-width: 100%; }
 .lede { max-width: 36ch; margin-top: clamp(28px, 4vw, 48px); font-size: clamp(18px, 1.6vw, 21px); }
@@ -52,7 +52,7 @@
   0% { clip-path: inset(0 100% 0 0); }
   35% { clip-path: inset(0 0 0 0); }
   60% { clip-path: inset(0 0 0 0); }
-  100% { clip-path: inset(88% 0 0 0); }
+  100% { clip-path: inset(90% 0 0 0); }
 }
 @keyframes fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }

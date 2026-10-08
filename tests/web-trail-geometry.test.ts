@@ -21,10 +21,10 @@ test("copy block wider than the start pushes the corridor right", () => {
   assert.deepEqual(points[1], { x: 648, y: 480 });
 });
 
-test("narrow layout with no corridor starts at the band edge below the word", () => {
+test("narrow layout with no corridor runs from the underline down the right gutter", () => {
   const points = trailWaypoints({ start: { x: 300, y: 200 }, avoidRight: 343, bandTop: 520, width: 343, nodes });
-  assert.deepEqual(points[0], { x: 300, y: 520 });
-  assert.deepEqual(points.slice(1), nodes);
+  assert.deepEqual(points.slice(0, 3), [{ x: 300, y: 200 }, { x: 335, y: 200 }, { x: 335, y: 520 }]);
+  assert.deepEqual(points.slice(3), nodes);
 });
 
 test("trailPath starts at the first point and ends each segment on the next point", () => {

@@ -70,7 +70,7 @@ export default function HowItWorksPage() {
       </section>
 
       <section className={`container ${styles.chapters}`}>
-        <TrailSvg viewBox="0 0 40 1000" d="M20 0 C 34 120, 6 220, 20 340 S 34 560, 18 680 S 6 900, 20 1000" className={styles.spine} />
+        <TrailSvg viewBox="0 0 40 1000" d="M20 0 C 34 120, 6 220, 20 340 S 34 560, 18 680 S 6 900, 20 1000" className={styles.spine} stretch />
         {chapters.map(({ n, title, Art, body }, i) => (
           <article key={n} className={i % 2 ? `${styles.chapter} ${styles.flip}` : styles.chapter} data-reveal="">
             <Art className={styles.art} />
