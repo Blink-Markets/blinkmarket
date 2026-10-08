@@ -1,0 +1,58 @@
+.hero { padding-block: clamp(48px, 8vw, 112px) clamp(56px, 8vw, 120px); }
+.inner { position: relative; }
+.headline { position: relative; z-index: 1; font-size: clamp(52px, 11.5vw, 176px); font-weight: 800; letter-spacing: -0.055em; line-height: 0.92; }
+.line { display: block; }
+.mask { display: inline-block; overflow: clip; overflow-clip-margin: 0.1em; padding-bottom: 0.08em; vertical-align: bottom; }
+.word { display: inline-block; }
+.accent { position: relative; color: var(--terracotta); }
+/* Final frame: a terracotta underline (bottom 12% of the block). */
+.accent::after {
+  content: "";
+  position: absolute;
+  inset: 0.1em -0.04em 0.02em -0.04em;
+  background: var(--terracotta);
+  clip-path: inset(88% 0 0 0);
+}
+.copy { position: relative; z-index: 1; width: fit-content; max-width: 100%; }
+.lede { max-width: 36ch; margin-top: clamp(28px, 4vw, 48px); font-size: clamp(18px, 1.6vw, 21px); }
+.status { margin-top: 16px; color: var(--cobalt); }
+
+.trailSvg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
+.trailSvg:not([data-ready]) { visibility: hidden; }
+.trailPath { stroke: var(--terracotta); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+
+.band { position: relative; aspect-ratio: 1000 / 360; margin-top: clamp(40px, 6vw, 72px); }
+.node { position: absolute; z-index: 1; left: var(--x); top: var(--y); width: 16%; margin: 0; transform: translate(-50%, -50%); text-align: center; }
+.node svg { display: block; width: 100%; height: auto; }
+.node figcaption { margin-top: 4px; color: var(--ink-soft); }
+
+@media (max-width: 640px) {
+  .band { aspect-ratio: 400 / 460; }
+  .node { left: var(--mx); top: var(--my); width: 36%; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Blink open: a terracotta seam, then the hero opens like an eyelid. */
+  .inner { animation: lid-open 0.6s var(--ease-out) 0.2s backwards; }
+  .inner::before { content: ""; position: absolute; left: 0; right: 0; top: 28%; height: 3px; background: var(--terracotta); opacity: 0; z-index: 2; animation: seam 0.8s var(--ease-out) both; }
+  .word { animation: rise 0.8s var(--ease-out) both; animation-delay: calc(0.75s + var(--i) * 0.2s); }
+  .accent::after { animation: block-then-line 0.9s var(--ease-out) 2.6s both; }
+  .copy { animation: fade-up 0.8s var(--ease-out) 2.1s both; }
+  .trailSvg[data-ready] .trailPath { stroke-dasharray: 1; animation: draw 1.6s var(--ease-out) var(--draw-delay, 0s) both; }
+  .node { animation: blink-open 0.5s var(--ease-out) both; animation-delay: calc(3.7s + var(--n) * 0.32s); }
+}
+@keyframes blink-open {
+  from { opacity: 0; clip-path: inset(50% 0 50% 0); }
+  to { opacity: 1; clip-path: inset(-10% -10% -10% -10%); }
+}
+@keyframes lid-open { from { clip-path: ellipse(70% 0.6% at 50% 28%); } to { clip-path: ellipse(150% 150% at 50% 28%); } }
+@keyframes seam { 0% { opacity: 1; transform: scaleX(0); } 30% { opacity: 1; transform: scaleX(1); } 100% { opacity: 0; transform: scaleX(1); } }
+@keyframes rise { from { transform: translateY(105%); filter: blur(6px); } to { transform: none; filter: none; } }
+@keyframes block-then-line {
+  0% { clip-path: inset(0 100% 0 0); }
+  35% { clip-path: inset(0 0 0 0); }
+  60% { clip-path: inset(0 0 0 0); }
+  100% { clip-path: inset(88% 0 0 0); }
+}
+@keyframes fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
