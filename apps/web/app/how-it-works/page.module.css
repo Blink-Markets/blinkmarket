@@ -1,0 +1,26 @@
+.title { font-size: clamp(44px, 7.5vw, 104px); font-weight: 800; letter-spacing: -0.05em; max-width: 14ch; }
+.lede { margin-top: 32px; font-size: clamp(18px, 1.6vw, 21px); }
+.chapters { position: relative; display: grid; gap: clamp(72px, 10vw, 140px); padding-bottom: clamp(72px, 10vw, 140px); }
+.spine { position: absolute; left: 50%; top: 0; height: 100%; width: 40px; transform: translateX(-50%); }
+.chapter { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: clamp(32px, 6vw, 96px); align-items: center; }
+.flip .art { order: 2; }
+.art { width: min(100%, 420px); height: auto; justify-self: center; }
+.copy { display: grid; gap: 16px; background: var(--paper); padding-block: 12px; }
+.architecture { display: block; width: 100%; height: auto; margin-top: 40px; }
+.caption { margin-top: 12px; color: var(--ink-soft); }
+.example { display: grid; gap: 28px; margin-top: 40px; max-width: 760px; }
+.collateral { display: grid; grid-template-columns: 60fr 40fr; height: 56px; font-family: var(--font-mono); font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; }
+.taker { background: var(--cobalt); color: var(--paper); padding: 8px 12px; }
+.maker { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Ccircle cx='3' cy='3' r='1.4' fill='%232148B8'/%3E%3C/svg%3E"); color: var(--cobalt); padding: 8px 12px; border: 1px solid var(--cobalt); }
+.payouts { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.payouts th, .payouts td { text-align: left; padding: 12px 8px; border-bottom: 1px solid var(--rule); }
+.payouts th { font-family: var(--font-mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); font-weight: 400; }
+.notList { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 0; max-width: 760px; }
+.notList li { padding-block: 14px; border-bottom: 1px solid var(--rule); font-size: clamp(18px, 1.8vw, 22px); text-decoration: line-through; text-decoration-color: var(--terracotta); text-decoration-thickness: 2px; }
+
+@media (max-width: 760px) {
+  .spine { display: none; }
+  .chapter { grid-template-columns: 1fr; }
+  .flip .art { order: 0; }
+  .art { width: min(72%, 300px); justify-self: start; }
+}
