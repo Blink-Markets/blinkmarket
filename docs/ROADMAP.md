@@ -8,7 +8,7 @@ M0契約收尾與M1帳本已完成本機實作及驗證，詳見 [交付記錄](
 | M1 帳本與結算    | 已實作，本機驗證       | TestUSD/Market、EIP-712、caps、完整結算與贖回、24 個合約 tests/invariant（三位 taker、兩市場）、三種 REPLAY                           |
 | M2 核心垂直流程  | 進行中：核准與單筆建市追蹤已實作 | 已有身份／證據／核准／未簽署意圖及操作員觸發的 MarketCreated、確認數與 reorg 觀測；待接持續 indexer、replacement、reservation/RFQ、signer |
 | M3 Agent         | 待實作                 | allowlist fetch、discovery、雙forecaster/baseline、成本、mandate、營運工作                                                            |
-| M4 產品介面      | 待實作                 | 七類頁面、錢包、有限approve、價格與研究機率分離、錯誤狀態                                                                             |
+| M4 產品介面      | 進行中：唯讀展示站，詳見 [交付記錄](M4_WEB_SHOWCASE_DELIVERY.md) | 七類頁面、錢包、有限approve、價格與研究機率分離、錯誤狀態                                                                             |
 | M5 Sepolia Alpha | 待實作                 | 真實roles/manifest、前瞻題目、RPC與備份演練、外部使用者驗收                                                                           |
 
 本機合約測試與 REPLAY 不是公開部署；身份功能可選啟用，但尚無 production signer／真實 indexer，不啟用 API 交易。完整 DB concurrency/recovery、provider 及正式安全檢視仍在後續驗收範圍。身份與部署基礎現況見 [M2.1 交付](M2_IDENTITY_DELIVERY.md)。

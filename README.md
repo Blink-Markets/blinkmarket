@@ -59,7 +59,7 @@ YES/NO shares are entries in the contract's internal ledger, not transferable to
 
 | Layer                     | Technology                                                                      | Why it fits                                                                                      |
 | ------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Web                       | Next.js / React / TypeScript                                                    | Shared data contracts with the API; currently a host scaffold, not a product UI                  |
+| Web                       | Next.js / React / TypeScript                                                    | Shared data contracts with the API; read-only showcase site; no trading UI yet                  |
 | Backend                   | Node.js / TypeScript / Fastify                                                  | Suited to RPC, database, and model-API I/O, with less cross-language maintenance                 |
 | Application data          | PostgreSQL                                                                      | Transactions, locks, idempotency records, audit trails, a transactional outbox, and durable jobs |
 | Evidence & specifications | Original bytes + Keccak-256; local adapter today, S3-compatible storage planned | Verifiable content without hash drift from reserialization                                       |
