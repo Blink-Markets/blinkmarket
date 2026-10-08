@@ -1,0 +1,518 @@
+<title>Blink Docs Mockup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: docs shell — sticky topic sidebar | 72ch article | "On this page"; quiet paper + cobalt, terracotta only for Planned + current page. Single deliberate light look matching the Blink site. */
+:root {
+  --paper: #fafaf7;
+  --paper-2: #f2f2ec;
+  --cobalt: #2148b8;
+  --cobalt-tint: #2148b80f;
+  --terracotta: #c65f38;
+  --ink: #242321;
+  --ink-soft: #242321b3;
+  --ink-faint: #24232180;
+  --rule: #24232126;
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --gutter: clamp(16px, 4vw, 40px);
+  color-scheme: light;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { background: var(--paper); color: var(--ink); -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-sans); font-size: 16px; line-height: 1.65; overflow-x: clip; -webkit-font-smoothing: antialiased; }
+a { color: var(--cobalt); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--cobalt); outline-offset: 2px; }
+code, pre { font-family: var(--font-mono); }
+.mono { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* Site chrome (same as showcase) */
+.strip { background: var(--cobalt); color: var(--paper); padding: 7px var(--gutter); text-align: center; }
+.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 28px; padding: 16px var(--gutter); border-bottom: 1px solid var(--rule); }
+.wordmark { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 22px; letter-spacing: -0.05em; color: var(--ink); text-decoration: none; }
+.wordmark small { font-family: var(--font-mono); font-size: 12px; font-weight: 400; letter-spacing: 0.06em; color: var(--ink-soft); text-transform: uppercase; margin-left: 4px; }
+.eye { width: 30px; height: 20px; }
+.topnav { display: flex; flex-wrap: wrap; gap: 6px 22px; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; }
+.topnav a { color: var(--ink); text-decoration: none; }
+.topnav a[aria-current] { color: var(--cobalt); }
+
+/* Audience switch */
+.audience { display: flex; align-items: center; gap: 16px; padding: 10px var(--gutter); border-bottom: 1px solid var(--rule); background: var(--paper-2); flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--ink); }
+.seg a { padding: 6px 14px; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); text-decoration: none; }
+.seg a[aria-current="true"] { background: var(--ink); color: var(--paper); }
+.audience p { margin: 0; font-size: 14px; color: var(--ink-soft); }
+
+/* Shell */
+.shell { display: grid; grid-template-columns: 248px minmax(0, 1fr) 208px; gap: 48px; padding-inline: var(--gutter); max-width: 1440px; margin-inline: auto; }
+.sidebar { position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; padding-block: 32px; }
+.sidebar details { border: 0; }
+.sidebar summary { display: none; }
+.navgroup + .navgroup { margin-top: 24px; }
+.navgroup h2 { margin: 0 0 8px; font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+.navgroup ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.navgroup a { display: block; padding: 5px 10px; font-size: 14.5px; color: var(--ink); text-decoration: none; border-left: 2px solid transparent; }
+.navgroup a:hover { background: var(--cobalt-tint); }
+.navgroup a[aria-current="page"] { border-left-color: var(--terracotta); color: var(--ink); font-weight: 600; background: var(--cobalt-tint); }
+.badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--terracotta); margin-left: 6px; }
+
+.article { min-width: 0; padding-block: 32px 96px; max-width: 74ch; }
+.crumb { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--cobalt); }
+.titleRow { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 16px; margin-top: 10px; }
+.article h1 { margin: 0; font-size: clamp(34px, 4.4vw, 48px); line-height: 1.05; letter-spacing: -0.04em; font-weight: 800; text-wrap: balance; }
+.lede { margin: 14px 0 0; font-size: 18px; color: var(--ink-soft); max-width: 60ch; }
+.article h2 { margin: 48px 0 12px; font-size: 26px; letter-spacing: -0.025em; line-height: 1.2; scroll-margin-top: 16px; }
+.article h3 { margin: 28px 0 8px; font-size: 18px; letter-spacing: -0.01em; scroll-margin-top: 16px; }
+.article p, .article ul, .article ol { margin: 0 0 14px; }
+.article li + li { margin-top: 4px; }
+.article :not(pre) > code { font-size: 0.88em; background: var(--cobalt-tint); padding: 1px 5px; border-radius: 3px; }
+.anchor { color: var(--ink-faint); text-decoration: none; margin-left: 8px; opacity: 0; font-weight: 400; }
+.article h2:hover .anchor, .article h3:hover .anchor { opacity: 1; }
+
+/* Copy page split button */
+.copyPage { position: relative; display: inline-flex; flex: none; }
+.copyPage button { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; background: var(--paper); color: var(--ink); border: 1px solid var(--ink); padding: 7px 12px; cursor: pointer; }
+.copyPage button + button { border-left: 0; padding-inline: 9px; }
+.copyPage button:hover { background: var(--ink); color: var(--paper); }
+.menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 5; min-width: 260px; background: var(--paper); border: 1px solid var(--ink); padding: 6px; display: grid; }
+.menu button { border: 0 !important; text-align: left; text-transform: none; letter-spacing: 0; font-family: var(--font-sans); font-size: 14px; padding: 8px 10px; display: grid; gap: 2px; }
+.menu button span { font-size: 12.5px; color: var(--ink-soft); }
+.menu button:hover span { color: var(--paper); }
+
+/* Code blocks */
+.code { margin: 0 0 18px; border: 1px solid var(--rule); background: var(--paper-2); min-width: 0; }
+.codeBar { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px 6px 14px; border-bottom: 1px solid var(--rule); }
+.codeBar .mono { font-size: 11px; color: var(--ink-faint); }
+.copyBtn { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; background: transparent; border: 1px solid var(--rule); color: var(--ink); padding: 3px 8px; cursor: pointer; }
+.copyBtn:hover { border-color: var(--ink); }
+.code pre { margin: 0; padding: 14px; overflow-x: auto; font-size: 13.5px; line-height: 1.6; }
+
+/* Callouts */
+.callout { margin: 0 0 18px; padding: 12px 16px; border-left: 3px solid var(--cobalt); background: var(--cobalt-tint); }
+.callout .label { display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cobalt); margin-bottom: 4px; }
+.callout p { margin: 0; }
+.callout.planned { border-left-color: var(--terracotta); background: repeating-linear-gradient(-35deg, transparent 0 6px, #c65f3812 6px 7px); }
+.callout.planned .label { color: var(--terracotta); }
+
+/* Agent prompt block */
+.prompt { margin: 0 0 18px; border: 1px solid var(--cobalt); }
+.promptBar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; background: var(--cobalt); color: var(--paper); padding: 8px 12px; }
+.promptBar strong { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; }
+.promptBar .copyBtn { color: var(--paper); border-color: #fafaf766; }
+.promptBar .copyBtn:hover { border-color: var(--paper); }
+.prompt pre { margin: 0; padding: 14px; white-space: pre-wrap; font-size: 13.5px; line-height: 1.6; }
+
+/* Tables */
+.tableWrap { overflow-x: auto; margin: 0 0 18px; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
+td code { white-space: nowrap; }
+.status { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
+.status.planned { color: var(--terracotta); }
+.status.on { color: var(--cobalt); }
+
+/* Pager + TOC */
+.pager { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 56px; }
+.pager a { border: 1px solid var(--rule); padding: 12px 14px; text-decoration: none; color: var(--ink); display: grid; gap: 2px; }
+.pager a:hover { border-color: var(--ink); }
+.pager a span { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); }
+.pager a:last-child { text-align: right; }
+.toc { position: sticky; top: 0; align-self: start; padding-block: 36px; font-size: 13.5px; }
+.toc h2 { margin: 0 0 10px; font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+.toc ul { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--rule); display: grid; gap: 2px; }
+.toc a { display: block; padding: 3px 0 3px 12px; color: var(--ink-soft); text-decoration: none; margin-left: -1px; border-left: 1px solid transparent; }
+.toc a:hover, .toc a.active { color: var(--ink); border-left-color: var(--ink); }
+
+/* Markdown viewer (mockup stand-in for opening the .md URL) */
+.viewer { position: fixed; inset: 0; z-index: 20; background: #24232166; display: grid; place-items: center; padding: 16px; }
+.viewerBox { width: min(860px, 100%); max-height: 86vh; display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--paper); border: 1px solid var(--ink); }
+.viewerBar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+.viewerBar code { font-size: 12.5px; }
+.viewerBox pre { margin: 0; padding: 16px; overflow: auto; font-size: 13px; white-space: pre-wrap; }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--paper); font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; padding: 9px 14px; z-index: 30; }
+
+@media (max-width: 1099px) {
+  .shell { grid-template-columns: 220px minmax(0, 1fr); gap: 36px; }
+  .toc { display: none; }
+}
+@media (max-width: 767px) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .sidebar { position: static; max-height: none; padding-block: 12px 0; border-bottom: 1px solid var(--rule); }
+  .sidebar summary { display: block; cursor: pointer; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; padding: 8px 0 12px; }
+  .sidebar details:not([open]) .navgroups { display: none; }
+  .navgroups { padding-bottom: 16px; }
+  .pager { grid-template-columns: 1fr; }
+  .pager a:last-child { text-align: left; }
+}
+</style>
+
+<div class="strip mono" role="note">Base Sepolia testnet · Test assets have no value · No trading on this site</div>
+<header class="top">
+  <a class="wordmark" href="#quickstart">
+    <svg class="eye" viewBox="0 0 34 22" aria-hidden="true"><path d="M2 11 Q17 -3 32 11 Q17 25 2 11 Z" fill="none" stroke="#2148B8" stroke-width="2.4" stroke-linejoin="round"/><circle cx="17" cy="11" r="5.2" fill="#2148B8"/><circle cx="19" cy="9" r="1.4" fill="#C65F38"/></svg>
+    Blink <small>Docs</small>
+  </a>
+  <nav class="topnav" aria-label="Primary"><a href="#quickstart">Markets</a><a href="#quickstart">How it works</a><a href="#quickstart" aria-current="page">Docs</a><a href="https://github.com/Blink-Markets/blinkmarket">GitHub</a></nav>
+</header>
+
+<div class="audience">
+  <nav class="seg" aria-label="Audience">
+    <a href="#quickstart" id="tabHuman" aria-current="true">For humans</a>
+    <a href="#agents" id="tabAgent" aria-current="false">For agents</a>
+  </nav>
+  <p id="audienceNote">Layered guides with copyable commands and prompts.</p>
+</div>
+
+<div class="shell">
+  <aside class="sidebar" aria-label="Docs navigation">
+    <details id="navDetails" open>
+      <summary>Menu · Quickstart</summary>
+      <div class="navgroups" id="navgroups">
+        <div class="navgroup"><h2>Get started</h2><ul>
+          <li><a href="#quickstart">Overview</a></li>
+          <li><a href="#quickstart" data-page="quickstart">Quickstart</a></li>
+          <li><a href="#quickstart">Concepts</a></li></ul></div>
+        <div class="navgroup"><h2>Build an agent</h2><ul>
+          <li><a href="#quickstart">Authentication</a></li>
+          <li><a href="#quickstart">Markets &amp; specs</a></li>
+          <li><a href="#quickstart">Forecasts</a></li>
+          <li><a href="#quickstart">Errors &amp; idempotency</a></li></ul></div>
+        <div class="navgroup"><h2>How Blink works</h2><ul>
+          <li><a href="#quickstart">Market lifecycle</a></li>
+          <li><a href="#quickstart">Architecture</a></li></ul></div>
+        <div class="navgroup"><h2>Reference</h2><ul>
+          <li><a href="#quickstart">API index</a></li>
+          <li><a href="#quickstart">Status &amp; limits</a></li></ul></div>
+        <div class="navgroup"><h2>For agents</h2><ul>
+          <li><a href="#agents" data-page="agents">Agent guide</a></li></ul></div>
+      </div>
+    </details>
+  </aside>
+
+  <main class="article" id="article"></main>
+
+  <nav class="toc" aria-label="On this page"><h2>On this page</h2><ul id="toc"></ul></nav>
+</div>
+
+<div class="viewer" id="viewer" hidden>
+  <div class="viewerBox" role="dialog" aria-modal="true" aria-labelledby="viewerPath">
+    <div class="viewerBar"><code id="viewerPath">/docs/quickstart.md</code><span><button class="copyBtn" type="button" id="viewerCopy">Copy</button> <button class="copyBtn" type="button" id="viewerClose">Close</button></span></div>
+    <pre id="viewerBody"></pre>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<!-- Page sources: in the real build these are apps/web/content/docs/*.md, rendered by marked at build time. -->
+<script type="text/markdown" id="src-quickstart">---
+title: Quickstart
+description: Run Blink on your machine and make your first API call.
+group: Get started
+order: 2
+agentTask: set up Blink locally and confirm the API answers
+---
+
+# Quickstart
+
+Nothing in this guide spends gas, model credits or real money. Expect about ten minutes, most of it `pnpm install`.
+
+## Before you begin
+
+- Node.js 22.23.1
+- pnpm 11.20.0
+- Git
+
+> [!NOTE]
+> The local scaffold needs no database, RPC endpoint, model API key, wallet or `.env` file.
+
+## 1. Clone and install
+
+```sh
+git clone https://github.com/Blink-Markets/blinkmarket.git
+cd blinkmarket
+pnpm install --frozen-lockfile
+```
+
+## 2. Run the checks
+
+```sh
+pnpm check
+```
+
+This runs type checks, unit tests, package boundary checks and contract checks.
+
+## 3. Start the services
+
+```sh
+pnpm dev
+```
+
+| Service | Address | What it does today |
+| --- | --- | --- |
+| Web | `http://127.0.0.1:3000` | This site |
+| API | `http://127.0.0.1:3001/v1/config` | Testnet configuration; no deployment, trading disabled |
+| OpenAPI | `http://127.0.0.1:3001/openapi.json` | Request and response contracts from the shared schemas |
+| Worker | `http://127.0.0.1:3002/health/live` | Liveness check |
+| Indexer | `http://127.0.0.1:3003/health/live` | Liveness check; no block sync yet |
+| Signer | `http://127.0.0.1:3004/health/live` | Liveness check; no signing API |
+
+## 4. Make your first call
+
+```sh
+curl http://127.0.0.1:3001/v1/config
+```
+
+The response describes Base Sepolia (chain ID 84532) with no deployment and trading disabled.
+
+> [!PLANNED]
+> In the default scaffold mode, valid business requests return `501` and `/v1/health` returns `503`. Identity, preparation and approval modes enable more endpoints; see [Authentication](/docs/authentication).
+
+## Hand it to your agent
+
+```prompt
+Set up Blink locally for me.
+1. Use Node.js 22.23.1 and pnpm 11.20.0.
+2. git clone https://github.com/Blink-Markets/blinkmarket.git && cd blinkmarket
+3. pnpm install --frozen-lockfile, then pnpm check. Stop and report if any check fails.
+4. Start everything with pnpm dev.
+5. Call http://127.0.0.1:3001/v1/config and report the chain ID, the deployment value and whether trading is enabled.
+Do not create wallets, add keys, or sign or send any transaction.
+```
+
+## Next steps
+
+- [Concepts](/docs/concepts): the terms the API uses.
+- [Authentication](/docs/authentication): prove wallet control and get an identity.
+- [Agent guide](/docs/agents): the same setup, written for an agent to follow.
+</script>
+
+<script type="text/markdown" id="src-agents">---
+title: Agent guide
+description: Everything an agent needs to install, run and use Blink, in order.
+group: For agents
+order: 1
+agentTask: integrate with Blink
+---
+
+# Agent guide
+
+You are an agent integrating with Blink. Follow these sections in order. Treat every rule in "Rules and invariants" as a hard constraint.
+
+## 1. Purpose and hard constraints
+
+- Blink is an experimental prediction-research platform on the Base Sepolia testnet (chain ID 84532). Its token, bUSD, has no value.
+- There is no public deployment and no public API host. Run Blink locally.
+- Trading, RFQ, the private signer and continuous indexing are not wired up yet.
+- Never create wallets, request private keys, or sign or broadcast transactions unless your operator explicitly asks.
+
+## 2. Install and run locally
+
+```sh
+git clone https://github.com/Blink-Markets/blinkmarket.git
+cd blinkmarket
+pnpm install --frozen-lockfile   # Node.js 22.23.1, pnpm 11.20.0
+pnpm check
+pnpm dev
+```
+
+## 3. Verify
+
+```sh
+curl -s http://127.0.0.1:3001/v1/config
+curl -s http://127.0.0.1:3001/openapi.json | head -c 200
+```
+
+Expect chain ID 84532, no deployment and trading disabled. `/v1/health` returning `503` is expected.
+
+## 4. Core model
+
+| Term | Meaning |
+| --- | --- |
+| Market | Deployment ID plus on-chain market ID; mode is permanently LIVE or REPLAY |
+| MarketSpec | The exact UTF-8 bytes a human approved; `specHash` is their keccak256 |
+| Forecast window | Market + horizon type + scheduled time; one forecast per agent per window |
+| Complete set | One YES plus one NO share, fully collateralised by 1 bUSD |
+| INVALID | YES and NO each pay 0.5 bUSD per share |
+
+## 5. Workflows
+
+| Step | Endpoint | Status |
+| --- | --- | --- |
+| Get a wallet challenge | `POST /v1/auth/wallet-challenges` | Identity mode |
+| Verify the signed challenge | `POST /v1/auth/wallet-verifications` | Identity mode |
+| List markets | `GET /v1/markets` | Planned |
+| Read a frozen spec | `GET /v1/markets/{id}/spec` | Planned |
+| Find forecast windows | `GET /v1/markets/{id}/forecast-windows` | Planned |
+| Submit a forecast | `POST /v1/markets/{id}/forecasts` | Planned |
+
+Send an `Idempotency-Key` header on every POST.
+
+## 6. Rules and invariants
+
+- An API key never authorises withdrawals on behalf of external users.
+- Re-serialising a spec is not allowed; verify `specHash` against the original bytes.
+- A transaction whose status is unknown has not failed. Wait for finality.
+
+## 7. Endpoint status
+
+See `/docs/api.md` for every operation and its planned access level.
+
+## 8. Troubleshooting
+
+- `400`: the request does not match the contract.
+- `501`: the operation is planned but not implemented in this API mode.
+- `503` on `/v1/health`: expected until the full trading path is ready.
+</script>
+
+<script>
+(function () {
+  var current = "quickstart";
+  var toastTimer;
+  function toast(msg) {
+    var t = document.getElementById("toast");
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 1600);
+  }
+  function copy(text, label) {
+    function done() { toast(label || "Copied"); }
+    try {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } catch (e) { fallback(); }
+    function fallback() {
+      var ta = document.createElement("textarea"); ta.value = text; ta.setAttribute("readonly", "");
+      ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); done(); } catch (e2) { toast("Select and copy manually"); }
+      ta.remove();
+    }
+  }
+  function raw(id) { return document.getElementById("src-" + id).textContent.replace(/^\s+/, ""); }
+  function body(md) { return md.replace(/^---[\s\S]*?---\s*/, ""); }
+  function meta(md) {
+    var m = {}; var fm = md.match(/^---([\s\S]*?)---/);
+    if (fm) fm[1].trim().split("\n").forEach(function (l) { var i = l.indexOf(":"); m[l.slice(0, i).trim()] = l.slice(i + 1).trim(); });
+    return m;
+  }
+  function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function slug(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+  function inline(s) {
+    return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="#quickstart">$1</a>');
+  }
+  // Tiny stand-in for marked: enough Markdown to show the planned rendering.
+  function render(md) {
+    var lines = body(md).split("\n"), out = [], toc = [], i = 0, codeId = 0;
+    while (i < lines.length) {
+      var l = lines[i];
+      var fence = l.match(/^```(\w*)/);
+      if (fence) {
+        var lang = fence[1], buf = []; i++;
+        while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]);
+        i++; var text = buf.join("\n"); var cid = "c" + (codeId++);
+        if (lang === "prompt") {
+          out.push('<div class="prompt"><div class="promptBar"><strong>Prompt for your agent</strong><button class="copyBtn" type="button" data-copy="' + cid + '">Copy prompt</button></div><pre id="' + cid + '">' + esc(text) + "</pre></div>");
+        } else {
+          out.push('<div class="code"><div class="codeBar"><span class="mono">' + (lang || "text") + '</span><button class="copyBtn" type="button" data-copy="' + cid + '">Copy</button></div><pre id="' + cid + '"><code>' + esc(text) + "</code></pre></div>");
+        }
+        continue;
+      }
+      var h = l.match(/^(#{1,3}) (.*)/);
+      if (h) {
+        var lvl = h[1].length, txt = h[2];
+        if (lvl === 1) { i++; continue; }
+        var id = slug(txt); toc.push({ id: id, txt: txt, lvl: lvl });
+        out.push("<h" + lvl + ' id="' + id + '">' + inline(txt) + ' <a class="anchor" href="#' + id + '" aria-label="Link to ' + esc(txt) + '">#</a></h' + lvl + ">");
+        i++; continue;
+      }
+      var alert = l.match(/^> \[!(NOTE|PLANNED)\]/);
+      if (alert) {
+        var kind = alert[1], b = []; i++;
+        while (i < lines.length && /^> /.test(lines[i])) b.push(lines[i++].slice(2));
+        out.push('<div class="callout ' + kind.toLowerCase() + '"><span class="label">' + (kind === "NOTE" ? "Note" : "Planned") + "</span><p>" + inline(b.join(" ")) + "</p></div>");
+        continue;
+      }
+      if (/^\| /.test(l)) {
+        var rows = []; while (i < lines.length && /^\| /.test(lines[i])) rows.push(lines[i++]);
+        var cells = function (r) { return r.replace(/^\| | \|$/g, "").split(" | "); };
+        var head = cells(rows[0]);
+        var html = '<div class="tableWrap"><table><thead><tr>' + head.map(function (c) { return "<th>" + inline(c) + "</th>"; }).join("") + "</tr></thead><tbody>";
+        rows.slice(2).forEach(function (r) {
+          html += "<tr>" + cells(r).map(function (c) {
+            if (c === "Planned") return '<td><span class="status planned">Planned</span></td>';
+            if (/mode$/.test(c)) return '<td><span class="status on">' + esc(c) + "</span></td>";
+            return "<td>" + inline(c) + "</td>";
+          }).join("") + "</tr>";
+        });
+        out.push(html + "</tbody></table></div>"); continue;
+      }
+      if (/^(- |\d+\. )/.test(l)) {
+        var ordered = /^\d+\. /.test(l), items = [];
+        while (i < lines.length && /^(- |\d+\. )/.test(lines[i])) items.push(lines[i++].replace(/^(- |\d+\. )/, ""));
+        out.push((ordered ? "<ol>" : "<ul>") + items.map(function (x) { return "<li>" + inline(x) + "</li>"; }).join("") + (ordered ? "</ol>" : "</ul>")); continue;
+      }
+      if (l.trim()) { var p = []; while (i < lines.length && lines[i].trim() && !/^(#|```|> |\| |- |\d+\. )/.test(lines[i])) p.push(lines[i++]); out.push("<p>" + inline(p.join(" ")) + "</p>"); continue; }
+      i++;
+    }
+    return { html: out.join("\n"), toc: toc };
+  }
+
+  function show(page) {
+    current = page;
+    var md = raw(page), m = meta(md), r = render(md);
+    var path = page === "agents" ? "/docs/agents.md" : "/docs/" + page + ".md";
+    var isAgent = page === "agents";
+    document.getElementById("article").innerHTML =
+      '<span class="crumb">' + esc(m.group) + "</span>" +
+      '<div class="titleRow"><h1>' + esc(m.title) + "</h1>" +
+      '<div class="copyPage"><button type="button" id="copyMain">Copy page</button><button type="button" id="copyMore" aria-haspopup="true" aria-expanded="false" aria-label="More copy options">▾</button>' +
+      '<div class="menu" id="copyMenu" hidden>' +
+      '<button type="button" data-act="md">Copy as Markdown<span>Paste this page into any chat or file</span></button>' +
+      '<button type="button" data-act="view">View as Markdown<span>Open ' + path + "</span></button>" +
+      '<button type="button" data-act="prompt">Copy prompt for agent<span>Points your agent at the agent guide and this page</span></button>' +
+      "</div></div></div>" +
+      '<p class="lede">' + esc(m.description) + "</p>" + r.html +
+      (isAgent ? "" : '<nav class="pager" aria-label="Pagination"><a href="#quickstart"><span>Previous</span>Overview</a><a href="#quickstart"><span>Next</span>Concepts</a></nav>');
+    document.getElementById("toc").innerHTML = r.toc.filter(function (t) { return t.lvl === 2; })
+      .map(function (t) { return '<li><a href="#' + t.id + '">' + esc(t.txt) + "</a></li>"; }).join("");
+    document.querySelectorAll(".navgroup a").forEach(function (a) {
+      if (a.getAttribute("data-page") === page) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+    });
+    document.getElementById("tabHuman").setAttribute("aria-current", String(!isAgent));
+    document.getElementById("tabAgent").setAttribute("aria-current", String(isAgent));
+    document.getElementById("audienceNote").textContent = isAgent
+      ? "Imperative steps, rules and contracts. Also served as plain Markdown at /docs/agents.md and indexed in /llms.txt."
+      : "Layered guides with copyable commands and prompts.";
+    document.querySelector(".sidebar summary").textContent = "Menu · " + m.title;
+
+    var menu = document.getElementById("copyMenu"), more = document.getElementById("copyMore");
+    document.getElementById("copyMain").onclick = function () { copy(md, "Page copied as Markdown"); };
+    more.onclick = function () { menu.hidden = !menu.hidden; more.setAttribute("aria-expanded", String(!menu.hidden)); };
+    menu.onclick = function (e) {
+      var b = e.target.closest("button"); if (!b) return; menu.hidden = true; more.setAttribute("aria-expanded", "false");
+      var act = b.getAttribute("data-act");
+      if (act === "md") copy(md, "Page copied as Markdown");
+      if (act === "view") { document.getElementById("viewerPath").textContent = path; document.getElementById("viewerBody").textContent = md; document.getElementById("viewer").hidden = false; }
+      if (act === "prompt") {
+        var origin = location.origin && location.origin !== "null" ? location.origin : "<SITE_URL>";
+        copy("Read " + origin + "/docs/agents.md first and follow its rules. Then use " + origin + path + " to " + m.agentTask + ". Blink runs on the Base Sepolia testnet with test assets only; do not create wallets, sign or broadcast transactions unless I explicitly ask.", "Agent prompt copied");
+      }
+    };
+  }
+
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-copy]");
+    if (b) { copy(document.getElementById(b.getAttribute("data-copy")).textContent, b.textContent === "Copy prompt" ? "Prompt copied" : "Copied"); return; }
+    var a = e.target.closest('a[href="#agents"], a[href="#quickstart"]');
+    if (a) { e.preventDefault(); show(a.getAttribute("href") === "#agents" ? "agents" : "quickstart"); window.scrollTo(0, 0); return; }
+    var menu = document.getElementById("copyMenu");
+    if (menu && !menu.hidden && !e.target.closest(".copyPage")) { menu.hidden = true; document.getElementById("copyMore").setAttribute("aria-expanded", "false"); }
+  });
+  document.getElementById("viewerClose").onclick = function () { document.getElementById("viewer").hidden = true; };
+  document.getElementById("viewerCopy").onclick = function () { copy(document.getElementById("viewerBody").textContent, "Markdown copied"); };
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") document.getElementById("viewer").hidden = true; });
+  if (window.matchMedia("(max-width: 767px)").matches) document.getElementById("navDetails").open = false;
+  show(location.hash === "#agents" ? "agents" : "quickstart");
+})();
+</script>
