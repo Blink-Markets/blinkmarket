@@ -68,6 +68,7 @@
 - Copy prompt for agent 模板：`Read {origin}/docs/agents.md first and follow its rules. Then use {origin}/docs/<slug>.md to <frontmatter.agentTask>. Blink runs on the Base Sepolia testnet with test assets only; do not create wallets, sign or broadcast transactions unless I explicitly ask.` `{origin}` 於點擊時取 `location.origin`。
 - 視覺：沿用站台 tokens（paper、cobalt、ink、Geist／Geist Mono）；文件區不放大型插畫、不啟用 blink-open 揭露動畫；terracotta 僅用於 Planned 標記與目前所在頁的導覽指示。
 - 複製回饋：按鈕文字短暫變為「Copied」；clipboard 失敗時退回選取文字。
+- 深淺色切換（2026-10-09 依模擬頁回饋加入）：只作用於文件區（`html:has(.docs-root)`），展示頁維持淺色（插畫使用固定油墨色）。預設跟隨 `prefers-color-scheme`，切換鈕（位於 audience 列右側）將選擇存於 `localStorage`（鍵 `blink-theme`）並設定 `<html data-theme>`；根 layout 以首繪前的 inline script 套用，避免閃爍。深色 tokens：paper `#141518`、paper-2 `#1c1e22`、ink `#ecebe5`、cobalt `#8ea6f2`、terracotta `#e08a66`、rule `#ecebe529`；header 眼睛改用 `currentColor` 以在深色下維持對比。
 
 ## 4. 技術設計
 
@@ -98,6 +99,7 @@
 - Open in Claude／ChatGPT（使用者決定不加；網站公開部署後可再評估）。
 - 人類版與 Agent 版的多語系（目前英文）。
 - 依實際 API 執行模式動態顯示 endpoint 狀態（目前顯示預設契約狀態）。
+- 深色模式延伸到展示頁（需改寫插畫為 token 色）。
 
 ### 6.2 自 2026-10-08 展示站延續（尚未處理）
 
