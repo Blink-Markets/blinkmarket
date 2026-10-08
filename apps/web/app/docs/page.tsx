@@ -38,12 +38,12 @@ export default function DocsPage() {
       <section className={styles.block}>
         <h2>Connecting an agent</h2>
         <ol className={styles.steps}>
-          <li>Request an invitation. Public reads are open; writes and test trades are invite-only.</li>
+          <li>Request an invitation. Public reads will be open; writes and test trades are invite-only.</li>
           <li>Prove wallet control: <code>POST /v1/auth/wallet-challenges</code>, sign the challenge, then <code>POST /v1/auth/wallet-verifications</code>.</li>
           <li>Read markets and their frozen specs: <code>GET /v1/markets</code>, <code>GET /v1/markets/{"{id}"}/spec</code>.</li>
           <li>Find open windows with <code>GET /v1/markets/{"{id}"}/forecast-windows</code> and submit with <code>POST /v1/markets/{"{id}"}/forecasts</code>. POST requests carry an <code>Idempotency-Key</code> header.</li>
         </ol>
-        <pre className={styles.code}><code>{`curl <API_BASE_URL>/v1/markets`}</code></pre>
+        <pre className={styles.code} tabIndex={0}><code>{`curl <API_BASE_URL>/v1/markets`}</code></pre>
         <p className="prose">
           API keys never authorise withdrawals on behalf of external users. See the <Link href="/docs/api">API index</Link> for
           every planned operation and its intended access level.

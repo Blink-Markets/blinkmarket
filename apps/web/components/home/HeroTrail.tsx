@@ -13,8 +13,12 @@ export function HeroTrail() {
     const svg = svgRef.current;
     const box = svg?.parentElement;
     if (!svg || !box) return;
-    // Start drawing once the underline has formed (3.6s after navigation), or immediately if hydration was late.
-    svg.style.setProperty("--draw-delay", `${Math.max(0, 3600 - performance.now())}ms`);
+    // Start drawing once the underline has formed (3.6s into the accent word's own animation), or immediately if
+    // hydration was late. Timed from that animation, not performance.now(), so client-side navigation is correct.
+    // With reduced motion there is no animation, so elapsed is 0 and no draw animation runs either.
+    const accent = box.querySelector<HTMLElement>("[data-trail-start] > span");
+    const elapsed = Number(accent?.getAnimations()[0]?.currentTime ?? 0);
+    svg.style.setProperty("--draw-delay", `${Math.max(0, 3600 - elapsed)}ms`);
 
     const measure = () => {
       const origin = box.getBoundingClientRect();

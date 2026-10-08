@@ -1,7 +1,7 @@
 .docs { padding-block: clamp(48px, 8vw, 112px); }
 .subnav { display: flex; gap: 24px; margin-bottom: clamp(40px, 6vw, 72px); }
 .title { font-size: clamp(44px, 7vw, 96px); font-weight: 800; letter-spacing: -0.05em; }
-.notice { margin-top: 20px; color: var(--terracotta); }
+.notice { margin-top: 20px; color: var(--ink); border-left: 3px solid var(--terracotta); padding-left: 10px; }
 .block { margin-top: clamp(56px, 8vw, 96px); display: grid; gap: 20px; }
 .terms { display: grid; grid-template-columns: minmax(140px, 220px) minmax(0, 1fr); margin: 0; border-top: 2px solid var(--ink); }
 .terms dt, .terms dd { margin: 0; padding-block: 16px; border-bottom: 1px solid var(--rule); }

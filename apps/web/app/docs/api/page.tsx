@@ -18,7 +18,7 @@ export default function ApiIndexPage() {
       {groups.map(({ group, operations }) => (
         <section key={group} className={styles.block}>
           <h2>{group}</h2>
-          <div className={styles.tableWrap}>
+          <div className={styles.tableWrap} role="region" aria-label={`${group} operations`} tabIndex={0}>
             <table className={styles.ops}>
               <thead><tr><th>Method</th><th>Path</th><th>Planned access</th><th>Status</th></tr></thead>
               <tbody>

@@ -18,7 +18,9 @@ test("wide layout leaves the underline and routes beside the copy block", () => 
 
 test("copy block wider than the start pushes the corridor right", () => {
   const points = trailWaypoints({ start: { x: 500, y: 260 }, avoidRight: 600, bandTop: 480, width: 1000, nodes });
-  assert.deepEqual(points[1], { x: 648, y: 480 });
+  assert.deepEqual(points[1], { x: 648, y: 260 });
+  assert.deepEqual(points[2], { x: 648, y: 480 });
+  assert.deepEqual(points.slice(3), nodes);
 });
 
 test("narrow layout with no corridor runs from the underline down the right gutter", () => {

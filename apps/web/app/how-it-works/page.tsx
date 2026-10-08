@@ -86,7 +86,7 @@ export default function HowItWorksPage() {
       <section className="container section">
         <span className="eyebrow">Architecture</span>
         <h2>Who holds what</h2>
-        <div className={styles.archScroll}><Architecture className={styles.architecture} /></div>
+        <div className={styles.archScroll} role="region" aria-label="Architecture diagram" tabIndex={0}><Architecture className={styles.architecture} /></div>
         <p className={`mono ${styles.caption}`}>Target architecture, not a live deployment</p>
       </section>
 
@@ -116,6 +116,7 @@ export default function HowItWorksPage() {
 
       <section className="container section" data-reveal="">
         <span className="eyebrow">Out of scope for v0.1</span>
+        <h2>Not in this version</h2>
         <ul className={styles.notList}>{notInScope.map((x) => <li key={x}>{x}</li>)}</ul>
       </section>
     </>

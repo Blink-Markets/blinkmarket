@@ -3,7 +3,7 @@
 .pillar { display: grid; gap: 12px; padding-top: 24px; }
 .pillar p { color: var(--ink-soft); }
 .headRow { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 16px; margin-bottom: 32px; }
-.headRow .mono { color: var(--terracotta); }
+.headRow .mono { color: var(--ink); border-left: 3px solid var(--terracotta); padding-left: 10px; }
 .more { margin-top: 28px; font-family: var(--font-mono); font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; }
 .loop { position: relative; margin-top: clamp(40px, 6vw, 72px); }
 .loopTrail { display: block; width: 100%; height: auto; }

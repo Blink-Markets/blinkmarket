@@ -13,7 +13,6 @@
     "next": "16.3.5",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "@blink/domain": "workspace:*",
     "@blink/schemas": "workspace:*"
   },
   "devDependencies": {

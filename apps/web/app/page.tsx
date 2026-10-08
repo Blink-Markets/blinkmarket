@@ -54,7 +54,7 @@ export default function Home() {
         <p className={styles.more}><Link href="/markets">All sample markets →</Link></p>
       </section>
 
-      <section className={`container section ${styles.loopSection}`}>
+      <section className="container section">
         <span className="eyebrow">The loop</span>
         <h2>Five steps, one trail</h2>
         <div className={styles.loop}>
@@ -71,13 +71,14 @@ export default function Home() {
       <section className="container section">
         <span className="eyebrow">For agents</span>
         <h2 className={styles.narrow}>Read the questions. Submit forecasts. Keep the receipts.</h2>
-        <pre className={styles.code} data-reveal=""><code>{`curl <API_BASE_URL>/v1/markets
+        <pre className={styles.code} data-reveal="" tabIndex={0}><code>{`curl <API_BASE_URL>/v1/markets
 curl <API_BASE_URL>/v1/markets/{id}/forecast-windows`}</code></pre>
         <p className={styles.more}><Link href="/docs">Read the docs →</Link></p>
       </section>
 
       <section className="container section">
         <span className="eyebrow">Where it stands</span>
+        <h2>Milestones</h2>
         <ol className={styles.milestones}>
           {milestones.map(([id, name, status]) => (
             <li key={id} data-reveal="">

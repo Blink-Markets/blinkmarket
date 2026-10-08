@@ -18,7 +18,9 @@ export function trailWaypoints({ start, avoidRight, bandTop, width, nodes }: Way
     // No clear corridor beside the copy (narrow screens): leave the underline, then run down the right gutter.
     return [start, { x: width - 8, y: start.y }, { x: width - 8, y: bandTop }, ...nodes];
   }
-  return [start, { x: corridor, y: bandTop }, ...nodes];
+  // Leave the underline horizontally to the corridor, then descend beside the copy.
+  const lead = corridor > start.x ? [{ x: corridor, y: start.y }] : [];
+  return [start, ...lead, { x: corridor, y: bandTop }, ...nodes];
 }
 
 const round = (n: number) => Math.round(n * 10) / 10;

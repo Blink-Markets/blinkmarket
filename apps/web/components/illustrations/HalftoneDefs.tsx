@@ -5,8 +5,6 @@ const screens = [
   { id: "ht-cobalt-15", r: 0.9, color: INK.cobalt },
   { id: "ht-cobalt-30", r: 1.4, color: INK.cobalt },
   { id: "ht-cobalt-60", r: 2.1, color: INK.cobalt },
-  { id: "ht-cobalt-90", r: 2.7, color: INK.cobalt },
-  { id: "ht-terracotta-60", r: 2.1, color: INK.terracotta },
 ];
 
 // Paper-coloured screens for knockouts on solid cobalt (Aperture iris). Not an extra ink.

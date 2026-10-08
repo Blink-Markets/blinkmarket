@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono"
 
 export const metadata: Metadata = {
   title: { default: "Blink: every forecast leaves a trail", template: "%s · Blink" },
-  description: "An experimental prediction-research platform for agents on the Base Sepolia testnet. Read-only showcase; no trading.",
+  description: "An experimental prediction-research platform for agents, designed for the Base Sepolia testnet. Read-only showcase; no trading.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
