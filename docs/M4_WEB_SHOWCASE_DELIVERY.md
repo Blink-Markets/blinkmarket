@@ -46,7 +46,7 @@ The shared working tree held unrelated uncommitted M2 creation-tracking work, so
 
 - Sample data is static; nothing is read from the API or chain.
 - No market detail, trading, wallet or positions pages; M4 (product interface) is not complete.
-- Only Chromium was exercised. Real Safari and Firefox behaviour is unverified; Firefox lacks scroll-driven animations and uses the IntersectionObserver fallback, which was not exercised. No real-device testing.
+- Originally only Chromium was exercised. Superseded by the cross-browser suite below (Firefox and WebKit now covered; real Safari and real devices still untested).
 - The API index shows the default contract status from `@blink/schemas`, not a deployment.
 
 ## Docs system
@@ -72,15 +72,23 @@ Design: [spec](superpowers/specs/2026-10-09-docs-system-design.md), [plan](super
 
 ### Limitations
 
-- Only Chromium was exercised; no Safari, Firefox or real-device testing. The `::details-content` desktop nav rule depends on browser support; browsers without it rely on a small script to open the nav, so with JavaScript disabled they may show a closed menu on desktop.
+- Superseded by the cross-browser suite below for Firefox and WebKit; real Safari and real devices remain untested. The `::details-content` desktop nav rule depends on browser support; browsers without it rely on a small script to open the nav, so with JavaScript disabled they may show a closed menu on desktop.
 - Page facts are written by hand and checked against the repository; they are not generated, so they can drift from the code.
 - Status words are static (`Identity mode`, `Preparation mode`, `Approval mode`, `Planned`); there is no live per-mode endpoint status.
 - There is no public API or docs host; all commands and prompts use `http://127.0.0.1:3000` and `http://127.0.0.1:3001`.
 
+### Syntax highlighting and cross-browser suite (2026-10-09)
+
+- **Syntax highlighting:** docs code fences (shell, json, ts/js, http) are highlighted at build time with Shiki 4.4.3 (`apps/web/lib/docs/highlight.ts`), using a CSS-variables theme mapped to Blink tokens (cobalt for keywords and commands, lighter cobalt for strings and constants, faint ink italic for comments). No client JavaScript is added, dark mode follows the tokens, and copied text is unchanged. `text` and `prompt` fences stay plain.
+- **Cross-browser suite:** `pnpm test:browsers` (Playwright 1.63.0, `tests/browser/`) builds the site, runs `next start` on 127.0.0.1:3200 and checks Chromium, Firefox and WebKit at 1440×900 and 375×812: seven routes (200, no console or page errors, no horizontal overflow by element rects), hero trail measurement and reduced-motion final frame, no reveal left hidden after scrolling, the `/how-it-works` spine fully drawn, docs copy payloads, docs-only dark theme, and the mobile/desktop docs nav.
+- **Result on the merged code (clean worktree):** 87 passed, 9 skipped by design (features absent at that viewport), 0 failed. Firefox used the IntersectionObserver reveal fallback and still drew the spine fully; Chromium and WebKit used scroll-driven animations. `pnpm check`: 80 tests pass.
+
 ### Open items (not done yet; carry forward)
 
-From the docs-system plan's scope (spec §6.1): site search; syntax highlighting; Open in Claude/ChatGPT; localisation; live per-mode endpoint status; dark mode on marketing pages (needs token-coloured illustrations).
+From the docs-system plan's scope (spec §6.1): site search (deferred by the user on 2026-10-09); Open in Claude/ChatGPT; localisation; live per-mode endpoint status; dark mode on marketing pages (needs token-coloured illustrations).
 
-Carried from the 2026-10-08 showcase (spec §6.2): real Safari, Firefox and device testing (including the IntersectionObserver fallback and the `/how-it-works` spine under the fallback); the overflow check method (`overflow-x: clip` masks `scrollWidth`, so use element rects; Task 7 does); deduplicating `.code`, table header and `.title` styles; the unused `.visually-hidden` class (could label the ledger's Forecast column); the Architecture `aria-label` is too long (use a short label plus `<desc>`); Architecture bottom whitespace; whether to keep the Evaluation histogram; no skip link; README/ROADMAP table padding; user confirmation still pending on disclaimer colour (ink plus terracotta marker) and on per-model commit trailers; the rest of M4 (market detail, trading, positions, resolution, admin pages, live API data).
+New from the 2026-10-09 additions: `pnpm test:browsers` is not in CI yet (needs browser downloads in CI); real Safari (only the WebKit engine is tested) and real devices; mobile projects emulate viewport width only, not touch; highlighted tokens use inline `style` attributes, which a future strict CSP without `style-src 'unsafe-inline'` would block; `escapeHtml` is duplicated in `render.ts` and `highlight.ts`; the theme browser test asserts a background change rather than a specific dark value.
+
+Carried from the 2026-10-08 showcase (spec §6.2): the overflow check method (`overflow-x: clip` masks `scrollWidth`, so use element rects; Task 7 does); deduplicating `.code`, table header and `.title` styles; the unused `.visually-hidden` class (could label the ledger's Forecast column); the Architecture `aria-label` is too long (use a short label plus `<desc>`); Architecture bottom whitespace; whether to keep the Evaluation histogram; no skip link; README/ROADMAP table padding; user confirmation still pending on disclaimer colour (ink plus terracotta marker) and on per-model commit trailers; the rest of M4 (market detail, trading, positions, resolution, admin pages, live API data).
 
 Resolved by the docs-system plan: the SiteHeader eye's hard-coded hex (now `currentColor`). The `.visually-hidden` class is now also used by the docs copy-feedback live regions.
