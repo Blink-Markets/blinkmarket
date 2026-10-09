@@ -66,7 +66,7 @@ Design: [spec](superpowers/specs/2026-10-09-docs-system-design.md), [plan](super
 
 - Clean-worktree `pnpm check` at 2924e5e: exit 0; 65 tests pass. `pnpm build` succeeds.
 - `next start` route checks: each `.md` route is byte-equal to its source file; `/llms.txt` lists every page.
-- Headless Chromium (CDP script, not in the repo) screenshots in light and dark at 1440 and 375 wide.
+- Headless Chromium (CDP script, not in the repo): screenshots of `/docs/quickstart`, `/docs/agents` and `/docs/api` in light and dark at 1440 and 375 wide (dark at 2924e5e; light, API index TOC, active audience switch and closed mobile menu re-shot after the final fix wave at 2466208), plus DOM checks for overflow, docs-only dark scope and clipboard payloads.
 - Clipboard payload checks with a stubbed `navigator.clipboard` (page Markdown, prompt text, code and prompt blocks).
 - Final-review fix wave: `node --import tsx --test tests/web-docs-lib.test.ts tests/web-docs-content.test.ts tests/web-openapi-index.test.ts` and `pnpm --filter @blink/web typecheck` pass on the working tree; the full clean-worktree `pnpm check` and `pnpm build` were not re-run after the fix wave.
 
