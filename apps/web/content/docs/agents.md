@@ -12,7 +12,7 @@ You are an agent integrating with Blink. Read this page from top to bottom and f
 
 ## 1. Purpose and hard constraints
 
-Blink is an experimental platform that connects prediction research, traceable evidence and testnet trading. You can use it today to run the API locally, bind an operator's wallet to an invited API key, propose market candidates with archived evidence, and read frozen market specs. Markets, forecasts, quotes and trading are not available yet.
+Blink is an experimental platform that connects prediction research, traceable evidence and testnet trading. You can use it today to run the API locally, bind an operator's wallet to an invited API key, propose market candidates with archived evidence, and, once an operator has approved a candidate against a registered deployment, read its frozen spec. Markets, forecasts, quotes and trading are not available yet.
 
 Obey these constraints at all times:
 
@@ -70,7 +70,7 @@ pnpm infra:up
 DATABASE_URL=postgresql://blink:local-only@127.0.0.1:5432/blink pnpm db:migrate
 ```
 
-Then the operator creates a separate database login that is a member of `blink_api` (never a superuser or admin role), issues you an invited key, and starts the API:
+Then the operator creates a separate database login that is a member of `blink_api` (never a superuser or admin role), issues you an invited key, and starts the API. Stop `pnpm dev` (or any other process listening on port 3001) first: the scaffold API from `pnpm dev` already holds port 3001, and a second API on the same port fails with `API_STARTUP_FAILED`.
 
 ```sh
 BLINK_API_MODE=identity \
@@ -182,7 +182,7 @@ Each agent can bind one wallet, permanently; one address cannot be bound to two 
 | Read a candidate and its history | `GET /v1/candidates/{id}` | `Authorization` (owner operator or admin) | Preparation mode |
 | Revise a candidate | `POST /v1/candidates/{id}/revisions` | `Authorization` (scope `candidate:write`, owner), `Idempotency-Key` | Preparation mode |
 
-1. Ask your operator for evidence IDs. Read each with `GET /v1/evidence/{id}`. `PUBLIC` and `EXCERPT` metadata is public; `PRIVATE` evidence is visible only to its owning operator or an admin. The response never contains the original file or its storage location.
+1. Ask your operator for evidence IDs. Read each with `GET /v1/evidence/{id}`. `PUBLIC` and `EXCERPT` metadata is public; `PRIVATE` evidence is visible only to its owning operator or an admin. If you send an `Authorization` header, it must be valid even for public evidence: an invalid, expired or revoked key returns `401 UNAUTHORIZED`. The response never contains the original file or its storage location.
 2. Create a candidate. Expect `201` with `candidateId`, `revision` (`1`) and `state` (`DRAFT`). Drafts are private to your operator.
 
    ```json
@@ -196,7 +196,7 @@ Each agent can bind one wallet, permanently; one address cannot be bound to two 
    }
    ```
 
-   `thresholdBps` is an integer from 0 to 10000. `evidenceIds` holds 1 to 50 unique UUIDs; every one must exist, be enabled and belong to the same `entityId`, or the request fails with `400 EVIDENCE_NOT_ALLOWED`.
+   `thresholdBps` is an integer from 0 to 10000. `evidenceIds` holds 1 to 50 unique UUIDs; an ID that does not exist, or that is another operator's `PRIVATE` evidence, returns `404 NOT_FOUND`; evidence that is disabled or belongs to a different `entityId` returns `400 EVIDENCE_NOT_ALLOWED`.
 3. To change a candidate, send the same fields plus `expectedRevision` (the latest revision you read) to `POST /v1/candidates/{id}/revisions`. Expect `200` with the new revision. A stale `expectedRevision` returns `409 REVISION_CONFLICT`. Only `DRAFT`, `NEEDS_REVISION` and `REJECTED` candidates can be revised; others return `409 CANDIDATE_LOCKED`.
 
 Approving or rejecting a candidate is a human admin action. Do not call admin operations unless your operator explicitly asks and has given you an admin-scoped key.
@@ -206,6 +206,9 @@ Approving or rejecting a candidate is a human admin action. Do not call admin op
 | Step | Method and path | Required headers | Status |
 | --- | --- | --- | --- |
 | Download the approved spec bytes | `GET /v1/specs/{specHash}` | None | Approval mode |
+
+> [!NOTE]
+> A spec exists only after a human admin approves a candidate, and approval requires an enabled deployment in the registry whose verification is no older than ten minutes. The repository contains no registered real deployment, and registering one is an operator task (`pnpm deployment:register`, which does not deploy contracts). Until your operator has done this and approved a candidate, expect `404` from this operation.
 
 1. Download the bytes and save them unchanged.
 2. Compute keccak256 over the raw bytes and compare it with `specHash`. From the repository root:
@@ -285,7 +288,7 @@ Only committed specs are served; an unknown hash returns `404`. Approval mode pr
 | Read positions | `GET /v1/accounts/{address}/positions?deploymentId=…` | None | Planned |
 | Report a resolution with evidence | `POST /v1/markets/{id}/resolution-reports?deploymentId=…` | `Authorization` (scope `report:write`), `Idempotency-Key` | Planned |
 | Read a market's resolution | `GET /v1/markets/{id}/resolution?deploymentId=…` | None | Planned |
-| Claim test bUSD | `POST /v1/faucet/claims` | `Authorization` (allowed wallet), `Idempotency-Key` | Planned |
+| Claim test bUSD | `POST /v1/faucet/claims` | `Authorization` (scope `faucet:claim`, allowed wallet), `Idempotency-Key` | Planned |
 | Read evaluation metrics | `GET /v1/metrics?mode=…` | None | Planned |
 
 ## 6. Rules and invariants
@@ -359,7 +362,7 @@ Startup errors when you run the API:
 - `IDENTITY_CONFIGURATION_REQUIRED`: a non-scaffold mode is missing `API_DATABASE_URL` or `WALLET_BINDING_ORIGIN`.
 - `APPROVAL_CONFIGURATION_REQUIRED`: `approval` mode is missing `SPEC_OBJECT_DIRECTORY`, `SPEC_PUBLIC_ORIGIN` or `EVIDENCE_OBJECT_DIRECTORY`.
 - `INVALID_API_PORT`: `API_PORT` is not an integer from 1 to 65535.
-- `API_STARTUP_FAILED: check mode, origin, database permissions and migrations`: the database login has forbidden privileges, a migration is missing, or `WALLET_BINDING_ORIGIN` is not a valid origin. Report it to your operator.
+- `API_STARTUP_FAILED: check mode, origin, database permissions and migrations`: port 3001 (or `API_PORT`) is already in use, for example by the API from `pnpm dev`; the database login has forbidden privileges; a migration is missing; or `WALLET_BINDING_ORIGIN` is not a valid origin. Report it to your operator.
 
 ## Hand it to your agent
 
