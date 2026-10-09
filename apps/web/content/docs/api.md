@@ -11,7 +11,7 @@ agentTask: look up an endpoint, its method and whether it is available locally
 The table below is generated from the shared schemas in the repository, so it matches the OpenAPI document the API serves at `http://127.0.0.1:3001/openapi.json`.
 
 > [!NOTE]
-> The status shown is the default one, for the `scaffold` API mode. Set `BLINK_API_MODE` to `identity`, `preparation` or `approval` to enable the endpoints marked `Identity mode`, `Preparation mode` or `Approval mode`. See [Status](/docs/status) for the full list. There is no public API host.
+> The Status column shows the default scaffold status: `not-implemented` until an API mode enables an operation. Which mode (`BLINK_API_MODE`: `identity`, `preparation` or `approval`) enables which endpoints is listed on [Status](/docs/status). There is no public API host.
 
 <!-- generated:api-index -->
 

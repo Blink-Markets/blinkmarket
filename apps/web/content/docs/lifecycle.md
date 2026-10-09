@@ -73,7 +73,7 @@ A separate question from market state is how settled a transaction is on the cha
 
 - `UNKNOWN` is not failure. A missing receipt never justifies automatically sending a new economic intent.
 - `PRECONFIRMED` is only a hint. It does not count as a settled position.
-- `INCLUDED` and `FINALIZED` are different levels. Do not treat a fixed number of blocks as Ethereum finality.
+- `INCLUDED` and `FINALIZED` are different levels. Do not treat a fixed number of blocks as Base L1 finality.
 
 The current market-creation tracker applies a fixed observation policy of 12 confirmations. That is explicitly not Base L1 finality; see `docs/M2_CREATION_TRACKING.md`.
 

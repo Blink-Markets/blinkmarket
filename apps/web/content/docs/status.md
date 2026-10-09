@@ -35,10 +35,10 @@ The API starts in the mode set by `BLINK_API_MODE`: `scaffold` (default), `ident
 | `Identity mode` | `/v1/auth/wallet-challenges`, `/v1/auth/wallet-verifications` |
 | `Preparation mode` | `/v1/candidates`, `/v1/candidates/:id`, `/v1/candidates/:id/revisions`, `/v1/admin/candidates/:id/reject`, `/v1/evidence/:id` |
 | `Approval mode` | `/v1/admin/candidates/:id/approve`, `/v1/admin/creation-intents/:id`, `/v1/specs/:specHash`, `/v1/admin/creation-intents/:id/chain-status` |
-| `Planned` | Everything else in the [API reference](/docs/api), including markets, forecasts, RFQs, quotes, transactions, positions, resolution, faucet and metrics |
+| `Planned` | Everything else in the [API reference](/docs/api) (which shows the default scaffold status, not mode names), including markets, forecasts, RFQs, quotes, transactions, positions, resolution, faucet and metrics |
 
 > [!NOTE]
-> The scaffold mode needs no database, RPC endpoint, model API key, wallet or `.env` file. The identity, preparation and approval modes are opt-in and use PostgreSQL.
+> The scaffold mode needs no database, RPC endpoint, model API key, wallet or `.env` file. The identity, preparation and approval modes are opt-in and need configuration. Every non-scaffold mode requires `API_DATABASE_URL` and `WALLET_BINDING_ORIGIN`; approval mode also requires `SPEC_OBJECT_DIRECTORY`, `SPEC_PUBLIC_ORIGIN` and `EVIDENCE_OBJECT_DIRECTORY`. The API refuses to start without them (see `apps/api/src/config.ts`).
 
 Other things that run locally:
 

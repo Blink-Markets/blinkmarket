@@ -32,7 +32,7 @@ Web, API, Worker, Indexer and Signer share one codebase and domain definitions, 
 | Signer | 3004 | Restricted signing for maker quotes and similar roles (target); private boundary |
 | Contracts | n/a | Collateral, fills, positions, final outcomes and redemption; not upgradeable |
 
-All local ports are on `127.0.0.1`. Today the worker, indexer and signer answer a liveness check only.
+All local ports are on `127.0.0.1`. Today the worker, indexer and signer answer a liveness check only; the worker also serves `/jobs`, a planned job list reported as `enabled: false`.
 
 ## Where are the trust boundaries?
 
