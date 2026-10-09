@@ -11,6 +11,10 @@
   --gutter: clamp(16px, 5vw, 72px);
   --max: 1200px;
   --ease-out: cubic-bezier(0.2, 0.7, 0.1, 1);
+  /* Fixed footer palette: never overridden by the docs dark theme below. */
+  --footer-sky: #2148b8;
+  --footer-paper: #fafaf7;
+  --footer-trail: #c65f38;
   --font-sans: var(--font-geist), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }

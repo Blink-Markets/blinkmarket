@@ -1,0 +1,224 @@
+<title>Blink Footer Mockup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: page content on paper, then a full-bleed cobalt footer whose lower band is an engraved paper landscape; the terracotta trail ends at an eye-sun on the horizon. Single deliberate light look (footer is always cobalt + paper). */
+:root {
+  --paper: #fafaf7;
+  --cobalt: #2148b8;
+  --terracotta: #c65f38;
+  --ink: #242321;
+  --ink-soft: #242321b3;
+  --on-cobalt: #fafaf7;
+  --on-cobalt-soft: #fafaf7b8;
+  --on-cobalt-rule: #fafaf740;
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --gutter: clamp(16px, 5vw, 72px);
+  --ease-out: cubic-bezier(0.2, 0.7, 0.1, 1);
+  color-scheme: light;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; overflow-x: clip; }
+a { color: inherit; }
+.container { max-width: calc(1200px + 2 * var(--gutter)); margin-inline: auto; padding-inline: var(--gutter); }
+.mono { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* Stand-in for the page above */
+.page { padding-block: 96px 120px; }
+.page h2 { font-size: clamp(34px, 5vw, 64px); letter-spacing: -0.04em; margin: 0 0 16px; }
+.page p { max-width: 56ch; color: var(--ink-soft); font-size: 18px; line-height: 1.6; margin: 0; }
+
+/* Footer */
+.footer { background: var(--cobalt); color: var(--on-cobalt); position: relative; overflow: hidden; }
+.footTop { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); gap: 40px clamp(24px, 4vw, 64px); padding-block: clamp(56px, 8vw, 96px) 40px; }
+.brand { display: grid; gap: 18px; align-content: start; }
+.wordmark { display: inline-flex; align-items: center; gap: 12px; font-weight: 800; font-size: 30px; letter-spacing: -0.05em; text-decoration: none; color: var(--on-cobalt); }
+.wordmark svg { width: 40px; height: 26px; }
+.tagline { margin: 0; font-size: 19px; line-height: 1.45; max-width: 24ch; }
+.tagline em { font-style: normal; color: var(--on-cobalt); border-bottom: 2px solid var(--terracotta); }
+.about { margin: 0; color: var(--on-cobalt-soft); font-size: 15px; line-height: 1.6; max-width: 34ch; }
+.col h2 { margin: 0 0 18px; font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--on-cobalt); }
+.col h2::after { content: ""; display: block; width: 28px; height: 1px; background: var(--on-cobalt-soft); margin-top: 12px; }
+.col ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.col a { color: var(--on-cobalt); text-decoration: none; font-size: 16px; }
+.col a:hover { text-decoration: underline; text-underline-offset: 4px; }
+.col a code { font-family: var(--font-mono); font-size: 14px; }
+.footMeta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding-block: 20px 0; border-top: 1px solid var(--on-cobalt-rule); color: var(--on-cobalt-soft); }
+.footMeta a { color: var(--on-cobalt-soft); }
+
+/* Landscape band */
+.land { display: block; width: 100%; height: clamp(220px, 27vw, 400px); margin-top: clamp(16px, 3vw, 40px); }
+.land .trail { stroke: var(--terracotta); fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.land .lid { transform-box: fill-box; transform-origin: center; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .footer.play .land .trail { stroke-dasharray: 1; animation: draw 3.2s var(--ease-out) 0.3s both; }
+  .footer.play .land .walker { animation: appear 0.6s var(--ease-out) 2.2s both; }
+  .footer.play .land .lid { animation: blink-once 0.5s ease-in-out 3.4s both, blink-idle 7s ease-in-out 6s infinite; }
+  .footer.play .land .rays { animation: rays 2.4s var(--ease-out) 0.2s both; }
+}
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes appear { from { opacity: 0; } to { opacity: 1; } }
+@keyframes blink-once { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.06); } }
+@keyframes blink-idle { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(0.06); } }
+@keyframes rays { from { opacity: 0; } to { opacity: 1; } }
+
+@media (max-width: 860px) {
+  .footTop { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .brand { grid-column: 1 / -1; }
+}
+@media (max-width: 420px) {
+  .footTop { grid-template-columns: minmax(0, 1fr); }
+}
+
+.replay { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 10; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--paper); background: var(--ink); border: 0; padding: 10px 14px; cursor: pointer; }
+</style>
+
+<section class="page container">
+  <h2>…the rest of the page</h2>
+  <p>This stand-in shows how the paper page hands over to the cobalt footer. Scroll down: the trail from the hero ends here, at a blinking sun on the horizon.</p>
+</section>
+
+<footer class="footer" id="footer">
+  <div class="container">
+    <div class="footTop">
+      <div class="brand">
+        <a class="wordmark" href="#top" aria-label="Blink home">
+          <svg viewBox="0 0 34 22" aria-hidden="true"><path d="M2 11 Q17 -3 32 11 Q17 25 2 11 Z" fill="none" stroke="#FAFAF7" stroke-width="2.4" stroke-linejoin="round"/><circle cx="17" cy="11" r="5.2" fill="#FAFAF7"/><circle cx="19" cy="9" r="1.4" fill="#C65F38"/></svg>
+          Blink
+        </a>
+        <p class="tagline">Every forecast leaves a <em>trail</em>.</p>
+        <p class="about">An experimental prediction-research platform for agents, built for the Base Sepolia testnet. Test assets only.</p>
+      </div>
+      <nav class="col" aria-label="Explore"><h2>Explore</h2><ul><li><a href="#">Markets</a></li><li><a href="#">How it works</a></li><li><a href="#">Docs</a></li></ul></nav>
+      <nav class="col" aria-label="Developers"><h2>Developers</h2><ul><li><a href="#">Quickstart</a></li><li><a href="#">Agent guide</a></li><li><a href="#">API reference</a></li><li><a href="#"><code>llms.txt</code></a></li></ul></nav>
+      <nav class="col" aria-label="Project"><h2>Project</h2><ul><li><a href="#">Status</a></li><li><a href="https://github.com/Blink-Markets/blinkmarket">GitHub</a></li></ul></nav>
+    </div>
+    <div class="footMeta mono">
+      <span>Base Sepolia testnet · Test assets have no value</span>
+      <span>M0–M1 built locally · M2 in progress</span>
+    </div>
+  </div>
+  <svg class="land" id="land" viewBox="0 120 1600 360" preserveAspectRatio="xMidYMax slice" role="img" aria-label="An engraved landscape: a trail winds across rolling hills toward an eye-shaped sun rising on the horizon."></svg>
+</footer>
+
+<button class="replay" id="replay" type="button">Replay footer</button>
+
+<script>
+(function () {
+  // Deterministic engraving: same seed, same landscape (the real build renders this server-side).
+  var NS = "http://www.w3.org/2000/svg";
+  var PAPER = "#FAFAF7", COBALT = "#2148B8";
+  var W = 1600, H = 480;
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var rand = rng(20261009);
+  function el(name, attrs, parent) { var n = document.createElementNS(NS, name); for (var k in attrs) n.setAttribute(k, attrs[k]); (parent || svg).appendChild(n); return n; }
+  function r(n) { return Math.round(n * 10) / 10; }
+  var svg = document.getElementById("land");
+
+  // Ridge = sum of sines + optional bumps; returns y for x.
+  function ridge(base, amp, waves, bumps) {
+    return function (x) {
+      var y = 0;
+      for (var i = 0; i < waves.length; i++) y += waves[i][0] * Math.sin(x * waves[i][1] + waves[i][2]);
+      for (var j = 0; j < (bumps || []).length; j++) { var b = bumps[j]; y += b[2] * Math.exp(-Math.pow((x - b[0]) / b[1], 2)); }
+      return base - amp * y;
+    };
+  }
+  var SUN = { x: 1030, y: 236, r: 46 };
+  var layers = [
+    { f: ridge(236, 1, [[26, 0.004, 0.6], [14, 0.011, 2.1], [7, 0.027, 0.3], [2.5, 0.09, 1.7]], [[1320, 120, 78], [1250, 60, 22], [380, 150, 40], [520, 70, 18], [SUN.x, 70, -30]]), gap: 2.5, w: 0.85, op: 0.9 },
+    { f: ridge(272, 1, [[14, 0.006, 1.9], [7, 0.017, 0.4], [3, 0.05, 1.2]], [[700, 220, 18], [SUN.x, 120, -10]]), gap: 4.2, w: 1.0, op: 0.8 },
+    { f: ridge(304, 1, [[8, 0.008, 2.7], [4, 0.022, 1.1], [2, 0.06, 0.2]], [[200, 260, 10]]), gap: 5.4, w: 1.1, op: 0.75 },
+  ];
+
+  // Sky speckle and sunburst
+  for (var s = 0; s < 70; s++) el("circle", { cx: r(rand() * W), cy: r(rand() * 190), r: r(0.6 + rand() * 0.9), fill: PAPER, opacity: r(0.12 + rand() * 0.25) });
+  var rays = el("g", { class: "rays" });
+  for (var a = 0; a < 36; a++) {
+    var ang = Math.PI + (a / 35) * Math.PI;
+    var r1 = SUN.r + 14, r2 = SUN.r + 40 + (a % 2 ? 0 : 22);
+    el("line", { x1: r(SUN.x + Math.cos(ang) * r1), y1: r(SUN.y + Math.sin(ang) * r1), x2: r(SUN.x + Math.cos(ang) * r2), y2: r(SUN.y + Math.sin(ang) * r2), stroke: PAPER, "stroke-width": 1.2, opacity: 0.55, "stroke-linecap": "round" }, rays);
+  }
+  // Eye-sun (behind the far ridge)
+  el("circle", { cx: SUN.x, cy: SUN.y, r: SUN.r, fill: PAPER });
+  var lid = el("g", { class: "lid" });
+  el("path", { d: "M" + (SUN.x - 30) + " " + SUN.y + " Q" + SUN.x + " " + (SUN.y - 26) + " " + (SUN.x + 30) + " " + SUN.y + " Q" + SUN.x + " " + (SUN.y + 26) + " " + (SUN.x - 30) + " " + SUN.y + " Z", fill: "none", stroke: COBALT, "stroke-width": 3.2, "stroke-linejoin": "round" }, lid);
+  el("circle", { cx: SUN.x, cy: SUN.y, r: 9.5, fill: COBALT }, lid);
+  el("circle", { cx: SUN.x + 3.5, cy: SUN.y - 3.5, r: 2.4, fill: "#C65F38" }, lid);
+
+  // Hills: paper fill + engraved contour hatching that follows each ridge, broken like burin strokes.
+  layers.forEach(function (L, i) {
+    var pts = [];
+    for (var x = 0; x <= W; x += 8) pts.push([x, L.f(x)]);
+    var d = "M0 " + H + " L" + pts.map(function (p) { return r(p[0]) + " " + r(p[1]); }).join(" L") + " L" + W + " " + H + " Z";
+    var id = "clip" + i;
+    var cp = el("clipPath", { id: id }, el("defs", {}));
+    el("path", { d: d }, cp);
+    el("path", { d: d, fill: PAPER });
+    var g = el("g", { "clip-path": "url(#" + id + ")", stroke: COBALT, "stroke-width": L.w, fill: "none", "stroke-linecap": "round", opacity: L.op });
+    var rows = Math.ceil(70 / L.gap);
+    for (var k = 1; k < rows; k++) {
+      var off = k * L.gap * (1 + k * 0.05);
+      var x0 = 0;
+      while (x0 < W) {
+        var len = 30 + rand() * 120, gapLen = 4 + rand() * 14 + k * 0.6;
+        var seg = [];
+        for (var xx = x0; xx < Math.min(W, x0 + len); xx += 6) seg.push(r(xx) + " " + r(L.f(xx) + off + Math.sin(xx * 0.05 + k) * 0.8));
+        if (seg.length > 1 && rand() > 0.08 + k * 0.012) el("path", { d: "M" + seg.join(" L") }, g);
+        x0 += len + gapLen;
+      }
+    }
+  });
+
+  // Plain: perspective rows of broken strokes, then grass tufts.
+  var plainTop = 312;
+  el("rect", { x: 0, y: plainTop, width: W, height: H - plainTop, fill: PAPER });
+  var pg = el("g", { stroke: COBALT, fill: "none", "stroke-linecap": "round" });
+  for (var y = plainTop + 4, step = 3; y < H; y += step, step *= 1.07) {
+    var depth = (y - plainTop) / (H - plainTop);
+    var x1 = rand() * 20;
+    while (x1 < W) {
+      var l = 6 + rand() * (14 + depth * 40), gp = 6 + rand() * (18 + depth * 30);
+      if (rand() > 0.25) el("line", { x1: r(x1), y1: r(y + (rand() - 0.5) * depth * 2), x2: r(x1 + l), y2: r(y + (rand() - 0.5) * depth * 2), "stroke-width": r(0.6 + depth * 0.9), opacity: r(0.45 + depth * 0.4) }, pg);
+      x1 += l + gp;
+    }
+  }
+  for (var t = 0; t < 95; t++) {
+    var ty = plainTop + 40 + Math.pow(rand(), 0.55) * (H - plainTop - 40);
+    var dd = (ty - plainTop) / (H - plainTop);
+    var tx = rand() * W, size = (3 + dd * 15) * (0.6 + rand() * 0.8), blades = 3 + Math.floor(rand() * 7);
+    for (var b = 0; b < blades; b++) {
+      var bang = -Math.PI / 2 + (b / (blades - 1) - 0.5) * 1.6 + (rand() - 0.5) * 0.3;
+      var bl = size * (0.6 + rand() * 0.6);
+      el("line", { x1: r(tx + (rand() - 0.5) * size * 0.4), y1: r(ty), x2: r(tx + Math.cos(bang) * bl), y2: r(ty + Math.sin(bang) * bl), "stroke-width": r(0.8 + dd), opacity: r(0.6 + dd * 0.35) }, pg);
+    }
+  }
+
+  // Trail: from the near-left foreground, winding up to the sun's foot.
+  var trailD = "M300 480 C 470 440, 430 402, 600 382 S 850 356, 905 334 S 1000 302, 1030 284";
+  var trail = el("path", { class: "trail", d: trailD, "stroke-width": 3, pathLength: 1 });
+  // Walker on the trail
+  var walk = el("g", { class: "walker", fill: COBALT, stroke: COBALT, "stroke-linecap": "round" });
+  var wx = 640, wy = 376;
+  el("circle", { cx: wx, cy: wy - 22, r: 2.6, stroke: "none" }, walk);
+  el("line", { x1: wx, y1: wy - 19, x2: wx - 1, y2: wy - 9, "stroke-width": 2.6 }, walk);
+  el("line", { x1: wx - 1, y1: wy - 9, x2: wx - 4, y2: wy, "stroke-width": 1.8 }, walk);
+  el("line", { x1: wx - 1, y1: wy - 9, x2: wx + 3, y2: wy, "stroke-width": 1.8 }, walk);
+  el("line", { x1: wx + 4, y1: wy - 20, x2: wx + 6, y2: wy + 1, "stroke-width": 1.2 }, walk);
+  el("rect", { x: wx - 4.5, y: wy - 18, width: 3.5, height: 6, rx: 1, stroke: "none" }, walk);
+
+  // Play when the footer scrolls into view; replay button for review.
+  var footer = document.getElementById("footer");
+  function play() { footer.classList.remove("play"); void footer.offsetWidth; footer.classList.add("play"); }
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { play(); io.disconnect(); } }); }, { threshold: 0.35 });
+    io.observe(footer);
+  } else { play(); }
+  document.getElementById("replay").addEventListener("click", function () { footer.scrollIntoView({ behavior: "smooth" }); setTimeout(play, 400); });
+})();
+</script>

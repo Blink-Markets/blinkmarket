@@ -1,2 +1,54 @@
-.footer { display: grid; gap: 12px; padding-block: 48px 64px; margin-top: clamp(48px, 8vw, 120px); border-top: 1px solid var(--rule); color: var(--ink-soft); }
-.line { max-width: 60ch; }
+/* Full-bleed cobalt footer; always cobalt + paper + terracotta (fixed --footer-* tokens, never themed). */
+.footer {
+  --on-soft: #fafaf7b8;
+  --on-rule: #fafaf740;
+  background: var(--footer-sky);
+  color: var(--footer-paper);
+  position: relative;
+  overflow: hidden;
+  margin-top: clamp(48px, 8vw, 120px);
+  view-timeline-name: --foot;
+}
+.footer :focus-visible { outline-color: var(--footer-paper); }
+.footTop { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); gap: 40px clamp(24px, 4vw, 64px); padding-block: clamp(56px, 8vw, 96px) 40px; }
+.brand { display: grid; gap: 18px; align-content: start; }
+.wordmark { display: inline-flex; align-items: center; gap: 12px; justify-self: start; font-weight: 800; font-size: 30px; letter-spacing: -0.05em; line-height: 1.2; text-decoration: none; color: var(--footer-paper); }
+.wordmark svg { width: 40px; height: 26px; }
+.tagline { font-size: 19px; line-height: 1.45; max-width: 24ch; }
+.tagline em { font-style: normal; border-bottom: 2px solid var(--footer-trail); }
+.about { color: var(--on-soft); font-size: 15px; line-height: 1.6; max-width: 34ch; }
+.col h2 { margin: 0 0 18px; font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: 0.1em; line-height: 1.5; text-transform: uppercase; color: var(--footer-paper); }
+.col h2::after { content: ""; display: block; width: 28px; height: 1px; background: var(--on-soft); margin-top: 12px; }
+.col ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.col a { color: var(--footer-paper); text-decoration: none; font-size: 16px; }
+.col a:hover { text-decoration: underline; text-underline-offset: 4px; }
+.col a code { font-size: 14px; }
+.footMeta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding-top: 20px; border-top: 1px solid var(--on-rule); color: var(--on-soft); }
+
+.land { display: block; width: 100%; height: clamp(220px, 27vw, 400px); margin-top: clamp(16px, 3vw, 40px); }
+.lid, .lidIdle { transform-box: fill-box; transform-origin: center; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Idle blink about every 7s (time-based, runs everywhere). */
+  .lidIdle { animation: footBlinkIdle 7s ease-in-out 6s infinite; }
+
+  /* Scroll-driven extras, keyed to the footer's view timeline. Without support they render statically. */
+  @supports (animation-timeline: view()) {
+    .rays { animation: footFade linear both; animation-timeline: --foot; animation-range: entry 15% entry 70%; }
+    .walker { animation: footFade linear both; animation-timeline: --foot; animation-range: entry 45% entry 85%; }
+    .lid { animation: footBlinkOnce linear both; animation-timeline: --foot; animation-range: entry 75% entry 100%; }
+    /* Page ends at the footer, so finish the trail within the entry range (global default ends at cover 60%). */
+    .land path[data-draw] { animation-range: entry 10% entry 100%; }
+  }
+}
+@keyframes footFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes footBlinkOnce { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.06); } }
+@keyframes footBlinkIdle { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(0.06); } }
+
+@media (max-width: 860px) {
+  .footTop { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .brand { grid-column: 1 / -1; }
+}
+@media (max-width: 420px) {
+  .footTop { grid-template-columns: minmax(0, 1fr); }
+}
