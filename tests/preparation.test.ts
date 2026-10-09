@@ -77,10 +77,62 @@ test("M2 creation tracker: durable observations, read-only API, CAS, rollback an
       store.save(id, snapshot.status.version, observation),
       /STALE_CREATION_OBSERVATION/,
     );
+    const historiesBeforeFreshness = (
+      await s.db.query("SELECT * FROM chain.creation_observations")
+    ).rows.length;
+    const outboxBeforeFreshness = (
+      await s.db.query(
+        "SELECT * FROM operations.outbox WHERE event_type='market.creation_observed'",
+      )
+    ).rows.length;
+    const stableSnapshot = (await store.load(id))!;
+    const stableObservation = await reader.observe(stableSnapshot, rpc.txHash);
+    const stableRefresh = await store.save(
+      id,
+      stableSnapshot.status.version,
+      stableObservation,
+    );
+    assert.equal(stableRefresh.state, "CONFIRMED");
+    assert.equal(stableRefresh.version, stableSnapshot.status.version + 1);
+    assert.notEqual(stableRefresh.observedAt, stableSnapshot.status.observedAt);
     assert.equal(
       (await s.db.query("SELECT * FROM chain.creation_observations")).rows
         .length,
-      2,
+      historiesBeforeFreshness,
+      "identical polls refresh the projection without appending history",
+    );
+    assert.equal(
+      (
+        await s.db.query(
+          "SELECT * FROM operations.outbox WHERE event_type='market.creation_observed'",
+        )
+      ).rows.length,
+      outboxBeforeFreshness,
+      "identical polls do not emit outbox events",
+    );
+    rpc.state.head = 22n;
+    const headSnapshot = (await store.load(id))!;
+    const headObservation = await reader.observe(headSnapshot, rpc.txHash);
+    const headRefresh = await store.save(
+      id,
+      headSnapshot.status.version,
+      headObservation,
+    );
+    assert.equal(headRefresh.state, "CONFIRMED");
+    assert.equal(headRefresh.confirmations, "13");
+    assert.equal(headRefresh.version, headSnapshot.status.version + 1);
+    assert.equal(
+      (await s.db.query("SELECT * FROM chain.creation_observations")).rows
+        .length,
+      historiesBeforeFreshness,
+    );
+    assert.equal(
+      (
+        await s.db.query(
+          "SELECT * FROM operations.outbox WHERE event_type='market.creation_observed'",
+        )
+      ).rows.length,
+      outboxBeforeFreshness,
     );
     await assert.rejects(
       tracker.reconcile(id, hashOf("different tx")),
@@ -118,7 +170,7 @@ test("M2 creation tracker: durable observations, read-only API, CAS, rollback an
       tracker.reconcile(id, rpc.txHash),
       /permission denied/,
     );
-    assert.equal((await store.load(id))!.status.version, 3);
+    assert.equal((await store.load(id))!.status.version, 5);
     assert.equal(
       (await s.db.query("SELECT * FROM chain.creation_observations")).rows
         .length,
@@ -130,7 +182,7 @@ test("M2 creation tracker: durable observations, read-only API, CAS, rollback an
     assert.equal((await tracker.reconcile(id, rpc.txHash)).marketId, "99");
     rpc.state.fail = true;
     await assert.rejects(tracker.reconcile(id, rpc.txHash), /RPC unavailable/);
-    assert.equal((await store.load(id))!.status.version, 4);
+    assert.equal((await store.load(id))!.status.version, 6);
     await s.db.exec("SET ROLE blink_api");
     const response = await s.get(path, 3);
     assert.equal(response.statusCode, 200, response.body);

@@ -1,7 +1,11 @@
 import type { Pool } from "pg";
 import { randomUUID } from "node:crypto";
 import { CreationChainStatus, DeploymentManifest } from "@blink/schemas";
-import type { CreationIntent, CreationTrackerStore } from "@blink/ports";
+import type {
+  CreationIntent,
+  CreationTrackerStore,
+  CreationTrackingLease,
+} from "@blink/ports";
 import { createUnitOfWork } from "./database.js";
 
 export function untrackedCreation(id: string): CreationChainStatus {
@@ -43,9 +47,25 @@ export function postgresCreationTrackerStore(pool: Pool): CreationTrackerStore {
             : untrackedCreation(id),
         };
       }),
-    save: (id, expectedVersion, observation) =>
+    save: (
+      id,
+      expectedVersion,
+      observation,
+      lease?: CreationTrackingLease,
+      signal?: AbortSignal,
+    ) =>
       uow.run(async (ctx) => {
         const db = uow.client(ctx);
+        if (lease) {
+          const activeLease = await db.query(
+            `SELECT intent_id FROM chain.creation_tracking_schedule
+             WHERE intent_id=$1 AND lease_owner=$2 AND lease_token=$3
+               AND lease_until>clock_timestamp() FOR SHARE`,
+            [id, lease.workerId, lease.leaseToken],
+          );
+          if (activeLease.rowCount !== 1)
+            throw new Error("CREATION_POLL_LEASE_LOST");
+        }
         const identity = await db.query(
           `SELECT d.id,d.enabled FROM markets.creation_intents i
         JOIN markets.deployments d ON d.id=i.payload->>'deploymentId' WHERE i.id=$1 FOR SHARE OF d`,
@@ -75,18 +95,26 @@ export function postgresCreationTrackerStore(pool: Pool): CreationTrackerStore {
           observedAt: new Date(clock.rows[0]!.now as string).toISOString(),
         });
         await db.query(
-          "INSERT INTO chain.creation_observations(id,intent_id,version,payload) VALUES($1,$2,$3,$4)",
-          [randomUUID(), id, status.version, status],
-        );
-        await db.query(
           "UPDATE chain.creation_projections SET version=$2,state=$3,market_id=$4,payload=$5,updated_at=clock_timestamp() WHERE intent_id=$1",
           [id, status.version, status.state, status.marketId, status],
         );
-        if (
+        if (status.txHash) {
+          await db.query(
+            "INSERT INTO chain.creation_tracking_schedule(intent_id) VALUES($1) ON CONFLICT DO NOTHING",
+            [id],
+          );
+        }
+        const meaningful =
           old.state !== status.state ||
+          old.txHash !== status.txHash ||
+          old.blockNumber !== status.blockNumber ||
           old.blockHash !== status.blockHash ||
-          old.marketId !== status.marketId
-        ) {
+          old.marketId !== status.marketId;
+        if (meaningful) {
+          await db.query(
+            "INSERT INTO chain.creation_observations(id,intent_id,version,payload) VALUES($1,$2,$3,$4)",
+            [randomUUID(), id, status.version, status],
+          );
           await db.query(
             "INSERT INTO operations.outbox(id,event_type,aggregate_id,event_version,payload) VALUES($1,'market.creation_observed',$2,$3,$4)",
             [randomUUID(), id, status.version, status],
@@ -107,6 +135,6 @@ export function postgresCreationTrackerStore(pool: Pool): CreationTrackerStore {
           );
         }
         return status;
-      }),
+      }, signal),
   };
 }

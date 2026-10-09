@@ -1,6 +1,6 @@
 # 資料模型設計
 
-最新增量：`0005_creation_tracking` 已實作 `chain.creation_projections` 與 `chain.creation_observations`，用於版本化的單筆建市事件觀測；其餘 blocks/events/global cursor 與持倉表仍待實作。詳見 [M2.3a](M2_CREATION_TRACKING.md)。
+最新增量：`0005_creation_tracking` 實作 `chain.creation_projections` 與 `chain.creation_observations`；`0006_creation_tracking_schedule` 為已驗證且 pin txHash 的建市追蹤新增 durable retry/lease schedule。其餘 blocks/events/global cursor 與持倉表仍待實作。詳見 [M2.3a](M2_CREATION_TRACKING.md) 與 [M2.3b](M2_CREATION_POLLER.md)。
 
 這是 M2 的完整邏輯模型。0001 為 operations 基礎；0002 為 identity；0003 為 evidence/discovery；0004 已新增 markets.deployments/deployment_checks/specs/approvals/creation_intents/active_slots。最新交易邊界見 [核准交付](M2_APPROVAL_DELIVERY.md)。鏈上事件、slot 釋放及其餘业务表仍待實作；下表其餘名稱是邏輯藍圖，不代表已存在 SQL 表。
 

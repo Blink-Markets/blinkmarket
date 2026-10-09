@@ -19,11 +19,11 @@ test("migration checksums, uint256 precision, runtime grants and append-only aud
   };
   try {
     const first = await migrate(client);
-    assert.equal(first.versions.length, 5);
+    assert.equal(first.versions.length, 6);
     await migrate(client);
     assert.equal(
       (await db.query("SELECT * FROM blink_migrations.applied")).rows.length,
-      5,
+      6,
     );
     await assert.rejects(
       db.query("SELECT $1::blink.uint256", [(2n ** 256n).toString()]),

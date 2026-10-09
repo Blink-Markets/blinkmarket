@@ -17,3 +17,4 @@ export {
   type ApprovalService,
 } from "./approval.js";
 export { createCreationTracker } from "./creation-tracker.js";
+export { startCreationPoller } from "./creation-poller.js";

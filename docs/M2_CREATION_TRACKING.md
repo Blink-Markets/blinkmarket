@@ -46,19 +46,21 @@ Twelve confirmations are this slice's fixed observation policy, **not Base L1 fi
 
 Migration `0005_creation_tracking.sql` adds `chain.creation_projections` and append-only `chain.creation_observations`. PostgreSQL grants projection writes only to the indexer group, not to API/worker/signer roles. The CLI requires a non-owner indexer login without API/admin-group membership.
 
+Follow-up M2.3b adds migration 0006's durable polling schedule. Apply all migrations through 0006 before using the current `creation:reconcile` command; the first successful reconciliation now seeds that schedule so the opt-in indexer can continue observing the pinned hash. See [continuous polling](M2_CREATION_POLLER.md).
+
 RPC IO happens outside a database transaction. On save, the observer rechecks deployment enablement, locks the projection and compares the version loaded before RPC IO. A stale concurrent result fails with `STALE_CREATION_OBSERVATION`; it cannot overwrite a newer snapshot. Each accepted observation increments the version. Observation, projection, and any state/block/market change's audit and outbox event commit atomically. Outbox type `market.creation_observed` is a notification, not a signing command.
 
 Unique deployment/market IDs prevent two creation intents from simultaneously owning the same projected market. If an older stale projection conflicts after a reorg, reconcile that older intent first. No creation intent, candidate approval history or active slot is deleted/mutated by this observer. A candidate's `DEPLOY_PENDING` history records its approval-stage state; current chain status is exposed separately so a reorg does not rewrite history.
 
 ## Operation and API
 
-Apply migration 0005 with the migration account. Supply `INDEXER_DATABASE_URL` using a separate login in `blink_indexer`, plus an operator-selected `BASE_SEPOLIA_RPC_URL`:
+Apply migrations through 0006 with the migration account. Supply `INDEXER_DATABASE_URL` using a separate login in `blink_indexer`, plus an operator-selected `BASE_SEPOLIA_RPC_URL`:
 
 ```sh
 pnpm creation:reconcile <creation-intent-uuid> <transaction-hash>
 ```
 
-Run again for later confirmations or reorg checks. The bundled entry is `dist/tools/reconcile-creation.mjs`. It only uses RPC read methods and database observation writes; it accepts no private key and never sends a transaction. The existing `apps/indexer` process remains a scaffold; **nothing polls automatically** in this slice.
+Run again for manual reconciliation. The bundled entry is `dist/tools/reconcile-creation.mjs`. It only uses RPC read methods and database observation writes; it accepts no private key and never sends a transaction. M2.3a itself was operator-driven; the opt-in continuous poller is documented in [M2.3b](M2_CREATION_POLLER.md).
 
 In API approval mode, `GET /v1/admin/creation-intents/:id/chain-status` returns the stored snapshot (admin scope, `no-store`). The client helper is `getCreationChainStatus`. Querying this endpoint does not trigger RPC IO or refresh the snapshot. The original unsigned-intent endpoint is unchanged. API approval startup now requires migration 0005.
 

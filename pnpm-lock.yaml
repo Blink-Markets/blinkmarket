@@ -71,9 +71,21 @@ importers:
 
   apps/indexer:
     dependencies:
+      '@blink/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
+      '@blink/application':
+        specifier: workspace:*
+        version: link:../../packages/application
       '@blink/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
+      pg:
+        specifier: 8.23.0
+        version: 8.23.0
+      viem:
+        specifier: 2.56.8
+        version: 2.56.8(typescript@5.9.3)(zod@4.6.5)
 
   apps/signer:
     dependencies:

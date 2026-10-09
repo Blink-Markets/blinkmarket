@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import { creationRpc } from "../helpers/creation-rpc.js";
 import { creationReceiptReader } from "../../packages/adapters/src/creation-receipt-reader.js";
 import { postgresCreationTrackerStore } from "../../packages/adapters/src/creation-tracker-store.js";
+import { postgresCreationTrackingSchedule } from "../../packages/adapters/src/creation-tracking-schedule.js";
+import { CreationChainStatus } from "../../packages/schemas/src/creation-status.js";
 import type { CreationIntent } from "../../packages/ports/src/index.js";
 import { readFile } from "node:fs/promises";
 import { postgresApprovalStore } from "../../packages/adapters/src/approval-store.js";
@@ -386,6 +388,162 @@ test(
           )
         ).rowCount,
         1,
+      );
+      const schedule = postgresCreationTrackingSchedule(indexerPool);
+      const secondIntentId = randomUUID();
+      const secondApprovalId = randomUUID();
+      const secondCandidateId = String(candidates[1]!.body.candidateId);
+      await owner.query(
+        `INSERT INTO markets.approvals
+           (id,candidate_id,revision,deployment_id,spec_hash,actor_key_id,budget_micros,reason)
+         SELECT $1,$2,1,deployment_id,spec_hash,$3,budget_micros,'Isolated poll-schedule fixture'
+         FROM markets.approvals WHERE id=$4`,
+        [secondApprovalId, secondCandidateId, approver.keyId, intent.approvalId],
+      );
+      await owner.query(
+        `INSERT INTO markets.creation_intents(id,approval_id,state,payload)
+         VALUES($1,$2,'AWAITING_ADMIN_SIGNATURE',$3)`,
+        [
+          secondIntentId,
+          secondApprovalId,
+          {
+            ...intent,
+            creationIntentId: secondIntentId,
+            approvalId: secondApprovalId,
+          },
+        ],
+      );
+      const secondStatus = CreationChainStatus.parse({
+        ...observation,
+        creationIntentId: secondIntentId,
+        version: 1,
+        observedAt: new Date().toISOString(),
+      });
+      await owner.query(
+        `INSERT INTO chain.creation_projections
+           (intent_id,deployment_id,version,state,market_id,payload)
+         VALUES($1,'test',$2,$3,NULL,$4)`,
+        [secondIntentId, secondStatus.version, "UNKNOWN", {
+          ...secondStatus,
+          state: "UNKNOWN",
+          marketId: null,
+          blockNumber: null,
+          blockHash: null,
+        }],
+      );
+      await owner.query(
+        `INSERT INTO chain.creation_tracking_schedule(intent_id)
+         VALUES($1)`,
+        [secondIntentId],
+      );
+      // A disabled deployment and an untracked projection must never be claimed.
+      await owner.query("UPDATE markets.deployments SET enabled=false WHERE id='test'");
+      assert.equal(await schedule.claim("disabled-worker", 1000), null);
+      await owner.query("UPDATE markets.deployments SET enabled=true WHERE id='test'");
+      await owner.query(
+        "UPDATE chain.creation_tracking_schedule SET next_run_at=clock_timestamp()+interval '1 hour' WHERE intent_id=$1",
+        [secondIntentId],
+      );
+      const firstPayload = await owner.query<{ payload: Record<string, unknown> }>(
+        "SELECT payload FROM chain.creation_projections WHERE intent_id=$1",
+        [intent.creationIntentId],
+      );
+      await owner.query(
+        `UPDATE chain.creation_projections
+         SET payload=jsonb_set(payload,'{txHash}','null'::jsonb)
+         WHERE intent_id=$1`,
+        [intent.creationIntentId],
+      );
+      await owner.query(
+        "UPDATE chain.creation_tracking_schedule SET next_run_at=clock_timestamp()-interval '1 second' WHERE intent_id=$1",
+        [secondIntentId],
+      );
+      assert.equal(await schedule.claim("untracked-worker", 1000), null);
+      await owner.query(
+        "UPDATE chain.creation_projections SET payload=$2 WHERE intent_id=$1",
+        [intent.creationIntentId, firstPayload.rows[0]!.payload],
+      );
+      // Keep the second record behind the first so two independent PostgreSQL
+      // sessions race for one due lease, then prove expiry, fencing and fairness.
+      await owner.query(
+        `UPDATE chain.creation_tracking_schedule
+         SET next_run_at=clock_timestamp()-interval '2 seconds'
+         WHERE intent_id=$1`,
+        [intent.creationIntentId],
+      );
+      const competingClaims = await Promise.all([
+        schedule.claim("indexer-a", 60_000),
+        schedule.claim("indexer-b", 60_000),
+      ]);
+      assert.equal(competingClaims.filter(Boolean).length, 1);
+      const oldLease = competingClaims.find(Boolean)!;
+      await owner.query(
+        `UPDATE chain.creation_tracking_schedule
+         SET lease_until=clock_timestamp()-interval '1 second'
+         WHERE intent_id=$1`,
+        [oldLease.intentId],
+      );
+      const reclaimed = await schedule.claim("indexer-restarted", 60_000);
+      assert.ok(reclaimed);
+      assert.notEqual(reclaimed.leaseToken, oldLease.leaseToken);
+      assert.equal(reclaimed.attempt, 0);
+      assert.equal(await schedule.complete(oldLease, 1000), false);
+      assert.equal(await schedule.fail(oldLease, "STALE_WORKER", 1000), false);
+      const observationsBeforeStaleSave = (
+        await owner.query("SELECT * FROM chain.creation_observations")
+      ).rowCount;
+      const outboxBeforeStaleSave = (
+        await owner.query(
+          "SELECT * FROM operations.outbox WHERE event_type='market.creation_observed'",
+        )
+      ).rowCount;
+      await assert.rejects(
+        tracking.save(intent.creationIntentId, 1, observation, oldLease),
+        /CREATION_POLL_LEASE_LOST/,
+      );
+      assert.equal(
+        (
+          await owner.query<{ version: string }>(
+            "SELECT version FROM chain.creation_projections WHERE intent_id=$1",
+            [intent.creationIntentId],
+          )
+        ).rows[0]!.version,
+        "1",
+      );
+      assert.equal(
+        (await owner.query("SELECT * FROM chain.creation_observations")).rowCount,
+        observationsBeforeStaleSave,
+      );
+      assert.equal(
+        (
+          await owner.query(
+            "SELECT * FROM operations.outbox WHERE event_type='market.creation_observed'",
+          )
+        ).rowCount,
+        outboxBeforeStaleSave,
+      );
+      assert.equal(await schedule.fail(reclaimed, "RPC_UNAVAILABLE", 60_000), true);
+      const failedRow = (
+        await owner.query<{ attempt: number; last_error_code: string }>(
+          "SELECT attempt,last_error_code FROM chain.creation_tracking_schedule WHERE intent_id=$1",
+          [intent.creationIntentId],
+        )
+      ).rows[0]!;
+      assert.equal(failedRow.attempt, 1);
+      assert.equal(failedRow.last_error_code, "RPC_UNAVAILABLE");
+      assert.equal((await schedule.health()).failing, 1);
+      await owner.query(
+        "UPDATE chain.creation_tracking_schedule SET next_run_at=clock_timestamp()-interval '1 second' WHERE intent_id=$1",
+        [secondIntentId],
+      );
+      const fairClaim = await schedule.claim("indexer-fair", 60_000);
+      assert.ok(fairClaim);
+      assert.equal(fairClaim.intentId, secondIntentId);
+      assert.equal(await schedule.complete(fairClaim, 60_000), true);
+      assert.equal(
+        (await schedule.health()).failing,
+        1,
+        "one item's failure remains visible after an unrelated successful poll",
       );
       await admin.revoke(invited.keyId, "Post-race revocation");
       await assert.rejects(

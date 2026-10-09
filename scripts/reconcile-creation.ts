@@ -3,6 +3,10 @@ import { createPublicClient, http } from "viem";
 import { createCreationTracker } from "../packages/application/src/creation-tracker.js";
 import { postgresCreationTrackerStore } from "../packages/adapters/src/creation-tracker-store.js";
 import { creationReceiptReader } from "../packages/adapters/src/creation-receipt-reader.js";
+import {
+  assertCreationTrackingMigrationsInstalled,
+  assertCreationTrackingRuntimeRole,
+} from "../packages/adapters/src/creation-tracking-schedule.js";
 
 const [intentId, txHash] = process.argv.slice(2);
 const connectionString = process.env.INDEXER_DATABASE_URL,
@@ -22,16 +26,8 @@ const pool = new pg.Pool({
   statement_timeout: 10000,
 });
 try {
-  const role =
-    await pool.query(`SELECT NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
-    AND pg_has_role(current_user,'blink_indexer','USAGE')
-    AND NOT pg_has_role(current_user,'blink_api','USAGE')
-    AND NOT pg_has_role(current_user,'blink_deployment_admin','USAGE')
-    AND NOT pg_has_role(current_user,'blink_identity_admin','USAGE')
-    AND NOT pg_has_role(current_user,'blink_evidence_admin','USAGE')
-    AND NOT has_schema_privilege(current_user,'chain','CREATE') AS allowed FROM pg_roles WHERE rolname=current_user`);
-  if (role.rows[0]?.allowed !== true)
-    throw new Error("UNSAFE_INDEXER_DATABASE_ROLE");
+  await assertCreationTrackingRuntimeRole(pool);
+  await assertCreationTrackingMigrationsInstalled(pool);
   const tracker = createCreationTracker(
     postgresCreationTrackerStore(pool),
     creationReceiptReader(
@@ -50,6 +46,8 @@ try {
     "STALE_CREATION_OBSERVATION",
     "DEPLOYMENT_DISABLED",
     "UNSAFE_INDEXER_DATABASE_ROLE",
+    "CREATION_TRACKING_BASE_MIGRATION_REQUIRED",
+    "CREATION_TRACKING_SCHEDULE_MIGRATION_REQUIRED",
   ]);
   console.error(
     error instanceof Error && known.has(error.message)

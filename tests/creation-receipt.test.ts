@@ -132,18 +132,17 @@ test("creation receipt: RPC failures, wrong transaction/event/chain/code and cha
 test("creation receipt: missing receipt is unknown, not success or automatically reverted", async () => {
   const s = await fixture(),
     reader = creationReceiptReader(s.client);
-  const included = await reader.observe(s.creation, s.txHash);
-  s.creation.status = {
-    ...included,
-    creationIntentId: s.creation.intent.creationIntentId,
-    version: 1,
-    observedAt: new Date().toISOString(),
-  };
   s.state.receipt = null;
   const unknown = await reader.observe(s.creation, s.txHash);
   assert.equal(unknown.state, "UNKNOWN");
   assert.equal(unknown.marketId, null);
-  assert.equal(unknown.blockHash, included.blockHash);
+  assert.equal(unknown.blockHash, null);
+  s.creation.status = {
+    ...unknown,
+    creationIntentId: s.creation.intent.creationIntentId,
+    version: 1,
+    observedAt: new Date().toISOString(),
+  };
   s.state.fail = true;
   await assert.rejects(reader.observe(s.creation, s.txHash), /RPC unavailable/);
   s.state.fail = false;
@@ -152,4 +151,47 @@ test("creation receipt: missing receipt is unknown, not success or automatically
   const reverted = await reader.observe(s.creation, s.txHash);
   assert.equal(reverted.state, "REVERTED");
   assert.equal(reverted.marketId, null);
+});
+
+test("creation receipt: missing receipt cannot erase a verified canonical block", async () => {
+  for (const state of ["INCLUDED", "CONFIRMED", "REVERTED"] as const) {
+    const s = await fixture();
+    if (state === "CONFIRMED") s.state.head = 21n;
+    if (state === "REVERTED") s.state.receipt!.status = "reverted";
+    const reader = creationReceiptReader(s.client);
+    const verified = await reader.observe(s.creation, s.txHash);
+    assert.equal(verified.state, state);
+    s.creation.status = {
+      ...verified,
+      creationIntentId: s.creation.intent.creationIntentId,
+      version: 1,
+      observedAt: new Date().toISOString(),
+    };
+    s.state.receipt = null;
+
+    await assert.rejects(
+      reader.observe(s.creation, s.txHash),
+      /CREATION_RECEIPT_INDETERMINATE/,
+      `missing receipt after ${state} must preserve the verified projection`,
+    );
+  }
+});
+
+test("creation receipt: a missing receipt with positive orphan proof retracts the market ID", async () => {
+  const s = await fixture();
+  const reader = creationReceiptReader(s.client);
+  const included = await reader.observe(s.creation, s.txHash);
+  s.creation.status = {
+    ...included,
+    creationIntentId: s.creation.intent.creationIntentId,
+    version: 1,
+    observedAt: new Date().toISOString(),
+  };
+  s.canonical.set(10n, hashOf("orphaned block"));
+  s.state.receipt = null;
+  s.state.tx = null;
+
+  const orphaned = await reader.observe(s.creation, s.txHash);
+  assert.equal(orphaned.state, "REORGED");
+  assert.equal(orphaned.marketId, null);
 });

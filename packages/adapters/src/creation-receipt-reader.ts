@@ -17,10 +17,15 @@ const missing = (error: unknown, name: string) =>
   error instanceof Error && error.name === name;
 
 export function creationReceiptReader(
-  client: PublicClient,
+  clientOrFactory: PublicClient | ((signal?: AbortSignal) => PublicClient),
 ): CreationReceiptReader {
   return {
-    async observe(creation, hash) {
+    async observe(creation, hash, signal) {
+      const client =
+        typeof clientOrFactory === "function"
+          ? clientOrFactory(signal)
+          : clientOrFactory;
+      if (signal?.aborted) throw new Error("CREATION_RECONCILIATION_ABORTED");
       const { intent, manifest, status: previous } = creation;
       if (
         (await client.getChainId()) !== 84532 ||
@@ -89,6 +94,14 @@ export function creationReceiptReader(
               previous.blockHash,
             );
           if (orphaned) base.state = "REORGED";
+          else if (
+            previous.state === "INCLUDED" ||
+            previous.state === "CONFIRMED" ||
+            previous.state === "REVERTED"
+          ) {
+            await stable();
+            throw new Error("CREATION_RECEIPT_INDETERMINATE");
+          }
         } else if (previous.state === "REORGED") base.state = "REORGED";
         await stable();
         return base;

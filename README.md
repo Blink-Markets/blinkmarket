@@ -6,9 +6,9 @@ An experimental platform connecting **prediction research, traceable evidence, a
 
 Blink Market targets Base Sepolia. It starts with questions that have explicit resolution rules, preserves source evidence, collects model and external forecasts, and enables trading in YES/NO shares through signed RFQ quotes. Human-led proposals and a dispute process determine settlement. The goal is to understand not just whether a prediction was right, but also its evidence, cost, reproducibility, and quality over time.
 
-> **Current status:** M0 foundations and the M1 smart-contract ledger are implemented and locally verified. M2 includes invited identities, evidence, candidates, human approval and unsigned creation intents, plus operator-driven MarketCreated receipt tracking with confirmations and reorg handling. Continuous indexing, research automation, RFQ/Signer integration and product UI remain planned. There is no Sepolia deployment or public trading yet.
+> **Current status:** M0 foundations and the M1 smart-contract ledger are implemented and locally verified. M2 includes invited identities, evidence, candidates, human approval and unsigned creation intents, plus operator registration and opt-in continuous polling of validated MarketCreated transactions. Global event indexing, research automation, RFQ/Signer integration and product UI remain planned. There is no Sepolia deployment or public trading yet.
 >
-> M0／M1 已完成本機驗證；M2 已接上人工核准、未簽署建市資料，以及操作員觸發的建市事件確認／reorg 追蹤。完整 Indexer 與交易流程尚未完成，未部署 Sepolia，也未開放公開交易。
+> M0／M1 已完成本機驗證；M2 已接上人工核准、未簽署建市資料，以及已驗證建市交易的操作員登記與 opt-in 持續輪詢。全鏈事件索引與交易流程尚未完成，未部署 Sepolia，也未開放公開交易。
 
 ## Architecture at a Glance · 架構概覽
 
@@ -93,6 +93,7 @@ The backend is a **modular monolith with separate processes by responsibility**.
 | M2.2a — Reviewed evidence archive, access policies, candidate revisions and rejection           | Implemented and locally tested                                                                     |
 | M2.2 — Human approval, verified deployment registry and unsigned creation intents               | Implemented in opt-in approval mode; no automatic signing, broadcasting or receipt confirmation     |
 | M2.3a — MarketCreated receipt tracking, confirmation snapshots and reorg withdrawal              | Implemented as an operator-driven read-only chain observer; continuous indexing remains planned      |
+| M2.3b — Continuous polling of validated creation transactions                                   | Opt-in durable polling with retries, lease recovery and reorg rechecks; global event indexing remains planned |
 | Remaining M2 / M3 / M4 — Market workflows, RFQ, Indexer/Signer, research, and product UI         | Implementation and integration planned                                                              |
 
 中文摘要：M0／M1 已完成；M2 已有身份、證據與候選版本切片，完整 M2 尚未完成。本專案尚未進入公開測試階段。
@@ -105,6 +106,7 @@ Detailed project documents are currently primarily in Traditional Chinese.
 - [M2.2a evidence & candidates · 證據與候選交付](docs/M2_PREPARATION_DELIVERY.md) — Data flow, access policies and immutable revisions.
 - [M2.2 human approval · 人工核准與建市意圖](docs/M2_APPROVAL_DELIVERY.md) — Transaction guarantees, manual wallet handoff and remaining chain integration.
 - [M2.3a creation tracking · 建市事件追蹤](docs/M2_CREATION_TRACKING.md) — Receipt verification, confirmation snapshots, reorg handling and indexer boundaries.
+- [M2.3b creation poller · 建市交易持續輪詢](docs/M2_CREATION_POLLER.md) — Opt-in durable polling, retry/restart behavior and health boundaries.
 
 - [Architecture walkthrough · 架構圖解](docs/ARCHITECTURE_GUIDE.md) — Five diagrams covering implementation status, service responsibilities, trading, settlement, and recovery.
 - [Architecture · 整體架構](docs/ARCHITECTURE.md) · [Data model · 資料模型](docs/DATA_MODEL.md) · [Detailed design · 細部設計](docs/design/README.md).

@@ -73,7 +73,10 @@ export interface TransactionContext {
   readonly [transactionBrand]: true;
 }
 export interface UnitOfWork {
-  run<T>(work: (tx: TransactionContext) => Promise<T>): Promise<T>;
+  run<T>(
+    work: (tx: TransactionContext) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T>;
 }
 // Signer 自行重新載入受信 intent、policy、nonce 與 reservation；不信任 caller 的授權聲明。
 export interface RestrictedSigner {
