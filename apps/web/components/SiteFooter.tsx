@@ -83,45 +83,43 @@ export function SiteFooter() {
           <span>M0–M1 built locally · M2 in progress</span>
         </div>
       </div>
-      <svg
-        className={styles.land}
-        viewBox={land.viewBox}
-        preserveAspectRatio="xMidYMax slice"
-        role="img"
-        aria-label="An engraved landscape: a trail winds across rolling hills toward an eye-shaped sun rising on the horizon."
-        data-draw-scope
-      >
-        {land.speckles.map((s, i) => (
-          <circle key={i} cx={s.cx} cy={s.cy} r={s.r} fill={INK.paper} opacity={s.opacity} />
-        ))}
-        <path className={styles.rays} d={land.rays} fill="none" stroke={INK.paper} strokeWidth={1.2} strokeLinecap="round" opacity={0.55} />
-        <circle cx={sun.x} cy={sun.y} r={sun.r} fill={INK.paper} />
-        <g className={styles.lid}>
-          <g className={styles.lidIdle}>
-            <path d={eyePath} fill="none" stroke={INK.sky} strokeWidth={3.2} strokeLinejoin="round" />
-            <circle cx={sun.x} cy={sun.y} r={9.5} fill={INK.sky} />
-            <circle cx={sun.x + 3.5} cy={sun.y - 3.5} r={2.4} fill={INK.trail} />
+      <div className={styles.land}>
+        {/* Static engraving (cached file) keeps the heavy hatch paths out of every page's HTML. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className={styles.engraving} src="/footer-landscape.svg" alt="" aria-hidden="true" width={1600} height={360} />
+        <svg
+          className={styles.overlay}
+          viewBox={land.viewBox}
+          preserveAspectRatio="xMidYMax slice"
+          role="img"
+          aria-label="An engraved landscape: a trail winds across rolling hills toward an eye-shaped sun rising on the horizon."
+          data-draw-scope
+        >
+          <defs>
+            <clipPath id="footer-sky">
+              <path d={land.skyClip} />
+            </clipPath>
+          </defs>
+          <g clipPath="url(#footer-sky)">
+            <path className={styles.rays} d={land.rays} fill="none" stroke={INK.paper} strokeWidth={1.2} strokeLinecap="round" opacity={0.55} />
+            <g className={styles.lid}>
+              <g className={styles.lidIdle}>
+                <path d={eyePath} fill="none" stroke={INK.sky} strokeWidth={3.2} strokeLinejoin="round" />
+                <circle cx={sun.x} cy={sun.y} r={9.5} fill={INK.sky} />
+                <circle cx={sun.x + 3.5} cy={sun.y - 3.5} r={2.4} fill={INK.trail} />
+              </g>
+            </g>
           </g>
-        </g>
-        {land.layers.map((L, i) => (
-          <g key={i}>
-            <path d={L.fill} fill={INK.paper} />
-            <path d={L.hatch} fill="none" stroke={INK.sky} strokeWidth={L.strokeWidth} strokeLinecap="round" opacity={L.opacity} />
+          <path d={land.trail} fill="none" stroke={INK.trail} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" pathLength={1} data-draw />
+          <g className={styles.walker} fill={INK.sky} stroke={INK.sky} strokeLinecap="round">
+            <circle cx={land.walker.head.cx} cy={land.walker.head.cy} r={land.walker.head.r} stroke="none" />
+            {land.walker.strokes.map((w, i) => (
+              <path key={i} d={w.d} fill="none" strokeWidth={w.strokeWidth} />
+            ))}
+            <rect {...land.walker.pack} stroke="none" />
           </g>
-        ))}
-        <rect x={0} y={land.plainTop} width={land.width} height={land.height - land.plainTop} fill={INK.paper} />
-        {[...land.plainStrokes, ...land.tufts].map((b, i) => (
-          <path key={i} d={b.d} fill="none" stroke={INK.sky} strokeWidth={b.strokeWidth} strokeLinecap="round" opacity={b.opacity} />
-        ))}
-        <path d={land.trail} fill="none" stroke={INK.trail} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" pathLength={1} data-draw />
-        <g className={styles.walker} fill={INK.sky} stroke={INK.sky} strokeLinecap="round">
-          <circle cx={land.walker.head.cx} cy={land.walker.head.cy} r={land.walker.head.r} stroke="none" />
-          {land.walker.strokes.map((s, i) => (
-            <path key={i} d={s.d} fill="none" strokeWidth={s.strokeWidth} />
-          ))}
-          <rect {...land.walker.pack} stroke="none" />
-        </g>
-      </svg>
+        </svg>
+      </div>
     </footer>
   );
 }

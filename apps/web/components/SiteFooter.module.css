@@ -25,7 +25,9 @@
 .col a code { font-size: 14px; }
 .footMeta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding-top: 20px; border-top: 1px solid var(--on-rule); color: var(--on-soft); }
 
-.land { display: block; width: 100%; height: clamp(220px, 27vw, 400px); margin-top: clamp(16px, 3vw, 40px); }
+.land { position: relative; width: 100%; height: clamp(220px, 27vw, 400px); margin-top: clamp(16px, 3vw, 40px); }
+.engraving, .overlay { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.engraving { object-fit: cover; object-position: center bottom; }
 .lid, .lidIdle { transform-box: fill-box; transform-origin: center; }
 
 @media (prefers-reduced-motion: no-preference) {

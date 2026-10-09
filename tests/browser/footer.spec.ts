@@ -8,6 +8,9 @@ for (const route of ["/", "/docs/quickstart"]) {
     await footer.scrollIntoViewIfNeeded();
     const land = footer.locator('svg[role="img"]');
     await expect(land).toBeVisible();
+    const img = footer.locator('img[src="/footer-landscape.svg"]');
+    await expect(img).toBeVisible();
+    await expect.poll(() => img.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
     await expect(land.locator("path[data-draw]")).toHaveCount(1);
     await expect(footer.locator('a[href="/docs/agents"]')).toHaveCount(1);
     await expect(footer.locator('a[href="/llms.txt"]')).toHaveCount(1);

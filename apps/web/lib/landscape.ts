@@ -16,6 +16,8 @@ export type Landscape = {
   sun: { x: number; y: number; r: number };
   speckles: Speckle[];
   rays: string;
+  /** Sky region above the far ridge; clips the animated eye and rays so they sit behind the hills. */
+  skyClip: string;
   layers: Layer[];
   plainTop: number;
   plainStrokes: StrokeBucket[];
@@ -107,6 +109,11 @@ export function buildLandscape(): Landscape {
     rays += line(sun.x + Math.cos(ang) * r1, sun.y + Math.sin(ang) * r1, sun.x + Math.cos(ang) * r2, sun.y + Math.sin(ang) * r2);
   }
 
+  const skyPts: Pt[] = [[0, 100]];
+  for (let x = 0; x <= W; x += 8) skyPts.push([x, (defs[0] as (typeof defs)[number]).f(x)]);
+  skyPts.push([W, 100]);
+  const skyClip = `${poly(skyPts)}Z`;
+
   const layers: Layer[] = defs.map((L) => {
     const pts: Pt[] = [[0, H]];
     for (let x = 0; x <= W; x += 8) pts.push([x, L.f(x)]);
@@ -191,6 +198,7 @@ export function buildLandscape(): Landscape {
     sun,
     speckles,
     rays,
+    skyClip,
     layers,
     plainTop,
     plainStrokes,
@@ -198,4 +206,24 @@ export function buildLandscape(): Landscape {
     trail: "M300 480 C 470 440, 430 402, 600 382 S 850 356, 905 334 S 1000 302, 1030 284",
     walker,
   };
+}
+
+const PAPER = "#FAFAF7";
+const SKY = "#2148B8";
+
+/** The never-animated part (speckle, sun disc, hills, plain, tufts) as a standalone SVG document. */
+export function serializeStaticLandscape(l: Landscape): string {
+  const out: string[] = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${l.viewBox}" width="1600" height="360">`];
+  for (const s of l.speckles) out.push(`<circle cx="${s.cx}" cy="${s.cy}" r="${s.r}" fill="${PAPER}" opacity="${s.opacity}"/>`);
+  out.push(`<circle cx="${l.sun.x}" cy="${l.sun.y}" r="${l.sun.r}" fill="${PAPER}"/>`);
+  for (const L of l.layers) {
+    out.push(`<path d="${L.fill}" fill="${PAPER}"/>`);
+    out.push(`<path d="${L.hatch}" fill="none" stroke="${SKY}" stroke-width="${L.strokeWidth}" stroke-linecap="round" opacity="${L.opacity}"/>`);
+  }
+  out.push(`<rect x="0" y="${l.plainTop}" width="${l.width}" height="${l.height - l.plainTop}" fill="${PAPER}"/>`);
+  for (const b of [...l.plainStrokes, ...l.tufts]) {
+    out.push(`<path d="${b.d}" fill="none" stroke="${SKY}" stroke-width="${b.strokeWidth}" stroke-linecap="round" opacity="${b.opacity}"/>`);
+  }
+  out.push("</svg>");
+  return out.join("\n");
 }

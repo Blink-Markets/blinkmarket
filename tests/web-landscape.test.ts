@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildLandscape } from "../apps/web/lib/landscape.ts";
+import { buildLandscape, serializeStaticLandscape } from "../apps/web/lib/landscape.ts";
 
 test("landscape is deterministic", () => {
   assert.deepEqual(buildLandscape(), buildLandscape());
@@ -23,4 +23,12 @@ test("every number in every path string is finite", () => {
     assert.ok(nums.length > 0);
     for (const n of nums) assert.ok(Number.isFinite(Number(n)));
   }
+});
+
+test("static serialiser is deterministic, a standalone svg and finite", () => {
+  const a = serializeStaticLandscape(buildLandscape());
+  assert.equal(a, serializeStaticLandscape(buildLandscape()));
+  assert.ok(a.startsWith("<svg"));
+  assert.ok(a.includes('viewBox="0 120 1600 360"'));
+  assert.doesNotMatch(a, /NaN|Infinity|undefined/);
 });
