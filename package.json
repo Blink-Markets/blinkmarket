@@ -29,6 +29,7 @@
     "build:services": "node scripts/build-services.mjs",
     "test:service-build": "node --test tests/service-build.test.mjs",
     "test:postgres": "node --import tsx --test tests/postgres/identity.test.ts",
+    "test:browsers": "playwright test -c tests/browser/playwright.config.ts",
     "infra:up": "docker compose -f infra/compose.yaml up -d",
     "infra:down": "docker compose -f infra/compose.yaml down"
   },
@@ -45,6 +46,7 @@
     "@types/node": "22.20.4",
     "typescript": "5.9.3",
     "tsx": "4.23.15",
-    "solc": "0.8.30"
+    "solc": "0.8.30",
+    "@playwright/test": "1.63.0"
   }
 }

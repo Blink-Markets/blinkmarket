@@ -20,6 +20,9 @@ importers:
       '@openzeppelin/contracts':
         specifier: 5.6.1
         version: 5.6.1
+      '@playwright/test':
+        specifier: 1.63.0
+        version: 1.63.0
       '@types/node':
         specifier: 22.20.4
         version: 22.20.4
@@ -103,7 +106,7 @@ importers:
         version: 18.0.13
       next:
         specifier: 16.3.5
-        version: 16.3.5(@types/node@22.20.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 16.3.5(@playwright/test@1.63.0)(@types/node@22.20.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       react:
         specifier: 19.3.0
         version: 19.3.0
@@ -688,6 +691,11 @@ packages:
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
 
+  '@playwright/test@1.63.0':
+    resolution: {integrity: sha512-oxMK4vllB9RK5NQ2l1pq1IfOf2AvnEuj/vYGDj0H2nMtmtZpKtCwt/l00GEO6xjGfpBNAvjovvYdCm50dRQkpQ==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   '@scure/base@1.2.6':
     resolution: {integrity: sha512-g/nm5FgUa//MCj1gV09zTJTaM6KBAHqLN907YVQqf7zC49+DcO4B1so4ZX07Ef10Twr6nuqYEH9GEggFXA4Fmg==}
 
@@ -1037,6 +1045,16 @@ packages:
 
   pino@10.3.1:
     resolution: {integrity: sha512-r34yH/GlQpKZbU1BvFFqOjhISRo1MNx1tWYsYvmj6KIRHSPMT2+yHOEb1SG6NMvRoHRF0a07kCOox/9yakl1vg==}
+    hasBin: true
+
+  playwright-core@1.63.0:
+    resolution: {integrity: sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  playwright@1.63.0:
+    resolution: {integrity: sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg==}
+    engines: {node: '>=20'}
     hasBin: true
 
   postcss@8.5.23:
@@ -1575,6 +1593,10 @@ snapshots:
 
   '@pinojs/redact@0.4.0': {}
 
+  '@playwright/test@1.63.0':
+    dependencies:
+      playwright: 1.63.0
+
   '@scure/base@1.2.6': {}
 
   '@scure/bip32@1.7.0':
@@ -1878,7 +1900,7 @@ snapshots:
 
   nanoid@3.3.19: {}
 
-  next@16.3.5(@types/node@22.20.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
+  next@16.3.5(@playwright/test@1.63.0)(@types/node@22.20.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
     dependencies:
       '@next/env': 16.3.5
       '@swc/helpers': 0.5.23
@@ -1897,6 +1919,7 @@ snapshots:
       '@next/swc-linux-x64-musl': 16.3.5
       '@next/swc-win32-arm64-msvc': 16.3.5
       '@next/swc-win32-x64-msvc': 16.3.5
+      '@playwright/test': 1.63.0
       sharp: 0.35.4(@types/node@22.20.4)
     transitivePeerDependencies:
       - '@babel/core'
@@ -1986,6 +2009,12 @@ snapshots:
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.1
       thread-stream: 4.2.0
+
+  playwright-core@1.63.0: {}
+
+  playwright@1.63.0:
+    dependencies:
+      playwright-core: 1.63.0
 
   postcss@8.5.23:
     dependencies:
