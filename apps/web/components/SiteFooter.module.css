@@ -2,13 +2,15 @@
 .footer {
   --on-soft: #fafaf7b8;
   --on-rule: #fafaf740;
-  background: var(--footer-sky);
+  background: var(--footer-sky) url("/footer-stars.svg") no-repeat 0 0 / 100% 100%;
   color: var(--footer-paper);
   position: relative;
   overflow: hidden;
   margin-top: clamp(48px, 8vw, 120px);
   view-timeline-name: --foot;
 }
+.footer > :global(.container) { position: relative; z-index: 1; }
+.skyStars { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
 .footer :focus-visible { outline-color: var(--footer-paper); }
 .footTop { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); gap: 40px clamp(24px, 4vw, 64px); padding-block: clamp(56px, 8vw, 96px) 40px; }
 .brand { display: grid; gap: 18px; align-content: start; }
@@ -28,9 +30,10 @@
 .land { position: relative; width: 100%; height: clamp(220px, 27vw, 400px); margin-top: clamp(16px, 3vw, 40px); }
 .engraving, .overlay { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 .engraving { object-fit: cover; object-position: center bottom; }
-.lid, .lidIdle { transform-box: fill-box; transform-origin: center; }
+.twinkle, .lid, .lidIdle { transform-box: fill-box; transform-origin: center; }
 
 @media (prefers-reduced-motion: no-preference) {
+  .twinkle { animation: footTwinkle 3.6s ease-in-out infinite; }
   /* Idle blink about every 7s (time-based, runs everywhere). */
   .lidIdle { animation: footBlinkIdle 7s ease-in-out 6s infinite; }
 
@@ -43,6 +46,7 @@
     .land path[data-draw] { animation-range: entry 10% entry 100%; }
   }
 }
+@keyframes footTwinkle { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.7); } }
 @keyframes footFade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes footBlinkOnce { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.06); } }
 @keyframes footBlinkIdle { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(0.06); } }

@@ -1,11 +1,13 @@
 import Link from "next/link";
-import { buildLandscape } from "../lib/landscape";
+import { buildLandscape, buildStarField } from "../lib/landscape";
 import styles from "./SiteFooter.module.css";
 
 // SVG attributes use literal hex values (same convention as illustrations/inks.ts); the CSS uses the --footer-* tokens.
 const INK = { paper: "#FAFAF7", sky: "#2148B8", trail: "#C65F38" } as const;
 const land = buildLandscape();
 const { sun } = land;
+const twinklers = land.sparkles.filter((q) => q.twinkle);
+const upperTwinklers = buildStarField().sparkles.filter((q) => q.twinkle);
 const eyePath = `M${sun.x - 30} ${sun.y}Q${sun.x} ${sun.y - 26} ${sun.x + 30} ${sun.y}Q${sun.x} ${sun.y + 26} ${sun.x - 30} ${sun.y}Z`;
 
 const columns = [
@@ -30,6 +32,12 @@ const columns = [
 export function SiteFooter() {
   return (
     <footer className={styles.footer}>
+      {/* The static faint stars are the footer's CSS background (/footer-stars.svg); only the twinkling ones are inline. */}
+      <svg className={styles.skyStars} viewBox="0 0 1600 600" preserveAspectRatio="none" aria-hidden="true">
+        {upperTwinklers.map((q, i) => (
+          <path key={i} className={styles.twinkle} d={q.d} fill={INK.paper} opacity={q.opacity} style={{ animationDelay: `${q.delay}s` }} />
+        ))}
+      </svg>
       <div className="container">
         <div className={styles.footTop}>
           <div className={styles.brand}>
@@ -100,6 +108,9 @@ export function SiteFooter() {
               <path d={land.skyClip} />
             </clipPath>
           </defs>
+          {twinklers.map((q, i) => (
+            <path key={i} className={styles.twinkle} d={q.d} fill={INK.paper} opacity={q.opacity} style={{ animationDelay: `${q.delay}s` }} />
+          ))}
           <g clipPath="url(#footer-sky)">
             <path className={styles.rays} d={land.rays} fill="none" stroke={INK.paper} strokeWidth={1.2} strokeLinecap="round" opacity={0.55} />
             <g className={styles.lid}>

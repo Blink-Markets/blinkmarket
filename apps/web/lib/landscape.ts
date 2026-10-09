@@ -3,6 +3,10 @@
 
 export type Layer = { fill: string; hatch: string; strokeWidth: number; opacity: number };
 export type Speckle = { cx: number; cy: number; r: number; opacity: number };
+/** Four-point star; `d` is its path, `delay` (seconds) is only set for the twinkling ones. */
+export type Sparkle = { d: string; opacity: number; twinkle: boolean; delay: number };
+/** Faint star field behind the footer content, in a 1600x600 box stretched to the footer. */
+export type StarField = { viewBox: string; dots: Speckle[]; sparkles: Sparkle[] };
 export type StrokeBucket = { d: string; strokeWidth: number; opacity: number };
 export type Walker = {
   head: { cx: number; cy: number; r: number };
@@ -14,7 +18,10 @@ export type Landscape = {
   width: number;
   height: number;
   sun: { x: number; y: number; r: number };
+  /** Landscape-sky dots (static). */
   speckles: Speckle[];
+  /** Four-point sparkles in the landscape sky; the twinkling ones are drawn by the inline overlay. */
+  sparkles: Sparkle[];
   rays: string;
   /** Sky region above the far ridge; clips the animated eye and rays so they sit behind the hills. */
   skyClip: string;
@@ -83,8 +90,27 @@ function poly(pts: readonly Pt[]): string {
 
 const line = (x1: number, y1: number, x2: number, y2: number): string => poly([[x1, y1], [x2, y2]]);
 
+/** Four-point star path (curves pinch to the centre). A twinkling one also draws its animation delay. */
+function makeSparkle(x: number, y: number, size: number, opacity: number, twinkle: boolean, rand: () => number): Sparkle {
+  const c = `${num(x)} ${num(y)}`;
+  const d = `M${num(x)} ${num(y - size)}Q${c} ${num(x + size)} ${num(y)}Q${c} ${num(x)} ${num(y + size)}Q${c} ${num(x - size)} ${num(y)}Q${c} ${num(x)} ${num(y - size)}Z`;
+  return { d, opacity, twinkle, delay: twinkle ? r(rand() * 3.6) : 0 };
+}
+
 /** Splits a 0..1 depth into n bands; returns the band index. */
 const band = (depth: number, n: number): number => Math.min(n - 1, Math.max(0, Math.floor(depth * n)));
+
+/** Faint upper star field (own seed): 140 dots and 6 fixed sparkles, every other sparkle twinkling. */
+export function buildStarField(): StarField {
+  const rand = mulberry32(7331);
+  const dots: Speckle[] = [];
+  for (let u = 0; u < 140; u++) {
+    dots.push({ cx: r(rand() * 1600), cy: r(rand() * 600), r: r(0.5 + Math.pow(rand(), 3) * 1.1), opacity: r(0.1 + rand() * 0.3) });
+  }
+  const fixed: readonly (readonly [number, number, number])[] = [[90, 70, 5], [1540, 110, 6], [1180, 40, 4], [720, 560, 4.5], [40, 470, 4], [1450, 520, 5]];
+  const sparkles = fixed.map(([x, y, size], i) => makeSparkle(x, y, size, 0.45, i % 2 === 1, rand));
+  return { viewBox: "0 0 1600 600", dots, sparkles };
+}
 
 export function buildLandscape(): Landscape {
   const rand = mulberry32(SEED);
@@ -96,9 +122,23 @@ export function buildLandscape(): Landscape {
     { f: ridge(304, [[8, 0.008, 2.7], [4, 0.022, 1.1], [2, 0.06, 0.2]], [[200, 260, 10]]), gap: 5.4, w: 1.1, op: 0.75 },
   ];
 
+  // Starry sky: dots denser toward the horizon, then a few four-point sparkles; both keep clear of the sun.
+  const farTop = (defs[0] as (typeof defs)[number]).f;
   const speckles: Speckle[] = [];
-  for (let s = 0; s < 70; s++) {
-    speckles.push({ cx: r(rand() * W), cy: r(rand() * 190), r: r(0.6 + rand() * 0.9), opacity: r(0.12 + rand() * 0.25) });
+  for (let s = 0; s < 260; s++) {
+    const sx = rand() * W;
+    const top = 122;
+    const bottom = farTop(sx) - 8;
+    const sy = top + Math.pow(rand(), 1.6) * Math.max(0, bottom - top);
+    if (Math.hypot(sx - sun.x, sy - sun.y) < sun.r + 70) continue;
+    speckles.push({ cx: r(sx), cy: r(sy), r: r(0.45 + Math.pow(rand(), 3) * 1.4), opacity: r(0.25 + rand() * 0.6) });
+  }
+  const sparkles: Sparkle[] = [];
+  for (let q = 0; q < 60 && sparkles.length < 14; q++) {
+    const qx = 40 + rand() * (W - 80);
+    const qy = 128 + rand() * 70;
+    if (qy > farTop(qx) - 18 || Math.hypot(qx - sun.x, qy - sun.y) < sun.r + 90) continue;
+    sparkles.push(makeSparkle(qx, qy, 3.5 + rand() * 6, r(0.7 + rand() * 0.3), sparkles.length % 2 === 0, rand));
   }
 
   let rays = "";
@@ -197,6 +237,7 @@ export function buildLandscape(): Landscape {
     height: H,
     sun,
     speckles,
+    sparkles,
     rays,
     skyClip,
     layers,
@@ -211,10 +252,11 @@ export function buildLandscape(): Landscape {
 const PAPER = "#FAFAF7";
 const SKY = "#2148B8";
 
-/** The never-animated part (speckle, sun disc, hills, plain, tufts) as a standalone SVG document. */
+/** The never-animated part (stars, sun disc, hills, plain, tufts) as a standalone SVG document. */
 export function serializeStaticLandscape(l: Landscape): string {
   const out: string[] = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${l.viewBox}" width="1600" height="360">`];
   for (const s of l.speckles) out.push(`<circle cx="${s.cx}" cy="${s.cy}" r="${s.r}" fill="${PAPER}" opacity="${s.opacity}"/>`);
+  for (const q of l.sparkles) if (!q.twinkle) out.push(`<path d="${q.d}" fill="${PAPER}" opacity="${q.opacity}"/>`);
   out.push(`<circle cx="${l.sun.x}" cy="${l.sun.y}" r="${l.sun.r}" fill="${PAPER}"/>`);
   for (const L of l.layers) {
     out.push(`<path d="${L.fill}" fill="${PAPER}"/>`);
@@ -224,6 +266,15 @@ export function serializeStaticLandscape(l: Landscape): string {
   for (const b of [...l.plainStrokes, ...l.tufts]) {
     out.push(`<path d="${b.d}" fill="none" stroke="${SKY}" stroke-width="${b.strokeWidth}" stroke-linecap="round" opacity="${b.opacity}"/>`);
   }
+  out.push("</svg>");
+  return out.join("\n");
+}
+
+/** The static upper star field (dots and non-twinkling sparkles) as a standalone SVG used as a CSS background. */
+export function serializeStarField(f: StarField): string {
+  const out: string[] = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f.viewBox}" preserveAspectRatio="none">`];
+  for (const s of f.dots) out.push(`<circle cx="${s.cx}" cy="${s.cy}" r="${s.r}" fill="${PAPER}" opacity="${s.opacity}"/>`);
+  for (const q of f.sparkles) if (!q.twinkle) out.push(`<path d="${q.d}" fill="${PAPER}" opacity="${q.opacity}"/>`);
   out.push("</svg>");
   return out.join("\n");
 }
