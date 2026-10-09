@@ -82,7 +82,7 @@ Evidence is fetched from an allowlisted source, stored as bytes with a hash, and
 ## Hand it to your agent
 
 ```prompt
-Using /docs/architecture, tell me which Blink process or port is responsible for a given task (for example: freezing a specification, signing a quote, reading a creation receipt). Constraints: Base Sepolia testnet (chain ID 84532); bUSD has no value; there is no public deployment or API host. Do not create wallets or request keys, and do not sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals for external users. Mark anything the page calls a target as not available today.
+Using the page at http://127.0.0.1:3000/docs/architecture.md while pnpm dev is running (or apps/web/content/docs/architecture.md in the repository), tell me which Blink process or port is responsible for a given task (for example: freezing a specification, signing a quote, reading a creation receipt). Constraints: Base Sepolia testnet (chain ID 84532); bUSD has no value; there is no public deployment or API host. Do not create wallets or request keys, and do not sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals for external users. Mark anything the page calls a target as not available today.
 ```
 
 ## Next steps

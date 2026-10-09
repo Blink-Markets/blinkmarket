@@ -31,14 +31,14 @@ test("no placeholders and no invented hosts", () => {
   }
 });
 
-test("all canonical pages exist (fails until Wave 2 content is merged)", () => {
+test("all canonical pages exist", () => {
   const have = new Set(pages.map((p) => p.slug));
   for (const s of DOC_SLUGS) assert.ok(have.has(s), `missing page for slug "${s}"`);
 });
 
 test("agent guide has the eight required sections", () => {
   const agents = pages.find((p) => p.slug === "agents");
-  if (!agents) return; // covered by the previous test until merged
+  assert.ok(agents, "agents.md is missing");
   for (const h of ["1. Purpose and hard constraints", "2. Install and run locally", "3. Verify", "4. Core model", "5. Workflows", "6. Rules and invariants", "7. Endpoint status", "8. Troubleshooting"])
     assert.ok(agents.body.includes(`## ${h}`), `agents.md missing "## ${h}"`);
 });

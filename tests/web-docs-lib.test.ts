@@ -103,6 +103,10 @@ test("apiIndexMarkdown renders one row per operation with status", () => {
   const ops = Object.values(doc.paths).reduce((n, item) => n + Object.keys(item).length, 0);
   assert.equal(md.split("\n").filter((l) => /^\| (GET|POST|PUT|PATCH|DELETE) \|/.test(l)).length, ops);
   assert.match(md, /\| Method \| Path \| Planned access \| Status \|/);
+  assert.match(md, /^## markets$/m);
+  assert.ok(!/^###/m.test(md));
+  assert.match(md, /\| GET \| `\/v1\/config` \| .* \| always available \|/);
+  assert.ok(!md.includes("unspecified"));
 });
 
 test("renderDoc toc text is decoded plain text and ids slugify it", () => {

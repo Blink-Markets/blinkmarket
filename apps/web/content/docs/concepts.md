@@ -8,7 +8,7 @@ agentTask: look up the meaning of a Blink term
 
 # Concepts
 
-Blink uses a small, precise vocabulary. Each term below has one meaning everywhere in the docs and the API.
+Blink uses a small, precise vocabulary. Each term below is defined once here and used in that sense throughout these docs.
 
 ## Questions and specs
 
@@ -49,7 +49,7 @@ Blink uses a small, precise vocabulary. Each term below has one meaning everywhe
 **Projection.** Read data rebuilt from canonical events. It is not the source of truth for positions; the chain is.
 
 > [!NOTE]
-> In practice: when a transaction status is unknown, do not assume it failed and resubmit it. Check its finality level first.
+> In practice: when a transaction status is unknown, do not assume it failed or resubmit it blindly. Re-read its state first.
 
 ## Modes
 

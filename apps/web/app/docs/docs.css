@@ -1,15 +1,16 @@
 /* Docs shell. Colours come only from tokens (see globals.css for docs dark tokens). */
 .docs-root { color: var(--ink); }
-.docs-root [hidden] { display: none !important; }
 
 /* Audience bar */
 .docs-audience { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; padding: 10px var(--gutter); border-bottom: 1px solid var(--rule); background: var(--paper-2); }
 .docs-seg { display: inline-flex; border: 1px solid var(--ink); }
 .docs-seg a { padding: 6px 14px; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); text-decoration: none; }
 .docs-seg a:hover { background: var(--cobalt-tint); }
+.docs-seg a[aria-current="page"] { background: var(--ink); color: var(--paper); }
 .docs-audience p { margin: 0; font-size: 14px; color: var(--ink-soft); flex: 1 1 200px; }
 .docs-theme { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; background: transparent; color: var(--ink); border: 1px solid var(--rule); padding: 6px 12px; cursor: pointer; margin-left: auto; }
 .docs-theme:hover { border-color: var(--ink); }
+.docs-theme[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 
 /* Shell */
 .docs-shell { display: grid; grid-template-columns: 248px minmax(0, 1fr) 208px; gap: 48px; padding-inline: var(--gutter); max-width: 1440px; margin-inline: auto; }
@@ -17,7 +18,7 @@
 .docs-nav summary { display: none; }
 .docs-nav > .docs-navgroups { display: block; }
 .docs-navgroup + .docs-navgroup { margin-top: 24px; }
-.docs-root .docs-navgroup h2 { margin: 0 0 8px; font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; line-height: 1.5; color: var(--ink-faint); }
+.docs-root .docs-navgroup-label { margin: 0 0 8px; font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; line-height: 1.5; color: var(--ink-faint); }
 .docs-navgroup ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
 .docs-navgroup a { display: block; padding: 5px 10px; font-size: 14.5px; color: var(--ink); text-decoration: none; border-left: 2px solid transparent; }
 .docs-navgroup a:hover { background: var(--cobalt-tint); }

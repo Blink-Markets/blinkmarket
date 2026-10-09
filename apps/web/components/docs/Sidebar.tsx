@@ -11,18 +11,27 @@ export function Sidebar({ groups }: { groups: Group[] }) {
   const ref = useRef<HTMLDetailsElement>(null);
   const current = groups.flatMap((g) => g.pages).find((p) => p.href === pathname);
 
+  // Closed by default (no open-then-close jump on mobile). At >=768px the nav is always shown:
+  // CSS does it via ::details-content; this keeps it open for browsers without that selector.
   useEffect(() => {
-    if (window.matchMedia("(max-width: 767px)").matches && ref.current) ref.current.open = false;
+    const mq = window.matchMedia("(min-width: 768px)");
+    const sync = () => {
+      if (ref.current) ref.current.open = mq.matches;
+    };
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
   }, [pathname]);
 
   return (
-    <aside className="docs-sidebar" aria-label="Docs navigation">
-      <details ref={ref} className="docs-nav" open>
+    <aside className="docs-sidebar">
+      <nav aria-label="Docs navigation">
+      <details ref={ref} className="docs-nav">
         <summary>Menu · {current?.title ?? "Docs"}</summary>
         <div className="docs-navgroups">
           {groups.map((g) => (
             <div className="docs-navgroup" key={g.group}>
-              <h2>{g.group}</h2>
+              <p className="docs-navgroup-label">{g.group}</p>
               <ul>
                 {g.pages.map((p) => (
                   <li key={p.href}>
@@ -34,6 +43,7 @@ export function Sidebar({ groups }: { groups: Group[] }) {
           ))}
         </div>
       </details>
+      </nav>
     </aside>
   );
 }

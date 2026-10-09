@@ -33,8 +33,8 @@ The API starts in the mode set by `BLINK_API_MODE`: `scaffold` (default), `ident
 | Status word | Endpoints |
 | --- | --- |
 | `Identity mode` | `/v1/auth/wallet-challenges`, `/v1/auth/wallet-verifications` |
-| `Preparation mode` | `/v1/candidates`, `/v1/candidates/:id`, `/v1/candidates/:id/revisions`, `/v1/admin/candidates/:id/reject`, `/v1/evidence/:id` |
-| `Approval mode` | `/v1/admin/candidates/:id/approve`, `/v1/admin/creation-intents/:id`, `/v1/specs/:specHash`, `/v1/admin/creation-intents/:id/chain-status` |
+| `Preparation mode` | `/v1/candidates`, `/v1/candidates/{id}`, `/v1/candidates/{id}/revisions`, `/v1/admin/candidates/{id}/reject`, `/v1/evidence/{id}` |
+| `Approval mode` | `/v1/admin/candidates/{id}/approve`, `/v1/admin/creation-intents/{id}`, `/v1/specs/{specHash}`, `/v1/admin/creation-intents/{id}/chain-status` |
 | `Planned` | Everything else in the [API reference](/docs/api) (which shows the default scaffold status, not mode names), including markets, forecasts, RFQs, quotes, transactions, positions, resolution, faucet and metrics |
 
 > [!NOTE]
@@ -57,7 +57,7 @@ Other things that run locally:
 > [!PLANNED]
 > No public API host. The API only runs on `http://127.0.0.1:3001`. Status: Planned.
 
-Also not built: continuous indexing (the indexer, worker and signer processes answer a liveness check only; nothing polls automatically), research automation and the product UI beyond the showcase.
+Also not built: continuous indexing (the indexer, worker and signer processes answer a liveness check only, and the worker also serves `/jobs`, a planned job list reported as `enabled: false`; nothing polls automatically), research automation and the product UI beyond the showcase.
 
 ## Where are the delivery records?
 
@@ -77,7 +77,7 @@ Most of these are written in Traditional Chinese.
 ## Hand it to your agent
 
 ```prompt
-Before using any Blink capability, check /docs/status. Constraints: Base Sepolia testnet (chain ID 84532); bUSD has no value; there is no public deployment or API host. Do not create wallets or request keys, and do not sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals for external users. For each endpoint you plan to call, report whether it is Identity mode, Preparation mode, Approval mode or Planned, and tell the operator which BLINK_API_MODE they must set.
+Before using any Blink capability, check http://127.0.0.1:3000/docs/status.md while pnpm dev is running (or apps/web/content/docs/status.md in the repository). Constraints: Base Sepolia testnet (chain ID 84532); bUSD has no value; there is no public deployment or API host. Do not create wallets or request keys, and do not sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals for external users. For each endpoint you plan to call, report whether it is Identity mode, Preparation mode, Approval mode or Planned, and tell the operator which BLINK_API_MODE they must set.
 ```
 
 ## Next steps

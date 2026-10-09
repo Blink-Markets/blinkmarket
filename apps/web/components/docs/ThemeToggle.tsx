@@ -27,8 +27,8 @@ export function ThemeToggle() {
   }
 
   return (
-    <button type="button" className="docs-theme" aria-pressed={theme === "dark"} aria-label="Dark theme" onClick={toggle}>
-      {theme === "dark" ? "Light" : "Dark"}
+    <button type="button" className="docs-theme" aria-pressed={theme === "dark"} onClick={toggle}>
+      Dark theme
     </button>
   );
 }

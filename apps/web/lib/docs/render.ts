@@ -23,7 +23,7 @@ export function renderDoc(body: string): { html: string; toc: TocItem[] } {
         used.set(baseId, n);
         const id = n === 1 ? baseId : `${baseId}-${n}`;
         if (depth === 2 || depth === 3) toc.push({ id, text, depth });
-        return `<h${depth} id="${id}">${inner} <a class="docs-anchor" href="#${id}" aria-label="Link to this section">#</a></h${depth}>\n`;
+        return `<h${depth} id="${id}">${inner} <a class="docs-anchor" href="#${id}" aria-hidden="true" tabindex="-1">#</a></h${depth}>\n`;
       },
       code({ text, lang }) {
         if (lang === "prompt")

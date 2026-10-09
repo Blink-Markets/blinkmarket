@@ -10,8 +10,8 @@ agentTask: explain which state a market is in and what can happen next
 
 Every Blink market is a YES/NO question that moves through a small, fixed set of contract states. The rules below come from the MVP specification (section 6.2) and apply to the Base Sepolia testnet (chain ID 84532), where bUSD has no value.
 
-> [!PLANNED]
-> No market contract is deployed yet, so no market has gone through this lifecycle on a public chain. The state machine is implemented and tested locally. Status: Planned.
+> [!NOTE]
+> The contracts that implement this state machine are implemented and tested locally. No market contract is deployed yet, so no market has gone through this lifecycle on a public chain; deployment is Planned.
 
 ## What states can a market be in?
 
@@ -80,7 +80,7 @@ The current market-creation tracker applies a fixed observation policy of 12 con
 ## Hand it to your agent
 
 ```prompt
-Explain the lifecycle of a Blink market using /docs/lifecycle. Constraints: Base Sepolia testnet (chain ID 84532); bUSD has no value; there is no public deployment or API host. Do not create wallets or request keys, and do not sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals for external users. Given a market state and the current time relative to closeAt, proposalDeadline and hardDeadline, say which transitions are allowed, who may perform them, and what INVALID would pay per share.
+Explain the lifecycle of a Blink market using the page at http://127.0.0.1:3000/docs/lifecycle.md while pnpm dev is running (or apps/web/content/docs/lifecycle.md in the repository). Constraints: Base Sepolia testnet (chain ID 84532); bUSD has no value; there is no public deployment or API host. Do not create wallets or request keys, and do not sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals for external users. Given a market state and the current time relative to closeAt, proposalDeadline and hardDeadline, say which transitions are allowed, who may perform them, and what INVALID would pay per share.
 ```
 
 ## Next steps

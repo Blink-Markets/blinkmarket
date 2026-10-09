@@ -42,6 +42,9 @@ curl -s http://127.0.0.1:3001/v1/specs/<specHash> -o spec.json
 
 Parse the JSON only after the hash matches. Any whitespace or key-order change produces a different hash.
 
+> [!NOTE]
+> Locally there is no registered deployment and no approved candidate, so `/v1/specs/{specHash}` returns 404 until an operator registers a deployment (`pnpm deployment:register`) and a human admin approves a candidate.
+
 ## Which endpoints read markets?
 
 | Endpoint | Status | Returns |
@@ -65,6 +68,7 @@ Market states are `OPEN`, `CLOSED`, `PROPOSED`, `DISPUTED`, `FINAL`. The summary
 Verify a Blink market spec.
 1. With the API at http://127.0.0.1:3001 running in approval mode, GET /v1/specs/<specHash> and save the raw response bytes unchanged.
 2. Compute keccak256 over those exact bytes. Do not parse and re-serialise the JSON first.
+   If it returns 404, report that no approved spec exists yet and stop; locally there is no registered deployment or approved candidate until an operator sets that up.
 3. If the hash differs from <specHash>, stop and report the mismatch.
 4. Otherwise parse the JSON and report entityId, fiscalPeriod, thresholdBps, mode, closeAt, proposalDeadline and hardDeadline.
 Base Sepolia testnet only; bUSD has no value. Do not create wallets, and do not sign or broadcast any transaction.
