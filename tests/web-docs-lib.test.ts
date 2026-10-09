@@ -81,7 +81,7 @@ test("renderDoc builds unique heading ids, toc, code, prompt, alerts and tables"
     { id: "install-2", text: "Install", depth: 2 },
   ]);
   assert.ok(!html.includes("<h1"));
-  assert.match(html, /<figure class="docs-code"><figcaption><span>sh<\/span><button type="button" class="docs-copy">Copy<\/button><\/figcaption><pre tabindex="0"><code>pnpm i &lt;x&gt;<\/code><\/pre><\/figure>/);
+  assert.match(html, /<figure class="docs-code"><figcaption><span>sh<\/span><button type="button" class="docs-copy">Copy<\/button><\/figcaption><pre tabindex="0"><code>[\s\S]*pnpm[\s\S]*&lt;[\s\S]*x[\s\S]*&gt;[\s\S]*<\/code><\/pre><\/figure>/);
   assert.match(html, /<figure class="docs-prompt">[\s\S]*Copy prompt[\s\S]*<pre tabindex="0">Do it<\/pre><\/figure>/);
   assert.match(html, /<aside class="docs-callout docs-callout-note"><p class="docs-callout-label">Note<\/p>[\s\S]*<code>x<\/code>/);
   assert.match(html, /docs-callout-planned[\s\S]*Planned/);
@@ -116,4 +116,28 @@ test("renderDoc toc text is decoded plain text and ids slugify it", () => {
     { id: "what-s-new", text: "What's new", depth: 2 },
   ]);
   assert.ok(html.includes('id="errors-idempotency"'));
+});
+
+const codeOf = (html: string) => /<code>([\s\S]*?)<\/code>/.exec(html)?.[1] ?? "";
+const textOf = (h: string) =>
+  h.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+
+test("renderDoc highlights known languages with css-variable token spans", () => {
+  const sh = codeOf(renderDoc("```sh\npnpm install <x> # note\n```").html);
+  assert.match(sh, /<span[^>]*style="[^"]*var\(--shiki-/);
+  assert.match(sh, /<span[^>]*var\(--shiki-token-comment\)[^>]*>[^<]*# note/);
+  assert.ok(sh.includes("&lt;") && sh.includes("&gt;") && !sh.includes("<x>"));
+  assert.equal(textOf(sh), "pnpm install <x> # note");
+  const json = renderDoc('```json\n{"a": 1}\n```').html;
+  assert.match(codeOf(json), /<span/);
+  assert.equal(textOf(codeOf(json)), '{"a": 1}');
+  assert.ok(!/<pre[^>]*style=|background/.test(json));
+});
+
+test("renderDoc leaves text, prompt and unknown fences unhighlighted", () => {
+  for (const lang of ["text", "prompt", "klingon"]) {
+    const { html } = renderDoc("```" + lang + "\nhello <b>\n```");
+    assert.ok(!html.includes("<span style"), lang);
+    assert.ok(!html.includes("var(--shiki-"), lang);
+  }
 });

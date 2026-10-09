@@ -109,3 +109,18 @@
   .docs-pager { grid-template-columns: 1fr; }
   .docs-pager a[rel="next"] { grid-column: auto; text-align: left; }
 }
+
+/* Syntax highlighting: Shiki css-variables theme mapped to Blink tokens (dark mode follows the tokens). */
+.docs-code code {
+  --shiki-foreground: var(--ink);
+  --shiki-token-constant: color-mix(in srgb, var(--cobalt) 70%, var(--ink));
+  --shiki-token-string: color-mix(in srgb, var(--cobalt) 70%, var(--ink));
+  --shiki-token-string-expression: color-mix(in srgb, var(--cobalt) 70%, var(--ink));
+  --shiki-token-comment: var(--ink-faint);
+  --shiki-token-keyword: var(--cobalt);
+  --shiki-token-parameter: var(--ink);
+  --shiki-token-function: var(--cobalt);
+  --shiki-token-punctuation: var(--ink);
+  --shiki-token-link: var(--cobalt);
+}
+.docs-code code [style*="--shiki-token-comment"] { font-style: italic; }

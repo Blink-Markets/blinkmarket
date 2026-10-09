@@ -1,5 +1,6 @@
 // marked with a Blink renderer; one Marked instance per call so ids/toc stay local.
 import { Marked } from "marked";
+import { highlightCode } from "./highlight.ts";
 
 export type TocItem = { id: string; text: string; depth: 2 | 3 };
 const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -28,7 +29,7 @@ export function renderDoc(body: string): { html: string; toc: TocItem[] } {
       code({ text, lang }) {
         if (lang === "prompt")
           return `<figure class="docs-prompt"><figcaption><span>Prompt for your agent</span><button type="button" class="docs-copy">Copy prompt</button></figcaption><pre tabindex="0">${escapeHtml(text)}</pre></figure>\n`;
-        return `<figure class="docs-code"><figcaption><span>${escapeHtml(lang || "text")}</span><button type="button" class="docs-copy">Copy</button></figcaption><pre tabindex="0"><code>${escapeHtml(text)}</code></pre></figure>\n`;
+        return `<figure class="docs-code"><figcaption><span>${escapeHtml(lang || "text")}</span><button type="button" class="docs-copy">Copy</button></figcaption><pre tabindex="0"><code>${highlightCode(text, lang) ?? escapeHtml(text)}</code></pre></figure>\n`;
       },
       blockquote({ tokens }) {
         const inner = this.parser.parse(tokens);
