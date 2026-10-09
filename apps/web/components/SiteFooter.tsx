@@ -57,7 +57,7 @@ export function SiteFooter() {
                 ))}
                 {col.title === "Developers" ? (
                   <li>
-                    {/* Plain anchor: llms.txt is a static text file, not an app route. */}
+                    {/* Plain anchor: /llms.txt is a text route handler, not a page, so client-side navigation does not apply. */}
                     <a href="/llms.txt">
                       <code>llms.txt</code>
                     </a>
