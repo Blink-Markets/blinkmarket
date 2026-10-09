@@ -53,7 +53,7 @@ Parse the JSON only after the hash matches. Any whitespace or key-order change p
 | `GET /v1/markets/{id}/spec?deploymentId=...` | Planned | The spec for a market |
 
 > [!PLANNED]
-> `GET /v1/markets`, `GET /v1/markets/{id}` and `GET /v1/markets/{id}/spec` are Planned. They return `501` in every API mode today. `GET /v1/specs/{specHash}` needs `BLINK_API_MODE=approval`, and `GET /v1/evidence/{id}` needs `preparation` or later.
+> `GET /v1/markets`, `GET /v1/markets/{id}` and `GET /v1/markets/{id}/spec` are Planned. They are public, and a valid request returns `501` in every API mode today. `GET /v1/specs/{specHash}` needs `BLINK_API_MODE=approval`, and `GET /v1/evidence/{id}` needs `preparation` or later.
 
 Evidence access follows its policy: `PUBLIC` and `EXCERPT` metadata is public, `PRIVATE` is visible only to its owner and administrators. A missing evidence ID and an unauthorised one both return `404`, and no storage location appears in responses.
 

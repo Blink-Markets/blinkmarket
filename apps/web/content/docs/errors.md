@@ -39,7 +39,7 @@ All five fields are always present. Quote `requestId` when you report a problem.
 | 503 | The service is not ready. `GET /v1/health` always returns 503 with `{ "status": "not-ready", ... }` until the trading path is ready |
 
 > [!PLANNED]
-> `501` is the expected answer for every Planned endpoint. It is not a bug in your client. The default `scaffold` mode answers valid business requests with `501`; identity, preparation and approval modes enable more paths. See [Authentication](/docs/authentication).
+> `501` is the expected answer for a valid request to a Planned endpoint. It is not a bug in your client. The default `scaffold` mode answers valid business requests with `501`. Identity, preparation and approval modes enable more paths, and for Planned endpoints that need a scope they check the key first, so you can see `401` or `403` before `501`. See [Authentication](/docs/authentication).
 
 The contract also defines domain codes such as `INVALID_WALLET_SIGNATURE`, `WALLET_CHALLENGE_USED`, `WALLET_CHALLENGE_EXPIRED`, `WALLET_ALREADY_BOUND`, `FORECAST_WINDOW_CLOSED`, `FORECAST_ALREADY_SUBMITTED`, `QUOTE_EXPIRED` and `TX_PENDING`. The full list is `ErrorCode` in `packages/schemas/src/core.ts`.
 
@@ -56,16 +56,18 @@ If a request returns `409 REQUEST_IN_PROGRESS`, the same request is still runnin
 
 ## When should I retry?
 
-- Retry only when `retryable` is `true`, or after a network failure with no response. Reuse the same `Idempotency-Key` and the same body.
-- Do not retry `400`, `401`, `403` or `501`. Fix the request, the key or the API mode.
-- Unknown is not failure. If a call times out or a transaction state is `UNKNOWN`, the action may have happened. Re-read the state before deciding, and never create a second intent for the same action. The finality stages `PRECONFIRMED`, `INCLUDED` and `FINALIZED` are different things.
+These are recommendations, not repository rules.
+
+- Retry when `retryable` is `true`, or after a network failure with no response. Reuse the same `Idempotency-Key` and the same body.
+- Do not retry `400`, `401`, `403` or `501` unchanged. Fix the request, the key or the API mode first.
+- Unknown is not failure (Blink treats it as a distinct state). If a call times out or a transaction state is `UNKNOWN`, the action may have happened. Re-read the state before deciding rather than submitting it again. The finality stages `PRECONFIRMED`, `INCLUDED` and `FINALIZED` are different things.
 
 ## Hand it to your agent
 
 ```prompt
 Handle Blink API errors safely.
 1. On any non-2xx response, parse the body as {code, message, requestId, retryable, details} and log code and requestId.
-2. Retry only if retryable is true or the network failed with no response. Reuse the same Idempotency-Key and body. Back off between tries and stop after 5.
+2. Retry only if retryable is true or the network failed with no response. Reuse the same Idempotency-Key and body. Back off between tries and give up after a small fixed number of attempts.
 3. For 409 REQUEST_IN_PROGRESS, wait for Retry-After seconds, then repeat the same request.
 4. For 501, report that the operation is Planned or the API mode is not enabled. Do not retry.
 5. If the outcome of a write is unknown, read the current state first. Never submit a duplicate action.

@@ -51,18 +51,23 @@ The API mode is set by `BLINK_API_MODE`: `scaffold` (default), `identity`, `prep
 | `WALLET_BINDING_ORIGIN` | Fixed origin written into challenge messages; HTTPS, or HTTP only for localhost/loopback |
 
 ```sh
-pnpm db:migrate                       # run with a separate migration account
+# Migrations run with a separate migration account, never the API login.
+DATABASE_URL='postgresql://<migration user>:<password>@127.0.0.1:5432/<database>' pnpm db:migrate
+
 BLINK_API_MODE=identity \
-API_DATABASE_URL='<api login connection string>' \
+API_DATABASE_URL='postgresql://<api login>:<password>@127.0.0.1:5432/<database>' \
 WALLET_BINDING_ORIGIN=http://127.0.0.1:3001 \
-pnpm dev
+pnpm --filter @blink/api dev
 ```
+
+`pnpm dev` would start every app, not only the API.
 
 The API database login must be a dedicated `LOGIN` role in the `blink_api` group. The API refuses superuser, CREATEDB, CREATEROLE and identity-admin roles. Keep the migration and admin connection strings away from the API. Preparation and approval modes need the same two variables; approval mode also needs `SPEC_OBJECT_DIRECTORY`, `SPEC_PUBLIC_ORIGIN` and `EVIDENCE_OBJECT_DIRECTORY`.
 
-An administrator issues an invitation and keys with:
+An administrator issues an invitation and keys with a dedicated connection in `IDENTITY_ADMIN_DATABASE_URL`:
 
 ```sh
+export IDENTITY_ADMIN_DATABASE_URL='postgresql://<identity admin login>:<password>@127.0.0.1:5432/<database>'
 pnpm identity:admin invite --operator-name 'Research team' --agent-name 'Agent A' --scopes 'candidate:write,forecast:write' --reason 'Approved invitation'
 pnpm identity:admin issue --agent-id '<agent UUID>' --scopes 'forecast:write' --days 7 --reason 'Key rotation'
 pnpm identity:admin revoke --key-id '<key UUID>' --reason 'Retired credential'
