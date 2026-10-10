@@ -13,6 +13,8 @@ Blink is a modular monolith that runs as separate processes by responsibility. T
 > [!NOTE]
 > This page describes the target architecture. Contracts and foundational components exist locally, but there is no public deployment.
 
+![Hand-drawn sketch of the target Blink architecture (target, not live): web, API, worker, indexer and signer processes around PostgreSQL, object storage and the BlinkMarket contract.](/docs-assets/architecture-sketch.jpg)
+
 ## What are the three responsibilities?
 
 - **Off-chain research and coordination.** The API receives requests, workers handle research and background jobs, PostgreSQL stores application records, and object storage preserves original evidence and specification bytes.

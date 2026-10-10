@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { scrollThrough, watchErrors } from "./helpers.ts";
 
-const routes = ["/", "/markets", "/how-it-works", "/docs", "/docs/quickstart", "/docs/agents", "/docs/api"];
-const IGNORE = 'pre, .docs-table, [class*="tableWrap"], [class*="archScroll"], svg, [class*="iris"]';
+const routes = ["/", "/markets", "/how-it-works", "/docs", "/docs/quickstart", "/docs/agents", "/docs/api", "/docs/lifecycle", "/docs/architecture"];
+const IGNORE = 'pre, .docs-table, [class*="tableWrap"], [class*="archScroll"], .docs-sketch-sheet, svg, [class*="iris"]';
 
 for (const route of routes) {
   test(`route ${route}: 200, no errors, no horizontal overflow`, async ({ page }) => {

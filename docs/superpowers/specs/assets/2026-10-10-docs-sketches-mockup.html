@@ -1,0 +1,196 @@
+<title>Blink Docs Sketches</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Geist:wght@400;600;800&display=swap">
+<style>
+/* Layout: a single column of hand-drawn explainer diagrams, each on white paper like the README architecture sketch (ink + pastel highlighters). Single deliberate light look. */
+:root {
+  --page: #f6f6f2;
+  --paper: #ffffff;
+  --ink: #222222;
+  --ink-soft: #222222b3;
+  --rule: #22222226;
+  --hand: "Kalam", "Comic Sans MS", "Bradley Hand", cursive;
+  --sans: "Geist", ui-sans-serif, system-ui, -apple-system, Arial, sans-serif;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--page); color: var(--ink); font-family: var(--sans); }
+main { max-width: 1080px; margin: 0 auto; padding: 40px 16px 80px; display: grid; gap: 48px; }
+header h1 { margin: 0 0 8px; font-size: 32px; letter-spacing: -0.03em; }
+header p { margin: 0; color: var(--ink-soft); max-width: 62ch; line-height: 1.55; }
+figure { margin: 0; display: grid; gap: 10px; }
+figure .sheet { background: var(--paper); border: 1px solid var(--rule); border-radius: 6px; overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 640px; height: auto; font-family: var(--hand); }
+figcaption { font-size: 14px; color: var(--ink-soft); }
+figcaption b { color: var(--ink); }
+</style>
+
+<main>
+  <header>
+    <h1>Docs sketches</h1>
+    <p>Four new hand-drawn explainers in the style of the README architecture sketch: ink lines, hand lettering and pastel highlighters. Each one sits on the docs page named in its caption. Labels are exact and drawn in code, so they stay readable and easy to update.</p>
+  </header>
+
+  <figure><div class="sheet"><svg id="lifecycle" viewBox="0 0 1200 720" role="img" aria-label="Market lifecycle"></svg></div>
+    <figcaption><b>Market lifecycle</b> — for /docs/lifecycle. Stored states OPEN, PROPOSED, DISPUTED and FINAL, the derived CLOSED, and the hard-deadline timeout to INVALID.</figcaption></figure>
+
+  <figure><div class="sheet"><svg id="pipeline" viewBox="0 0 1200 560" role="img" aria-label="Question pipeline"></svg></div>
+    <figcaption><b>Question pipeline</b> — for /docs/markets. From evidence and a candidate to a frozen spec and an on-chain market.</figcaption></figure>
+
+  <figure><div class="sheet"><svg id="agent" viewBox="0 0 1200 780" role="img" aria-label="Agent integration flow"></svg></div>
+    <figcaption><b>Agent integration flow</b> — for /docs/authentication and the agent guide. Solid steps work in identity mode today; dashed steps are Planned.</figcaption></figure>
+
+  <figure><div class="sheet"><svg id="payout" viewBox="0 0 1200 600" role="img" aria-label="Collateral and payouts"></svg></div>
+    <figcaption><b>Collateral and payouts</b> — for /docs/concepts. The README example: buying 100 YES at 6,000 bps.</figcaption></figure>
+</main>
+
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  var INK = "#222222";
+  var HL = { yellow: "#f7dc6f", blue: "#b9d6f2", green: "#bfe5b8", purple: "#dccbf2", orange: "#f6c4a2", grey: "#d9d9d4" };
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var rand;
+  function j(n) { return (rand() - 0.5) * 2 * n; }
+  function r1(n) { return Math.round(n * 10) / 10; }
+  function el(svg, name, attrs, text) { var n = document.createElementNS(NS, name); for (var k in attrs) n.setAttribute(k, attrs[k]); if (text != null) n.textContent = text; svg.appendChild(n); return n; }
+
+  // A hand-drawn line: slightly bowed, drawn twice with a small offset like a pen going over it again.
+  function line(svg, x1, y1, x2, y2, o) {
+    o = o || {};
+    for (var pass = 0; pass < (o.single ? 1 : 2); pass++) {
+      var mx = (x1 + x2) / 2 + j(2.2), my = (y1 + y2) / 2 + j(2.2);
+      el(svg, "path", { d: "M" + r1(x1 + j(1)) + " " + r1(y1 + j(1)) + " Q" + r1(mx) + " " + r1(my) + " " + r1(x2 + j(1)) + " " + r1(y2 + j(1)), fill: "none", stroke: o.color || INK, "stroke-width": pass ? 1.1 : (o.w || 2.2), "stroke-linecap": "round", "stroke-dasharray": o.dash || "none", opacity: pass ? 0.55 : 1 });
+    }
+  }
+  function box(svg, x, y, w, h, o) {
+    o = o || {};
+    if (o.fill) el(svg, "rect", { x: x + 3, y: y + 3, width: w - 6, height: h - 6, rx: 14, fill: o.fill, opacity: 0.55 });
+    var rr = 12;
+    line(svg, x + rr, y, x + w - rr, y, o); line(svg, x + w, y + rr, x + w, y + h - rr, o);
+    line(svg, x + w - rr, y + h, x + rr, y + h, o); line(svg, x, y + h - rr, x, y + rr, o);
+    [[x + w - rr, y, x + w, y, x + w, y + rr], [x + w, y + h - rr, x + w, y + h, x + w - rr, y + h], [x + rr, y + h, x, y + h, x, y + h - rr], [x, y + rr, x, y, x + rr, y]].forEach(function (c) {
+      el(svg, "path", { d: "M" + r1(c[0] + j(0.8)) + " " + r1(c[1] + j(0.8)) + " Q" + c[2] + " " + c[3] + " " + r1(c[4] + j(0.8)) + " " + r1(c[5] + j(0.8)), fill: "none", stroke: o.color || INK, "stroke-width": o.w || 2.2, "stroke-linecap": "round", "stroke-dasharray": o.dash || "none" });
+    });
+  }
+  // Highlighter swipe behind a label.
+  function highlight(svg, cx, cy, w, color, h) {
+    h = h || 22;
+    el(svg, "path", { d: "M" + r1(cx - w / 2) + " " + r1(cy + j(1.5)) + " L" + r1(cx + w / 2) + " " + r1(cy + j(1.5)), stroke: color, "stroke-width": h, "stroke-linecap": "round", opacity: 0.7, fill: "none" });
+  }
+  function text(svg, x, y, s, o) {
+    o = o || {};
+    if (o.hl) {
+      var hw = (o.hlw || s.length * (o.size || 22) * 0.5) + 14;
+      highlight(svg, o.anchor === "start" ? x + hw / 2 - 7 : x, y - (o.size || 22) * 0.32, hw, HL[o.hl], (o.size || 22) * 0.95);
+    }
+    return el(svg, "text", { x: x, y: y, "text-anchor": o.anchor || "middle", "font-size": o.size || 22, "font-weight": o.bold ? 700 : 400, fill: o.color || INK }, s);
+  }
+  // Curved hand-drawn arrow with an open arrowhead.
+  function arrow(svg, x1, y1, x2, y2, o) {
+    o = o || {};
+    var bend = o.bend || 0;
+    var mx = (x1 + x2) / 2 - (y2 - y1) * bend + j(2), my = (y1 + y2) / 2 + (x2 - x1) * bend + j(2);
+    el(svg, "path", { d: "M" + x1 + " " + y1 + " Q" + r1(mx) + " " + r1(my) + " " + x2 + " " + y2, fill: "none", stroke: o.color || INK, "stroke-width": o.w || 2.2, "stroke-linecap": "round", "stroke-dasharray": o.dash || "none" });
+    var ang = Math.atan2(y2 - my, x2 - mx), L = 13;
+    [0.45, -0.45].forEach(function (d) { line(svg, x2, y2, x2 - Math.cos(ang + d) * L, y2 - Math.sin(ang + d) * L, { single: true, color: o.color, w: o.w || 2.2 }); });
+    if (o.label) text(svg, o.lx != null ? o.lx : mx, o.ly != null ? o.ly : my - 10, o.label, { size: o.lsize || 19, hl: o.lhl });
+  }
+  function title(svg, x, s, sub) {
+    text(svg, x, 58, s, { size: 44, bold: true, hl: "yellow", hlw: s.length * 22 });
+    if (sub) text(svg, x, 96, sub, { size: 22, hl: "blue", hlw: sub.length * 10.5 });
+  }
+  function foot(svg, x, y, s) { text(svg, x, y, s, { size: 19, hl: "grey", hlw: s.length * 9.2 }); }
+
+  // ---------- 1. Market lifecycle ----------
+  (function () {
+    rand = rng(101); var s = document.getElementById("lifecycle");
+    title(s, 600, "Market lifecycle", "who can move a market, and when");
+    box(s, 60, 170, 210, 110, { fill: HL.green }); text(s, 165, 215, "OPEN", { size: 30, bold: true }); text(s, 165, 250, "fills allowed", { size: 19 });
+    arrow(s, 275, 225, 395, 225, { label: "closeAt", lhl: "yellow" });
+    box(s, 400, 170, 210, 110, { dash: "8 7" }); text(s, 505, 215, "CLOSED", { size: 30, bold: true }); text(s, 505, 250, "derived, not stored", { size: 18 });
+    arrow(s, 615, 225, 735, 225, { label: "proposer", lhl: "blue" });
+    text(s, 675, 304, "YES / NO / INVALID", { size: 16 }); text(s, 675, 324, "+ evidence", { size: 16 });
+    box(s, 740, 170, 220, 110, { fill: HL.blue }); text(s, 850, 215, "PROPOSED", { size: 30, bold: true }); text(s, 850, 250, "challenge window", { size: 19 });
+    // challenge branch
+    arrow(s, 850, 285, 850, 395, { label: "challenger + evidence", lx: 735, ly: 365, lhl: "orange" });
+    box(s, 740, 400, 220, 100, { fill: HL.orange }); text(s, 850, 445, "DISPUTED", { size: 30, bold: true }); text(s, 850, 478, "arbiter decides", { size: 19 });
+    // FINAL
+    box(s, 1000, 300, 160, 120, { fill: HL.purple, w: 2.8 }); text(s, 1080, 355, "FINAL", { size: 32, bold: true }); text(s, 1080, 390, "irreversible", { size: 18 });
+    arrow(s, 962, 205, 1050, 296, { bend: -0.15, label: "no challenge", lx: 1080, ly: 210 });
+    arrow(s, 962, 450, 1040, 424, { bend: 0.1, label: "arbiter", lx: 1015, ly: 485 });
+    // timeout
+    arrow(s, 165, 290, 1000, 560, { bend: -0.12, dash: "10 8", label: "hardDeadline passes, still not FINAL", lx: 520, ly: 548, lhl: "yellow" });
+    box(s, 1000, 520, 160, 90, { dash: "8 7" }); text(s, 1080, 558, "FINAL", { size: 26, bold: true }); text(s, 1080, 590, "= INVALID", { size: 20 });
+    // redeem
+    text(s, 300, 640, "After FINAL every holder redeems on their own:", { size: 21, anchor: "start" });
+    text(s, 300, 676, "YES / NO pays 1 bUSD per winning share · INVALID pays 0.5 per share on each side", { size: 19, anchor: "start", hl: "green", hlw: 690 });
+    foot(s, 600, 706, "Pause only stops new fills; proposals, challenges, finalize and redeem still work.");
+  })();
+
+  // ---------- 2. Question pipeline ----------
+  (function () {
+    rand = rng(202); var s = document.getElementById("pipeline");
+    title(s, 600, "From evidence to a market", "a question is frozen before it can trade");
+    function folder(x, y) { line(s, x, y + 12, x + 70, y + 12); line(s, x, y + 12, x, y + 62); line(s, x, y + 62, x + 90, y + 62); line(s, x + 90, y + 62, x + 90, y + 20); line(s, x + 70, y + 12, x + 76, y + 20); line(s, x + 76, y + 20, x + 90, y + 20); el(s, "rect", { x: x + 4, y: y + 22, width: 82, height: 36, fill: HL.yellow, opacity: 0.7 }); }
+    folder(70, 160); text(s, 115, 255, "Evidence", { size: 22, bold: true }); text(s, 115, 282, "original bytes", { size: 17 });
+    arrow(s, 175, 200, 250, 200);
+    box(s, 255, 150, 190, 110, { fill: HL.blue }); text(s, 350, 195, "Candidate", { size: 26, bold: true }); text(s, 350, 228, "draft + revisions", { size: 18 });
+    arrow(s, 450, 205, 530, 205, { label: "human review", lhl: "green", ly: 134 });
+    box(s, 535, 150, 180, 110, { fill: HL.green }); text(s, 625, 195, "APPROVED", { size: 26, bold: true }); text(s, 625, 228, "by an operator", { size: 18 });
+    arrow(s, 720, 205, 800, 205);
+    box(s, 805, 140, 230, 130, { fill: HL.purple }); text(s, 920, 185, "MarketSpec", { size: 26, bold: true }); text(s, 920, 215, "exact UTF-8 bytes", { size: 18 }); text(s, 920, 245, "specHash = keccak256", { size: 18 });
+    // lock
+    arrow(s, 920, 275, 920, 345, { label: "unsigned creation intent", lx: 1060, ly: 315, lhl: "yellow" });
+    box(s, 780, 350, 280, 100, {}); text(s, 920, 390, "Admin wallet", { size: 26, bold: true }); text(s, 920, 423, "signs + sends createMarket", { size: 18 });
+    arrow(s, 775, 400, 610, 400, { label: "Base Sepolia", lhl: "blue", ly: 380 });
+    box(s, 330, 345, 275, 110, { fill: HL.blue, w: 2.8 }); text(s, 467, 390, "Market", { size: 28, bold: true }); text(s, 467, 423, "deploymentId + marketId", { size: 18 });
+    arrow(s, 325, 400, 200, 400, { label: "receipt + 12 confirmations", ly: 486, lx: 200 });
+    box(s, 60, 350, 135, 100, { dash: "8 7" }); text(s, 127, 392, "Tracker", { size: 24, bold: true }); text(s, 127, 422, "operator-run", { size: 17 });
+    foot(s, 600, 520, "The spec is never re-serialised. Nothing in this repository signs or broadcasts the admin transaction.");
+  })();
+
+  // ---------- 3. Agent integration flow ----------
+  (function () {
+    rand = rng(303); var s = document.getElementById("agent");
+    title(s, 600, "Connecting an agent", "local API at 127.0.0.1:3001");
+    // lanes
+    box(s, 70, 130, 220, 80, { fill: HL.purple }); text(s, 180, 180, "Your agent", { size: 26, bold: true });
+    box(s, 490, 130, 220, 80, { fill: HL.yellow }); text(s, 600, 180, "Operator", { size: 26, bold: true });
+    box(s, 910, 130, 220, 80, { fill: HL.blue }); text(s, 1020, 180, "Blink API", { size: 26, bold: true });
+    [180, 600, 1020].forEach(function (x) { line(s, x, 215, x, 725, { dash: "4 9", w: 1.6 }); });
+    function step(y, x1, x2, label, sub, planned) {
+      arrow(s, x1, y, x2, y, { dash: planned ? "10 8" : "none", color: planned ? "#777" : INK });
+      text(s, (x1 + x2) / 2, y - 12, label, { size: 19, hl: planned ? "grey" : "green", hlw: label.length * 9 });
+      if (sub) text(s, (x1 + x2) / 2, y + 26, sub, { size: 16, color: planned ? "#666" : INK });
+    }
+    step(262, 185, 1015, "1  POST /v1/auth/wallet-challenges", "invited API key · Identity mode");
+    step(334, 1015, 185, "2  challenge message", null);
+    step(406, 185, 595, "3  ask the operator to sign", "outside the agent");
+    step(478, 595, 185, "4  signature", null);
+    step(550, 185, 1015, "5  POST /v1/auth/wallet-verifications", "wallet bound · Identity mode");
+    step(630, 185, 1015, "6  read markets, specs, forecast windows", "Planned (specs: Approval mode)", true);
+    step(702, 185, 1015, "7  POST /v1/markets/{id}/forecasts", "Planned · Idempotency-Key on every POST", true);
+    foot(s, 600, 765, "The agent never creates wallets, holds keys, or signs and sends transactions.");
+  })();
+
+  // ---------- 4. Collateral and payouts ----------
+  (function () {
+    rand = rng(404); var s = document.getElementById("payout");
+    title(s, 600, "One trade, fully collateralised", "taker buys 100 YES at 6,000 bps");
+    box(s, 70, 150, 250, 120, { fill: HL.blue }); text(s, 195, 195, "Taker", { size: 28, bold: true }); text(s, 195, 230, "pays 60 bUSD", { size: 22, hl: "yellow", hlw: 130 });
+    box(s, 70, 330, 250, 120, { fill: HL.orange }); text(s, 195, 375, "Maker", { size: 28, bold: true }); text(s, 195, 410, "adds 40 bUSD", { size: 22, hl: "yellow", hlw: 130 });
+    arrow(s, 325, 210, 485, 280, { bend: -0.08 }); arrow(s, 325, 390, 485, 320, { bend: 0.08 });
+    box(s, 490, 220, 260, 160, { fill: HL.purple, w: 2.8 }); text(s, 620, 270, "Contract", { size: 28, bold: true }); text(s, 620, 308, "holds 100 bUSD", { size: 22 }); text(s, 620, 340, "= 100 complete sets", { size: 19 });
+    text(s, 620, 412, "taker: 100 YES · maker: 100 NO", { size: 18, hl: "grey", hlw: 270 });
+    // outcomes
+    arrow(s, 755, 260, 880, 190, { bend: -0.05 }); arrow(s, 755, 300, 880, 300); arrow(s, 755, 340, 880, 410, { bend: 0.05 });
+    box(s, 885, 150, 250, 80, { fill: HL.green }); text(s, 1010, 185, "YES", { size: 24, bold: true }); text(s, 1010, 214, "taker gets 100", { size: 19 });
+    box(s, 885, 260, 250, 80, { fill: HL.green }); text(s, 1010, 295, "NO", { size: 24, bold: true }); text(s, 1010, 324, "maker gets 100", { size: 19 });
+    box(s, 885, 370, 250, 80, { fill: HL.yellow }); text(s, 1010, 405, "INVALID", { size: 24, bold: true }); text(s, 1010, 434, "50 each (0.5 per share)", { size: 19 });
+    foot(s, 600, 530, "Shares are entries in the contract's ledger, not tokens. No early exit: holders redeem after FINAL.");
+  })();
+})();
+</script>

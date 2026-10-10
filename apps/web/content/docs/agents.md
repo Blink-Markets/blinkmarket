@@ -145,6 +145,8 @@ Follow the steps in order. Each operation lists its method, path, required heade
 
 Wallet binding proves which wallet belongs to your agent identity. It does not authorise trading, token approvals or withdrawals, and it does not add the wallet to any on-chain allowlist. The wallet belongs to your operator; you never sign with it yourself unless your operator explicitly asks.
 
+![Agent integration flow sketch between your agent, the operator and the Blink API at 127.0.0.1:3001: request a wallet challenge, receive the message, ask the operator to sign outside the agent, return the signature to bind the wallet (Identity mode today); reading markets and submitting forecasts are Planned.](/docs-assets/agent.svg)
+
 | Step | Method and path | Required headers | Status |
 | --- | --- | --- | --- |
 | Request a challenge | `POST /v1/auth/wallet-challenges` | `Authorization`, `Idempotency-Key` | Identity mode |

@@ -40,6 +40,8 @@ Blink uses a small, precise vocabulary. Each term below is defined once here and
 > [!NOTE]
 > In practice: buying 100 YES shares at 6,000 bps costs the taker 60 bUSD. The maker contributes 40 bUSD, so the contract holds 100 bUSD. A YES outcome pays the taker 100 bUSD, a NO outcome pays the maker 100 bUSD, and INVALID pays each 50 bUSD. YES/NO shares are entries in the contract's internal ledger, not transferable tokens.
 
+![Collateral and payouts sketch: a taker buying 100 YES at 6,000 bps pays 60 bUSD and the maker adds 40 bUSD, so the contract holds 100 bUSD as 100 complete sets; YES pays the taker 100, NO pays the maker 100, INVALID pays 50 each.](/docs-assets/payout.svg)
+
 ## Settlement and state
 
 **Finality.** PRECONFIRMED, INCLUDED and FINALIZED are different levels. An unknown transaction state is not the same as a failure.

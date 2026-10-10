@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { loadDocs } from "../apps/web/lib/docs/registry.ts";
+import { SKETCHES } from "../apps/web/lib/docs/sketches.ts";
 import { DOC_SLUGS } from "../apps/web/lib/docs/ia.ts";
 
 const dir = join(process.cwd(), "apps/web/content/docs");
@@ -16,9 +17,19 @@ test("every content file parses and has a canonical slug", () => {
 test("every internal /docs link points at a canonical page", () => {
   const known = new Set<string>(DOC_SLUGS.map((s) => (s ? `/docs/${s}` : "/docs")));
   for (const p of pages) {
-    for (const m of p.body.matchAll(/\]\((\/docs[^)#\s]*)(#[^)\s]*)?\)/g)) {
+    for (const m of p.body.matchAll(/(?<!!\[[^\]]*)\]\((\/docs(?!-assets\/)[^)#\s]*)(#[^)\s]*)?\)/g)) {
       const target = (m[1] ?? "").replace(/\.md$/, "").replace(/^\/docs\.?$/, "/docs");
       assert.ok(known.has(target), `${p.file}: broken link ${m[1]}`);
+    }
+  }
+});
+
+test("every /docs-assets reference exists", () => {
+  for (const p of pages) {
+    for (const m of p.body.matchAll(/\((\/docs-assets\/([^)#\s]+))\)/g)) {
+      const file = m[2] ?? "";
+      const sketch = (SKETCHES as readonly string[]).includes(file.replace(/\.svg$/, "")) && file.endsWith(".svg");
+      assert.ok(sketch || existsSync(join(process.cwd(), "apps/web/public/docs-assets", file)), `${p.file}: missing asset ${m[1]}`);
     }
   }
 });

@@ -90,6 +90,13 @@ Design: [spec](superpowers/specs/2026-10-09-docs-system-design.md), [plan](super
 - **Star field (2026-10-09):** `lib/landscape.ts` adds up to 260 sky dots and up to 14 four-point sparkles to the cached `/footer-landscape.svg` (about 104 KB raw / 27 KB gzip), plus a faint upper field (140 dots, 6 sparkles) in a second cached file `/footer-stars.svg` (about 10 KB / 1.6 KB gzip) used as the footer's CSS background; only the twinkling sparkles are inline (home HTML 61,148 B to 66,388 B) and twinkle only under `prefers-reduced-motion: no-preference`.
 - **Verification:** unit tests for the generator; the Playwright suite (now 99 passed, 9 skipped across Chromium, Firefox and WebKit) checks the footer image loads, the overlay is present and the footer stays cobalt in docs dark mode; screenshots at 1440 and 375 match the mockup.
 
+### Docs diagrams (2026-10-10)
+
+- **What:** five hand-drawn explainers in the README architecture-sketch style: the existing architecture sketch (PNG, `/docs-assets/architecture-sketch.png`, 1536 px, about 1.4 MB, copied unchanged) on `architecture`, and generated SVG sketches for `lifecycle`, `markets` (question pipeline), `authentication` (agent flow, also referenced from `agents` section 5.2) and `concepts` (collateral and payouts). Approved reference: `docs/superpowers/specs/assets/2026-10-10-docs-sketches-mockup.html`.
+- **How:** `apps/web/lib/docs/sketches.ts` is a pure seeded generator (`renderSketch`). `render.ts` inlines the SVG in a `figure.docs-sketch` with a focusable, horizontally scrolling sheet (min width 640 px, stays white in docs dark mode); other images render as lazy `<img>`. The same SVGs are served as `/docs-assets/<name>.svg` (force-static, cached). Kalam (400, 700) loads through `next/font/google` as `--font-hand` on the docs layout only. Alt text carries the full description for agents reading the raw `.md`.
+- **Tests:** generator, renderer and content tests (every `/docs-assets/*` reference exists); browser specs for the inline SVG, PNG load, the SVG route and no horizontal overflow on `/docs/lifecycle` and `/docs/architecture`.
+- **Limits:** diagram labels are drawn in code and must be updated by hand when the docs change; the PNG is not optimised further (no lossless optimiser installed).
+
 ### Open items (not done yet; carry forward)
 
 From the docs-system plan's scope (spec §6.1): site search (deferred by the user on 2026-10-09); Open in Claude/ChatGPT; localisation; live per-mode endpoint status; dark mode on marketing pages (needs token-coloured illustrations).

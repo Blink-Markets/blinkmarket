@@ -41,3 +41,19 @@ test("theme toggle persists to light marketing pages", async ({ page }) => {
   await page.goto("/");
   expect(await bg()).toBe("rgb(250, 250, 247)");
 });
+
+test("docs sketches: inline svg, png image and static svg route", async ({ page, request }) => {
+  await page.goto("/docs/lifecycle");
+  const svg = page.locator("figure.docs-sketch svg").first();
+  await expect(svg).toBeVisible();
+  await expect(page.locator("figure.docs-sketch figcaption").first()).not.toBeEmpty();
+
+  await page.goto("/docs/architecture");
+  const img = page.locator("figure.docs-sketch img").first();
+  await expect(img).toBeVisible();
+  await expect.poll(() => img.evaluate((i) => (i as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+
+  const res = await request.get("/docs-assets/lifecycle.svg");
+  expect(res.status()).toBe(200);
+  expect(res.headers()["content-type"]).toContain("image/svg+xml");
+});

@@ -141,3 +141,16 @@ test("renderDoc leaves text, prompt and unknown fences unhighlighted", () => {
     assert.ok(!html.includes("var(--shiki-"), lang);
   }
 });
+
+test("renderDoc inlines known sketches and renders other images lazily", () => {
+  const alt = "Lifecycle sketch & states";
+  const svg = renderDoc(`![${alt}](/docs-assets/lifecycle.svg)`).html;
+  assert.match(svg, /<figure class="docs-sketch"><div class="docs-sketch-sheet" role="region" aria-label="Lifecycle sketch &amp; states" tabindex="0"><svg [^>]*aria-label="Lifecycle sketch &amp; states"/);
+  assert.match(svg, /<figcaption>Lifecycle sketch &amp; states<\/figcaption>/);
+  assert.ok(!svg.includes("<img"));
+  const png = renderDoc("![Arch](/docs-assets/architecture-sketch.jpg)").html;
+  assert.match(png, /<img src="\/docs-assets\/architecture-sketch\.jpg" alt="Arch" loading="lazy" decoding="async">/);
+  const unknown = renderDoc("![X](/docs-assets/x.svg)").html;
+  assert.match(unknown, /<img src="\/docs-assets\/x\.svg" alt="X" loading="lazy"/);
+  assert.ok(!unknown.includes("<svg"));
+});

@@ -18,6 +18,8 @@ A market is a yes/no question about one company's reported figure, fixed by an i
 
 Markets run on Base Sepolia testnet (chain ID 84532) and bUSD has no value. No deployment exists yet, so `/v1/config` returns `deployment: null` and `tradingEnabled: false`.
 
+![Question pipeline sketch: evidence becomes a candidate, a human review approves it, the approved question is frozen as a MarketSpec of exact UTF-8 bytes with a keccak256 specHash, an unsigned creation intent goes to the admin wallet which signs and sends createMarket on Base Sepolia, and an operator-run tracker records the market after the receipt and 12 confirmations.](/docs-assets/pipeline.svg)
+
 ## What is the GM_LT_V1 template?
 
 The only template in v0.1 asks: did company X report a single-quarter GAAP gross margin strictly below T% in the first qualifying official earnings release for a given fiscal quarter?

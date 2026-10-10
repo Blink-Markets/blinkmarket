@@ -25,6 +25,8 @@ A market stores one of four states: `OPEN`, `PROPOSED`, `DISPUTED` or `FINAL`. `
 | `DISPUTED` | The proposal was challenged with evidence. An arbiter must decide. |
 | `FINAL` | The outcome is fixed and cannot be changed. Holders can redeem. |
 
+![Market lifecycle sketch: OPEN becomes derived CLOSED at closeAt; a proposer moves it to PROPOSED with evidence; with no challenge it becomes FINAL, a challenger moves it to DISPUTED and the arbiter decides FINAL; if hardDeadline passes before FINAL the market finalizes as INVALID. Holders then redeem: 1 bUSD per winning share, or 0.5 per share on each side for INVALID.](/docs-assets/lifecycle.svg)
+
 ## How does a market move between states?
 
 Each transition is a contract function with a required role and time condition.

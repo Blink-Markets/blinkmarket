@@ -124,3 +124,10 @@
   --shiki-token-link: var(--cobalt);
 }
 .docs-code code [style*="--shiki-token-comment"] { font-style: italic; }
+
+/* Hand-drawn explainer sketches: a picture, so the sheet stays white in docs dark mode. */
+.docs-sketch { margin: 0 0 22px; display: grid; gap: 8px; }
+.docs-sketch-sheet { background: #fff; border: 1px solid var(--rule); border-radius: 6px; overflow-x: auto; }
+.docs-sketch-sheet svg { display: block; width: 100%; min-width: 640px; height: auto; }
+.docs-sketch-sheet img { display: block; width: 100%; min-width: 640px; height: auto; }
+.docs-sketch figcaption { font-size: 13.5px; color: var(--ink-soft); }
