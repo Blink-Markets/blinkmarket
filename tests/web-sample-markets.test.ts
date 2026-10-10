@@ -16,6 +16,7 @@ import {
   stateDetail,
   resolutionRule,
   frozenSpec,
+  possessive,
 } from "../apps/web/content/sample-markets.ts";
 
 test("sample markets are REPLAY-only with unique ids and valid bps", () => {
@@ -160,6 +161,15 @@ test("lifecycleSteps follow the market state", () => {
   const invalid = steps("sample-06");
   assert.equal(invalid[3]?.detail, "INVALID: no qualifying value by 2026-09-15");
   assert.match(invalid[2]?.detail ?? "", /^no proposal by/);
+  assert.deepEqual(invalid.map((s) => s.status), ["done", "done", "skipped", "now"]);
+  assert.equal(steps("sample-01")[0]?.detail, "market open until close");
+});
+
+test("possessive handles names ending in s", () => {
+  assert.equal(possessive("Harlow Fen Robotics"), "Harlow Fen Robotics'");
+  assert.equal(possessive("Quillon Grain Cooperative"), "Quillon Grain Cooperative's");
+  const rules = sampleMarkets.map((m) => resolutionRule(m)[2]);
+  assert.ok(rules.every((r) => !r.includes("s's ")));
 });
 
 test("stateDetail, resolutionRule and frozenSpec", () => {
@@ -170,7 +180,7 @@ test("stateDetail, resolutionRule and frozenSpec", () => {
   assert.match(stateDetail(s6), /No qualifying value/);
   assert.equal(
     resolutionRule(s1).join(""),
-    "YES if the first qualifying release of Ostrander Kiln Works's FY2025 Q3 GAAP reported gross margin is below 70.00%. NO if it is 70.00% or higher. If no qualifying value is published, the market resolves INVALID and each side gets 0.5 bUSD per share.",
+    "YES if the first qualifying release of Ostrander Kiln Works' FY2025 Q3 GAAP reported gross margin is below 70.00%. NO if it is 70.00% or higher. If no qualifying value is published, the market resolves INVALID and each side gets 0.5 bUSD per share.",
   );
   assert.deepEqual(frozenSpec(s1), {
     schemaVersion: "blink.market.v0.1.1",

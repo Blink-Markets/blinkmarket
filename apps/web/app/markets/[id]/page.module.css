@@ -27,6 +27,9 @@
 .step::before { content: ""; position: absolute; top: 6px; left: 0; right: 0; height: 2px; background: var(--rule); }
 .done::before, .now::before { background: var(--cobalt); }
 .todo .dot { background: var(--paper); }
+.skipped::before { background: repeating-linear-gradient(90deg, var(--ink-faint) 0 6px, transparent 6px 10px); }
+.skipped .dot { border-style: dashed; border-color: var(--ink-faint); background: var(--paper); }
+.skipped b, .skipped span { color: var(--ink-faint); }
 .dot { position: absolute; top: 0; left: 0; width: 14px; height: 14px; border-radius: 50%; background: var(--paper); border: 2px solid var(--ink-faint); }
 .now .dot { border-color: var(--cobalt); background: var(--cobalt); box-shadow: 0 0 0 4px #2148b826; }
 .done .dot { border-color: var(--cobalt); }

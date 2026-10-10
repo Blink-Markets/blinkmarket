@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { chartAriaLabel, platformForecast, yAxisBounds, type ForecastWindow } from "../../content/sample-markets";
 import styles from "./ForecastChart.module.css";
 
@@ -13,8 +13,10 @@ const MONO = "var(--font-mono), ui-monospace, monospace";
 
 export function ForecastChart({ windows }: { windows: readonly ForecastWindow[] }) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const [hover, setHover] = useState<number | null>(null);
-  const [showTable, setShowTable] = useState(false);
+  const [hover, setHover] = useState<{ i: number; left: number; top: number } | null>(null);
+  // Visible in the server HTML so readers without JavaScript still get the data; hidden once mounted.
+  const [showTable, setShowTable] = useState(true);
+  useEffect(() => setShowTable(false), []);
 
   const { lo, hi, ticks } = yAxisBounds(windows);
   const last = windows.length - 1;
@@ -34,19 +36,18 @@ export function ForecastChart({ windows }: { windows: readonly ForecastWindow[] 
     const svg = svgRef.current;
     if (!svg) return;
     const box = svg.getBoundingClientRect();
+    const sx = box.width / W;
     const vx = ((e.clientX - box.left) / box.width) * W;
-    const i = last === 0 ? 0 : Math.round((vx - L) / ((W - L - R) / last));
-    setHover(Math.max(0, Math.min(last, i)));
+    const raw = last === 0 ? 0 : Math.round((vx - L) / ((W - L - R) / last));
+    const i = Math.max(0, Math.min(last, raw));
+    const w = windows[i];
+    if (!w) return;
+    let left = x(i) * sx + 14;
+    if (left + 200 > box.width) left = x(i) * sx - 214;
+    setHover({ i, left: Math.max(0, left), top: Math.max(0, y(platformForecast(w)) * sx - 20) });
   }
 
-  const hw = hover === null ? null : windows[hover];
-  let tipStyle: { left: number; top: number } | null = null;
-  if (hover !== null && hw && svgRef.current) {
-    const sx = svgRef.current.getBoundingClientRect().width / W;
-    let left = x(hover) * sx + 14;
-    if (left + 200 > W * sx) left = x(hover) * sx - 214;
-    tipStyle = { left: Math.max(0, left), top: Math.max(0, y(platformForecast(hw)) * sx - 20) };
-  }
+  const hw = hover === null ? null : windows[hover.i];
 
   return (
     <div>
@@ -90,7 +91,7 @@ export function ForecastChart({ windows }: { windows: readonly ForecastWindow[] 
           <text x={x(last) + 12} y={avgY + 4} fontSize={14} fill="#242321" fontWeight={600}>Platform {avgLast.toFixed(1)}%</text>
           <text x={x(last) + 12} y={baseLabelY + 4} fontSize={14} fill="#242321">Baseline {lastWindow.baseline.toFixed(1)}%</text>
           {hover !== null && (
-            <line x1={x(hover)} x2={x(hover)} y1={T} y2={B} stroke="#242321" strokeWidth={1} opacity={0.35} />
+            <line x1={x(hover.i)} x2={x(hover.i)} y1={T} y2={B} stroke="#242321" strokeWidth={1} opacity={0.35} />
           )}
           <rect
             className={styles.hit}
@@ -104,8 +105,8 @@ export function ForecastChart({ windows }: { windows: readonly ForecastWindow[] 
             onPointerLeave={() => setHover(null)}
           />
         </svg>
-        {hw && tipStyle && (
-          <div className={styles.tip} style={tipStyle} data-testid="chart-tip">
+        {hw && hover && (
+          <div className={styles.tip} style={{ left: hover.left, top: hover.top }} data-testid="chart-tip">
             <span className={`mono ${styles.when}`}>{hw.date}</span>
             <div><span>Platform</span><b>{platformForecast(hw).toFixed(1)}%</b></div>
             <div><span>Baseline</span><span>{hw.baseline.toFixed(1)}%</span></div>

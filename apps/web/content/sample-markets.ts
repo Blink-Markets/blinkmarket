@@ -225,7 +225,12 @@ export function chartAriaLabel(windows: readonly ForecastWindow[]): string {
   return `Line chart of the probability of YES from ${first.date} to ${last.date}. Platform forecast ${dir(p0, p1)} ${fromTo(p0, p1)}; the baseline ${dir(first.baseline, last.baseline)} ${fromTo(first.baseline, last.baseline)}.`;
 }
 
-export type LifecycleStep = { key: string; label: string; detail: string; status: "done" | "now" | "todo" };
+/** "Works" -> "Works'", "Cooperative" -> "Cooperative's" */
+export function possessive(name: string): string {
+  return name.endsWith("s") ? `${name}'` : `${name}'s`;
+}
+
+export type LifecycleStep = { key: string; label: string; detail: string; status: "done" | "now" | "todo" | "skipped" };
 
 export function lifecycleSteps(m: SampleMarket): LifecycleStep[] {
   const timedOut = m.state === "FINAL" && m.outcome === "INVALID";
@@ -233,7 +238,7 @@ export function lifecycleSteps(m: SampleMarket): LifecycleStep[] {
   const nowIdx = keys.indexOf(m.state.toLowerCase());
   const names: Record<string, string> = { open: "Open", closed: "Closed", proposed: "Proposed", disputed: "Disputed", final: "Final" };
   const detail: Record<string, string> = {
-    open: "trading allowed until close",
+    open: "market open until close",
     closed: formatUtc(m.closeAt),
     proposed: timedOut
       ? `no proposal by ${formatUtcDate(m.proposalDeadline)}`
@@ -249,7 +254,7 @@ export function lifecycleSteps(m: SampleMarket): LifecycleStep[] {
     key,
     label: names[key] ?? key,
     detail: detail[key] ?? "",
-    status: i < nowIdx ? "done" : i === nowIdx ? "now" : "todo",
+    status: timedOut && key === "proposed" ? "skipped" : i < nowIdx ? "done" : i === nowIdx ? "now" : "todo",
   }));
 }
 
@@ -268,7 +273,7 @@ export function resolutionRule(m: SampleMarket): [string, string, string, string
   return [
     "YES if the ",
     "first qualifying release",
-    ` of ${m.entity}'s ${formatPeriod(m.fiscalPeriod)} GAAP reported gross margin is below ${th}. NO if it is ${th} or higher. If no qualifying value is published, the market resolves `,
+    ` of ${possessive(m.entity)} ${formatPeriod(m.fiscalPeriod)} GAAP reported gross margin is below ${th}. NO if it is ${th} or higher. If no qualifying value is published, the market resolves `,
     "INVALID",
     " and each side gets 0.5 bUSD per share.",
   ];

@@ -79,6 +79,7 @@ export default async function MarketDetailPage({ params }: Props) {
           <span className={`mono ${styles.label}`}>State</span>
           <span className={styles.val}>{stateLabel(m)}</span>
           <span className={styles.sub}>{stateDetail(m)}</span>
+          <span className={styles.sub}>As of {m.updatedAt} (sample snapshot)</span>
         </div>
       </div>
 
