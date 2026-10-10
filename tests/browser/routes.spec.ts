@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { scrollThrough, watchErrors } from "./helpers.ts";
 
-const routes = ["/", "/markets", "/how-it-works", "/docs", "/docs/quickstart", "/docs/agents", "/docs/api", "/docs/lifecycle", "/docs/architecture"];
+const routes = ["/", "/markets", "/markets/sample-01", "/markets/sample-06", "/how-it-works", "/docs", "/docs/quickstart", "/docs/agents", "/docs/api", "/docs/lifecycle", "/docs/architecture"];
 const IGNORE = 'pre, .docs-table, [class*="tableWrap"], [class*="archScroll"], .docs-sketch-sheet, svg, [class*="iris"]';
 
 for (const route of routes) {

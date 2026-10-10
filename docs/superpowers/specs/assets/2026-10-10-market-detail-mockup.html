@@ -1,0 +1,274 @@
+<title>Blink Market Detail</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one left edge; question as the hero, a ruled fact row, then sections separated by rules (lifecycle, forecast chart, resolution rules, evidence, cost, raw spec). Light-only, matching the site. */
+:root {
+  --paper: #fafaf7; --paper-2: #f2f2ec; --cobalt: #2148b8; --cobalt-soft: #2148b84d; --terracotta: #c65f38;
+  --ink: #242321; --ink-soft: #242321b3; --ink-faint: #24232180; --rule: #24232126;
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, Arial, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, Menlo, monospace;
+  --gutter: clamp(16px, 5vw, 72px);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; overflow-x: clip; }
+a { color: var(--cobalt); text-underline-offset: 3px; }
+.container { max-width: calc(1120px + 2 * var(--gutter)); margin-inline: auto; padding-inline: var(--gutter); }
+.mono { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.tag { display: inline-block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid currentColor; padding: 2px 6px; color: var(--cobalt); }
+.notice { display: inline-block; color: var(--ink); border-left: 3px solid var(--terracotta); padding-left: 10px; }
+main { padding-block: 40px 96px; }
+.crumb { color: var(--ink-soft); }
+.crumb a { color: var(--ink-soft); text-decoration: none; } .crumb a:hover { color: var(--cobalt); }
+.tags { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-top: 28px; }
+h1 { margin: 18px 0 0; font-size: clamp(30px, 4.4vw, 54px); line-height: 1.06; letter-spacing: -0.04em; font-weight: 800; max-width: 22ch; text-wrap: balance; }
+h2 { margin: 0; font-size: clamp(24px, 2.6vw, 32px); letter-spacing: -0.03em; }
+section { padding-block: clamp(40px, 6vw, 64px); border-top: 1px solid var(--rule); }
+.lede { color: var(--ink-soft); max-width: 64ch; line-height: 1.6; margin: 10px 0 0; }
+
+/* Fact row */
+.facts { display: grid; grid-template-columns: 1.4fr repeat(3, minmax(0, 1fr)); margin-top: 40px; border-top: 2px solid var(--ink); }
+.fact { padding: 18px 20px 20px 0; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.fact + .fact { padding-left: 20px; border-left: 1px solid var(--rule); }
+.fact .mono { color: var(--ink-soft); }
+.big { font-size: clamp(40px, 5vw, 64px); font-weight: 800; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+.val { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.sub { font-size: 14px; color: var(--ink-soft); }
+.meter { position: relative; height: 10px; background: repeating-linear-gradient(-35deg, transparent 0 4px, #2148b833 4px 5px); margin-top: 6px; }
+.meter span { position: absolute; inset: 0 auto 0 0; background: var(--cobalt); }
+.meter i { position: absolute; top: -5px; bottom: -5px; width: 3px; background: var(--terracotta); }
+
+/* Lifecycle strip */
+.life { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 28px; }
+.step { position: relative; padding-top: 22px; display: grid; gap: 4px; }
+.step::before { content: ""; position: absolute; top: 6px; left: 0; right: 0; height: 2px; background: var(--rule); }
+.step.done::before, .step.now::before { background: var(--cobalt); }
+.step .dot { position: absolute; top: 0; left: 0; width: 14px; height: 14px; border-radius: 50%; background: var(--paper); border: 2px solid var(--ink-faint); }
+.step.now .dot { border-color: var(--cobalt); background: var(--cobalt); box-shadow: 0 0 0 4px #2148b826; }
+.step b { font-size: 17px; }
+.step span { font-size: 13px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+
+/* Chart */
+.chartHead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 16px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 14px; color: var(--ink); margin-top: 22px; }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.sw { width: 22px; height: 0; border-top: 2px solid var(--cobalt); }
+.sw.base { border-top: 2px dashed var(--ink); }
+.sw.ctx { border-top: 1px solid var(--cobalt-soft); }
+.toggle { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; background: none; border: 1px solid var(--ink); padding: 6px 10px; cursor: pointer; color: var(--ink); }
+.toggle:hover { background: var(--ink); color: var(--paper); }
+.chartWrap { position: relative; margin-top: 12px; }
+.chartWrap svg { display: block; width: 100%; height: auto; overflow: visible; }
+.tip { position: absolute; pointer-events: none; background: var(--paper); border: 1px solid var(--ink); padding: 8px 10px; font-size: 13px; line-height: 1.5; min-width: 180px; font-variant-numeric: tabular-nums; }
+.tip .mono { color: var(--ink-soft); display: block; margin-bottom: 2px; }
+.tip div { display: flex; justify-content: space-between; gap: 16px; }
+.note { margin-top: 14px; font-size: 14px; color: var(--ink-soft); max-width: 70ch; line-height: 1.55; }
+.tableWrap { overflow-x: auto; margin-top: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
+td.num, th.num { text-align: right; }
+
+/* Rules + spec */
+.rule { font-size: clamp(18px, 1.7vw, 21px); line-height: 1.5; max-width: 60ch; margin: 18px 0 0; }
+.rule strong { border-bottom: 2px solid var(--terracotta); font-weight: 600; }
+.kv { display: grid; grid-template-columns: minmax(150px, 240px) minmax(0, 1fr); margin-top: 24px; border-top: 2px solid var(--ink); }
+.kv dt, .kv dd { margin: 0; padding: 11px 0; border-bottom: 1px solid var(--rule); }
+.kv dt { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em; color: var(--ink-soft); padding-right: 16px; }
+.kv dd { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.kv code { font-family: var(--font-mono); font-size: 13px; }
+
+/* Evidence */
+.ev { list-style: none; margin: 24px 0 0; padding: 0; border-top: 2px solid var(--ink); }
+.ev li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 24px; padding: 16px 0; border-bottom: 1px solid var(--rule); }
+.ev b { font-weight: 600; }
+.ev .meta { grid-column: 1 / -1; color: var(--ink-soft); font-size: 13px; font-family: var(--font-mono); overflow-wrap: anywhere; }
+
+/* Cost */
+.cost { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 24px; border-top: 2px solid var(--ink); }
+.cost div { padding: 16px 20px 16px 0; display: grid; gap: 6px; }
+.cost div + div { padding-left: 20px; border-left: 1px solid var(--rule); }
+
+details { margin-top: 18px; }
+summary { cursor: pointer; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+pre { background: var(--paper-2); border: 1px solid var(--rule); padding: 16px; overflow-x: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.6; }
+:focus-visible { outline: 2px solid var(--cobalt); outline-offset: 3px; }
+
+@media (max-width: 860px) {
+  .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fact:nth-child(3) { padding-left: 0; border-left: 0; }
+  .life { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 18px; }
+  .cost { grid-template-columns: minmax(0, 1fr); }
+  .cost div + div { padding-left: 0; border-left: 0; border-top: 1px solid var(--rule); }
+}
+@media (max-width: 560px) { .kv { grid-template-columns: minmax(0, 1fr); } .kv dt { border-bottom: 0; padding-bottom: 0; } }
+</style>
+
+<main class="container">
+  <p class="crumb mono"><a href="#">Markets</a> / sample-01</p>
+  <div class="tags">
+    <span class="tag">REPLAY</span>
+    <span class="mono notice">Sample data · Fictional company · Not a forecast record</span>
+  </div>
+  <h1>Will Ostrander Kiln Works report FY2025 Q3 GAAP gross margin below 70.00%?</h1>
+
+  <div class="facts">
+    <div class="fact">
+      <span class="mono">Platform forecast · YES</span>
+      <span class="big">62.4%</span>
+      <div class="meter" aria-hidden="true"><span style="width:62.4%"></span><i style="left:calc(62.4% - 1.5px)"></i></div>
+      <span class="sub">Average of the two platform forecasters. Not a price.</span>
+    </div>
+    <div class="fact"><span class="mono">Threshold</span><span class="val">70.00%</span><span class="sub">GAAP gross margin, below = YES</span></div>
+    <div class="fact"><span class="mono">Period</span><span class="val">FY2025 Q3</span><span class="sub">2025-07-01 to 2025-09-30</span></div>
+    <div class="fact"><span class="mono">State</span><span class="val">Open</span><span class="sub">Closes 2026-10-31 16:00 UTC</span></div>
+  </div>
+
+  <section aria-labelledby="life-h" style="border-top:0">
+    <h2 id="life-h">Where this market is</h2>
+    <div class="life">
+      <div class="step now"><span class="dot"></span><b>Open</b><span>trading allowed until close</span></div>
+      <div class="step"><span class="dot"></span><b>Closed</b><span>2026-10-31 16:00 UTC</span></div>
+      <div class="step"><span class="dot"></span><b>Proposed</b><span>by 2026-11-07, 2-minute challenge window (REPLAY)</span></div>
+      <div class="step"><span class="dot"></span><b>Final</b><span>INVALID if not final by 2026-11-10</span></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="fc-h">
+    <div class="chartHead">
+      <div>
+        <h2 id="fc-h">Forecast history</h2>
+        <p class="lede">Probability of YES at each daily forecast window. The axis shows 40–80%.</p>
+      </div>
+      <button class="toggle" id="tableToggle" type="button" aria-controls="fcTable" aria-expanded="false">Show table</button>
+    </div>
+    <div class="legend" aria-hidden="true">
+      <span><i class="sw"></i>Platform forecast</span>
+      <span><i class="sw base"></i>Baseline (single model)</span>
+      <span><i class="sw ctx"></i>Forecasters A and B</span>
+    </div>
+    <div class="chartWrap" id="chartWrap">
+      <svg id="chart" viewBox="0 0 1000 340" role="img" aria-label="Line chart of the probability of YES from 2026-09-29 to 2026-10-06. Platform forecast rises from 55.0% to 62.4%; the baseline moves from 50.0% to 57.0%."></svg>
+      <div class="tip" id="tip" hidden></div>
+    </div>
+    <div class="tableWrap" id="fcTable" hidden>
+      <table><thead><tr><th>Window</th><th class="num">Forecaster A</th><th class="num">Forecaster B</th><th class="num">Platform forecast</th><th class="num">Baseline</th></tr></thead><tbody id="fcBody"></tbody></table>
+    </div>
+    <p class="note">The platform forecast is the plain average of two forecasters run by the same operator, so they are not independent. The baseline is one separate model and is never averaged in. One forecast per agent per window; withdrawn forecasts stay on the record.</p>
+  </section>
+
+  <section aria-labelledby="res-h">
+    <h2 id="res-h">How it resolves</h2>
+    <p class="rule">YES if the <strong>first qualifying release</strong> of Ostrander Kiln Works' FY2025 Q3 GAAP reported gross margin is below 70.00%. NO if it is 70.00% or higher. If no qualifying value is published, the market resolves <strong>INVALID</strong> and each side gets 0.5 bUSD per share.</p>
+    <dl class="kv">
+      <dt>Template</dt><dd><code>GM_LT_V1</code></dd>
+      <dt>Metric</dt><dd><code>quarterly_gaap_reported_gross_margin</code></dd>
+      <dt>Comparator</dt><dd><code>LT</code> 7000 bps</dd>
+      <dt>Value version</dt><dd><code>FIRST_QUALIFYING_RELEASE</code></dd>
+      <dt>Missing value</dt><dd><code>INVALID</code> · 500,000 micros per YES and per NO share</dd>
+      <dt>Close</dt><dd>2026-10-31 16:00 UTC</dd>
+      <dt>Proposal deadline</dt><dd>2026-11-07 16:00 UTC</dd>
+      <dt>Hard deadline</dt><dd>2026-11-10 16:00 UTC</dd>
+      <dt>Challenge window</dt><dd>120 seconds (REPLAY)</dd>
+      <dt>Source allowlist</dt><dd><code>https://example.com/fixture-only</code></dd>
+    </dl>
+  </section>
+
+  <section aria-labelledby="ev-h">
+    <h2 id="ev-h">Evidence</h2>
+    <p class="lede">Original bytes are archived when a source is captured, so the resolution can be checked against exactly what was read.</p>
+    <ul class="ev">
+      <li><b>FY2025 Q2 results release (sample)</b><span class="tag">Public</span><span class="meta">example.com/fixture-only · captured 2026-09-28 · sha256 9c1e…4b07 (sample)</span></li>
+      <li><b>FY2025 Q3 guidance, excerpt (sample)</b><span class="tag">Excerpt</span><span class="meta">example.com/fixture-only · captured 2026-10-02 · sha256 51aa…e3d9 (sample)</span></li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="cost-h">
+    <h2 id="cost-h">Research cost</h2>
+    <p class="lede">What it cost to research and forecast this question, in test budget.</p>
+    <div class="cost">
+      <div><span class="mono">Spent</span><span class="val">$3.42</span><span class="sub">model calls and source fetches (sample)</span></div>
+      <div><span class="mono">Reserved</span><span class="val">$0.80</span><span class="sub">for remaining windows (sample)</span></div>
+      <div><span class="mono">Unknown</span><span class="val">$0.00</span><span class="sub">calls with no confirmed cost</span></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="spec-h">
+    <h2 id="spec-h">Frozen spec</h2>
+    <p class="lede">The exact bytes a human approved. The market commits to their keccak256 hash; nobody can change the question after creation.</p>
+    <details><summary>Show spec JSON</summary>
+<pre>{
+  "schemaVersion": "blink.market.v0.1.1",
+  "mode": "REPLAY",
+  "templateId": "GM_LT_V1",
+  "entityId": "sample-ostrander-kiln-works",
+  "fiscalPeriod": "FY2025Q3",
+  "metric": "quarterly_gaap_reported_gross_margin",
+  "thresholdBps": 7000,
+  "comparator": "LT",
+  "valueVersion": "FIRST_QUALIFYING_RELEASE",
+  "missingValueOutcome": "INVALID",
+  "challengeSeconds": 120
+}</pre></details>
+  </section>
+</main>
+
+<script>
+(function () {
+  var days = ["09-29", "09-30", "10-01", "10-02", "10-03", "10-04", "10-05", "10-06"];
+  var A = [56.0, 57.5, 58.0, 60.5, 61.0, 62.5, 63.0, 64.0];
+  var B = [54.0, 54.5, 56.0, 57.0, 58.5, 59.0, 60.0, 60.8];
+  var base = [50.0, 51.0, 52.5, 52.0, 54.0, 55.5, 56.0, 57.0];
+  var avg = A.map(function (a, i) { return Math.round((a + B[i]) / 2 * 10) / 10; });
+  var NS = "http://www.w3.org/2000/svg", svg = document.getElementById("chart");
+  var L = 52, R = 150, T = 16, Bm = 300, W = 1000;
+  var x = function (i) { return L + i * (W - L - R) / (days.length - 1); };
+  var LO = 40, HI = 80;
+  var y = function (v) { return T + (HI - v) / (HI - LO) * (Bm - T); };
+  function el(n, a, p) { var e = document.createElementNS(NS, n); for (var k in a) e.setAttribute(k, a[k]); (p || svg).appendChild(e); return e; }
+  [40, 50, 60, 70, 80].forEach(function (v) {
+    el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: "#24232126", "stroke-width": 1 });
+    el("text", { x: L - 10, y: y(v) + 4, "text-anchor": "end", "font-size": 12, fill: "#242321b3", "font-family": "Geist Mono, monospace" }).textContent = v + "%";
+  });
+  days.forEach(function (d, i) { el("text", { x: x(i), y: Bm + 24, "text-anchor": "middle", "font-size": 12, fill: "#242321b3", "font-family": "Geist Mono, monospace" }).textContent = d; });
+  function path(vals) { return vals.map(function (v, i) { return (i ? "L" : "M") + x(i) + " " + y(v); }).join(" "); }
+  el("path", { d: path(A), fill: "none", stroke: "#2148b84d", "stroke-width": 1 });
+  el("path", { d: path(B), fill: "none", stroke: "#2148b84d", "stroke-width": 1 });
+  el("path", { d: path(base), fill: "none", stroke: "#242321", "stroke-width": 2, "stroke-dasharray": "6 5", "stroke-linejoin": "round" });
+  el("path", { d: path(avg), fill: "none", stroke: "#2148B8", "stroke-width": 2, "stroke-linejoin": "round" });
+  var last = days.length - 1;
+  el("circle", { cx: x(last), cy: y(avg[last]), r: 4.5, fill: "#2148B8", stroke: "#fafaf7", "stroke-width": 2 });
+  el("circle", { cx: x(last), cy: y(base[last]), r: 4, fill: "#242321", stroke: "#fafaf7", "stroke-width": 2 });
+  el("text", { x: x(last) + 12, y: y(avg[last]) + 4, "font-size": 14, fill: "#242321", "font-weight": 600 }).textContent = "Platform " + avg[last].toFixed(1) + "%";
+  el("text", { x: x(last) + 12, y: y(base[last]) + 4, "font-size": 14, fill: "#242321" }).textContent = "Baseline " + base[last].toFixed(1) + "%";
+
+  // Hover: crosshair + tooltip
+  var cross = el("line", { y1: T, y2: Bm, stroke: "#242321", "stroke-width": 1, opacity: 0 });
+  var hit = el("rect", { x: L - 20, y: 0, width: W - L - R + 40, height: Bm + 10, fill: "transparent" });
+  var tip = document.getElementById("tip"), wrap = document.getElementById("chartWrap");
+  function show(i) {
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("opacity", 0.35);
+    tip.innerHTML = '<span class="mono">2026-' + days[i] + '</span><div><span>Platform</span><b>' + avg[i].toFixed(1) + '%</b></div><div><span>Baseline</span><span>' + base[i].toFixed(1) + '%</span></div><div><span>A / B</span><span>' + A[i].toFixed(1) + ' / ' + B[i].toFixed(1) + '%</span></div>';
+    tip.hidden = false;
+    var box = svg.getBoundingClientRect(), sx = box.width / W;
+    var left = x(i) * sx + 14; if (left + 200 > box.width) left = x(i) * sx - 214;
+    tip.style.left = Math.max(0, left) + "px"; tip.style.top = (y(avg[i]) * sx - 20) + "px";
+  }
+  hit.addEventListener("pointermove", function (e) {
+    var box = svg.getBoundingClientRect(), vx = (e.clientX - box.left) / box.width * W;
+    var i = Math.round((vx - L) / ((W - L - R) / (days.length - 1))); show(Math.max(0, Math.min(last, i)));
+  });
+  hit.addEventListener("pointerleave", function () { tip.hidden = true; cross.setAttribute("opacity", 0); });
+
+  // Table view
+  document.getElementById("fcBody").innerHTML = days.map(function (d, i) {
+    return "<tr><td>2026-" + d + "</td><td class=num>" + A[i].toFixed(1) + "%</td><td class=num>" + B[i].toFixed(1) + "%</td><td class=num><b>" + avg[i].toFixed(1) + "%</b></td><td class=num>" + base[i].toFixed(1) + "%</td></tr>";
+  }).join("");
+  var tg = document.getElementById("tableToggle"), tb = document.getElementById("fcTable");
+  tg.addEventListener("click", function () { tb.hidden = !tb.hidden; tg.setAttribute("aria-expanded", String(!tb.hidden)); tg.textContent = tb.hidden ? "Show table" : "Hide table"; });
+})();
+</script>

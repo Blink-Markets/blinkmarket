@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import Link from "next/link";
 import { formatBpsPercent, marketQuestion, stateLabel, type SampleMarket } from "../content/sample-markets";
 import styles from "./MarketLedger.module.css";
 
@@ -11,7 +12,9 @@ export function MarketLedger({ markets }: { markets: readonly SampleMarket[] }) 
       <ol className={styles.list}>
         {markets.map((m) => (
           <li key={m.id} className={styles.row} data-reveal="">
-            <p className={styles.question}>{marketQuestion(m)}</p>
+            <p className={styles.question}>
+              <Link className={styles.link} href={`/markets/${m.id}`}>{marketQuestion(m)}</Link>
+            </p>
             <span className={styles.mode}><span className="tag">{m.mode}</span></span>
             <span className={styles.forecast}>
               <span className={styles.track} aria-hidden="true">

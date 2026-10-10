@@ -15,7 +15,7 @@ Design references: [spec](superpowers/specs/2026-10-08-web-showcase-design.md), 
 | `/how-it-works` | Five chapters, architecture plate, worked example, out-of-scope list |
 | `/docs/*` | Documentation system; see [Docs system](#docs-system) |
 
-Out of scope: trading, wallets, approvals, positions, market detail pages, live API data. Sample markets use fictional companies and are labelled "Sample data · REPLAY only". Site banner: Base Sepolia testnet, test assets have no value, no trading.
+Out of scope: trading, wallets, approvals, positions, live API data. Read-only market detail pages are covered in [Market detail pages](#market-detail-pages). Sample markets use fictional companies and are labelled "Sample data · REPLAY only". Site banner: Base Sepolia testnet, test assets have no value, no trading.
 
 ## Visual system
 
@@ -45,7 +45,7 @@ The shared working tree held unrelated uncommitted M2 creation-tracking work, so
 ## Limitations
 
 - Sample data is static; nothing is read from the API or chain.
-- No market detail, trading, wallet or positions pages; M4 (product interface) is not complete.
+- No trading, wallet or positions pages (market detail is read-only, see below); M4 (product interface) is not complete.
 - Originally only Chromium was exercised. Superseded by the cross-browser suite below (Firefox and WebKit now covered; real Safari and real devices still untested).
 - The API index shows the default contract status from `@blink/schemas`, not a deployment.
 
@@ -97,13 +97,24 @@ Design: [spec](superpowers/specs/2026-10-09-docs-system-design.md), [plan](super
 - **Tests:** generator, renderer and content tests (every `/docs-assets/*` reference exists); browser specs for the inline SVG, PNG load, the SVG route and no horizontal overflow on `/docs/lifecycle` and `/docs/architecture`.
 - **Limits:** diagram labels are drawn in code and must be updated by hand when the docs change; the PNG is not optimised further (no lossless optimiser installed).
 
+## Market detail pages
+
+Mockup: [2026-10-10-market-detail-mockup.html](superpowers/specs/assets/2026-10-10-market-detail-mockup.html) (approved by the user).
+
+- `/markets/<id>` for the six sample markets (`generateStaticParams`, `dynamicParams = false`, unknown ids 404). Read-only; no trading UI. Every `/markets` row question links to its page.
+- Sections: breadcrumb, REPLAY tag and sample notice, question, fact row, lifecycle strip (DISPUTED and INVALID-by-timeout variants), forecast history chart, how it resolves, evidence, research cost, frozen spec JSON.
+- Chart (`components/markets/ForecastChart.tsx`): server-rendered SVG with `role="img"` and a generated label; client-side hover crosshair and tooltip, and a "Show table" toggle with a real table. The y-axis is floor(min-5) to ceil(max+5) in 10-point steps, so sample-01 shows 40-70%, not the mockup's 40-80%.
+- Data: `content/sample-markets.ts` gains deadlines, daily windows, evidence and cost per market, plus pure helpers. All invented values are labelled sample. Tests in `tests/web-sample-markets.test.ts` enforce the window/forecast, deadline and state constraints.
+- Browser: both new routes are in the route matrix; `tests/browser/market-detail.spec.ts` covers the row link, hover tooltip (desktop only), table toggle and the 404.
+- Limits: the table toggle and tooltip need JavaScript; sample-02 to sample-06 window values are invented; evidence digests are placeholders.
+
 ### Open items (not done yet; carry forward)
 
 From the docs-system plan's scope (spec §6.1): site search (deferred by the user on 2026-10-09); Open in Claude/ChatGPT; localisation; live per-mode endpoint status; dark mode on marketing pages (needs token-coloured illustrations).
 
 Footer: palette hex values are duplicated in `lib/landscape.ts`, `SiteFooter.tsx` and the CSS tokens; footer column headings are `h2`s in the page outline; generator tests do not cover the sky clip or rays; docs pages have a larger gap above the footer than marketing pages. New from the 2026-10-09 additions: real Safari (only the WebKit engine is tested) and real devices; mobile projects emulate viewport width only, not touch; highlighted tokens use inline `style` attributes, which a future strict CSP without `style-src 'unsafe-inline'` would block; `escapeHtml` is duplicated in `render.ts` and `highlight.ts`; the theme browser test asserts a background change rather than a specific dark value.
 
-Carried from the 2026-10-08 showcase (spec §6.2): the overflow check method (`overflow-x: clip` masks `scrollWidth`, so use element rects; Task 7 does); deduplicating `.code`, table header and `.title` styles; the unused `.visually-hidden` class (could label the ledger's Forecast column); the Architecture `aria-label` is too long (use a short label plus `<desc>`); Architecture bottom whitespace; whether to keep the Evaluation histogram; no skip link; README/ROADMAP table padding; the rest of M4 (market detail, trading, positions, resolution, admin pages, live API data).
+Carried from the 2026-10-08 showcase (spec §6.2): the overflow check method (`overflow-x: clip` masks `scrollWidth`, so use element rects; Task 7 does); deduplicating `.code`, table header and `.title` styles; the unused `.visually-hidden` class (could label the ledger's Forecast column); the Architecture `aria-label` is too long (use a short label plus `<desc>`); Architecture bottom whitespace; whether to keep the Evaluation histogram; no skip link; README/ROADMAP table padding; the rest of M4 (trading, positions, resolution, admin pages, live API data).
 
 Resolved on 2026-10-10: `pnpm test:browsers` runs in CI as a separate `browsers` job (browsers cached, one retry in CI only, Playwright report uploaded on failure); the user kept the disclaimer style (ink text with a terracotta marker) and said per-model commit trailers do not matter.
 
