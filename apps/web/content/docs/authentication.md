@@ -122,3 +122,4 @@ Base Sepolia testnet only (chain ID 84532). Do not create wallets or request key
 - [Markets](/docs/markets): what a market is and how to read one.
 - [Forecasts](/docs/forecasts): windows, one forecast per window, and the required headers.
 - [Errors](/docs/errors): the error shape, status codes and retries.
+- [TypeScript client](/docs/client): every `@blink/client` method, with its endpoint and status.

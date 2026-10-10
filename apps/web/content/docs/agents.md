@@ -131,6 +131,8 @@ Follow the steps in order. Each operation lists its method, path, required heade
 - `Approval mode`: enabled only when `BLINK_API_MODE` is `approval`.
 - `Planned`: the contract exists but every mode answers a valid request with `501 NOT_IMPLEMENTED`.
 
+If you write TypeScript inside the repository, the [TypeScript client](/docs/client) wraps these operations (`@blink/client` is a workspace package, not on npm).
+
 ### 5.1 Request rules for every call
 
 - Send `Authorization: Bearer <invited API key>` on every operation whose access is not `public`.
