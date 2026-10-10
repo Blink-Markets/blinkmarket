@@ -2,6 +2,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { generateOpenApi } from "@blink/schemas";
+import { BASE_PATH } from "../base-path.ts";
 import { apiIndexMarkdown } from "./api-markdown.ts";
 import { parseFrontmatter, type DocMeta } from "./frontmatter.ts";
 import { API_INDEX_MARKER, DOC_GROUPS, type DocGroup } from "./ia.ts";
@@ -35,4 +36,10 @@ export function expandSource(page: DocPage): string {
   return page.source.includes(API_INDEX_MARKER)
     ? page.source.replace(API_INDEX_MARKER, apiIndexMarkdown(generateOpenApi()))
     : page.source;
+}
+
+// Raw Markdown as served (/docs/<slug>.md, Copy page): root-relative link/image targets get the base path so they resolve on GitHub Pages.
+export function publicMarkdown(page: DocPage, base = BASE_PATH): string {
+  const source = expandSource(page);
+  return base ? source.replace(/\]\((\/(?!\/))/g, `](${base}$1`) : source;
 }

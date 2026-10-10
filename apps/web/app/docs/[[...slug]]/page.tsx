@@ -4,7 +4,7 @@ import { CopyPageMenu } from "../../../components/docs/CopyPageMenu";
 import { Pager } from "../../../components/docs/Pager";
 import { Toc } from "../../../components/docs/Toc";
 import { parseFrontmatter } from "../../../lib/docs/frontmatter.ts";
-import { expandSource, loadDocs, neighbors } from "../../../lib/docs/registry.ts";
+import { expandSource, loadDocs, neighbors, publicMarkdown } from "../../../lib/docs/registry.ts";
 import { renderDoc } from "../../../lib/docs/render.ts";
 
 type Params = Promise<{ slug?: string[] }>;
@@ -39,7 +39,7 @@ export default async function DocsPage({ params }: { params: Params }) {
           <p className="docs-crumb">{page.meta.group}</p>
           <div className="docs-titlerow">
             <h1>{page.meta.title}</h1>
-            <CopyPageMenu markdown={source} mdHref={page.mdHref} agentTask={page.meta.agentTask} />
+            <CopyPageMenu markdown={publicMarkdown(page)} mdHref={page.mdHref} agentTask={page.meta.agentTask} />
           </div>
           <p className="docs-lede">{page.meta.description}</p>
         </header>

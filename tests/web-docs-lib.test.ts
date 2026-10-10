@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseFrontmatter } from "../apps/web/lib/docs/frontmatter.ts";
-import { loadDocs, navGroups, neighbors, expandSource } from "../apps/web/lib/docs/registry.ts";
+import { loadDocs, navGroups, neighbors, expandSource, publicMarkdown } from "../apps/web/lib/docs/registry.ts";
 import { renderDoc } from "../apps/web/lib/docs/render.ts";
 import { llmsTxt } from "../apps/web/lib/docs/llms.ts";
 import { apiIndexMarkdown } from "../apps/web/lib/docs/api-markdown.ts";
@@ -153,4 +153,13 @@ test("renderDoc inlines known sketches and renders other images lazily", () => {
   const unknown = renderDoc("![X](/docs-assets/x.svg)").html;
   assert.match(unknown, /<img src="\/docs-assets\/x\.svg" alt="X" loading="lazy"/);
   assert.ok(!unknown.includes("<svg"));
+});
+
+test("publicMarkdown prefixes root-relative link targets only under a base path", () => {
+  const page = loadDocs(join(import.meta.dirname, "../apps/web/content/docs")).find((p) => p.slug === "architecture")!;
+  assert.equal(publicMarkdown(page, ""), expandSource(page));
+  const out = publicMarkdown(page, "/blinkmarket");
+  assert.match(out, /\]\(\/blinkmarket\/docs\/status\)/);
+  assert.match(out, /\]\(\/blinkmarket\/docs-assets\/architecture-sketch\.jpg\)/);
+  assert.doesNotMatch(out, /\]\(\/(?!blinkmarket\/)/);
 });

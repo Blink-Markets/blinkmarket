@@ -143,6 +143,6 @@ Only the static web showcase is deployed. The API, worker, indexer, contracts an
 ### Limits
 
 - Pages has no server: no rewrites, headers or redirects. `.md` files get whatever content type Pages assigns (`text/markdown` is expected; the local server only emulates it), and the share card and icons cannot set cache headers.
-- Links inside the raw `.md` files and the "Copy page" Markdown are still root-relative (`/docs/status`), so on Pages they miss the `/blinkmarket` prefix. The rendered HTML pages and `llms.txt` are correct.
+- Links inside the raw `.md` files and the "Copy page" Markdown get the base path in the Pages build (`publicMarkdown`), so `/blinkmarket/docs/status` resolves; server mode keeps them root-relative and byte-equal to the sources.
 - A custom domain would remove the base path: build with `NEXT_PUBLIC_BASE_PATH` unset and `NEXT_PUBLIC_SITE_URL` set to the domain, and add the domain in the Pages settings.
 - The export's 404 page is static; GitHub serves `404.html` for unknown URLs under the site.
