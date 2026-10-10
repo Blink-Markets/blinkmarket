@@ -1,0 +1,139 @@
+<title>Blink Finishing Touches</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: three review panels stacked (favicon set, share card, 404 page) on a neutral board; each panel shows the asset at real size. Light-only like the site. */
+:root {
+  --board: #ecebe6; --paper: #fafaf7; --cobalt: #2148b8; --terracotta: #c65f38; --ink: #242321; --ink-soft: #242321b3; --rule: #24232126;
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, Arial, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--board); color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+main { max-width: 1240px; margin: 0 auto; padding: 40px 16px 80px; display: grid; gap: 56px; }
+.label { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 14px; }
+h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: -0.03em; }
+.intro { margin: 0; color: var(--ink-soft); max-width: 64ch; line-height: 1.55; }
+
+/* Favicons */
+.icons { display: flex; flex-wrap: wrap; gap: 28px; align-items: end; }
+.icons figure { margin: 0; display: grid; gap: 8px; justify-items: center; font-family: var(--font-mono); font-size: 11px; color: var(--ink-soft); }
+.tab { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--rule); border-radius: 10px 10px 0 0; padding: 8px 14px; font-size: 13px; min-width: 220px; }
+.tab svg { width: 16px; height: 16px; flex: none; }
+
+/* Share card */
+.ogWrap { overflow-x: auto; }
+.og { width: 1200px; height: 630px; position: relative; overflow: hidden; background: var(--paper); border: 1px solid var(--rule); transform-origin: top left; }
+.ogScale { width: 100%; max-width: 1200px; aspect-ratio: 1200 / 630; position: relative; }
+.ogScale .og { position: absolute; top: 0; left: 0; }
+.og .top { position: absolute; left: 72px; top: 64px; right: 72px; display: flex; justify-content: space-between; align-items: center; }
+.og .mark { display: inline-flex; align-items: center; gap: 14px; font-weight: 800; font-size: 40px; letter-spacing: -0.05em; }
+.og .mark svg { width: 56px; height: 36px; }
+.og .chip { font-family: var(--font-mono); font-size: 18px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cobalt); border: 2px solid var(--cobalt); padding: 6px 12px; }
+.og h2 { position: absolute; left: 72px; top: 160px; margin: 0; font-size: 104px; font-weight: 800; letter-spacing: -0.055em; line-height: 0.92; }
+.og h2 em { font-style: normal; color: var(--terracotta); border-bottom: 10px solid var(--terracotta); }
+.og .sub { position: absolute; left: 72px; top: 400px; margin: 0; font-size: 26px; color: var(--ink-soft); max-width: 30ch; line-height: 1.35; }
+.og .land { position: absolute; left: 0; right: 0; bottom: 0; height: 170px; }
+
+/* 404 */
+.page { background: var(--paper); border: 1px solid var(--rule); }
+.strip { background: var(--cobalt); color: var(--paper); font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; text-align: center; padding: 7px 16px; }
+.hdr { display: flex; justify-content: space-between; align-items: center; padding: 18px clamp(16px, 4vw, 48px); border-bottom: 1px solid var(--rule); font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; flex-wrap: wrap; gap: 8px; }
+.hdr b { font-family: var(--font-sans); font-size: 22px; letter-spacing: -0.05em; text-transform: none; display: inline-flex; gap: 10px; align-items: center; }
+.hdr b svg { width: 30px; height: 20px; }
+.nf { padding: clamp(48px, 8vw, 104px) clamp(16px, 4vw, 48px) clamp(64px, 9vw, 120px); display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 40px; align-items: center; }
+.nf .code { font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cobalt); }
+.nf h2 { margin: 14px 0 0; font-size: clamp(44px, 7vw, 96px); font-weight: 800; letter-spacing: -0.05em; line-height: 0.95; }
+.nf h2 em { font-style: normal; color: var(--terracotta); box-shadow: inset 0 -0.12em 0 var(--terracotta); }
+.nf p { margin: 22px 0 0; font-size: 19px; color: var(--ink-soft); max-width: 38ch; line-height: 1.5; }
+.nf ul { list-style: none; padding: 0; margin: 28px 0 0; display: flex; flex-wrap: wrap; gap: 10px 24px; font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
+.nf a { color: var(--cobalt); }
+.nf svg.eye { width: 100%; max-width: 380px; height: auto; justify-self: center; }
+@media (prefers-reduced-motion: no-preference) {
+  .peek { animation: peek 5s ease-in-out 1.2s infinite; transform-box: fill-box; transform-origin: center; }
+}
+@keyframes peek { 0%, 70%, 100% { transform: scaleY(0.06); } 78%, 90% { transform: scaleY(1); } }
+@media (max-width: 760px) { .nf { grid-template-columns: minmax(0, 1fr); } .nf svg.eye { max-width: 240px; justify-self: start; } }
+</style>
+
+<main>
+  <header>
+    <h1>Finishing touches</h1>
+    <p class="intro">Favicon, link-share card and the 404 page, using the eye, the trail and the engraved landscape already on the site.</p>
+  </header>
+
+  <section>
+    <p class="label">1 · Favicon</p>
+    <div class="icons">
+      <figure><svg width="64" height="64" viewBox="0 0 64 64" aria-label="App icon on cobalt"><rect width="64" height="64" rx="14" fill="#2148B8"/><path d="M8 32 Q32 8 56 32 Q32 56 8 32 Z" fill="none" stroke="#FAFAF7" stroke-width="4.5" stroke-linejoin="round"/><circle cx="32" cy="32" r="9.5" fill="#FAFAF7"/><circle cx="35.5" cy="28.5" r="2.6" fill="#C65F38"/></svg>180 px (Apple touch)</figure>
+      <figure><svg width="32" height="32" viewBox="0 0 64 64" aria-label="Favicon 32 px"><rect width="64" height="64" rx="14" fill="#2148B8"/><path d="M8 32 Q32 8 56 32 Q32 56 8 32 Z" fill="none" stroke="#FAFAF7" stroke-width="5.5" stroke-linejoin="round"/><circle cx="32" cy="32" r="10" fill="#FAFAF7"/><circle cx="35.5" cy="28.5" r="3" fill="#C65F38"/></svg>32 px</figure>
+      <figure><svg width="16" height="16" viewBox="0 0 64 64" aria-label="Favicon 16 px"><rect width="64" height="64" rx="12" fill="#2148B8"/><path d="M6 32 Q32 6 58 32 Q32 58 6 32 Z" fill="none" stroke="#FAFAF7" stroke-width="7" stroke-linejoin="round"/><circle cx="32" cy="32" r="11" fill="#FAFAF7"/></svg>16 px (no highlight)</figure>
+      <div class="tab"><svg viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#2148B8"/><path d="M8 32 Q32 8 56 32 Q32 56 8 32 Z" fill="none" stroke="#FAFAF7" stroke-width="5.5" stroke-linejoin="round"/><circle cx="32" cy="32" r="10" fill="#FAFAF7"/><circle cx="35.5" cy="28.5" r="3" fill="#C65F38"/></svg>Blink: every forecast leaves a trail</div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">2 · Share card (1200 × 630, shown scaled)</p>
+    <div class="ogScale" id="ogScale">
+      <div class="og" id="og">
+        <div class="top">
+          <span class="mark"><svg viewBox="0 0 34 22"><path d="M2 11 Q17 -3 32 11 Q17 25 2 11 Z" fill="none" stroke="#2148B8" stroke-width="2.4" stroke-linejoin="round"/><circle cx="17" cy="11" r="5.2" fill="#2148B8"/><circle cx="19" cy="9" r="1.4" fill="#C65F38"/></svg>Blink</span>
+          <span class="chip">Base Sepolia testnet</span>
+        </div>
+        <h2>every forecast<br>leaves a <em>trail</em></h2>
+        <p class="sub">Prediction research for agents: explicit rules, traceable evidence, test trades only.</p>
+        <svg class="land" id="ogLand" viewBox="0 330 1600 150" preserveAspectRatio="xMidYMax slice" aria-hidden="true"></svg>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">3 · 404 page</p>
+    <div class="page">
+      <div class="strip">Base Sepolia testnet · Test assets have no value · No trading on this site</div>
+      <div class="hdr"><b><svg viewBox="0 0 34 22"><path d="M2 11 Q17 -3 32 11 Q17 25 2 11 Z" fill="none" stroke="#2148B8" stroke-width="2.4" stroke-linejoin="round"/><circle cx="17" cy="11" r="5.2" fill="#2148B8"/><circle cx="19" cy="9" r="1.4" fill="#C65F38"/></svg>Blink</b><span>Markets · How it works · Docs · GitHub</span></div>
+      <div class="nf">
+        <div>
+          <span class="code">404 · Page not found</span>
+          <h2>This trail <em>ends</em> here.</h2>
+          <p>We blinked and missed this page. It may have moved, or it never existed.</p>
+          <ul><li><a href="#">Home</a></li><li><a href="#">Markets</a></li><li><a href="#">Docs</a></li><li><a href="#">Agent guide</a></li></ul>
+        </div>
+        <svg class="eye" viewBox="0 0 320 220" aria-hidden="true">
+          <defs><pattern id="ht" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><circle cx="3" cy="3" r="1.6" fill="#2148B8"/></pattern></defs>
+          <circle cx="160" cy="110" r="96" fill="url(#ht)"/>
+          <g class="peek"><path d="M40 110 Q160 10 280 110 Q160 210 40 110 Z" fill="#FAFAF7" stroke="#2148B8" stroke-width="6" stroke-linejoin="round"/><circle cx="160" cy="110" r="34" fill="#2148B8"/><circle cx="172" cy="98" r="8" fill="#C65F38"/></g>
+          <path d="M40 110 Q160 160 280 110" fill="none" stroke="#2148B8" stroke-width="7" stroke-linecap="round"/>
+          <g stroke="#2148B8" stroke-width="5" stroke-linecap="round"><line x1="88" y1="134" x2="78" y2="152"/><line x1="128" y1="144" x2="124" y2="164"/><line x1="192" y1="144" x2="196" y2="164"/><line x1="232" y1="134" x2="242" y2="152"/></g>
+          <path d="M60 196 C 120 186, 180 204, 262 190" fill="none" stroke="#C65F38" stroke-width="4" stroke-linecap="round" stroke-dasharray="2 12"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  // Scale the 1200x630 card to the column width.
+  var wrap = document.getElementById("ogScale"), og = document.getElementById("og");
+  function fit() { og.style.transform = "scale(" + (wrap.clientWidth / 1200) + ")"; }
+  fit(); window.addEventListener("resize", fit);
+  // A thin strip of engraved hills and the trail for the card (same idea as the footer).
+  var NS = "http://www.w3.org/2000/svg", land = document.getElementById("ogLand");
+  function el(n, a) { var e = document.createElementNS(NS, n); for (var k in a) e.setAttribute(k, a[k]); land.appendChild(e); return e; }
+  function ridge(x) { return 400 - 26 * Math.sin(x * 0.004 + 0.6) - 12 * Math.sin(x * 0.011 + 2.1) - 60 * Math.exp(-Math.pow((x - 1320) / 130, 2)); }
+  var pts = []; for (var x = 0; x <= 1600; x += 8) pts.push(x + " " + ridge(x).toFixed(1));
+  el("path", { d: "M0 480 L" + pts.join(" L") + " L1600 480 Z", fill: "#2148B8" });
+  for (var k = 1; k < 14; k++) {
+    var row = []; for (var x2 = 0; x2 <= 1600; x2 += 10) row.push(x2 + " " + (ridge(x2) + k * 6 + Math.sin(x2 * 0.05 + k)).toFixed(1));
+    el("path", { d: "M" + row.join(" L"), fill: "none", stroke: "#FAFAF7", "stroke-width": 1, opacity: (0.55 - k * 0.03).toFixed(2), "stroke-dasharray": (30 + k * 6) + " " + (6 + k) });
+  }
+  el("path", { d: "M300 480 C 520 452, 760 448, 1030 418", fill: "none", stroke: "#C65F38", "stroke-width": 4, "stroke-linecap": "round" });
+  el("circle", { cx: 1030, cy: 396, r: 22, fill: "#FAFAF7" });
+  el("path", { d: "M1016 396 Q1030 384 1044 396 Q1030 408 1016 396 Z", fill: "none", stroke: "#2148B8", "stroke-width": 2.4 });
+  el("circle", { cx: 1030, cy: 396, r: 4.5, fill: "#2148B8" });
+})();
+</script>

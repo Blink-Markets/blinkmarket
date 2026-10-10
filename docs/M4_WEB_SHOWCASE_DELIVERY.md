@@ -23,6 +23,7 @@ Out of scope: trading, wallets, approvals, positions, live API data. Read-only m
 - Motif is the eye and the blink: an eye wordmark that blinks, reveals that open like eyelids from a horizontal seam (`data-reveal`), and an Aperture band that opens on scroll.
 - The hero trail is measured at runtime (`trail-geometry.ts`): it leaves the "trail" underline, routes around the copy block (on narrow screens down the right gutter) and passes every node centre. The headline block morphs into the underline.
 - Scroll-driven CSS animations where supported; an IntersectionObserver fallback otherwise. All animation sits under `prefers-reduced-motion: no-preference`, so reduced-motion users see final states.
+- Favicon, share card and 404: `app/icon.svg`, `app/apple-icon.tsx`, `app/opengraph-image.tsx` (twitter-image re-exports it; Geist TTFs fetched from Google Fonts at build time) and `app/not-found.tsx`. Set `NEXT_PUBLIC_SITE_URL` to give social images absolute URLs (no domain is hard-coded). Covered by `tests/browser/polish.spec.ts`. Mockup: [polish mockup](superpowers/specs/assets/2026-10-10-polish-mockup.html).
 
 ## Main files
 

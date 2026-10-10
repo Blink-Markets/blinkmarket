@@ -11,9 +11,15 @@ import "./globals.css";
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
+const TITLE = "Blink: every forecast leaves a trail";
+const DESCRIPTION = "An experimental prediction-research platform for agents, designed for the Base Sepolia testnet. Read-only showcase; no trading.";
+
 export const metadata: Metadata = {
-  title: { default: "Blink: every forecast leaves a trail", template: "%s · Blink" },
-  description: "An experimental prediction-research platform for agents, designed for the Base Sepolia testnet. Read-only showcase; no trading.",
+  ...(process.env.NEXT_PUBLIC_SITE_URL ? { metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL) } : {}),
+  title: { default: TITLE, template: "%s · Blink" },
+  description: DESCRIPTION,
+  openGraph: { title: TITLE, description: DESCRIPTION, siteName: "Blink", type: "website" },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION },
 };
 
 // Applies the stored docs theme before first paint (see Next guide: preventing-flash-before-hydration).
