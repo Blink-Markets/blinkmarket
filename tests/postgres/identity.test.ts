@@ -392,7 +392,13 @@ test(
       const schedule = postgresCreationTrackingSchedule(indexerPool);
       const secondIntentId = randomUUID();
       const secondApprovalId = randomUUID();
-      const secondCandidateId = String(candidates[1]!.body.candidateId);
+      const secondCandidate = await preparation.handle("/v1/candidates", {
+        ...prepRequest,
+        idempotencyKey: "creation-poll-schedule",
+        body: input,
+      });
+      assert.equal(secondCandidate.status, 201);
+      const secondCandidateId = String(secondCandidate.body.candidateId);
       await owner.query(
         `INSERT INTO markets.approvals
            (id,candidate_id,revision,deployment_id,spec_hash,actor_key_id,budget_micros,reason)
