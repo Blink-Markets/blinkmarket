@@ -15,10 +15,13 @@ export default defineConfig({
   testMatch: "*.spec.ts",
   fullyParallel: true,
   workers: 4,
-  retries: 0,
+  // CI retries once to absorb timing flakes; a test that passes only on retry is still reported as flaky.
+  retries: process.env["CI"] ? 1 : 0,
   timeout: 90_000,
   expect: { timeout: 10_000 },
-  reporter: [["list"], ["json", { outputFile: "test-results/results.json" }]],
+  reporter: process.env["CI"]
+    ? [["list"], ["json", { outputFile: "test-results/results.json" }], ["html", { outputFolder: "playwright-report", open: "never" }]]
+    : [["list"], ["json", { outputFile: "test-results/results.json" }]],
   use: { baseURL: `http://127.0.0.1:${PORT}`, screenshot: "only-on-failure", trace: "retain-on-failure" },
   projects: engines.flatMap(({ name, browserName }) => [
     { name: `${name}-desktop`, use: { browserName, viewport: desktop } },
