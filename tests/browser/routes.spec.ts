@@ -7,7 +7,7 @@ const IGNORE = 'pre, .docs-table, [class*="tableWrap"], [class*="archScroll"], .
 for (const route of routes) {
   test(`route ${route}: 200, no errors, no horizontal overflow`, async ({ page }) => {
     const errors = watchErrors(page);
-    const res = await page.goto(route, { waitUntil: "load" });
+    const res = await page.goto(`.${route}`, { waitUntil: "load" });
     expect(res?.status()).toBe(200);
     await scrollThrough(page);
     const overflowing = await page.evaluate((ignore) => {

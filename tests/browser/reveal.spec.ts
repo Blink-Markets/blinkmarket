@@ -3,7 +3,7 @@ import { scrollThrough } from "./helpers.ts";
 
 for (const route of ["/", "/how-it-works"]) {
   test(`scroll reveal completes on ${route}`, async ({ page }, info) => {
-    await page.goto(route);
+    await page.goto(`.${route}`);
     const supportsViewTimeline = await page.evaluate(() => CSS.supports("animation-timeline: view()"));
     await scrollThrough(page);
     await page.waitForTimeout(1500);

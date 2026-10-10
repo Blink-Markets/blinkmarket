@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("how-it-works spine fully draws after scrolling chapters through", async ({ page }) => {
-  await page.goto("/how-it-works");
+  await page.goto("./how-it-works");
   const spine = page.locator('svg[class*="spine"]');
   test.skip(!(await spine.evaluate((el) => getComputedStyle(el).display !== "none")), "spine is display:none at this viewport (max-width: 760px)");
   const viewTimeline = await page.evaluate(() => CSS.supports("animation-timeline: view()"));

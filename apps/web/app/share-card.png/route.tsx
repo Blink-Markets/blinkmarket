@@ -1,8 +1,8 @@
+// Open Graph / Twitter share card, linked from the root layout metadata. A .png route (not the opengraph-image
+// file convention) so the static export writes share-card.png, which GitHub Pages serves as image/png.
 import { ImageResponse } from "next/og";
 
-export const alt = "Blink: every forecast leaves a trail";
-export const size = { width: 1200, height: 630 };
-export const contentType = "image/png";
+export const dynamic = "force-static";
 
 const PAPER = "#FAFAF7";
 const COBALT = "#2148B8";
@@ -46,7 +46,7 @@ function Landscape() {
   );
 }
 
-export default async function OpengraphImage() {
+export async function GET(): Promise<Response> {
   const [bold, regular] = await Promise.all([geist(800), geist(400)]);
   return new ImageResponse(
     (
@@ -78,7 +78,8 @@ export default async function OpengraphImage() {
       </div>
     ),
     {
-      ...size,
+      width: 1200,
+      height: 630,
       fonts: [
         { name: "Geist", data: bold, weight: 800, style: "normal" },
         { name: "Geist", data: regular, weight: 400, style: "normal" },

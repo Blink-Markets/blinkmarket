@@ -23,11 +23,11 @@ Out of scope: trading, wallets, approvals, positions, live API data. Read-only m
 - Motif is the eye and the blink: an eye wordmark that blinks, reveals that open like eyelids from a horizontal seam (`data-reveal`), and an Aperture band that opens on scroll.
 - The hero trail is measured at runtime (`trail-geometry.ts`): it leaves the "trail" underline, routes around the copy block (on narrow screens down the right gutter) and passes every node centre. The headline block morphs into the underline.
 - Scroll-driven CSS animations where supported; an IntersectionObserver fallback otherwise. All animation sits under `prefers-reduced-motion: no-preference`, so reduced-motion users see final states.
-- Favicon, share card and 404: `app/icon.svg`, `app/apple-icon.tsx`, `app/opengraph-image.tsx` (twitter-image re-exports it; Geist TTFs fetched from Google Fonts at build time) and `app/not-found.tsx`. Set `NEXT_PUBLIC_SITE_URL` to give social images absolute URLs (no domain is hard-coded). Covered by `tests/browser/polish.spec.ts`. Mockup: [polish mockup](superpowers/specs/assets/2026-10-10-polish-mockup.html).
+- Favicon, share card and 404: `app/icon.svg`, `app/apple-touch-icon.png/route.tsx`, `app/share-card.png/route.tsx` (used for both Open Graph and Twitter; Geist TTFs fetched from Google Fonts at build time), linked from the root layout metadata, and `app/not-found.tsx`. These were the `apple-icon`/`opengraph-image`/`twitter-image` file conventions until the GitHub Pages export (see [Deployment](#deployment-github-pages)). Set `NEXT_PUBLIC_SITE_URL` to give social images absolute URLs (no domain is hard-coded). Covered by `tests/browser/polish.spec.ts`. Mockup: [polish mockup](superpowers/specs/assets/2026-10-10-polish-mockup.html).
 
 ## Main files
 
-- `apps/web/app/page.tsx`, `app/markets`, `app/how-it-works`, `app/docs`, `app/docs-md`, `app/llms.txt`
+- `apps/web/app/page.tsx`, `app/markets`, `app/how-it-works`, `app/docs`, `app/llms.txt`, `scripts/write-docs-md.ts`
 - `apps/web/components/home/` (Hero, Aperture, trail geometry), `components/illustrations/` (Trail, Architecture, chapter specimens), `components/MarketLedger.tsx`, `components/SiteHeader.tsx`
 - `apps/web/content/sample-markets.ts`
 - Tests: `tests/web-sample-markets.test.ts`, `tests/web-openapi-index.test.ts`, `tests/web-trail-geometry.test.ts`, `tests/web-docs-lib.test.ts`, `tests/web-docs-content.test.ts`
@@ -57,7 +57,7 @@ Design: [spec](superpowers/specs/2026-10-09-docs-system-design.md), [plan](super
 ### Scope
 
 - 12 Markdown pages in `apps/web/content/docs/` (including the agent guide `agents.md`), rendered with `marked` pinned to 18.0.13 (the only new dependency): `/docs`, `/docs/quickstart`, `/docs/concepts`, `/docs/authentication`, `/docs/markets`, `/docs/forecasts`, `/docs/errors`, `/docs/lifecycle`, `/docs/architecture`, `/docs/api`, `/docs/status`, `/docs/agents`.
-- The same pages as raw Markdown at `/docs/<slug>.md` (and `/docs.md`), served by `app/docs-md` through `next.config.ts` rewrites, plus `/llms.txt`.
+- The same pages as raw Markdown at `/docs/<slug>.md` (and `/docs.md`), plus `/llms.txt`. Since the GitHub Pages export these are real files written to `apps/web/public/` (gitignored) by `apps/web/scripts/write-docs-md.ts`, which runs before `dev` and `build`; the earlier `app/docs-md` route and `next.config.ts` rewrites are gone. In `next dev`, edits to `content/docs` reach the `.md` files only after a restart.
 - `/docs/api` expands a generated operation index from `@blink/schemas` (`## <group>` headings, default scaffold status, `always available` for `GET /v1/config`).
 - Copy actions: copy page, copy as Markdown, copy prompt for agent (the agent guide uses a single-instruction prompt), and copy buttons on code and prompt blocks, with a polite "Copied" announcement and a select-the-text fallback when the clipboard is blocked.
 - Docs-only light/dark theme toggle (stored as `blink-theme`); marketing pages stay light.
@@ -76,7 +76,7 @@ Design: [spec](superpowers/specs/2026-10-09-docs-system-design.md), [plan](super
 - Superseded by the cross-browser suite below for Firefox and WebKit; real Safari and real devices remain untested. The `::details-content` desktop nav rule depends on browser support; browsers without it rely on a small script to open the nav, so with JavaScript disabled they may show a closed menu on desktop.
 - Page facts are written by hand and checked against the repository; they are not generated, so they can drift from the code.
 - Status words are static (`Identity mode`, `Preparation mode`, `Approval mode`, `Planned`); there is no live per-mode endpoint status.
-- There is no public API or docs host; all commands and prompts use `http://127.0.0.1:3000` and `http://127.0.0.1:3001`.
+- There is no public API. The docs can be published as a static site on GitHub Pages (see [Deployment](#deployment-github-pages)), but all commands and prompts still use `http://127.0.0.1:3000` and `http://127.0.0.1:3001`.
 
 ### Syntax highlighting and cross-browser suite (2026-10-09)
 
@@ -120,3 +120,29 @@ Carried from the 2026-10-08 showcase (spec §6.2): the overflow check method (`o
 Resolved on 2026-10-10: `pnpm test:browsers` runs in CI as a separate `browsers` job (browsers cached, one retry in CI only, Playwright report uploaded on failure); the user kept the disclaimer style (ink text with a terracotta marker) and said per-model commit trailers do not matter.
 
 Resolved by the docs-system plan: the SiteHeader eye's hard-coded hex (now `currentColor`). The `.visually-hidden` class is now also used by the docs copy-feedback live regions.
+
+## Deployment (GitHub Pages)
+
+Only the static web showcase is deployed. The API, worker, indexer, contracts and chain remain undeployed, and the site makes no live calls.
+
+- **Target:** `https://blink-markets.github.io/blinkmarket/` (GitHub's default URL for the public repository), so the site lives under the base path `/blinkmarket`. Pages must be enabled with "GitHub Actions" as the source; that step and the first deploy are not done by this change.
+- **Build:** `pnpm build:pages` runs `next build` with `BLINK_PAGES=1`, `NEXT_PUBLIC_BASE_PATH=/blinkmarket` and `NEXT_PUBLIC_SITE_URL=https://blink-markets.github.io/blinkmarket`. `next.config.ts` then sets `output: "export"`, `basePath` and `trailingSlash: true`, and the export lands in `apps/web/out` with an empty `.nojekyll`. Without those variables `pnpm dev`, `pnpm build` and `next start` behave as before (no base path, server mode).
+- **trailingSlash:** pages export as `docs/quickstart/index.html`. Pages serves `/blinkmarket/docs/quickstart/` directly and redirects `/blinkmarket/docs/quickstart` to it, and no page directory collides with a `.md` file or a sibling `docs.html`. Links rendered by Next and by the Markdown renderer already carry the slash, so internal navigation needs no redirect.
+- **Base path:** Next adds it to `<Link>`, scripts, styles and fonts. `apps/web/lib/base-path.ts` (`withBase`) adds it everywhere else: the footer's `/llms.txt` link, its landscape `<img>` and star background (now a `--footer-stars` CSS variable set inline), links and images in rendered Markdown, the "View as Markdown" link and copy-prompt URLs, the `llms.txt` links, and the icon links. `usePathname()` returns a trailing slash in the export, so the docs sidebar and audience switch compare without it.
+- **Metadata images:** the `apple-icon`, `opengraph-image` and `twitter-image` file conventions exported as extensionless files (which Pages would serve as `application/octet-stream`), and the apple-icon link lacked the base path. They are now force-static `.png` route handlers (`share-card.png`, `apple-touch-icon.png`) linked from layout metadata; setting `icons` there replaces the `icon.svg` convention link, so the favicon is listed too. `og:image` and `twitter:image` resolve against `metadataBase` to `https://blink-markets.github.io/blinkmarket/share-card.png`.
+- **Workflow:** `.github/workflows/pages.yml` (push to `main` and manual dispatch) installs with the same pnpm/Node setup as CI, runs `pnpm build:pages` and `node scripts/check-pages-export.mjs`, uploads `apps/web/out` and deploys with `actions/deploy-pages@v4` to the `github-pages` environment. The CI `browsers` job also builds the export and runs the check, so a change that breaks the export fails CI.
+- **Local preview:** `pnpm build:pages && node scripts/serve-pages.mjs` serves the export at `http://127.0.0.1:3300/blinkmarket/` with Pages-style resolution (`/x/` to `x/index.html`, `/x` to `x` or `x.html`, a 301 to `/x/` for directories, and `404.html` with status 404). `PW_BASE_URL=http://127.0.0.1:3300/blinkmarket/ pnpm test:browsers` runs the browser suite against it without building.
+
+### Verification (2026-10-10, working tree before commit)
+
+- `pnpm check`: exit 0, 100 unit tests pass. `pnpm build` (server mode) succeeds with the same routes plus `/share-card.png` and `/apple-touch-icon.png`.
+- `pnpm test:browsers` (server mode): 174 passed, 12 skipped by design. The same suite against the served export: 174 passed, 12 skipped. The specs navigate with `./path` and compare attributes through a `href()` helper, so one suite covers both; the share-image specs now request the `.png` routes and also check the icon, apple-touch-icon and absolute `og:image`/`twitter:image` URLs. A new spec checks the "View as Markdown" link and the `.md` file.
+- `node scripts/check-pages-export.mjs`: key files present, 64 internal URLs from the exported HTML, CSS and `llms.txt` all carry `/blinkmarket` and resolve without a redirect; with `PAGES_URL` set, every one returned 200 from the local server.
+- `next start`: all 14 `.md` URLs are byte-equal to `expandSource` and served as `text/markdown`. The running `next dev` server also serves them.
+
+### Limits
+
+- Pages has no server: no rewrites, headers or redirects. `.md` files get whatever content type Pages assigns (`text/markdown` is expected; the local server only emulates it), and the share card and icons cannot set cache headers.
+- Links inside the raw `.md` files and the "Copy page" Markdown are still root-relative (`/docs/status`), so on Pages they miss the `/blinkmarket` prefix. The rendered HTML pages and `llms.txt` are correct.
+- A custom domain would remove the base path: build with `NEXT_PUBLIC_BASE_PATH` unset and `NEXT_PUBLIC_SITE_URL` set to the domain, and add the domain in the Pages settings.
+- The export's 404 page is static; GitHub serves `404.html` for unknown URLs under the site.

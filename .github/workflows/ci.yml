@@ -64,6 +64,8 @@ jobs:
         if: steps.pw-cache.outputs.cache-hit == 'true'
         run: pnpm exec playwright install-deps chromium firefox webkit
       - run: pnpm test:browsers
+      - name: GitHub Pages export builds and links resolve
+        run: pnpm build:pages && node scripts/check-pages-export.mjs
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4

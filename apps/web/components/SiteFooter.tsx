@@ -1,4 +1,6 @@
 import Link from "next/link";
+import type { CSSProperties } from "react";
+import { withBase } from "../lib/base-path.ts";
 import { buildLandscape, buildStarField } from "../lib/landscape";
 import styles from "./SiteFooter.module.css";
 
@@ -31,8 +33,8 @@ const columns = [
 
 export function SiteFooter() {
   return (
-    <footer className={styles.footer}>
-      {/* The static faint stars are the footer's CSS background (/footer-stars.svg); only the twinkling ones are inline. */}
+    <footer className={styles.footer} style={{ "--footer-stars": `url("${withBase("/footer-stars.svg")}")` } as CSSProperties}>
+      {/* The static faint stars are the footer's CSS background (/footer-stars.svg, set here so it carries the base path); only the twinkling ones are inline. */}
       <svg className={styles.skyStars} viewBox="0 0 1600 600" preserveAspectRatio="none" aria-hidden="true">
         {upperTwinklers.map((q, i) => (
           <path key={i} className={styles.twinkle} d={q.d} fill={INK.paper} opacity={q.opacity} style={{ animationDelay: `${q.delay}s` }} />
@@ -66,7 +68,7 @@ export function SiteFooter() {
                 {col.title === "Developers" ? (
                   <li>
                     {/* Plain anchor: /llms.txt is a text route handler, not a page, so client-side navigation does not apply. */}
-                    <a href="/llms.txt">
+                    <a href={withBase("/llms.txt")}>
                       <code>llms.txt</code>
                     </a>
                   </li>
@@ -94,7 +96,7 @@ export function SiteFooter() {
       <div className={styles.land}>
         {/* Static engraving (cached file) keeps the heavy hatch paths out of every page's HTML. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img className={styles.engraving} src="/footer-landscape.svg" alt="" aria-hidden="true" width={1600} height={360} />
+        <img className={styles.engraving} src={withBase("/footer-landscape.svg")} alt="" aria-hidden="true" width={1600} height={360} />
         <svg
           className={styles.overlay}
           viewBox={land.viewBox}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { BASE_PATH, withBase } from "../../lib/base-path.ts";
 import { copyText } from "./copy-text.ts";
 
 export function CopyPageMenu({ markdown, mdHref, agentTask }: { markdown: string; mdHref: string; agentTask: string }) {
@@ -41,7 +42,7 @@ export function CopyPageMenu({ markdown, mdHref, agentTask }: { markdown: string
   }
 
   function prompt() {
-    const o = location.origin;
+    const o = location.origin + BASE_PATH;
     const rules = "Blink runs on the Base Sepolia testnet with test assets only; do not create wallets, sign or broadcast transactions unless I explicitly ask.";
     if (mdHref === "/docs/agents.md") return `Read ${o}${mdHref} and follow its rules to ${agentTask}. ${rules}`;
     return `Read ${o}/docs/agents.md first and follow its rules. Then use ${o}${mdHref} to ${agentTask}. ${rules}`;
@@ -60,7 +61,7 @@ export function CopyPageMenu({ markdown, mdHref, agentTask }: { markdown: string
       {open ? (
         <div className="docs-menu" id={menuId}>
           <button type="button" onClick={() => copy(markdown)}>Copy as Markdown<span>Paste the page into any assistant</span></button>
-          <a href={mdHref}>View as Markdown<span>Open the raw .md file</span></a>
+          <a href={withBase(mdHref)}>View as Markdown<span>Open the raw .md file</span></a>
           <button type="button" onClick={() => copy(prompt())}>Copy prompt for agent<span>Points an agent at the agent guide and this page</span></button>
         </div>
       ) : null}

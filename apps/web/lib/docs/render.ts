@@ -1,5 +1,6 @@
 // marked with a Blink renderer; one Marked instance per call so ids/toc stay local.
 import { Marked } from "marked";
+import { withBase } from "../base-path.ts";
 import { highlightCode } from "./highlight.ts";
 import { renderSketch, SKETCHES, type SketchName } from "./sketches.ts";
 
@@ -9,6 +10,13 @@ const decodeEntities = (s: string) =>
   s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 const slugify = (s: string) => s.toLowerCase().replace(/<[^>]+>/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "section";
 const ALERT = /^\s*<p>\[!(NOTE|PLANNED)\]\s*/;
+// The static export (BLINK_PAGES=1) uses trailingSlash, so page links get "/" before any query/hash, as next/link does.
+const TRAILING_SLASH = process.env.BLINK_PAGES === "1";
+function localUrl(url: string): string {
+  const [, path = "", rest = ""] = /^([^?#]*)(.*)$/s.exec(url) ?? [];
+  const slash = TRAILING_SLASH && !path.endsWith("/") && !/\.[^/]+$/.test(path) ? "/" : "";
+  return withBase(`${path}${slash}${rest}`);
+}
 
 export function renderDoc(body: string): { html: string; toc: TocItem[] } {
   const toc: TocItem[] = [];
@@ -54,9 +62,10 @@ export function renderDoc(body: string): { html: string; toc: TocItem[] } {
       },
     },
     hooks: {
-      // Wrap default table output in a focusable scroll region.
+      // Prefix root-relative links/images with the base path; wrap default table output in a focusable scroll region.
       postprocess(html) {
         return html
+          .replace(/ (href|src)="(\/(?!\/)[^"]*)"/g, (_, attr: string, url: string) => ` ${attr}="${localUrl(url)}"`)
           .replaceAll("<table>", '<div class="docs-table" role="region" aria-label="Table" tabindex="0"><table>')
           .replaceAll("</table>", "</table></div>");
       },

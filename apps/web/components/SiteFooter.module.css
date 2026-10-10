@@ -2,7 +2,7 @@
 .footer {
   --on-soft: #fafaf7b8;
   --on-rule: #fafaf740;
-  background: var(--footer-sky) url("/footer-stars.svg") no-repeat 0 0 / 100% 100%;
+  background: var(--footer-sky) var(--footer-stars) no-repeat 0 0 / 100% 100%;
   color: var(--footer-paper);
   position: relative;
   overflow: hidden;

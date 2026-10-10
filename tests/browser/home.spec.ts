@@ -1,14 +1,14 @@
 import { expect, test } from "@playwright/test";
 
 test("home hero headline and trail", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("./");
   await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("every forecast leaves a trail");
   await expect(page.locator("svg[data-ready]").first()).toBeAttached({ timeout: 5_000 });
 });
 
 test("home hero is fully visible immediately with reduced motion", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/");
+  await page.goto("./");
   const words = page.locator("h1 > span span span");
   await expect(words).toHaveCount(5);
   for (let i = 0; i < 5; i++) {

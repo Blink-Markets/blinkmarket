@@ -7,7 +7,8 @@ import { useEffect, useRef } from "react";
 type Group = { group: string; pages: { href: string; title: string }[] };
 
 export function Sidebar({ groups }: { groups: Group[] }) {
-  const pathname = usePathname();
+  // The static export uses trailingSlash, where usePathname() returns "/docs/agents/"; compare without it.
+  const pathname = usePathname().replace(/(.)\/$/, "$1");
   const ref = useRef<HTMLDetailsElement>(null);
   const current = groups.flatMap((g) => g.pages).find((p) => p.href === pathname);
 

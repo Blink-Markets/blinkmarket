@@ -1,10 +1,11 @@
-// https://llmstxt.org layout; links are host-relative because there is no public host yet.
+// https://llmstxt.org layout; links are host-relative (plus the static export's base path).
+import { withBase } from "../base-path.ts";
 import type { DocPage } from "./registry.ts";
 
 export function llmsTxt(pages: readonly DocPage[]): string {
   const agents = pages.filter((p) => p.meta.group === "For agents");
   const human = pages.filter((p) => p.meta.group !== "For agents");
-  const item = (p: DocPage) => `- [${p.meta.title}](${p.mdHref}): ${p.meta.description}`;
+  const item = (p: DocPage) => `- [${p.meta.title}](${withBase(p.mdHref)}): ${p.meta.description}`;
   return [
     "# Blink",
     "",

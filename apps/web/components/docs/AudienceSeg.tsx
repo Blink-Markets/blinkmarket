@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 export function AudienceSeg() {
-  const pathname = usePathname();
+  // The static export uses trailingSlash, where usePathname() returns "/docs/agents/"; compare without it.
+  const pathname = usePathname().replace(/(.)\/$/, "$1");
   const agents = pathname === "/docs/agents";
   return (
     <nav className="docs-seg" aria-label="Audience">

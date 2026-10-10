@@ -4,8 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "next dev --hostname 127.0.0.1 --port 3000",
-    "build": "next build",
+    "docs:md": "node --import tsx scripts/write-docs-md.ts",
+    "dev": "pnpm run docs:md && next dev --hostname 127.0.0.1 --port 3000",
+    "build": "pnpm run docs:md && next build",
+    "build:pages": "BLINK_PAGES=1 NEXT_PUBLIC_BASE_PATH=/blinkmarket NEXT_PUBLIC_SITE_URL=https://blink-markets.github.io/blinkmarket pnpm run build && touch out/.nojekyll",
     "start": "next start --hostname 127.0.0.1 --port 3000",
     "typecheck": "tsc --noEmit"
   },

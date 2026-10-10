@@ -1,22 +1,23 @@
 import { expect, test } from "@playwright/test";
+import { href } from "./helpers.ts";
 
 for (const route of ["/", "/docs/quickstart"]) {
   test(`footer on ${route}: landscape, links, fixed cobalt even in docs dark theme`, async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("blink-theme", "dark"));
-    await page.goto(route, { waitUntil: "load" });
+    await page.goto(`.${route}`, { waitUntil: "load" });
     const footer = page.locator("footer").last();
     await footer.scrollIntoViewIfNeeded();
     const land = footer.locator('svg[role="img"]');
     await expect(land).toBeVisible();
-    const img = footer.locator('img[src="/footer-landscape.svg"]');
+    const img = footer.locator(`img[src="${href("/footer-landscape.svg")}"]`);
     await expect(img).toBeVisible();
     await expect.poll(() => img.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
     await expect(land.locator("path[data-draw]")).toHaveCount(1);
-    await expect(footer.locator('a[href="/docs/agents"]')).toHaveCount(1);
-    await expect(footer.locator('a[href="/llms.txt"]')).toHaveCount(1);
+    await expect(footer.locator(`a[href="${href("/docs/agents")}"]`)).toHaveCount(1);
+    await expect(footer.locator(`a[href="${href("/llms.txt")}"]`)).toHaveCount(1);
     await expect(footer).toHaveCSS("background-color", "rgb(33, 72, 184)");
-    expect(await footer.evaluate((el) => getComputedStyle(el).backgroundImage)).toContain("/footer-stars.svg");
-    const stars = await page.request.get("/footer-stars.svg");
+    expect(await footer.evaluate((el) => getComputedStyle(el).backgroundImage)).toContain(href("/footer-stars.svg"));
+    const stars = await page.request.get("./footer-stars.svg");
     expect(stars.status()).toBe(200);
     expect(stars.headers()["content-type"]).toContain("image/svg+xml");
   });
