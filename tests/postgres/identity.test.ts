@@ -419,16 +419,20 @@ test(
         version: 1,
         observedAt: new Date().toISOString(),
       });
+      const secondPayload = {
+        ...secondStatus,
+        state: "UNKNOWN",
+        marketId: null,
+        blockNumber: null,
+        blockHash: null,
+      };
       await owner.query(
         `INSERT INTO chain.creation_projections
            (intent_id,deployment_id,version,state,market_id,payload)
          VALUES($1,'test',$2,$3,NULL,$4)`,
         [secondIntentId, secondStatus.version, "UNKNOWN", {
-          ...secondStatus,
-          state: "UNKNOWN",
-          marketId: null,
-          blockNumber: null,
-          blockHash: null,
+          ...secondPayload,
+          txHash: null,
         }],
       );
       await owner.query(
@@ -532,6 +536,10 @@ test(
       assert.equal(failedRow.attempt, 1);
       assert.equal(failedRow.last_error_code, "RPC_UNAVAILABLE");
       assert.equal((await schedule.health()).failing, 1);
+      await owner.query(
+        "UPDATE chain.creation_projections SET payload=$2 WHERE intent_id=$1",
+        [secondIntentId, secondPayload],
+      );
       await owner.query(
         "UPDATE chain.creation_tracking_schedule SET next_run_at=clock_timestamp()-interval '1 second' WHERE intent_id=$1",
         [secondIntentId],
