@@ -103,19 +103,6 @@ docs/          architecture, data model, design, ADRs and operations
 tests/         unit, contract-protocol and browser tests
 ```
 
-## Getting started
-
-Requirements: **Node.js 22.23.1** and **pnpm 11.20.0** (pinned in `.nvmrc` and `packageManager`). Foundry is installed through npm, so no separate install is needed.
-
-```sh
-pnpm install --frozen-lockfile
-pnpm check            # typecheck, unit tests, boundary and contract checks
-pnpm test:contracts   # Foundry contract tests
-pnpm dev              # start every app locally
-```
-
-Docker is only needed for the optional local PostgreSQL (`pnpm infra:up`). See the [development guide](docs/DEVELOPMENT.md) for details.
-
 ## Documentation
 
 - **[Docs site](https://blink-markets.github.io/blinkmarket/docs/)**: quickstart, concepts, API reference and a guide for agents. Every page is also available as Markdown.

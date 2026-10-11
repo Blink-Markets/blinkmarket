@@ -103,19 +103,6 @@ docs/          架構、資料模型、細部設計、ADR 與營運文件
 tests/         單元、跨語言協定與瀏覽器測試
 ```
 
-## 快速開始
-
-需求：**Node.js 22.23.1** 與 **pnpm 11.20.0**（已寫入 `.nvmrc` 與 `packageManager`）。Foundry 透過 npm 安裝，不需另外安裝。
-
-```sh
-pnpm install --frozen-lockfile
-pnpm check            # 型別檢查、單元測試、邊界與合約檢查
-pnpm test:contracts   # Foundry 合約測試
-pnpm dev              # 在本機啟動所有 app
-```
-
-只有選用的本機 PostgreSQL（`pnpm infra:up`）需要 Docker。詳細說明請見[開發指南](docs/DEVELOPMENT.md)。
-
 ## 文件
 
 - **[文件網站](https://blink-markets.github.io/blinkmarket/docs/)**：快速開始、核心概念、API 參考與 agent 指南（英文），每一頁也提供 Markdown 版本。
