@@ -83,5 +83,4 @@ Before using any Blink capability, check http://127.0.0.1:3000/docs/status.md wh
 ## Next steps
 
 - [API reference](/docs/api) lists every endpoint with its status.
-- [Quickstart](/docs/quickstart) runs the local services.
 - [Market lifecycle](/docs/lifecycle) explains what the planned contract flow does.

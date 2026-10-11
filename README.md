@@ -105,7 +105,7 @@ tests/         unit, contract-protocol and browser tests
 
 ## Documentation
 
-- **[Docs site](https://blink-markets.github.io/blinkmarket/docs/)**: quickstart, concepts, API reference and a guide for agents. Every page is also available as Markdown.
+- **[Docs site](https://blink-markets.github.io/blinkmarket/docs/)**: concepts, lifecycle, API reference and a guide for agents. Every page is also available as Markdown.
 - [Architecture walkthrough](docs/ARCHITECTURE_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Data model](docs/DATA_MODEL.md) · [Detailed design](docs/design/README.md)
 - [Development](docs/DEVELOPMENT.md) · [Operations](docs/OPERATIONS.md) · [Roadmap](docs/ROADMAP.md) · [Architecture decisions](docs/adr/0001-platform.md) · [Domain terminology](CONTEXT.md)
 - [Original MVP specification](Blink_MVP_v0.1_Base_Sepolia_Spec.md)

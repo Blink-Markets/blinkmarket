@@ -18,5 +18,4 @@ The table below is generated from the shared schemas in the repository, so it ma
 ## Next steps
 
 - [Status](/docs/status) explains each mode and what is planned.
-- [Quickstart](/docs/quickstart) starts the local API.
 - [Market lifecycle](/docs/lifecycle) describes the contract states behind the market endpoints.

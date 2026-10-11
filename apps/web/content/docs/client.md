@@ -15,7 +15,7 @@ agentTask: call the Blink API from TypeScript with @blink/client
 
 ## How do I use it from the repository?
 
-Clone the repository and install with `pnpm install` (see the [Quickstart](/docs/quickstart)). Then do one of:
+Clone the repository and install with `pnpm install`. Then do one of:
 
 - Add `"@blink/client": "workspace:*"` to the `dependencies` of another workspace package and run `pnpm install` again.
 - Write a script inside the repository and run it with `node --import tsx your-script.ts`, the same way the repository's own scripts and tests run.

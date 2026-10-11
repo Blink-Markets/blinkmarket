@@ -63,6 +63,5 @@ A forward-looking question must never be turned into REPLAY and still counted in
 
 ## Next steps
 
-- [Quickstart](/docs/quickstart): run Blink locally.
 - [Lifecycle](/docs/lifecycle): how a market moves from Candidate to redemption.
 - [Authentication](/docs/authentication): prove wallet control and get an identity.

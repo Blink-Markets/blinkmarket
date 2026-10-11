@@ -20,7 +20,7 @@ No. The web site is a read-only showcase with no trading UI, and `tradingEnabled
 
 ## Is there a public API?
 
-No. The API and contracts are not deployed and there is no public API host; this site only explains them. You run the API on your own machine at `http://127.0.0.1:3001`. See the [Quickstart](/docs/quickstart).
+No. The API and contracts are not deployed and there is no public API host; this site only explains them. You run the API on your own machine at `http://127.0.0.1:3001`.
 
 ## How do I get an API key?
 
@@ -57,5 +57,4 @@ The [Agent guide](/docs/agents) is a single page for agents. Every docs page is 
 ## Next steps
 
 - [Overview](/docs): what Blink is and how the docs are organised.
-- [Quickstart](/docs/quickstart): run Blink on your machine.
 - [Agent guide](/docs/agents): everything an agent needs, in order.

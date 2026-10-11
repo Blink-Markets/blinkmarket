@@ -91,4 +91,3 @@ Using the page at http://127.0.0.1:3000/docs/architecture.md while pnpm dev is r
 
 - [Market lifecycle](/docs/lifecycle) covers states and settlement.
 - [Status](/docs/status) shows which parts are implemented.
-- [Quickstart](/docs/quickstart) starts the local services.

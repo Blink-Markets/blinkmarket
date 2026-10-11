@@ -15,25 +15,26 @@ const copied = (page: Page) => page.evaluate(() => (window as unknown as ClipWin
 
 test("docs copy actions", async ({ page }) => {
   await captureClipboard(page);
-  await page.goto("./docs/quickstart");
+  await page.goto("./docs/concepts");
   await page.getByRole("button", { name: "Copy page", exact: true }).click();
   await expect.poll(async () => (await copied(page)).length).toBe(1);
-  expect((await copied(page))[0]).toMatch(/^---\ntitle: Quickstart/);
+  expect((await copied(page))[0]).toMatch(/^---\ntitle: Concepts/);
 
   await page.getByRole("button", { name: "More copy options" }).click();
   await page.getByRole("button", { name: /Copy prompt for agent/ }).click();
   await expect.poll(async () => (await copied(page)).length).toBe(2);
   const prompt = (await copied(page))[1] ?? "";
   expect(prompt).toContain(`${new URL(page.url()).origin}${href("/docs/agents.md")}`);
-  expect(prompt).toContain(`${new URL(page.url()).origin}${href("/docs/quickstart.md")}`);
+  expect(prompt).toContain(`${new URL(page.url()).origin}${href("/docs/concepts.md")}`);
 
+  await page.goto("./docs/agents");
   await page.locator(".docs-code .docs-copy").first().click();
-  await expect.poll(async () => (await copied(page)).length).toBe(3);
-  expect((await copied(page))[2]).toMatch(/^git clone/);
+  await expect.poll(async () => (await copied(page)).length).toBe(1);
+  expect((await copied(page))[0]).toMatch(/^git clone/);
 });
 
 test("theme toggle persists to light marketing pages", async ({ page }) => {
-  await page.goto("./docs/quickstart");
+  await page.goto("./docs/concepts");
   const bg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   const before = await bg();
   await page.locator(".docs-theme").click();
@@ -60,11 +61,11 @@ test("docs sketches: inline svg, png image and static svg route", async ({ page,
 });
 
 test("raw Markdown: View as Markdown link and the .md file", async ({ page, request }) => {
-  await page.goto("./docs/quickstart");
+  await page.goto("./docs/concepts");
   await page.getByRole("button", { name: "More copy options" }).click();
-  await expect(page.getByRole("link", { name: /View as Markdown/ })).toHaveAttribute("href", href("/docs/quickstart.md"));
-  const res = await request.get("./docs/quickstart.md");
+  await expect(page.getByRole("link", { name: /View as Markdown/ })).toHaveAttribute("href", href("/docs/concepts.md"));
+  const res = await request.get("./docs/concepts.md");
   expect(res.status()).toBe(200);
   expect(res.headers()["content-type"]).toContain("text/markdown");
-  expect(await res.text()).toMatch(/^---\ntitle: Quickstart/);
+  expect(await res.text()).toMatch(/^---\ntitle: Concepts/);
 });

@@ -24,7 +24,7 @@ const columns = [
   {
     title: "Developers",
     links: [
-      { href: "/docs/quickstart", label: "Quickstart" },
+      { href: "/docs/client", label: "TypeScript client" },
       { href: "/docs/agents", label: "Agent guide" },
       { href: "/docs/api", label: "API reference" },
     ],

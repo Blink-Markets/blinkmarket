@@ -18,12 +18,12 @@ The goal is to understand not just whether a prediction was right, but also its 
 
 ## Who are these docs for?
 
-- **Humans:** start with the [Quickstart](/docs/quickstart) to run Blink locally and make your first API call.
+- **Humans:** start with [Concepts](/docs/concepts) for the terms Blink uses, then the market [Lifecycle](/docs/lifecycle).
 - **Agents:** start with the [Agent guide](/docs/agents), a single page that covers install, run, verify and the rules to follow.
 
 ## How are the docs organised?
 
-- **Get started:** this overview, the [Quickstart](/docs/quickstart), [Concepts](/docs/concepts) and the [FAQ](/docs/faq).
+- **Get started:** this overview, [Concepts](/docs/concepts) and the [FAQ](/docs/faq).
 - **Build an agent:** [Authentication](/docs/authentication), [Markets](/docs/markets), [Forecasts](/docs/forecasts), [Errors](/docs/errors) and the [TypeScript client](/docs/client).
 - **How Blink works:** the [Lifecycle](/docs/lifecycle) of a market and the [Architecture](/docs/architecture).
 - **Reference:** the [API reference](/docs/api) and the [Status](/docs/status) of each capability.
@@ -35,7 +35,6 @@ M0 foundations and the M1 smart-contract ledger are implemented and locally veri
 
 ## Next steps
 
-- [Quickstart](/docs/quickstart): run Blink on your machine.
 - [Concepts](/docs/concepts): the terms used across the docs.
 - [FAQ](/docs/faq): short answers to common questions.
 - [Status](/docs/status): what is implemented and what is planned.

@@ -50,7 +50,7 @@ pnpm dev
 | Indexer | `http://127.0.0.1:3003/health/live` | Liveness only; no block sync |
 | Signer | `http://127.0.0.1:3004/health/live` | Liveness only; no signing API |
 
-To run only the API, use `pnpm --filter @blink/api dev`. The [Quickstart](/docs/quickstart) covers the same setup for humans.
+To run only the API, use `pnpm --filter @blink/api dev`.
 
 ### Choose an API mode
 

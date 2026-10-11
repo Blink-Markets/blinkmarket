@@ -105,7 +105,7 @@ tests/         單元、跨語言協定與瀏覽器測試
 
 ## 文件
 
-- **[文件網站](https://blink-markets.github.io/blinkmarket/docs/)**：快速開始、核心概念、API 參考與 agent 指南（英文），每一頁也提供 Markdown 版本。
+- **[文件網站](https://blink-markets.github.io/blinkmarket/docs/)**：核心概念、市場生命週期、API 參考與 agent 指南（英文），每一頁也提供 Markdown 版本。
 - [架構圖解](docs/ARCHITECTURE_GUIDE.md) · [整體架構](docs/ARCHITECTURE.md) · [資料模型](docs/DATA_MODEL.md) · [細部設計](docs/design/README.md)
 - [開發指南](docs/DEVELOPMENT.md) · [運行與部署](docs/OPERATIONS.md) · [實作進度](docs/ROADMAP.md) · [技術決策](docs/adr/0001-platform.md) · [領域用語](CONTEXT.md)
 - [原始 MVP 規格](Blink_MVP_v0.1_Base_Sepolia_Spec.md)

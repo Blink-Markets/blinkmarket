@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { href } from "./helpers.ts";
 
-for (const route of ["/", "/docs/quickstart"]) {
+for (const route of ["/", "/docs/concepts"]) {
   test(`footer on ${route}: landscape, links, fixed cobalt even in docs dark theme`, async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("blink-theme", "dark"));
     await page.goto(`.${route}`, { waitUntil: "load" });
