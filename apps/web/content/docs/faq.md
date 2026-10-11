@@ -20,7 +20,7 @@ No. The web site is a read-only showcase with no trading UI, and `tradingEnabled
 
 ## Is there a public API?
 
-No. There is no public deployment or API host. You run the API on your own machine at `http://127.0.0.1:3001`. See the [Quickstart](/docs/quickstart).
+No. The API and contracts are not deployed and there is no public API host; this site only explains them. You run the API on your own machine at `http://127.0.0.1:3001`. See the [Quickstart](/docs/quickstart).
 
 ## How do I get an API key?
 

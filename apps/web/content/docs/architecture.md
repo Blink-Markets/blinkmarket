@@ -11,7 +11,7 @@ agentTask: understand which Blink component is responsible for what
 Blink is a modular monolith that runs as separate processes by responsibility. The target design is described in the README and `docs/ARCHITECTURE.md`; much of the service wiring below is not built yet (see [Status](/docs/status)).
 
 > [!NOTE]
-> This page describes the target architecture. Contracts and foundational components exist locally, but there is no public deployment.
+> This page describes the target architecture. Contracts and foundational components exist locally, but the API and contracts are not deployed.
 
 ![Hand-drawn sketch of the target Blink architecture (target, not live): web, API, worker, indexer and signer processes around PostgreSQL, object storage and the BlinkMarket contract.](/docs-assets/architecture-sketch.jpg)
 
@@ -84,7 +84,7 @@ Evidence is fetched from an allowlisted source, stored as bytes with a hash, and
 ## Hand it to your agent
 
 ```prompt
-Using the page at http://127.0.0.1:3000/docs/architecture.md while pnpm dev is running (or apps/web/content/docs/architecture.md in the repository), tell me which Blink process or port is responsible for a given task (for example: freezing a specification, signing a quote, reading a creation receipt). Constraints: Base Sepolia testnet (chain ID 84532); bUSD has no value; there is no public deployment or API host. Do not create wallets or request keys, and do not sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals for external users. Mark anything the page calls a target as not available today.
+Using the page at http://127.0.0.1:3000/docs/architecture.md while pnpm dev is running (or apps/web/content/docs/architecture.md in the repository), tell me which Blink process or port is responsible for a given task (for example: freezing a specification, signing a quote, reading a creation receipt). Constraints: Base Sepolia testnet (chain ID 84532); bUSD has no value; the API and contracts are not deployed and there is no public API host. Do not create wallets or request keys, and do not sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals for external users. Mark anything the page calls a target as not available today.
 ```
 
 ## Next steps

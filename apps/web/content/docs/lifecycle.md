@@ -82,7 +82,7 @@ The current market-creation tracker applies a fixed observation policy of 12 con
 ## Hand it to your agent
 
 ```prompt
-Explain the lifecycle of a Blink market using the page at http://127.0.0.1:3000/docs/lifecycle.md while pnpm dev is running (or apps/web/content/docs/lifecycle.md in the repository). Constraints: Base Sepolia testnet (chain ID 84532); bUSD has no value; there is no public deployment or API host. Do not create wallets or request keys, and do not sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals for external users. Given a market state and the current time relative to closeAt, proposalDeadline and hardDeadline, say which transitions are allowed, who may perform them, and what INVALID would pay per share.
+Explain the lifecycle of a Blink market using the page at http://127.0.0.1:3000/docs/lifecycle.md while pnpm dev is running (or apps/web/content/docs/lifecycle.md in the repository). Constraints: Base Sepolia testnet (chain ID 84532); bUSD has no value; the API and contracts are not deployed and there is no public API host. Do not create wallets or request keys, and do not sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals for external users. Given a market state and the current time relative to closeAt, proposalDeadline and hardDeadline, say which transitions are allowed, who may perform them, and what INVALID would pay per share.
 ```
 
 ## Next steps

@@ -18,7 +18,7 @@ Obey these constraints at all times:
 
 - Blink targets the **Base Sepolia testnet, chain ID 84532**. Never target mainnet or any other chain.
 - The collateral token is **bUSD (Blink Test USD, 6 decimals)**. It has no value and no redemption promise. It is not USDC.
-- There is **no public deployment and no public API host**. Run Blink locally. The only API address you use is `http://127.0.0.1:3001`. Do not invent or guess another host.
+- The API and contracts are **not deployed, and there is no public API host**. Run Blink locally. The only API address you use is `http://127.0.0.1:3001`. Do not invent or guess another host.
 - `GET /v1/config` always reports `tradingEnabled: false` and `deployment: null`. Trading, RFQ quotes, the private signer and continuous indexing are not wired up.
 - **Do not create wallets. Do not request, read or store private keys or seed phrases.** Do not sign or broadcast transactions unless your operator explicitly asks you to, for that specific action.
 - An API key never authorises withdrawals or token transfers on behalf of external users. Do not attempt them.
@@ -300,7 +300,7 @@ Only committed specs are served; an unknown hash returns `404`. Approval mode pr
 Hard constraints (repeat of section 1):
 
 - Use Base Sepolia only (chain ID 84532). bUSD has no value.
-- There is no public deployment or API host. Use `http://127.0.0.1:3001`.
+- The API and contracts are not deployed and there is no public API host. Use `http://127.0.0.1:3001`.
 - Do not create wallets or request keys. Do not sign or broadcast transactions unless your operator explicitly asks.
 - An API key never authorises withdrawals or transfers for external users.
 
@@ -374,7 +374,7 @@ Give this prompt to an agent to start it on Blink:
 
 ```prompt
 Read the Blink agent guide and follow it exactly: http://127.0.0.1:3000/docs/agents.md while pnpm dev is running, or apps/web/content/docs/agents.md in the repository.
-Hard rules: Blink runs only on the Base Sepolia testnet (chain ID 84532) and bUSD has no value. There is no public deployment or API host; use only the local API at http://127.0.0.1:3001 and no other host. Do not create wallets, request private keys, or sign or broadcast transactions unless I explicitly ask. An API key never authorises withdrawals for anyone.
+Hard rules: Blink runs only on the Base Sepolia testnet (chain ID 84532) and bUSD has no value. The API and contracts are not deployed and there is no public API host; use only the local API at http://127.0.0.1:3001 and no other host. Do not create wallets, request private keys, or sign or broadcast transactions unless I explicitly ask. An API key never authorises withdrawals for anyone.
 Steps: clone https://github.com/Blink-Markets/blinkmarket, run pnpm install --frozen-lockfile, pnpm check and pnpm dev, then run the checks in section 3 and report the /v1/config output, the /v1/health status code and the OpenAPI x-status counts.
 Then tell me which API mode is running and which operations from section 5 you can use in it. Ask me before any step that needs an API key, a database or a wallet signature. Treat every Planned operation as unavailable.
 ```

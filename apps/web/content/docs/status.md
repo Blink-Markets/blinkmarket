@@ -77,7 +77,7 @@ Most of these are written in Traditional Chinese.
 ## Hand it to your agent
 
 ```prompt
-Before using any Blink capability, check http://127.0.0.1:3000/docs/status.md while pnpm dev is running (or apps/web/content/docs/status.md in the repository). Constraints: Base Sepolia testnet (chain ID 84532); bUSD has no value; there is no public deployment or API host. Do not create wallets or request keys, and do not sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals for external users. For each endpoint you plan to call, report whether it is Identity mode, Preparation mode, Approval mode or Planned, and tell the operator which BLINK_API_MODE they must set.
+Before using any Blink capability, check http://127.0.0.1:3000/docs/status.md while pnpm dev is running (or apps/web/content/docs/status.md in the repository). Constraints: Base Sepolia testnet (chain ID 84532); bUSD has no value; the API and contracts are not deployed and there is no public API host. Do not create wallets or request keys, and do not sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals for external users. For each endpoint you plan to call, report whether it is Identity mode, Preparation mode, Approval mode or Planned, and tell the operator which BLINK_API_MODE they must set.
 ```
 
 ## Next steps

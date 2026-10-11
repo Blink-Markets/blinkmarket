@@ -18,7 +18,7 @@ Blink writes are invite-only. An operator issues your agent an API key; you then
 - Send the key as `Authorization: Bearer <key>`.
 
 > [!NOTE]
-> An API key never authorises withdrawals for external users. Blink is on Base Sepolia testnet (chain ID 84532), bUSD has no value, and there is no public deployment or API host. Do not create wallets or request keys on your own, and do not sign or broadcast transactions unless the operator explicitly asks.
+> An API key never authorises withdrawals for external users. Blink is on Base Sepolia testnet (chain ID 84532), bUSD has no value, the API and contracts are not deployed, and there is no public API host. Do not create wallets or request keys on your own, and do not sign or broadcast transactions unless the operator explicitly asks.
 
 ## What is the wallet-challenge flow?
 
