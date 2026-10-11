@@ -1,115 +1,134 @@
-# Blink Market
+<p align="center">
+  <img src="apps/web/app/icon.svg" width="72" height="72" alt="Blink Market logo">
+</p>
 
-An experimental platform connecting **prediction research, traceable evidence, and on-chain testnet trading**.
+<h1 align="center">Blink Market</h1>
 
-以預測研究為核心，串連可追溯證據與鏈上測試交易的實驗平台。
+<p align="center">
+  Prediction research, traceable evidence and fully collateralized testnet markets on Base Sepolia.
+</p>
 
-Blink Market targets Base Sepolia. It starts with questions that have explicit resolution rules, preserves source evidence, collects model and external forecasts, and enables trading in YES/NO shares through signed RFQ quotes. Human-led proposals and a dispute process determine settlement. The goal is to understand not just whether a prediction was right, but also its evidence, cost, reproducibility, and quality over time.
+<p align="center">
+  <a href="README.md"><img src="https://img.shields.io/badge/lang-English-2148B8" alt="English"></a>
+  <a href="README.zh-TW.md"><img src="https://img.shields.io/badge/lang-%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-C65F38" alt="繁體中文"></a>
+</p>
 
-> **Current status:** M0 foundations and the M1 smart-contract ledger are implemented and locally verified. M2 includes invited identities, evidence, candidates, human approval and unsigned creation intents, plus operator registration and opt-in continuous polling of validated MarketCreated transactions. Global event indexing, research automation, RFQ/Signer integration and product UI remain planned. There is no Sepolia deployment or public trading yet.
->
-> M0／M1 已完成本機驗證；M2 已接上人工核准、未簽署建市資料，以及已驗證建市交易的操作員登記與 opt-in 持續輪詢。全鏈事件索引與交易流程尚未完成，未部署 Sepolia，也未開放公開交易。
+<p align="center">
+  <a href="https://github.com/Blink-Markets/blinkmarket/actions/workflows/ci.yml"><img src="https://github.com/Blink-Markets/blinkmarket/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2148B8" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/network-Base%20Sepolia%20testnet-C65F38" alt="Network: Base Sepolia testnet">
+</p>
 
-## Architecture at a Glance · 架構概覽
+<p align="center">
+  <a href="https://blink-markets.github.io/blinkmarket/">Website</a> ·
+  <a href="https://blink-markets.github.io/blinkmarket/docs/">Docs</a> ·
+  <a href="https://blink-markets.github.io/blinkmarket/docs/agents/">Agent guide</a> ·
+  <a href="https://blink-markets.github.io/blinkmarket/llms.txt">llms.txt</a>
+</p>
 
-![Hand-drawn Blink Market target architecture: Web and wallets request quotes from the API; the backend coordinates research, storage, and a private signer; wallets trade and redeem directly on Base Sepolia; the indexer syncs chain events into PostgreSQL.](docs/assets/architecture-sketch-light.png)
+---
 
-_Target architecture, not a live deployment. Contracts and foundational components are implemented locally; end-to-end service integration is still planned._
+## About
+
+Blink Market is an experimental platform for agents and the people who run them. It starts from questions with explicit resolution rules, keeps the original source evidence, collects model and external forecasts, and lets takers trade YES/NO shares through signed RFQ quotes. Humans propose outcomes, and a challenge process settles disputes.
+
+The goal is to understand not only whether a forecast was right, but also its evidence, cost, reproducibility and quality over time.
+
+> [!IMPORTANT]
+> Blink Market is a research project on the Base Sepolia **testnet**. It uses a test token with no value, the contracts are not audited, and nothing here is financial advice.
+
+## Architecture
+
+![Hand-drawn Blink Market target architecture: Web and wallets request quotes from the API; the backend coordinates research, storage and a private signer; wallets trade and redeem directly on Base Sepolia; the indexer syncs chain events into PostgreSQL.](docs/assets/architecture-sketch-light.png)
 
 Three responsibilities shape the system:
 
-- **Off-chain research and coordination.** The API receives requests, workers handle research and background jobs, PostgreSQL stores application records, and object storage preserves original evidence and specification bytes.
-- **On-chain funds and outcomes.** BlinkMarket validates quotes, maintains full collateralization, records positions, and enforces settlement and redemption. Users retain control of their wallets.
-- **Separate signing and synchronization.** A private signer independently checks signing policies. An indexer turns chain events into queryable, rebuildable database projections.
+- **Off-chain research and coordination.** The API receives requests, workers handle research and background jobs, PostgreSQL stores application records, and object storage keeps the original evidence and specification bytes.
+- **On-chain funds and outcomes.** The `BlinkMarket` contract validates quotes, keeps every position fully collateralized, records positions, and enforces settlement and redemption. Users keep control of their own wallets.
+- **Separate signing and synchronization.** A private signer checks its own signing policy. An indexer turns chain events into database projections that can always be rebuilt.
 
-中文摘要：研究與協調在鏈下，資金與最終結果在鏈上；Signer 控制簽署風險，Indexer 同步鏈上資料。圖中服務接線是目標設計，並非已上線功能。
+## How it works
 
-## Scope · 功能範圍
+1. **Define a market.** Preserve the source evidence, get human approval, freeze the specification, and create the market from an administrator wallet.
+2. **Collect forecasts.** Gather forecasts in fixed windows. Only policy-compliant snapshots from the two platform models inform maker pricing; baseline and external forecasts are scored separately.
+3. **Quote and trade.** A taker requests a quote. The service reserves capacity and returns an EIP-712 signed quote, which the taker submits from their own wallet. The contract checks it again.
+4. **Resolve and redeem.** After the market closes, a human proposes the outcome, with challenges and arbitration when needed. Once final, each holder redeems on their own.
+5. **Index and evaluate.** The indexer updates chain-derived records, and analytics score forecast quality and cost.
 
-| Area                  | Planned capabilities                                                                                            |
-| --------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Questions & evidence  | Source allowlists, candidate questions, human approval, frozen specifications, and original evidence snapshots  |
-| Prediction research   | Forecast windows, two platform models, external forecasts, an independent baseline, and cost/budget tracking    |
-| Quotes & trading      | Single-maker RFQ, EIP-712 signed quotes, YES/NO shares, collateral, and risk reservations                       |
-| Resolution & disputes | Human outcome proposals, challenge periods, arbitration, INVALID timeout settlement, and position redemption    |
-| Quality measurement   | Brier scores, classification of missing forecasts and invalid outcomes, research costs, and latency             |
-| Platform operations   | Identity and permissions, a test-token faucet, audit records, durable jobs, event synchronization, and recovery |
+**Example.** Buying **100 YES at 6,000 bps** costs the taker 60 bUSD. The maker adds 40 bUSD, so the contract holds 100 bUSD as 100 complete sets. YES pays the taker 100 bUSD, NO pays the maker 100 bUSD, and INVALID pays each side 50 bUSD.
 
-These are business modules within a modular monolith, not separate microservices. The design keeps initial deployment and maintenance costs low while leaving room to split components as load and security needs evolve.
+YES/NO shares are entries in the contract's internal ledger, not transferable tokens. Research probabilities, maker quotes and execution prices are separate things.
 
-中文摘要：功能分為題目證據、預測研究、報價交易、結算爭議、品質評估與平台營運；以模組區分責任，不為每個功能另建微服務。
+## Design principles
 
-## How It Works · 運行方式
+- **Testnet and test assets only.** `BlinkTestUSD` (bUSD) is a six-decimal test token. Mainnet trading is out of scope.
+- **Models hold no keys and no authority.** Model output is research. Creating markets, proposing outcomes, challenging and arbitrating are explicit human roles.
+- **A quote is not a trade.** A database reservation is not an on-chain lock; execution still depends on the contract's checks of balances, deadlines, caps and signatures.
+- **The chain is the source of truth for funds.** Database projections can be rebuilt, and an unknown transaction state is never blindly treated as failed and resubmitted.
+- **Pausing trading never freezes positions.** Settlement and redemption continue under the contract's rules.
+- **LIVE and REPLAY stay separate.** Real prospective questions and test replays are evaluated apart, and passing tests is not a security audit.
 
-The intended end-to-end workflow:
+## Tech stack
 
-1. **Define a market.** Preserve source evidence, obtain human approval, freeze the specification, and create the market through an administrator's wallet.
-2. **Collect forecasts.** Gather predictions within defined windows. Only policy-compliant snapshots from the two fixed platform models inform maker pricing; baseline and external forecasts are evaluated separately.
-3. **Request a quote and trade.** A taker requests an RFQ. The service reserves capacity and obtains a signed quote. The taker submits the transaction from their own wallet, and the contract validates it again.
-4. **Resolve and redeem.** After market close, a human proposes an outcome, with challenges and arbitration when needed. Once finalized, each position holder redeems independently.
-5. **Synchronize and evaluate.** The indexer updates chain-derived projections, while analytics assess prediction quality and cost.
+| Layer | Technology |
+| --- | --- |
+| Web | Next.js, React, TypeScript |
+| Backend | Node.js, TypeScript, Fastify |
+| Data | PostgreSQL |
+| Evidence | Original bytes with Keccak-256 hashes; local object store, S3-compatible storage planned |
+| Contracts | Solidity 0.8.30, OpenZeppelin, Base Sepolia |
+| Chain access | viem, EIP-712 |
+| Testing | Foundry, Anvil, Node test runner, PGlite, Playwright |
+| Repository | pnpm workspace with layered packages |
 
-For example, buying **100 YES shares at 6,000 bps** costs the taker 60 bUSD. The maker contributes 40 bUSD, so the contract holds 100 bUSD in collateral. The taker receives 100 YES shares and the maker holds the opposing 100 NO shares. A YES outcome pays the taker 100 bUSD; a NO outcome pays the maker 100 bUSD; INVALID pays each 50 bUSD.
+The backend is a **modular monolith run as separate processes by responsibility**: web, API, worker, indexer and signer share one codebase and one set of domain definitions, but have distinct workloads and trust boundaries.
 
-YES/NO shares are entries in the contract's internal ledger, not transferable tokens. Research probabilities, maker quotes, and execution prices are distinct concepts.
+## Repository layout
 
-中文摘要：題目核准 → 預測 → 簽章報價與成交 → 人工結算與贖回 → 同步及評估。每筆交易由雙方提供完整抵押；YES／NO 是合約內部份數，不是可轉讓代幣。
+```text
+apps/          web · api · worker · indexer · signer
+packages/
+  schemas/     wire schemas, templates and EIP-712 fields
+  domain/      business modules and their vocabulary
+  ports/       boundaries for database, queue, storage, RPC, models and signer
+  application/ use cases
+  adapters/    database, migrations, evidence and specification archive, deployment checks
+  runtime/     shared HTTP startup, health and error handling
+  client/      TypeScript client built on the shared contracts
+contracts/     BlinkTestUSD and BlinkMarket, Foundry tests, generated ABI and bytecode
+infra/         local PostgreSQL (Docker Compose) and the API container template
+deployments/   release manifest templates (no real addresses)
+fixtures/      REPLAY fixtures
+docs/          architecture, data model, design, ADRs and operations
+tests/         unit, contract-protocol and browser tests
+```
 
-## Technology & Rationale · 技術選型
+## Getting started
 
-| Layer                     | Technology                                                                      | Why it fits                                                                                      |
-| ------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Web                       | Next.js / React / TypeScript                                                    | Shared data contracts with the API; read-only showcase site; no trading UI yet                  |
-| Backend                   | Node.js / TypeScript / Fastify                                                  | Suited to RPC, database, and model-API I/O, with less cross-language maintenance                 |
-| Application data          | PostgreSQL                                                                      | Transactions, locks, idempotency records, audit trails, a transactional outbox, and durable jobs |
-| Evidence & specifications | Original bytes + Keccak-256; local adapter today, S3-compatible storage planned | Verifiable content without hash drift from reserialization                                       |
-| On-chain ledger           | Solidity 0.8.30 / OpenZeppelin / Base Sepolia                                   | Integer accounting and fixed collateral/settlement rules in non-upgradeable contracts            |
-| Chain interaction         | viem / EIP-712                                                                  | Typed contract calls, structured quote signatures, and deployment verification                   |
-| Verification              | Foundry / Anvil / Node test / PGlite                                            | Contract fuzzing, multi-user invariants, local replay, and PostgreSQL-semantics regression tests |
-| Repository structure      | pnpm workspace / layered packages                                               | Shared contracts with explicit dependencies between domain, application, ports, and adapters     |
+Requirements: **Node.js 22.23.1** and **pnpm 11.20.0** (pinned in `.nvmrc` and `packageManager`). Foundry is installed through npm, so no separate install is needed.
 
-The backend is a **modular monolith with separate processes by responsibility**. Web, API, Worker, Indexer, and Signer belong to one codebase, with shared domain definitions but distinct workloads and trust boundaries. This balances development effort, reliability, and early operating costs; it does not assume a language-level throughput advantage without benchmarks.
+```sh
+pnpm install --frozen-lockfile
+pnpm check            # typecheck, unit tests, boundary and contract checks
+pnpm test:contracts   # Foundry contract tests
+pnpm dev              # start every app locally
+```
 
-中文摘要：以 TypeScript 共用契約、PostgreSQL 保護鏈下交易一致性、Solidity 固定資金規則。按責任拆程序，在開發難度、穩定性與初期成本之間取得平衡。
+Docker is only needed for the optional local PostgreSQL (`pnpm infra:up`). See the [development guide](docs/DEVELOPMENT.md) for details.
 
-## Design Boundaries · 設計邊界
+## Documentation
 
-- **Testnet and test assets only.** BlinkTestUSD is a six-decimal test token, bUSD. Mainnet trading is out of scope.
-- **Models hold neither keys nor adjudication authority.** Their outputs are research or recommendations. Market creation, proposals, challenges, and arbitration have explicit roles.
-- **A quote is not a trade.** A database reservation is not an on-chain lock. Execution still depends on contract checks for balances, deadlines, caps, and signatures.
-- **The chain is the source of truth for funds.** Database projections can be rebuilt. RPC timeouts or unknown transaction states do not justify blindly treating an operation as failed and resubmitting it.
-- **Pausing new trades does not freeze existing positions.** Settlement and redemption continue under the contract's rules.
-- **LIVE and REPLAY stay separate.** Prospective real-world events and test replays are evaluated separately. Passing tests is not a security audit.
+- **[Docs site](https://blink-markets.github.io/blinkmarket/docs/)**: quickstart, concepts, API reference and a guide for agents. Every page is also available as Markdown.
+- [Architecture walkthrough](docs/ARCHITECTURE_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Data model](docs/DATA_MODEL.md) · [Detailed design](docs/design/README.md)
+- [Development](docs/DEVELOPMENT.md) · [Operations](docs/OPERATIONS.md) · [Roadmap](docs/ROADMAP.md) · [Architecture decisions](docs/adr/0001-platform.md) · [Domain terminology](CONTEXT.md)
+- [Original MVP specification](Blink_MVP_v0.1_Base_Sepolia_Spec.md)
 
-中文摘要：僅限測試網；模型不能掌握私鑰或裁決；報價不保證成交；資金以鏈上帳本為準。交易暫停不阻擋既有部位依規則結算與贖回。
+Most documents in `docs/` are written in Traditional Chinese.
 
-## Project Status · 目前進度
+## Contributing
 
-| Milestone                                                                                        | Status                                                                                              |
-| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| M0 — Data/API contracts, deployment verification, database and specification-archive foundations | Implemented and locally verified; not wired into business handlers                                  |
-| M1 — Test token, collateralized trading ledger, settlement/redemption, and multi-user tests      | Implemented and locally verified; not deployed to an external chain                                 |
-| M2.1 — Invited API keys, EOA wallet binding, idempotency, audit, and service bundles             | Implemented; local identity tests pass; real PostgreSQL concurrency and Docker verification pending |
-| M2.2a — Reviewed evidence archive, access policies, candidate revisions and rejection           | Implemented and locally tested                                                                     |
-| M2.2 — Human approval, verified deployment registry and unsigned creation intents               | Implemented in opt-in approval mode; no automatic signing, broadcasting or receipt confirmation     |
-| M2.3a — MarketCreated receipt tracking, confirmation snapshots and reorg withdrawal              | Implemented as an operator-driven read-only chain observer; continuous indexing remains planned      |
-| M2.3b — Continuous polling of validated creation transactions                                   | Opt-in durable polling with retries, lease recovery and reorg rechecks; global event indexing remains planned |
-| Remaining M2 / M3 / M4 — Market workflows, RFQ, Indexer/Signer, research, and product UI         | Implementation and integration planned                                                              |
+Pull requests are limited to collaborators. Issues, questions and ideas are welcome from everyone; please [open an issue](https://github.com/Blink-Markets/blinkmarket/issues).
 
-中文摘要：M0／M1 已完成；M2 已有身份、證據與候選版本切片，完整 M2 尚未完成。本專案尚未進入公開測試階段。
+## License
 
-## Further Reading · 延伸閱讀
-
-Detailed project documents are currently primarily in Traditional Chinese.
-
-- [M2.1 identity delivery · 身份切片交付](docs/M2_IDENTITY_DELIVERY.md) — Scope, security boundaries, opt-in configuration, and verification limits.
-- [M2.2a evidence & candidates · 證據與候選交付](docs/M2_PREPARATION_DELIVERY.md) — Data flow, access policies and immutable revisions.
-- [M2.2 human approval · 人工核准與建市意圖](docs/M2_APPROVAL_DELIVERY.md) — Transaction guarantees, manual wallet handoff and remaining chain integration.
-- [M2.3a creation tracking · 建市事件追蹤](docs/M2_CREATION_TRACKING.md) — Receipt verification, confirmation snapshots, reorg handling and indexer boundaries.
-- [M2.3b creation poller · 建市交易持續輪詢](docs/M2_CREATION_POLLER.md) — Opt-in durable polling, retry/restart behavior and health boundaries.
-
-- [Architecture walkthrough · 架構圖解](docs/ARCHITECTURE_GUIDE.md) — Five diagrams covering implementation status, service responsibilities, trading, settlement, and recovery.
-- [Architecture · 整體架構](docs/ARCHITECTURE.md) · [Data model · 資料模型](docs/DATA_MODEL.md) · [Detailed design · 細部設計](docs/design/README.md).
-- [Delivery & verification · 交付與驗證](docs/M0_M1_DELIVERY.md) · [Roadmap · 實作進度](docs/ROADMAP.md) · [Architecture decisions · 技術決策](docs/adr/0001-platform.md).
-- [Development guide · 開發指南](docs/DEVELOPMENT.md) · [Operations · 運行與部署](docs/OPERATIONS.md) · [Domain terminology · 領域用語](CONTEXT.md).
-- [Original MVP specification · 原始規格](Blink_MVP_v0.1_Base_Sepolia_Spec.md).
+[MIT](LICENSE) © 2026 Blink-Markets
