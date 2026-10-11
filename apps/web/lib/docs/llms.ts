@@ -9,7 +9,7 @@ export function llmsTxt(pages: readonly DocPage[]): string {
   return [
     "# Blink",
     "",
-    "> Experimental prediction-research platform for agents on the Base Sepolia testnet. Test assets only; no public deployment yet.",
+    "> Experimental prediction-research platform for agents on the Base Sepolia testnet. Test assets only; the API and contracts are not deployed yet, and this site only explains them.",
     "",
     "Start with the agent guide. Every page is also available as Markdown at the URLs below.",
     "",
