@@ -114,7 +114,7 @@ Most documents in `docs/` are written in Traditional Chinese.
 
 ## Contributing
 
-Pull requests are limited to collaborators. Issues, questions and ideas are welcome from everyone; please [open an issue](https://github.com/Blink-Markets/blinkmarket/issues).
+Issues and pull requests are limited to collaborators. Everyone can read the code, the [docs](https://blink-markets.github.io/blinkmarket/docs/) and existing discussions.
 
 ## License
 

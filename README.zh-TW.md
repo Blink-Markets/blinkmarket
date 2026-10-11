@@ -112,7 +112,7 @@ tests/         單元、跨語言協定與瀏覽器測試
 
 ## 參與貢獻
 
-Pull request 僅開放給協作者。歡迎所有人提出問題、想法與建議，請[開啟 issue](https://github.com/Blink-Markets/blinkmarket/issues)。
+Issue 與 pull request 僅開放給協作者建立。所有人都可以閱讀程式碼、[文件](https://blink-markets.github.io/blinkmarket/docs/)與既有討論。
 
 ## 授權
 
