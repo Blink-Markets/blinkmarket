@@ -47,7 +47,7 @@
 }
 @keyframes lid-open { from { clip-path: ellipse(70% 0.6% at 50% 28%); } to { clip-path: ellipse(150% 150% at 50% 28%); } }
 @keyframes seam { 0% { opacity: 1; transform: scaleX(0); } 30% { opacity: 1; transform: scaleX(1); } 100% { opacity: 0; transform: scaleX(1); } }
-@keyframes rise { from { transform: translateY(105%); filter: blur(6px); } to { transform: none; filter: none; } }
+@keyframes rise { from { transform: translateY(105%); } to { transform: none; } }
 @keyframes block-then-line {
   0% { clip-path: inset(0 100% 0 0); }
   35% { clip-path: inset(0 0 0 0); }
