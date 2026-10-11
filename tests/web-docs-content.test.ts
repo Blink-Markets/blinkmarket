@@ -38,7 +38,13 @@ test("no placeholders and no invented hosts", () => {
   for (const p of pages) {
     assert.ok(!/\b(TODO|TBD|lorem)\b/i.test(p.source), `${p.file}: placeholder`);
     for (const m of p.source.matchAll(/https?:\/\/([^/\s)`]+)/g))
-      assert.ok(["127.0.0.1:3000", "127.0.0.1:3001", "127.0.0.1:3002", "127.0.0.1:3003", "127.0.0.1:3004", "127.0.0.1:5432", "github.com"].includes(m[1] ?? ""), `${p.file}: host ${m[1]}`);
+      assert.ok(["blink-markets.github.io", "github.com"].includes(m[1] ?? ""), `${p.file}: host ${m[1]}`);
+  }
+});
+
+test("docs never ask the reader to run Blink", () => {
+  for (const p of pages) {
+    assert.ok(!/\bpnpm\b|\bcurl\b|\bgit clone\b|127\.0\.0\.1:\d|BLINK_API_MODE/.test(p.source), `${p.file}: run-it-yourself instruction`);
   }
 });
 
@@ -47,9 +53,9 @@ test("all canonical pages exist", () => {
   for (const s of DOC_SLUGS) assert.ok(have.has(s), `missing page for slug "${s}"`);
 });
 
-test("agent guide has the eight required sections", () => {
+test("agent guide has the five briefing sections", () => {
   const agents = pages.find((p) => p.slug === "agents");
   assert.ok(agents, "agents.md is missing");
-  for (const h of ["1. Purpose and hard constraints", "2. Install and run locally", "3. Verify", "4. Core model", "5. Workflows", "6. Rules and invariants", "7. Endpoint status", "8. Troubleshooting"])
+  for (const h of ["1. Purpose and hard rules", "2. Core model", "3. Roles", "4. Reading these docs", "5. Rules and invariants"])
     assert.ok(agents.body.includes(`## ${h}`), `agents.md missing "## ${h}"`);
 });

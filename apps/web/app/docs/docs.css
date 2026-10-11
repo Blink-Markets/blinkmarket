@@ -35,6 +35,7 @@
 .docs-article p, .docs-article ul, .docs-article ol { margin: 0 0 14px; }
 .docs-article li + li { margin-top: 4px; }
 .docs-article :not(pre) > code { font-size: 0.88em; background: var(--cobalt-tint); padding: 1px 5px; border-radius: 3px; overflow-wrap: anywhere; }
+.docs-article a { overflow-wrap: anywhere; }
 .docs-anchor { color: var(--ink-faint); text-decoration: none; margin-left: 8px; opacity: 0; font-weight: 400; }
 .docs-article h2:hover .docs-anchor, .docs-article h3:hover .docs-anchor, .docs-anchor:focus-visible { opacity: 1; }
 .docs-article blockquote { margin: 0 0 18px; padding: 4px 16px; border-left: 3px solid var(--rule); color: var(--ink-soft); }

@@ -1,21 +1,21 @@
 ---
 title: API reference
-description: Every Blink HTTP endpoint with its method and planned access, generated from the shared schemas; see Status for which API mode enables it.
+description: Every Blink HTTP endpoint with its method, path and access, generated from the shared schemas.
 group: Reference
 order: 1
-agentTask: look up an operation's method and planned access, then check /docs/status for which API mode enables it
+agentTask: look up an operation's method, path and who may call it
 ---
 
 # API reference
 
-The table below is generated from the shared schemas in the repository, so it matches the OpenAPI document the API serves at `http://127.0.0.1:3001/openapi.json`.
+The table below is generated from the shared schemas in the repository (`packages/schemas`), the same contract the API, the TypeScript client and the web app use. The API is not deployed and there is no public API host; this page describes the operations it defines.
 
 > [!NOTE]
-> The Status column shows the default scaffold status. `not-implemented` means the operation answers 501 until an API mode enables it; `always available` marks `GET /v1/config`, which every mode serves. Which mode (`BLINK_API_MODE`: `identity`, `preparation` or `approval`) enables which endpoints is listed on [Status](/docs/status). There is no public API host.
+> The Access column says who may call an operation. `public` needs no key. `invited-key` needs an invited API key. A scope such as `forecast:write`, `candidate:write`, `trade:quote` or `report:write` needs an invited key that carries that scope; `trade:quote + wallet` also needs a bound wallet. `verified-wallet` and `allowed-wallet` also need a bound wallet, and an allowed wallet is one the Blink team has approved. `admin` operations are for the Blink team. Combined values such as `taker/admin`, `owner/admin; approved public` or `public; own before deadline` list who may read in each case, and `access-policy` means the evidence item's own access policy decides. See [Joining](/docs/joining) for keys, scopes and wallet binding, and [Roles](/docs/roles) for which role uses which operations.
 
 <!-- generated:api-index -->
 
 ## Next steps
 
-- [Status](/docs/status) explains each mode and what is planned.
+- [Errors](/docs/errors) explains the error shape and safe retries.
 - [Market lifecycle](/docs/lifecycle) describes the contract states behind the market endpoints.

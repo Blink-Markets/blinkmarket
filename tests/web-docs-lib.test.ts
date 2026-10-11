@@ -32,7 +32,7 @@ function fixtureDir() {
   const dir = mkdtempSync(join(tmpdir(), "docs-"));
   writeFileSync(join(dir, "index.md"), fm({ ...base, title: "Overview", order: "1" }) + "Home");
   writeFileSync(join(dir, "quickstart.md"), fm({ ...base, title: "Quickstart", order: "2" }) + "Qs");
-  writeFileSync(join(dir, "errors.md"), fm({ ...base, title: "Errors", group: "Build an agent", order: "9" }) + "E");
+  writeFileSync(join(dir, "errors.md"), fm({ ...base, title: "Errors", group: "Roles", order: "9" }) + "E");
   writeFileSync(join(dir, "api.md"), fm({ ...base, title: "API index", group: "Reference", order: "1" }) + "Intro\n\n<!-- generated:api-index -->\n");
   writeFileSync(join(dir, "agents.md"), fm({ ...base, title: "Agent guide", group: "For agents", order: "1" }) + "Steps");
   return dir;
@@ -49,7 +49,7 @@ test("loadDocs maps files to slugs, hrefs and md hrefs in IA order", () => {
 
 test("navGroups groups by DOC_GROUPS order and neighbors walk human pages only", () => {
   const pages = loadDocs(fixtureDir());
-  assert.deepEqual(navGroups(pages).map((g) => g.group), ["Get started", "Build an agent", "Reference", "For agents"]);
+  assert.deepEqual(navGroups(pages).map((g) => g.group), ["Get started", "Roles", "Reference", "For agents"]);
   const n = neighbors(pages, "quickstart");
   assert.equal(n.prev?.slug, "");
   assert.equal(n.next?.slug, "errors");
@@ -97,16 +97,16 @@ test("llmsTxt lists every page's markdown URL with its description", () => {
   assert.match(txt, /## For agents/);
 });
 
-test("apiIndexMarkdown renders one row per operation with status", () => {
+test("apiIndexMarkdown renders one row per operation with its access", () => {
   const doc = generateOpenApi();
   const md = apiIndexMarkdown(doc);
   const ops = Object.values(doc.paths).reduce((n, item) => n + Object.keys(item).length, 0);
   assert.equal(md.split("\n").filter((l) => /^\| (GET|POST|PUT|PATCH|DELETE) \|/.test(l)).length, ops);
-  assert.match(md, /\| Method \| Path \| Planned access \| Status \|/);
+  assert.match(md, /\| Method \| Path \| Access \|/);
   assert.match(md, /^## markets$/m);
   assert.ok(!/^###/m.test(md));
-  assert.match(md, /\| GET \| `\/v1\/config` \| .* \| always available \|/);
-  assert.ok(!md.includes("unspecified"));
+  assert.match(md, /\| GET \| `\/v1\/config` \| public \|/);
+  assert.ok(!/not-implemented|unspecified/.test(md));
 });
 
 test("renderDoc toc text is decoded plain text and ids slugify it", () => {
@@ -159,7 +159,7 @@ test("publicMarkdown prefixes root-relative link targets only under a base path"
   const page = loadDocs(join(import.meta.dirname, "../apps/web/content/docs")).find((p) => p.slug === "architecture")!;
   assert.equal(publicMarkdown(page, ""), expandSource(page));
   const out = publicMarkdown(page, "/blinkmarket");
-  assert.match(out, /\]\(\/blinkmarket\/docs\/status\)/);
+  assert.match(out, /\]\(\/blinkmarket\/docs\/lifecycle\)/);
   assert.match(out, /\]\(\/blinkmarket\/docs-assets\/architecture-sketch\.jpg\)/);
   assert.doesNotMatch(out, /\]\(\/(?!blinkmarket\/)/);
 });

@@ -1,8 +1,8 @@
 ---
 title: Concepts
-description: The terms Blink uses for questions, forecasts, trading, settlement and modes.
+description: The terms Blink uses for questions, forecasts, trading, settlement, and LIVE and REPLAY markets.
 group: Get started
-order: 3
+order: 2
 agentTask: look up the meaning of a Blink term
 ---
 
@@ -16,7 +16,7 @@ Blink uses a small, precise vocabulary. Each term below is defined once here and
 
 **MarketSpec.** The exact UTF-8 bytes of a question after human approval. Its `specHash` is the keccak256 of those bytes. The bytes cannot be re-serialized and re-hashed in their place.
 
-**Market.** Identified by a `deploymentId` plus an on-chain `marketId`. Its mode is permanently LIVE or REPLAY (see [Modes](#modes)).
+**Market.** Identified by a `deploymentId` plus an on-chain `marketId`. It is permanently LIVE or REPLAY (see [LIVE and REPLAY](#live-and-replay)).
 
 > [!NOTE]
 > In practice: hash the stored bytes, never a re-encoded copy. Re-serializing can change the bytes and so the hash.
@@ -53,7 +53,7 @@ Blink uses a small, precise vocabulary. Each term below is defined once here and
 > [!NOTE]
 > In practice: when a transaction status is unknown, do not assume it failed or resubmit it blindly. Re-read its state first.
 
-## Modes
+## LIVE and REPLAY
 
 **LIVE.** The question is created before the information is published. The real submission time is stored, and the market waits for a future result.
 
@@ -64,4 +64,4 @@ A forward-looking question must never be turned into REPLAY and still counted in
 ## Next steps
 
 - [Lifecycle](/docs/lifecycle): how a market moves from Candidate to redemption.
-- [Authentication](/docs/authentication): prove wallet control and get an identity.
+- [Roles](/docs/roles): who takes part in a market and what each role may do.

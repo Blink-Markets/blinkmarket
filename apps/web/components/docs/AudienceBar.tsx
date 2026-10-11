@@ -5,7 +5,7 @@ export function AudienceBar() {
   return (
     <div className="docs-audience">
       <AudienceSeg />
-      <p>Layered guides with copyable commands and prompts.</p>
+      <p>How Blink markets work, the roles, and prompts to hand to your agent.</p>
       <ThemeToggle />
     </div>
   );

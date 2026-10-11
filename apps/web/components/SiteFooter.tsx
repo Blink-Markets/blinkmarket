@@ -24,7 +24,7 @@ const columns = [
   {
     title: "Developers",
     links: [
-      { href: "/docs/client", label: "TypeScript client" },
+      { href: "/docs/roles", label: "Roles" },
       { href: "/docs/agents", label: "Agent guide" },
       { href: "/docs/api", label: "API reference" },
     ],
@@ -80,7 +80,7 @@ export function SiteFooter() {
             <h2>Project</h2>
             <ul>
               <li>
-                <Link href="/docs/status">Status</Link>
+                <Link href="/docs/architecture">Architecture</Link>
               </li>
               <li>
                 <a href="https://github.com/Blink-Markets/blinkmarket">GitHub</a>
@@ -90,7 +90,7 @@ export function SiteFooter() {
         </div>
         <div className={`${styles.footMeta} mono`}>
           <span>Base Sepolia testnet · Test assets have no value</span>
-          <span>M0–M1 built locally · M2 in progress</span>
+          <span>API and contracts not deployed · No trading on this site</span>
         </div>
       </div>
       <div className={styles.land}>

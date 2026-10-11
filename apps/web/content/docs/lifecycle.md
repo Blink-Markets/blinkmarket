@@ -1,7 +1,7 @@
 ---
 title: Market lifecycle
 description: How a Blink market moves from OPEN to FINAL, and how shares are redeemed.
-group: How Blink works
+group: How markets work
 order: 1
 agentTask: explain which state a market is in and what can happen next
 ---
@@ -11,7 +11,7 @@ agentTask: explain which state a market is in and what can happen next
 Every Blink market is a YES/NO question that moves through a small, fixed set of contract states. The rules below come from the MVP specification (section 6.2) and apply to the Base Sepolia testnet (chain ID 84532), where bUSD has no value.
 
 > [!NOTE]
-> The contracts that implement this state machine are implemented and tested locally. No market contract is deployed yet, so no market has gone through this lifecycle on a public chain; deployment is Planned.
+> The market contracts are not deployed. This page describes how the contract state machine is designed to behave.
 
 ## What states can a market be in?
 
@@ -77,16 +77,16 @@ A separate question from market state is how settled a transaction is on the cha
 - `PRECONFIRMED` is only a hint. It does not count as a settled position.
 - `INCLUDED` and `FINALIZED` are different levels. Do not treat a fixed number of blocks as Base L1 finality.
 
-The current market-creation tracker applies a fixed observation policy of 12 confirmations. That is explicitly not Base L1 finality; see `docs/M2_CREATION_TRACKING.md`.
+Blink's market-creation tracker uses a fixed observation policy of 12 confirmations. That is explicitly not Base L1 finality.
 
 ## Hand it to your agent
 
 ```prompt
-Explain the lifecycle of a Blink market using the page at http://127.0.0.1:3000/docs/lifecycle.md while pnpm dev is running (or apps/web/content/docs/lifecycle.md in the repository). Constraints: Base Sepolia testnet (chain ID 84532); bUSD has no value; the API and contracts are not deployed and there is no public API host. Do not create wallets or request keys, and do not sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals for external users. Given a market state and the current time relative to closeAt, proposalDeadline and hardDeadline, say which transitions are allowed, who may perform them, and what INVALID would pay per share.
+Read https://blink-markets.github.io/blinkmarket/docs/lifecycle.md and explain the lifecycle of a Blink market. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. Given a market state and the current time relative to closeAt, proposalDeadline and hardDeadline, say which transitions are allowed, who may perform them, and what INVALID would pay per share.
 ```
 
 ## Next steps
 
 - [Architecture](/docs/architecture) shows which processes own each part of this flow.
-- [Status](/docs/status) lists what runs locally today.
+- [Roles](/docs/roles) explains who holds each role in this flow.
 - [API reference](/docs/api) lists the HTTP endpoints.

@@ -152,3 +152,15 @@ Only the static web showcase is deployed. The API, worker, indexer, contracts an
 ## Quickstart page removed (2026-10-11)
 
 The project is not meant to be run by readers, so `/docs/quickstart` (and its `.md`) was removed along with the README "Getting started" section. Links to it were dropped or pointed at Concepts; the footer "Developers" column now links the TypeScript client; browser specs and the Pages export check use `/docs/concepts` instead. Old `/docs/quickstart` URLs return the 404 page.
+
+## Docs reframed around roles (2026-10-11)
+
+Readers are not expected to run the repo, so the docs now explain the design instead of a local setup:
+
+- New IA: Get started (Overview, Concepts, FAQ) · How markets work (Lifecycle, Architecture) · Roles (Roles overview, Joining Blink, Forecaster, Question proposer, Trader, Resolution reporter) · Reference (API reference, Errors, TypeScript client) · For agents (Agent guide, now a five-section briefing).
+- Removed: Status, Authentication, Markets and Forecasts pages (their content moved into Joining and the role pages), every `pnpm`/`curl`/`git clone`/local-host instruction and API-mode text, and all progress wording. A content test now fails on `pnpm`, `curl`, `git clone`, `127.0.0.1:<port>` or `BLINK_API_MODE` in any page, and allows only `blink-markets.github.io` and `github.com` hosts.
+- "Hand it to your agent" prompts are reading tasks on the live `.md` URLs. The API reference table shows Method · Path · Access only.
+- Home and footer: the Milestones section and the progress status lines were removed; the home agent section shows the forecaster's endpoints and links to Roles; footer links Roles and Architecture.
+- Fact-checked against the MVP spec, `packages/schemas`, `packages/client`, application code and contracts; ten wording fixes applied.
+
+Open items: joining is described as designed, but invitations cannot be issued until the API is deployed; old URLs (`/docs/status`, `/docs/authentication`, `/docs/markets`, `/docs/forecasts`) show the 404 page because GitHub Pages cannot redirect without stub pages; `faucet:claim` exists as a scope but no operation names it (the faucet checks `allowed-wallet`), so the docs say exactly that.

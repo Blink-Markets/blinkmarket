@@ -1,17 +1,14 @@
 ---
 title: Architecture
 description: How Blink splits research, funds and signing across processes and trust boundaries.
-group: How Blink works
+group: How markets work
 order: 2
 agentTask: understand which Blink component is responsible for what
 ---
 
 # Architecture
 
-Blink is a modular monolith that runs as separate processes by responsibility. The target design is described in the README and `docs/ARCHITECTURE.md`; much of the service wiring below is not built yet (see [Status](/docs/status)).
-
-> [!NOTE]
-> This page describes the target architecture. Contracts and foundational components exist locally, but the API and contracts are not deployed.
+Blink is a modular monolith designed to run as separate processes by responsibility. This page describes that target design, as set out in the README and `docs/ARCHITECTURE.md`.
 
 ![Hand-drawn sketch of the target Blink architecture (target, not live): web, API, worker, indexer and signer processes around PostgreSQL, object storage and the BlinkMarket contract.](/docs-assets/architecture-sketch.jpg)
 
@@ -25,16 +22,14 @@ Blink is a modular monolith that runs as separate processes by responsibility. T
 
 Web, API, Worker, Indexer and Signer share one codebase and domain definitions, but have different workloads and trust boundaries.
 
-| Process | Local port | Job |
-| --- | --- | --- |
-| Web | 3000 | Public research, evidence and forecast pages; read-only showcase today, no trading UI |
-| API | 3001 | Authentication, validation, reads and command intake |
-| Worker | 3002 | Discovery, forecasting, cost reconciliation and keeper scheduling (target) |
-| Indexer | 3003 | Chain event pulling, reorg handling and projections (target) |
-| Signer | 3004 | Restricted signing for maker quotes and similar roles (target); private boundary |
-| Contracts | n/a | Collateral, fills, positions, final outcomes and redemption; not upgradeable |
-
-All local ports are on `127.0.0.1`. Today the worker, indexer and signer answer a liveness check only; the worker also serves `/jobs`, a planned job list reported as `enabled: false`.
+| Process | Job |
+| --- | --- |
+| Web | Public research, evidence and forecast pages |
+| API | Authentication, validation, reads and command intake |
+| Worker | Discovery, forecasting, cost reconciliation and keeper scheduling |
+| Indexer | Chain event pulling, reorg handling and projections |
+| Signer | Restricted signing for maker quotes and similar roles; private boundary |
+| Contracts | Collateral, fills, positions, final outcomes and redemption; not upgradeable |
 
 ## Where are the trust boundaries?
 
@@ -56,11 +51,11 @@ Dependencies point one way: apps wire things together, application use cases dep
 - `adapters`: PostgreSQL, viem and other concrete implementations.
 - `apps`: composition roots and process lifecycles.
 
-`pnpm check:boundaries` verifies the basic import direction. It is not a key-isolation guarantee.
+A boundary check in the repository verifies the basic import direction. It is not a key-isolation guarantee.
 
-## What are the local ports?
+## What are the ports?
 
-Ports are the interfaces the application layer depends on. The source marks them as boundary contracts; concrete implementations arrive milestone by milestone.
+Ports are the interfaces the application layer depends on. Adapters provide the concrete implementations.
 
 | Port | Responsibility |
 | --- | --- |
@@ -79,15 +74,15 @@ Ports are the interfaces the application layer depends on. The source marks them
 
 ## How does a market get created?
 
-Evidence is fetched from an allowlisted source, stored as bytes with a hash, and attached to a candidate revision. A human approves it. The approval writes the approval, the frozen specification record, an unsigned creation intent, an audit entry and an outbox entry in one database transaction. An administrator then signs the creation transaction in their own wallet. Nothing in the repository signs or broadcasts it automatically.
+Evidence is fetched from an allowlisted source, stored as bytes with a hash, and attached to a candidate revision. A human approves it. The approval writes the approval, the frozen specification record, an unsigned creation intent, an audit entry and an outbox entry in one database transaction. An administrator then signs the creation transaction in their own wallet. Nothing signs or broadcasts it automatically.
 
 ## Hand it to your agent
 
 ```prompt
-Using the page at http://127.0.0.1:3000/docs/architecture.md while pnpm dev is running (or apps/web/content/docs/architecture.md in the repository), tell me which Blink process or port is responsible for a given task (for example: freezing a specification, signing a quote, reading a creation receipt). Constraints: Base Sepolia testnet (chain ID 84532); bUSD has no value; the API and contracts are not deployed and there is no public API host. Do not create wallets or request keys, and do not sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals for external users. Mark anything the page calls a target as not available today.
+Read https://blink-markets.github.io/blinkmarket/docs/architecture.md and tell me which Blink process or port is responsible for a given task (for example: freezing a specification, signing a quote, reading a creation receipt), and which trust boundary applies. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. The page describes a design; the API and contracts are not deployed, so do not call any host.
 ```
 
 ## Next steps
 
 - [Market lifecycle](/docs/lifecycle) covers states and settlement.
-- [Status](/docs/status) shows which parts are implemented.
+- [Roles](/docs/roles) describes who holds each role and key.

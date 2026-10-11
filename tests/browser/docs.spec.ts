@@ -27,10 +27,11 @@ test("docs copy actions", async ({ page }) => {
   expect(prompt).toContain(`${new URL(page.url()).origin}${href("/docs/agents.md")}`);
   expect(prompt).toContain(`${new URL(page.url()).origin}${href("/docs/concepts.md")}`);
 
-  await page.goto("./docs/agents");
-  await page.locator(".docs-code .docs-copy").first().click();
+  await page.goto("./docs/forecaster");
+  const code = page.locator(".docs-code").first();
+  await code.locator(".docs-copy").click();
   await expect.poll(async () => (await copied(page)).length).toBe(1);
-  expect((await copied(page))[0]).toMatch(/^git clone/);
+  expect((await copied(page))[0]?.trim()).toBe((await code.locator("pre").innerText()).trim());
 });
 
 test("theme toggle persists to light marketing pages", async ({ page }) => {

@@ -162,23 +162,23 @@ const SKETCH_DEFS: Record<SketchName, Sketch> = {
   agent: {
     seed: 303, w: 1200, h: 780, title: "Agent integration flow",
     draw(s) {
-      s.title(600, "Connecting an agent", "local API at 127.0.0.1:3001");
+      s.title(600, "Joining as an agent", "invitation · API key · bound wallet");
       s.box(70, 130, 220, 80, { fill: HL.purple }); s.text(180, 180, "Your agent", { size: 26, bold: true });
       s.box(490, 130, 220, 80, { fill: HL.yellow }); s.text(600, 180, "Operator", { size: 26, bold: true });
       s.box(910, 130, 220, 80, { fill: HL.blue }); s.text(1020, 180, "Blink API", { size: 26, bold: true });
       for (const x of [180, 600, 1020]) s.line(x, 215, x, 725, { dash: "4 9", w: 1.6 });
-      const step = (y: number, x1: number, x2: number, label: string, sub: string | null, planned = false): void => {
-        s.arrow(x1, y, x2, y, { dash: planned ? "10 8" : "none", color: planned ? "#777" : INK });
-        s.text((x1 + x2) / 2, y - 12, label, { size: 19, hl: planned ? "grey" : "green", hlw: label.length * 9 });
-        if (sub) s.text((x1 + x2) / 2, y + 26, sub, { size: 16, color: planned ? "#666" : INK });
+      const step = (y: number, x1: number, x2: number, label: string, sub: string | null): void => {
+        s.arrow(x1, y, x2, y, { dash: "none", color: INK });
+        s.text((x1 + x2) / 2, y - 12, label, { size: 19, hl: "green", hlw: label.length * 9 });
+        if (sub) s.text((x1 + x2) / 2, y + 26, sub, { size: 16, color: INK });
       };
-      step(262, 185, 1015, "1  POST /v1/auth/wallet-challenges", "invited API key · Identity mode");
+      step(262, 185, 1015, "1  POST /v1/auth/wallet-challenges", "invited API key with role scopes");
       step(334, 1015, 185, "2  challenge message", null);
       step(406, 185, 595, "3  ask the operator to sign", "outside the agent");
       step(478, 595, 185, "4  signature", null);
-      step(550, 185, 1015, "5  POST /v1/auth/wallet-verifications", "wallet bound · Identity mode");
-      step(630, 185, 1015, "6  read markets, specs, forecast windows", "Planned (specs: Approval mode)", true);
-      step(702, 185, 1015, "7  POST /v1/markets/{id}/forecasts", "Planned · Idempotency-Key on every POST", true);
+      step(550, 185, 1015, "5  POST /v1/auth/wallet-verifications", "wallet bound to the key");
+      step(630, 185, 1015, "6  read markets, specs, forecast windows", null);
+      step(702, 185, 1015, "7  POST /v1/markets/{id}/forecasts", "a forecaster, for example · Idempotency-Key on every POST");
       s.foot(600, 765, "The agent never creates wallets, holds keys, or signs and sends transactions.");
     },
   },
