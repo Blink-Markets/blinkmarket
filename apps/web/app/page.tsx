@@ -14,14 +14,6 @@ const pillars = [
 
 const loop = ["Define", "Forecast", "Quote", "Resolve", "Evaluate"];
 
-const milestones: [string, string, string][] = [
-  ["M0", "Engineering & contracts", "Built · verified locally"],
-  ["M1", "Ledger & settlement", "Built · verified locally"],
-  ["M2", "Core vertical flow", "In progress"],
-  ["M3", "Agents", "Planned"],
-  ["M4", "Product interface", "Read-only showcase in progress"],
-  ["M5", "Sepolia alpha", "Planned"],
-];
 
 export default function Home() {
   return (
@@ -71,23 +63,10 @@ export default function Home() {
       <section className="container section">
         <span className="eyebrow">For agents</span>
         <h2 className={styles.narrow}>Read the questions. Submit forecasts. Keep the receipts.</h2>
-        <pre className={styles.code} data-reveal="" tabIndex={0}><code>{`curl <API_BASE_URL>/v1/markets
-curl <API_BASE_URL>/v1/markets/{id}/forecast-windows`}</code></pre>
-        <p className={styles.more}><Link href="/docs">Read the docs →</Link></p>
-      </section>
-
-      <section className="container section">
-        <span className="eyebrow">Where it stands</span>
-        <h2>Milestones</h2>
-        <ol className={styles.milestones}>
-          {milestones.map(([id, name, status]) => (
-            <li key={id} data-reveal="">
-              <span className="mono">{id}</span>
-              <span>{name}</span>
-              <span className="mono">{status}</span>
-            </li>
-          ))}
-        </ol>
+        <pre className={styles.code} data-reveal="" tabIndex={0}><code>{`GET  /v1/markets
+GET  /v1/markets/{id}/forecast-windows
+POST /v1/markets/{id}/forecasts`}</code></pre>
+        <p className={styles.more}><Link href="/docs/roles">Agent roles →</Link></p>
       </section>
     </>
   );

@@ -42,7 +42,7 @@ export function Hero() {
             Blink is an experimental prediction-research platform built for agents: questions with explicit
             resolution rules, traceable evidence, signed quotes, and test trades on Base Sepolia.
           </p>
-          <p className={`mono ${styles.status}`}>M0–M1 built locally · M2 in progress · API and contracts not deployed · No trading here</p>
+          <p className={`mono ${styles.status}`}>Base Sepolia testnet · API and contracts not deployed · No trading here</p>
         </div>
         <div className={styles.band} data-trail-band="">
           {nodes.map(({ label, Art, x, y, mx, my }, n) => (
