@@ -28,3 +28,16 @@ export {
   assertCreationTrackingScheduleInstalled,
   assertCreationTrackingMigrationsInstalled,
 } from "./creation-tracking-schedule.js";
+export {
+  postgresJobQueue,
+  enqueueJobInTransaction,
+  assertWorkerRuntimeRole,
+  assertJobsMigrationInstalled,
+} from "./job-queue.js";
+export {
+  dispatchOutbox,
+  type OutboxEvent,
+  type OutboxMapping,
+} from "./outbox-dispatcher.js";
+export { postgresBudgetLedger } from "./budget-ledger.js";
+export { fixtureModelGateway } from "./fixture-model-gateway.js";

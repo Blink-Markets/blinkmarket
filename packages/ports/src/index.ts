@@ -1,9 +1,11 @@
 import type { ChainCursor, MarketRef, NewMarketSpec } from "@blink/schemas";
-import type { Job, SignRequest, SignResult } from "@blink/domain";
+import type { SignRequest, SignResult } from "@blink/domain";
 export type * from "./identity.js";
 export type * from "./preparation.js";
 export type * from "./approval.js";
 export type * from "./creation-tracker.js";
+export * from "./jobs.js";
+export * from "./budgets.js";
 
 // 邊界合約：實作留到後續 milestone；不公開 ORM 或私鑰。
 export interface ImmutableObjectStore {
@@ -14,20 +16,6 @@ export interface SourceFetcher {
   fetchAllowed(
     sourceId: string,
   ): Promise<{ bytes: Uint8Array; observedAt: string; sourceUrl: string }>;
-}
-export interface ModelGateway {
-  forecast(request: {
-    runId: string;
-    inputObjectUri: string;
-    modelVersion: string;
-    promptHash: string;
-    maxOutputTokens: number;
-    costReservationId: string;
-  }): Promise<{
-    output: unknown;
-    providerRequestId: string;
-    actualCostMicros: string | null;
-  }>;
 }
 export interface ChainReader {
   getSnapshot(
@@ -52,21 +40,6 @@ export interface SpecArchive {
     nowSeconds: bigint,
   ): Promise<{ hash: string; uri: string; bytes: Uint8Array }>;
   read(uri: string, hash: string): Promise<Uint8Array>;
-}
-export interface JobQueue {
-  enqueueWithinTransaction(
-    job: Job,
-    transaction: TransactionContext,
-  ): Promise<void>;
-  lease(
-    workerId: string,
-    acceptedTypes: readonly Job["type"][],
-  ): Promise<Job | null>;
-  acknowledge(
-    jobId: string,
-    workerId: string,
-    leaseToken: string,
-  ): Promise<boolean>;
 }
 declare const transactionBrand: unique symbol;
 export interface TransactionContext {
