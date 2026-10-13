@@ -4,16 +4,12 @@ export type * from "./identity.js";
 export type * from "./preparation.js";
 export type * from "./approval.js";
 export type * from "./creation-tracker.js";
+export * from "./evidence-fetch.js";
 
 // 邊界合約：實作留到後續 milestone；不公開 ORM 或私鑰。
 export interface ImmutableObjectStore {
   putIfAbsent(bytes: Uint8Array, contentHash: string): Promise<{ uri: string }>;
   read(uri: string): Promise<Uint8Array>;
-}
-export interface SourceFetcher {
-  fetchAllowed(
-    sourceId: string,
-  ): Promise<{ bytes: Uint8Array; observedAt: string; sourceUrl: string }>;
 }
 export interface ModelGateway {
   forecast(request: {

@@ -28,3 +28,9 @@ export {
   assertCreationTrackingScheduleInstalled,
   assertCreationTrackingMigrationsInstalled,
 } from "./creation-tracking-schedule.js";
+export {
+  allowlistFetcher,
+  httpsTransport,
+  httpsRequestOptions,
+} from "./allowlist-fetcher.js";
+export { postgresEvidenceFetchStore } from "./evidence-fetch-store.js";
