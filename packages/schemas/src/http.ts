@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CreationChainStatus } from "./creation-status.ts";
+import { PublicDeployment } from "./deployment.ts";
 import {
   CandidateInput,
   CandidateRevisionInput,
@@ -58,9 +59,11 @@ export const ConfigResponse = z.strictObject({
     "m2-identity",
     "m2-preparation",
     "m2-approval",
+    "m2-markets",
+    "m2-trading",
   ]),
-  tradingEnabled: z.literal(false),
-  deployment: z.null(),
+  tradingEnabled: z.boolean(),
+  deployment: z.union([z.null(), PublicDeployment]),
   asset: z.strictObject({
     name: z.literal("Blink Test USD"),
     symbol: z.literal("bUSD"),
@@ -68,6 +71,7 @@ export const ConfigResponse = z.strictObject({
     hasValue: z.literal(false),
   }),
 });
+export type ConfigResponse = z.infer<typeof ConfigResponse>;
 export const SignedQuoteResponse = z.strictObject({
   deploymentId: DeploymentId,
   quoteId: Hash,

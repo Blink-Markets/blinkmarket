@@ -66,6 +66,22 @@ export const DeploymentManifest = z
       });
   });
 export type DeploymentManifest = z.infer<typeof DeploymentManifest>;
+// What /v1/config may publish. An explicit allowlist taken from the manifest's own member schemas
+// (omit() is unavailable on a refined object): new manifest fields stay private by default.
+const manifestShape = DeploymentManifest.shape;
+export const PublicDeployment = z.strictObject({
+  deploymentId: manifestShape.deploymentId,
+  chainId: manifestShape.chainId,
+  deploymentBlock: manifestShape.deploymentBlock,
+  contracts: manifestShape.contracts,
+  artifacts: manifestShape.artifacts.pick({
+    abiHashes: true,
+    bytecodeHashes: true,
+  }),
+  roles: manifestShape.roles,
+  parameters: manifestShape.parameters,
+});
+export type PublicDeployment = z.infer<typeof PublicDeployment>;
 export function requireDeployment(
   input: unknown,
   expectedDeploymentId: string,

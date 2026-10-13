@@ -17,7 +17,7 @@ import {
   encodeMarketCreation,
   evidenceIntegrity,
 } from "@blink/adapters";
-import { apiConfig } from "./config.js";
+import { apiConfig, modeAtLeast } from "./config.js";
 
 const config = apiConfig(process.env);
 const pool =
@@ -38,11 +38,11 @@ try {
   if (pool) {
     await assertIdentityRuntimeRole(pool);
     await pool.query("SELECT id FROM identity.api_keys LIMIT 0");
-    if (config.mode === "preparation" || config.mode === "approval")
+    if (modeAtLeast(config.mode, "preparation"))
       await pool.query("SELECT id FROM discovery.candidates LIMIT 0");
-    if (config.mode === "approval")
+    if (modeAtLeast(config.mode, "approval"))
       await pool.query("SELECT id FROM markets.creation_intents LIMIT 0");
-    if (config.mode === "approval")
+    if (modeAtLeast(config.mode, "approval"))
       await pool.query(
         "SELECT intent_id FROM chain.creation_projections LIMIT 0",
       );
@@ -50,7 +50,7 @@ try {
   const app = buildApi(
     pool
       ? {
-          ...(config.mode === "approval"
+          ...(modeAtLeast(config.mode, "approval")
             ? {
                 approval: createApprovalService({
                   store: postgresApprovalStore(pool),
@@ -66,7 +66,7 @@ try {
                 }),
               }
             : {}),
-          ...(config.mode === "preparation" || config.mode === "approval"
+          ...(modeAtLeast(config.mode, "preparation")
             ? {
                 preparation: createPreparationService(
                   postgresPreparationStore(pool),
@@ -79,6 +79,11 @@ try {
             identityCrypto,
             config.walletOrigin!,
           ),
+          // Later tasks register their route services here for these modes.
+          services: [],
+          ...(config.mode === "markets" || config.mode === "trading"
+            ? { stage: `m2-${config.mode}` as const }
+            : {}),
         }
       : {},
   );

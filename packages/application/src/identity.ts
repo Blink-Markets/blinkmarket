@@ -13,11 +13,22 @@ import type {
 } from "@blink/ports";
 
 export class IdentityError extends Error {
+  readonly details: Record<string, unknown>;
+  readonly retryable: boolean;
+  readonly retryAfterSeconds: number | undefined;
   constructor(
     readonly status: number,
     readonly code: string,
+    options: {
+      details?: Record<string, unknown>;
+      retryable?: boolean;
+      retryAfterSeconds?: number;
+    } = {},
   ) {
     super(code);
+    this.details = options.details ?? {};
+    this.retryable = options.retryable ?? code === "REQUEST_IN_PROGRESS";
+    this.retryAfterSeconds = options.retryAfterSeconds;
   }
 }
 export const identityPaths = [
