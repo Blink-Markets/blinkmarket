@@ -28,6 +28,19 @@ const json = (value: unknown) =>
     (_, v) => (typeof v === "bigint" ? v.toString() : v),
     2,
   );
+// Fixed message on any failure: the library's own errors can echo the key's value.
+function deployerAccount(key: string | undefined) {
+  if (key && /^0x[0-9a-fA-F]{64}$/.test(key)) {
+    try {
+      return privateKeyToAccount(key as `0x${string}`);
+    } catch {
+      // Out of the curve's range: fall through to the fixed error below.
+    }
+  }
+  throw new Error(
+    "DEPLOYER_KEY_INVALID: DEPLOYER_PRIVATE_KEY must be 0x + 64 hex and a valid secp256k1 key",
+  );
+}
 const exists = (path: string) =>
   stat(path).then(
     () => true,
@@ -91,12 +104,7 @@ try {
     });
     console.log(json({ mode: "DRY_RUN", deploymentId, gitCommit, ...plan }));
   } else {
-    const key = process.env["DEPLOYER_PRIVATE_KEY"];
-    if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key))
-      throw new Error(
-        "DEPLOYER_KEY_INVALID: DEPLOYER_PRIVATE_KEY must be 0x + 64 hex",
-      );
-    const account = privateKeyToAccount(key as `0x${string}`);
+    const account = deployerAccount(process.env["DEPLOYER_PRIVATE_KEY"]);
     if (
       values.deployer &&
       values.deployer.toLowerCase() !== account.address.toLowerCase()
@@ -116,7 +124,8 @@ try {
       client,
       wallet: createWalletClient({
         account,
-        transport: http(rpc, { timeout: 10_000, retryCount: 1 }),
+        // No retry: a repeated send could mask a transaction that was already accepted.
+        transport: http(rpc, { timeout: 10_000, retryCount: 0 }),
       }),
       roles: roles as RoleAddresses,
       deploymentId,
@@ -124,7 +133,15 @@ try {
       gitCommit,
       dependencies,
     });
-    await writeFile(values.out!, json(manifest) + "\n", { flag: "wx" });
+    try {
+      await writeFile(values.out!, json(manifest) + "\n", { flag: "wx" });
+    } catch {
+      // The contracts are on chain and verified: never lose their addresses.
+      console.log(json(manifest));
+      throw new Error(
+        "MANIFEST_WRITE_FAILED: the verified manifest is printed on stdout; save it before doing anything else",
+      );
+    }
     console.log(
       json({
         mode: "BROADCAST",

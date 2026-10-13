@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import {
+  encodeDeployData,
   getAddress,
   getContractAddress,
   keccak256,
@@ -110,6 +111,34 @@ function checkDeploymentId(deploymentId: string) {
     throw new Error("INVALID_DEPLOYMENT_ID");
 }
 
+const reason = (error: unknown) =>
+  error instanceof Error
+    ? ((error as { shortMessage?: string }).shortMessage ?? error.message)
+    : "unknown error";
+
+// Inputs that would only fail once the token is on chain: arguments the ABI encoder rejects
+// (such as a bad-checksum address) and a maker the BlinkMarket constructor refuses.
+async function checkDeployable(
+  client: PublicClient,
+  artifacts: PerContract<Artifact>,
+  roles: RoleAddresses,
+  token: Address,
+) {
+  const args = constructorArgs(roles, token);
+  try {
+    for (const name of ["BlinkTestUSD", "BlinkMarket"] as const)
+      encodeDeployData({
+        abi: artifacts[name].abi,
+        bytecode: artifacts[name].bytecode,
+        args: args[name],
+      });
+  } catch (error) {
+    throw new Error("INVALID_CONSTRUCTOR_ARGS: " + reason(error));
+  }
+  if (await client.getCode({ address: roles.maker }))
+    throw new Error("MAKER_HAS_CODE");
+}
+
 // Plan hashes are the artifacts' ABI and creation-bytecode hashes. The runtime code
 // depends on constructor immutables and the deployment address, so only the chain knows it.
 export async function planDeployment(input: {
@@ -127,6 +156,12 @@ export async function planDeployment(input: {
     nextAddresses(input.client, input.deployer),
     input.client.getBalance({ address: input.deployer }),
   ]);
+  await checkDeployable(
+    input.client,
+    artifacts,
+    input.roles,
+    addresses.BlinkTestUSD,
+  );
   return {
     chainId: 84532 as const,
     deployer: input.deployer,
@@ -142,11 +177,6 @@ export async function planDeployment(input: {
     },
   };
 }
-
-const reason = (error: unknown) =>
-  error instanceof Error
-    ? ((error as { shortMessage?: string }).shortMessage ?? error.message)
-    : "unknown error";
 
 export async function deployContracts(input: {
   client: PublicClient;
@@ -196,9 +226,11 @@ export async function deployContracts(input: {
     },
     tradingEnabled: false,
   });
-  // Dry-parse the manifest with the predicted addresses so a bad commit or dependency
-  // list is found before any gas is spent, not after.
+  // Find everything that would fail after the token is on chain before spending any gas:
+  // constructor arguments and the maker, then a dry parse of the manifest with the
+  // predicted addresses (bad commit or dependency list).
   const predicted = await nextAddresses(client, account.address);
+  await checkDeployable(client, artifacts, roles, predicted.BlinkTestUSD);
   const preflight = DeploymentManifest.safeParse(
     manifestFor(predicted, 0n, {
       BlinkTestUSD: artifacts.BlinkTestUSD.creationBytecodeHash,

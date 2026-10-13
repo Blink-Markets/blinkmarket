@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync, execFileSync } from "node:child_process";
 import { createServer } from "node:net";
 import { existsSync } from "node:fs";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,7 @@ import {
   defineChain,
   getContractAddress,
   http,
+  isAddress,
   zeroAddress,
   type Abi,
   type Address,
@@ -268,6 +269,11 @@ for (const [chainId, code] of [
     });
   });
 
+// Same letters as admin with the wrong checksum: the schema accepts it, the ABI encoder does not.
+const badChecksum = roles.admin.replace(/[a-f]/i, (c) =>
+  c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase(),
+);
+assert.equal(isAddress(badChecksum), false);
 const roleCases: [
   string,
   Partial<Record<keyof RoleAddresses, string>>,
@@ -281,6 +287,11 @@ const roleCases: [
   ],
   ["a zero-address role", { challenger: zeroAddress }, /INVALID_ROLES/],
   ["a malformed role", { challenger: "0x1234" }, /INVALID_ROLES/],
+  [
+    "a role with a bad checksum",
+    { admin: badChecksum },
+    /INVALID_CONSTRUCTOR_ARGS/,
+  ],
   ["the deployer as admin", { admin: deployer.address }, /DEPLOYER_HOLDS_ROLE/],
   [
     "the deployer as maker, in lowercase",
@@ -358,31 +369,62 @@ test("a failed on-chain verification returns no manifest and names the deployed 
   });
 });
 
-test("a failure after the first deployment names the contract already on chain", async () => {
+test("a maker that has code is rejected before any transaction", async () => {
   await withAnvil(84532, async (node) => {
-    // BlinkMarket rejects a maker that has code, so its deployment fails after the token's.
+    // BlinkMarket's constructor reverts on this, which would happen after the token is on chain.
     await node.client.request({
       method: "anvil_setCode" as never,
       params: [roles.maker, "0x00"] as never,
     });
-    const predictedToken = getContractAddress({
-      from: deployer.address,
-      nonce: 0n,
-    });
-    await assert.rejects(
-      deployContracts(request(node)),
-      new RegExp("already deployed: BlinkTestUSD " + predictedToken),
-    );
-    assert.equal(
-      await node.client.getTransactionCount({ address: deployer.address }),
-      1,
-    );
-    assert.notEqual(
-      await node.client.getCode({ address: predictedToken }),
-      undefined,
-    );
+    const blockBefore = await node.client.getBlockNumber();
+    await assert.rejects(planDeployment(planRequest(node)), /MAKER_HAS_CODE/);
+    await assert.rejects(deployContracts(request(node)), /MAKER_HAS_CODE/);
+    await sentNothing(node.client, blockBefore);
   });
 });
+
+// The RPC answers 84532 to the first `answers` chain-id reads and 8453 afterwards.
+const flipsToMainnet = (client: PublicClient, answers: number) => {
+  let reads = 0;
+  return {
+    ...client,
+    getChainId: async () => (++reads <= answers ? 84532 : 8453),
+  } as unknown as PublicClient;
+};
+const tokenAddress = getContractAddress({ from: deployer.address, nonce: 0n });
+const marketAddress = getContractAddress({ from: deployer.address, nonce: 1n });
+// Reads: 1 = initial check, 2 = before the token broadcast, 3 = before the market broadcast.
+for (const [answers, sent, pattern] of [
+  [1, 0, /^Error: MAINNET_REFUSED$/],
+  [
+    2,
+    1,
+    new RegExp(
+      "^Error: MAINNET_REFUSED \\(already deployed: BlinkTestUSD " +
+        tokenAddress +
+        "\\)$",
+    ),
+  ],
+] as const)
+  test(`the chain is re-checked before each broadcast (${sent} sent after ${answers} good reads)`, async () => {
+    await withAnvil(84532, async (node) => {
+      await assert.rejects(
+        deployContracts(
+          request(node, { client: flipsToMainnet(node.client, answers) }),
+        ),
+        pattern,
+      );
+      assert.equal(
+        await node.client.getTransactionCount({ address: deployer.address }),
+        sent,
+      );
+      // The market is never sent once the chain check fails.
+      assert.equal(
+        await node.client.getCode({ address: marketAddress }),
+        undefined,
+      );
+    });
+  });
 
 test("readReleaseCommit returns HEAD and refuses a dirty tree unless allowed", async () => {
   const dir = await mkdtemp(join(tmpdir(), "blink-git-"));
@@ -589,3 +631,59 @@ test("CLI rejects a --deployer that does not match the key", async () => {
     }
   });
 });
+
+test("CLI reports an invalid key with a fixed message and never echoes it", async () => {
+  await withAnvil(84532, async (node) => {
+    const out = await outPath();
+    try {
+      // Well-formed hex outside the secp256k1 range: the library error would echo it in decimal.
+      const outOfRange = "0x" + "ff".repeat(32);
+      for (const key of [outOfRange, "0x" + "00".repeat(32)]) {
+        const result = cli(
+          { DEPLOY_RPC_URL: node.url, DEPLOYER_PRIVATE_KEY: key },
+          ["--broadcast", "--out", out],
+        );
+        assert.notEqual(result.status, 0);
+        assert.match(result.stderr, /^DEPLOYER_KEY_INVALID: /);
+        assert.ok(!result.output.includes(key.slice(2)));
+        if (key === outOfRange)
+          assert.ok(!result.output.includes(BigInt(key).toString()));
+      }
+      await sentNothing(node.client, 0n);
+    } finally {
+      await rm(dirname(out), { recursive: true, force: true });
+    }
+  });
+});
+
+test(
+  "CLI prints the verified manifest when the output file cannot be written",
+  { skip: process.getuid?.() === 0 && "root ignores directory permissions" },
+  async () => {
+    await withAnvil(84532, async (node) => {
+      const out = await outPath();
+      try {
+        // The directory exists, so the up-front check passes; the write fails after deployment.
+        await chmod(dirname(out), 0o500);
+        const result = cli(
+          { DEPLOY_RPC_URL: node.url, DEPLOYER_PRIVATE_KEY: deployerKey },
+          ["--broadcast", "--out", out],
+        );
+        assert.notEqual(result.status, 0);
+        assert.match(result.stderr, /MANIFEST_WRITE_FAILED/);
+        assert.ok(!existsSync(out));
+        assert.ok(!result.output.includes(deployerKey.slice(2)));
+        const manifest = DeploymentManifest.parse(JSON.parse(result.stdout));
+        await verifyDeploymentOnChain(
+          manifest,
+          "anvil-cli",
+          node.client,
+          await abis(),
+        );
+      } finally {
+        await chmod(dirname(out), 0o700);
+        await rm(dirname(out), { recursive: true, force: true });
+      }
+    });
+  },
+);
