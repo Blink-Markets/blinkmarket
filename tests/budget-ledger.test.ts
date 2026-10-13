@@ -361,6 +361,44 @@ test("release is only for reservations that were never sent", () =>
     );
   }));
 
+test("a released reservation gives its question capacity back", () =>
+  withLedger(async (_s, ledger) => {
+    const options = { questionCapUsdMicros: 100n };
+    const first = await ledger.reserve(reservation(100n, options));
+    await assert.rejects(
+      ledger.reserve(reservation(1n, options)),
+      jobError("BUDGET_EXHAUSTED"),
+    );
+    await ledger.release(first.reservationId);
+    const second = await ledger.reserve(reservation(100n, options));
+    await ledger.release(second.reservationId);
+    await ledger.reserve(reservation(100n, options));
+    assert.deepEqual(await ledger.questionSummary("q1"), {
+      capUsdMicros: 100n,
+      spentUsdMicros: 0n,
+      reservedUsdMicros: 100n,
+      unknownUsdMicros: 0n,
+    });
+  }));
+
+test("a released reservation gives its day capacity back", () =>
+  withLedger(async (s, ledger) => {
+    await s.asOwner(() =>
+      s.db.query(
+        `INSERT INTO budgets.daily(day,cap_usd_micros)
+         VALUES ((blink.now() AT TIME ZONE 'UTC')::date, 100)`,
+      ),
+    );
+    const first = await ledger.reserve(reservation(100n, { questionKey: "a" }));
+    await assert.rejects(
+      ledger.reserve(reservation(1n, { questionKey: "b" })),
+      jobError("BUDGET_EXHAUSTED"),
+    );
+    await ledger.release(first.reservationId);
+    await ledger.reserve(reservation(100n, { questionKey: "b" }));
+    assert.equal((await ledger.daySummary()).reservedUsdMicros, 100n);
+  }));
+
 test("a run id can be reserved only once and bad requests are refused", () =>
   withLedger(async (_s, ledger) => {
     const runId = randomUUID();

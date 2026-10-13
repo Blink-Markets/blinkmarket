@@ -167,6 +167,66 @@ test("a failed heartbeat aborts the handler and nothing is acknowledged", async 
   }
 });
 
+test("an acknowledgement waits for a heartbeat still in flight and obeys its result", async () => {
+  for (const heartbeat of ["false", "rejects", "true"] as const) {
+    for (const handler of ["succeeds", "throws"] as const) {
+      const calls: string[] = [];
+      const errors: string[] = [];
+      let settleHeartbeat!: () => void;
+      const pending = new Promise<boolean>((resolve, reject) => {
+        settleHeartbeat = () =>
+          heartbeat === "rejects"
+            ? reject(new Error("DATABASE_DOWN"))
+            : resolve(heartbeat === "true");
+      });
+      let heartbeatStarted = false;
+      let finishHandler!: () => void;
+      const handlerGate = new Promise<void>((resolve) => {
+        finishHandler = resolve;
+      });
+      const worker = startWorker({
+        queue: scriptedQueue(
+          leasedJob,
+          () => {
+            heartbeatStarted = true;
+            return pending;
+          },
+          calls,
+        ),
+        handlers: {
+          "evidence.fetch": async () => {
+            await handlerGate;
+            if (handler === "throws") throw new Error("boom");
+          },
+        },
+        workerId: "w",
+        ...timing,
+        onError: (code) => errors.push(code),
+      });
+      const acknowledgements = () =>
+        calls.filter((call) => call === "complete" || call === "fail");
+      await eventually(() => heartbeatStarted);
+      finishHandler();
+      // The handler is done but its heartbeat is not: nothing may be acknowledged yet.
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      assert.deepEqual(acknowledgements(), [], `${heartbeat}/${handler}`);
+      settleHeartbeat();
+      if (heartbeat === "true")
+        await eventually(() => acknowledgements().length > 0);
+      else await eventually(() => errors.includes("LEASE_LOST"));
+      await worker.stop();
+      assert.deepEqual(
+        acknowledgements(),
+        heartbeat === "true"
+          ? [handler === "succeeds" ? "complete" : "fail"]
+          : [],
+        `${heartbeat}/${handler}`,
+      );
+      if (heartbeat !== "true") assert.deepEqual(errors, ["LEASE_LOST"]);
+    }
+  }
+});
+
 test("a successful handler heartbeats while it runs and then completes the job", () =>
   withDb(async (s, queue) => {
     const { jobId } = await queue.enqueue({

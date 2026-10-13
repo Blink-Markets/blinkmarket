@@ -9,6 +9,7 @@ import {
 } from "../packages/application/src/budgeted-model.js";
 import {
   maxCostUsdMicros,
+  usageCostUsdMicros,
   type ModelRate,
 } from "../packages/domain/src/costs.js";
 import { JobError } from "../packages/domain/src/jobs.js";
@@ -119,31 +120,52 @@ test("maxCostUsdMicros rounds every component up and adds the per-request fee", 
   );
 });
 
-test("the fixture gateway is deterministic and never costs more than the maximum", async () => {
+test("the fixture gateway bills exactly the bytes it returns and never exceeds the maximum", async () => {
+  const outputs = new Map<string, string>();
   const gateway = fixtureModelGateway({
     rates: { "fixture-model": rate },
-    respond: (r) => "x".repeat(r.maxOutputTokens * 5),
+    respond: (r) => outputs.get(r.promptHash)!,
   });
-  const call = {
-    runId: "11111111-1111-4111-8111-111111111111",
-    model: "fixture-model",
-    promptHash: "0x00",
-    system: "sys",
-    input: "héllo",
-    maxOutputTokens: 10,
-    reservationId: "r",
+  const call = (output: string, maxOutputTokens: number) => {
+    const promptHash = "0x" + outputs.size;
+    outputs.set(promptHash, output);
+    return {
+      runId: "11111111-1111-4111-8111-111111111111",
+      model: "fixture-model",
+      promptHash,
+      system: "sys",
+      input: "héllo",
+      maxOutputTokens,
+      reservationId: "r",
+    };
   };
-  const first = await gateway.call(call);
-  assert.deepEqual(await gateway.call(call), first);
+  const inputTokens = new TextEncoder().encode("syshéllo").length;
+  const cost = (outputTokens: number) =>
+    usageCostUsdMicros({ inputTokens, outputTokens, rate });
+
+  // Oversized output is cut to the byte limit and billed as returned.
+  const oversized = await gateway.call(call("x".repeat(50), 10));
+  assert.equal(oversized.output, "x".repeat(10));
+  assert.equal(oversized.actualUsdMicros, cost(10));
+  assert.equal(
+    oversized.actualUsdMicros,
+    maxCostUsdMicros({ inputBytes: inputTokens, maxOutputTokens: 10, rate }),
+  );
+  // A multi-byte character is never split: 3 bytes hold one two-byte character.
+  const multibyte = await gateway.call(call("ééé", 3));
+  assert.equal(multibyte.output, "é");
+  assert.equal(multibyte.actualUsdMicros, cost(2));
+  assert.equal((await gateway.call(call("ééé", 4))).output, "éé");
+  assert.equal((await gateway.call(call("ééé", 1))).output, "");
+  // Output within the limit is returned untouched and billed by its own bytes.
+  const short = call("ok", 10);
+  const first = await gateway.call(short);
+  assert.equal(first.output, "ok");
+  assert.equal(first.actualUsdMicros, cost(2));
+  assert.deepEqual(await gateway.call(short), first);
   assert.equal(gateway.provider, "fixture");
-  assert.equal(first.providerRequestId, "fixture-" + call.runId);
+  assert.equal(first.providerRequestId, "fixture-" + short.runId);
   assert.equal(gateway.rate("unknown"), null);
-  const max = maxCostUsdMicros({
-    inputBytes: new TextEncoder().encode("syshéllo").length,
-    maxOutputTokens: 10,
-    rate,
-  });
-  assert.equal(first.actualUsdMicros, max);
   const failing = fixtureModelGateway({
     provider: "other",
     rates: {},
@@ -151,7 +173,7 @@ test("the fixture gateway is deterministic and never costs more than the maximum
   });
   assert.equal(failing.provider, "other");
   await assert.rejects(
-    failing.call(call),
+    failing.call(short),
     (e) => e instanceof ModelCallError && e.kind === "NOT_SENT",
   );
 });
@@ -360,6 +382,26 @@ test("a retry is a new run and does not release an unknown earlier attempt", () 
         reservedUsdMicros: 0n,
         unknownUsdMicros: MAX_FOR_SMALL_PROMPT,
       });
+    },
+  );
+});
+
+test("a request that was never sent does not use up the question's budget", () => {
+  let first = true;
+  return withCaller(
+    () => {
+      if (first) {
+        first = false;
+        return new ModelCallError("NOT_SENT");
+      }
+      return "ok";
+    },
+    async (_s, caller, ledger) => {
+      // The cap fits exactly one worst-case request.
+      const tight = { questionCapUsdMicros: MAX_FOR_SMALL_PROMPT };
+      await assert.rejects(caller.call(request(tight)), modelFailure(true));
+      await caller.call(request(tight));
+      assert.equal((await ledger.totals()).spentUsdMicros, FIXTURE_ACTUAL);
     },
   );
 });

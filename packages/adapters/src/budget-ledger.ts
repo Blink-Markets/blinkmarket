@@ -7,8 +7,9 @@ type Db = Pick<PoolClient, "query">;
 
 const MAX_QUESTION_CAP_USD_MICROS = 2_000_000n;
 const UTC_TODAY = "(blink.now() AT TIME ZONE 'UTC')::date";
-// Σ actual(RECONCILED) + Σ max(RESERVED|UNKNOWN): what a scope has spent or may still spend.
-const USED = `COALESCE(SUM(CASE state WHEN 'RECONCILED' THEN actual_usd_micros ELSE max_usd_micros END),0)::text`;
+// The one definition of what a scope has used: RECONCILED counts its actual cost,
+// RESERVED and UNKNOWN their full maximum, RELEASED nothing. Admission and every
+// summary read these buckets.
 const BUCKETS = `
   COALESCE(SUM(r.actual_usd_micros) FILTER (WHERE r.state='RECONCILED'),0)::text AS spent,
   COALESCE(SUM(r.max_usd_micros) FILTER (WHERE r.state='RESERVED'),0)::text AS reserved,
@@ -24,6 +25,10 @@ const usage = (row: Buckets) => ({
   reservedUsdMicros: BigInt(row.reserved),
   unknownUsdMicros: BigInt(row.unknown),
 });
+const used = (row: Buckets) => {
+  const { spentUsdMicros, reservedUsdMicros, unknownUsdMicros } = usage(row);
+  return spentUsdMicros + reservedUsdMicros + unknownUsdMicros;
+};
 
 function validRequest(ok: boolean) {
   if (!ok) throw new JobError("BUDGET_REQUEST_INVALID", false);
@@ -125,18 +130,17 @@ export function postgresBudgetLedger(pool: Pool): BudgetLedger {
         const question = await lockQuestion(db, input.questionKey);
         if (daily.gate || question.gate)
           throw new JobError("BUDGET_GATE_CLOSED", false);
-        const dayUsed = await db.query<{ used: string }>(
-          `SELECT ${USED} AS used FROM budgets.reservations WHERE day=$1::date`,
+        const dayBuckets = await db.query<Buckets>(
+          `SELECT ${BUCKETS} FROM budgets.reservations r WHERE r.day=$1::date`,
           [day],
         );
-        const questionUsed = await db.query<{ used: string }>(
-          `SELECT ${USED} AS used FROM budgets.reservations WHERE question_key=$1`,
+        const questionBuckets = await db.query<Buckets>(
+          `SELECT ${BUCKETS} FROM budgets.reservations r WHERE r.question_key=$1`,
           [input.questionKey],
         );
         if (
-          BigInt(dayUsed.rows[0]!.used) + input.maxUsdMicros >
-            BigInt(daily.cap) ||
-          BigInt(questionUsed.rows[0]!.used) + input.maxUsdMicros >
+          used(dayBuckets.rows[0]!) + input.maxUsdMicros > BigInt(daily.cap) ||
+          used(questionBuckets.rows[0]!) + input.maxUsdMicros >
             BigInt(question.cap)
         )
           throw new JobError("BUDGET_EXHAUSTED", false);

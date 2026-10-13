@@ -25,7 +25,7 @@ The draft `JobQueue` and `ModelGateway` interfaces in `packages/ports/src/index.
 - **Fencing.** `heartbeat`, `complete` and `fail` match job, owner **and** token and require an unexpired lease; otherwise they return `false` / `"STALE"`. A worker that lost its lease cannot acknowledge anything.
 - **Failure.** Retryable and `attempt < max_attempts` requeues with `retryDelayMs(attempt)` (5 s doubling, capped at 5 min). Anything else is `DEAD` with `finished_at` and an `operations.audit_log` row (`actor=worker`, `action=job.dead`, `resource=<jobId>`, `reason=<code>`), written in the same statement.
 - **Crash loops.** A job whose lease expires after its last attempt is dead-lettered at the next `lease` call (`last_error_code=LEASE_EXPIRED`, same audit row) instead of being leased forever. This goes beyond the brief; without it a job that kills its worker every time would never reach the dead-letter state.
-- **Worker loop.** `startWorker` runs one job at a time. It heartbeats every `heartbeatMs` (default 20 s, lease 60 s). A heartbeat that returns `false` or throws aborts the handler's `signal` and nothing is acknowledged; the job is re-leased after expiry. A `JobError` becomes `fail(code, retryable)`; any other error becomes `fail("INTERNAL_ERROR", true)`. `stop()` stops claiming and lets the current job finish; aborting `options.signal` also cancels the running handler. With an empty handler map it never polls.
+- **Worker loop.** `startWorker` runs one job at a time. It heartbeats every `heartbeatMs` (default 20 s, lease 60 s). A heartbeat that returns `false` or throws aborts the handler's `signal` and nothing is acknowledged; the job is re-leased after expiry. When the handler finishes while a heartbeat is still in flight, the runtime waits for that heartbeat before acknowledging, so a failed heartbeat is never ignored. A `JobError` becomes `fail(code, retryable)`; any other error becomes `fail("INTERNAL_ERROR", true)`. `stop()` stops claiming and lets the current job finish; aborting `options.signal` also cancels the running handler. With an empty handler map it never polls.
 - **Periodic work.** `schedulePeriodic` enqueues one job per `everyMs` bucket through the dedupe key `type:payload:bucket`.
 
 ## Outbox dispatch
@@ -40,7 +40,7 @@ All amounts are USD micros (1 USD = 1,000,000). The `budgets` schema holds `dail
 - **Reserve.** In one transaction: lock the daily row, then the question row, compute `used = Σ actual(RECONCILED) + Σ max(RESERVED|UNKNOWN)` for the day and for the question, and admit only if no gate is closed and `used + max <= cap` for both (`BUDGET_GATE_CLOSED` / `BUDGET_EXHAUSTED`, both non-retryable). A rejected call leaves nothing behind. A repeated `runId` fails with `RUN_ID_REUSED`.
 - **Unknown cost.** `markUnknown` keeps the full maximum occupied. A late `reconcile` can still settle it.
 - **Overrun.** `reconcile` with `actual > max` records the full actual, appends an `OVERRUN` entry for the excess, and closes the gates of the reservation's day and question (`gate_closed_reason = 'OVERRUN'`). It takes the same locks in the same order as `reserve`.
-- **Release** is only legal from `RESERVED`, i.e. for requests that were definitely not sent. Other illegal transitions fail with `RESERVATION_STATE_INVALID`.
+- **Release** is only legal from `RESERVED`, i.e. for requests that were definitely not sent. A released reservation counts for nothing: day and question capacity come back. Admission and all summaries read the same buckets (`RECONCILED` actual, `RESERVED`/`UNKNOWN` maximum). Other illegal transitions fail with `RESERVATION_STATE_INVALID`.
 
 ## Budgeted model calls
 
@@ -53,7 +53,7 @@ All amounts are USD micros (1 USD = 1,000,000). The `budgets` schema holds `dail
 
 It never retries. A retry is a new `runId` and a new reservation, and an `UNKNOWN` earlier attempt keeps its own.
 
-The fixture gateway reports the usage cost at the rate; its output side is clamped to `maxOutputTokens`, so it never exceeds the reserved maximum. `providerRequestId` is `fixture-<runId>`.
+The fixture gateway treats one UTF-8 byte as one token, like the reservation: it cuts the response to `maxOutputTokens` bytes (never inside a character) and reports the usage cost of exactly the bytes it returns, so the cost never exceeds the reserved maximum. `providerRequestId` is `fixture-<runId>`.
 
 ## Worker app
 
@@ -72,13 +72,13 @@ Run on 2026-10-14 against PGlite and a local PostgreSQL (`TEST_POSTGRES_ADMIN_UR
 
 | Command | Result |
 | --- | --- |
-| `pnpm check` | passed: 148 Node tests, typecheck (including web), boundaries, contracts |
+| `pnpm check` | passed: 152 Node tests, typecheck (including web), boundaries, contracts |
 | `pnpm build` | passed |
 | `pnpm build:services && pnpm test:service-build` | passed: 3 bundle tests, including the worker entry failing closed |
-| `node --import tsx --test tests/postgres/jobs-budgets.test.ts` | passed: 6 tests on real PostgreSQL, repeated 4 times without a failure |
+| `node --import tsx --test tests/postgres/jobs-budgets.test.ts` | passed: 7 tests on real PostgreSQL, repeated without a failure |
 | `pnpm test:postgres` (existing identity test) | passed |
 
-The real-PostgreSQL tests race eight independent sessions for a day cap that admits five (exactly five succeed), eight for a question cap that admits four, twelve for the default cap on a day with no row yet, two workers leasing 30 jobs (no duplicate), and concurrent outbox dispatchers. Removing the row locks or `SKIP LOCKED` makes them fail. The worker bundle was also run once against a real database: a privileged login was refused, the proper login became ready, `/health/jobs` and the outbox loop worked, and SIGTERM exited cleanly.
+The real-PostgreSQL tests race eight independent sessions for a day cap that admits five (exactly five succeed), eight for a question cap that admits four, eight spread over two business days (so only the question lock serializes them) for one question cap, twelve for the default cap on a day with no row yet, two workers leasing 30 jobs (no duplicate), and concurrent outbox dispatchers. Removing the row locks or `SKIP LOCKED` makes them fail, and removing only the question lock fails the two-day race. The worker bundle was also run once against a real database: a privileged login was refused, the proper login became ready, `/health/jobs` and the outbox loop worked, and SIGTERM exited cleanly.
 
 ## Remaining limits
 

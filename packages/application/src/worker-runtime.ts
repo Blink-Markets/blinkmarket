@@ -61,22 +61,24 @@ export function startWorker(options: {
     const controller = new AbortController();
     active = controller;
     let leaseLost = false;
-    let finished = false;
-    let beating = false;
+    let inflight: Promise<void> | null = null;
     const lose = () => {
-      if (finished || leaseLost) return;
+      if (leaseLost) return;
       leaseLost = true;
       controller.abort(new JobError("LEASE_LOST", true));
     };
     const heartbeat = setInterval(() => {
-      if (beating || leaseLost) return;
-      beating = true;
-      queue
-        .heartbeat(job, leaseMs)
-        .then((ok) => ok || lose(), lose)
-        .finally(() => {
-          beating = false;
-        });
+      if (inflight || leaseLost) return;
+      const beat = (async () => {
+        try {
+          if (!(await queue.heartbeat(job, leaseMs))) lose();
+        } catch {
+          lose();
+        }
+      })();
+      inflight = beat.finally(() => {
+        inflight = null;
+      });
     }, heartbeatMs);
     let failure: { error: unknown } | null = null;
     try {
@@ -84,10 +86,12 @@ export function startWorker(options: {
     } catch (error) {
       failure = { error };
     } finally {
-      finished = true;
       clearInterval(heartbeat);
       active = null;
     }
+    // A heartbeat still in flight decides whether the lease is ours: wait for it
+    // before acknowledging anything.
+    await inflight;
     if (leaseLost) return report("LEASE_LOST");
     try {
       if (!failure) {

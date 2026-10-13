@@ -18,7 +18,7 @@ if (!adminUrl)
 async function withDatabase(
   run: (database: {
     owner: pg.Pool;
-    workerPool: () => pg.Pool;
+    workerPool: (clockOffsetSeconds?: number) => pg.Pool;
   }) => Promise<void>,
 ) {
   const name = "blink_t2_" + randomUUID().replaceAll("-", "");
@@ -42,10 +42,12 @@ async function withDatabase(
     await run({
       owner,
       // One connection per pool: every caller is a separate PostgreSQL session.
-      workerPool: () => {
+      workerPool: (clockOffsetSeconds = 0) => {
         const pool = new pg.Pool({
           connectionString: url.toString(),
-          options: "-c role=blink_worker",
+          options:
+            "-c role=blink_worker " +
+            `-c blink.test_clock_offset_seconds=${clockOffsetSeconds}`,
           max: 1,
         });
         workers.push(pool);
@@ -105,7 +107,7 @@ test(
         `INSERT INTO budgets.daily(day,cap_usd_micros)
        VALUES ((blink.now() AT TIME ZONE 'UTC')::date, 5000000)`,
       );
-      const pools = Array.from({ length: 8 }, workerPool);
+      const pools = Array.from({ length: 8 }, () => workerPool());
       const result = await race(
         pools,
         pools.map((_, i) => reserveInput("race-" + i, 1_000_000n, 1_000_000n)),
@@ -125,7 +127,7 @@ test(
   { timeout: 60_000 },
   () =>
     withDatabase(async ({ owner, workerPool }) => {
-      const pools = Array.from({ length: 8 }, workerPool);
+      const pools = Array.from({ length: 8 }, () => workerPool());
       const result = await race(
         pools,
         pools.map(() => reserveInput("shared", 500_000n, 2_000_000n)),
@@ -140,11 +142,31 @@ test(
 );
 
 test(
+  "S03: sessions on two business days share one question cap that admits four",
+  { timeout: 60_000 },
+  () =>
+    withDatabase(async ({ workerPool }) => {
+      // Half of the sessions run one day ahead, so no daily row serializes them:
+      // only the question row lock keeps the shared question under its cap.
+      const pools = Array.from({ length: 8 }, (_, i) =>
+        workerPool(i % 2 === 0 ? 0 : 86_400),
+      );
+      const result = await race(
+        pools,
+        pools.map(() =>
+          reserveInput("shared-across-days", 500_000n, 2_000_000n),
+        ),
+      );
+      assert.deepEqual(result, { admitted: 4, rejected: 4 });
+    }),
+);
+
+test(
   "the first reservations of a new day create one daily row and still honor the default cap",
   { timeout: 60_000 },
   () =>
     withDatabase(async ({ owner, workerPool }) => {
-      const pools = Array.from({ length: 12 }, workerPool);
+      const pools = Array.from({ length: 12 }, () => workerPool());
       const result = await race(
         pools,
         pools.map((_, i) => reserveInput("day-" + i, 2_000_000n, 2_000_000n)),
