@@ -5,6 +5,7 @@ import {
   createIdentityService,
   createPreparationService,
   createApprovalService,
+  createForecastService,
 } from "@blink/application";
 import {
   identityCrypto,
@@ -12,6 +13,7 @@ import {
   assertIdentityRuntimeRole,
   postgresPreparationStore,
   postgresApprovalStore,
+  postgresForecastStore,
   fileObjectStore,
   createSpecArchive,
   encodeMarketCreation,
@@ -46,6 +48,8 @@ try {
       await pool.query(
         "SELECT intent_id FROM chain.creation_projections LIMIT 0",
       );
+    if (modeAtLeast(config.mode, "markets"))
+      await pool.query("SELECT id FROM forecasts.windows LIMIT 0");
   }
   const app = buildApi(
     pool
@@ -79,8 +83,14 @@ try {
             identityCrypto,
             config.walletOrigin!,
           ),
-          // Later tasks register their route services here for these modes.
-          services: [],
+          services: modeAtLeast(config.mode, "markets")
+            ? [
+                createForecastService({
+                  store: postgresForecastStore(pool),
+                  crypto: identityCrypto,
+                }),
+              ]
+            : [],
           ...(config.mode === "markets" || config.mode === "trading"
             ? { stage: `m2-${config.mode}` as const }
             : {}),

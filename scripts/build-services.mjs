@@ -30,6 +30,7 @@ await build({
     migrate: "scripts/migrate.ts",
     "identity-admin": "scripts/identity-admin.ts",
     "evidence-admin": "scripts/evidence-admin.ts",
+    "forecast-admin": "scripts/forecast-admin.ts",
     "register-deployment": "scripts/register-deployment.ts",
     "reconcile-creation": "scripts/reconcile-creation.ts",
   },

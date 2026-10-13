@@ -19,6 +19,7 @@
     "replay": "node scripts/check-contracts.mjs && node --import tsx scripts/local-replay.ts",
     "db:migrate": "node --import tsx scripts/migrate.ts",
     "identity:admin": "node --import tsx scripts/identity-admin.ts",
+    "forecast:admin": "node --import tsx scripts/forecast-admin.ts",
     "evidence:admin": "node --import tsx scripts/evidence-admin.ts",
     "manifest:validate": "node --import tsx scripts/validate-manifest.ts",
     "manifest:verify": "node --import tsx scripts/verify-deployment.ts",
