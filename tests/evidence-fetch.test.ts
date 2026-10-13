@@ -6,6 +6,7 @@ import { PGlite } from "@electric-sql/pglite";
 import type { Pool } from "pg";
 import { FetchError } from "../packages/domain/src/network-policy.ts";
 import type {
+  EvidenceFetchStore,
   ImmutableObjectStore,
   SourceFetcher,
 } from "../packages/ports/src/index.js";
@@ -99,9 +100,13 @@ async function setup() {
 }
 type Setup = Awaited<ReturnType<typeof setup>>;
 
-function handlerFor(s: Setup, fetcher: SourceFetcher) {
+function handlerFor(
+  s: Setup,
+  fetcher: SourceFetcher,
+  store: EvidenceFetchStore = postgresEvidenceFetchStore(s.pool),
+) {
   return createEvidenceFetchHandler({
-    store: postgresEvidenceFetchStore(s.pool),
+    store,
     fetcher,
     objects: s.objects,
     hash,
@@ -112,7 +117,8 @@ const run = (
   handler: ReturnType<typeof handlerFor>,
   payload: Record<string, unknown>,
   signal = new AbortController().signal,
-) => handler({ job: { id: randomUUID(), payload }, signal });
+  jobId = randomUUID(),
+) => handler({ job: { id: jobId, payload }, signal });
 const jobError = (code: string, retryable: boolean) => (error: unknown) =>
   error instanceof JobError &&
   error.code === code &&
@@ -459,6 +465,81 @@ test("a page that tries to instruct the system is stored byte for byte with no o
   );
 });
 
+test("redelivering a job that already succeeded neither fetches nor writes again", async () => {
+  const s = await setup();
+  await enable(s);
+  let fetches = 0;
+  const handler = handlerFor(s, {
+    async fetch() {
+      fetches++;
+      return {
+        bytes: text("page"),
+        finalUrl: SOURCE_URL,
+        mime: "text/html",
+        observedAt: new Date(),
+      };
+    },
+  });
+  const jobId = randomUUID();
+  const payload = { sourceId: s.sourceId };
+  await run(handler, payload, undefined, jobId);
+  await run(handler, payload, undefined, jobId);
+  assert.equal(fetches, 1);
+  const after = await counts(s);
+  assert.equal(after.records, 1);
+  assert.equal(after.attempts, 1);
+  // A different job is a different observation and is recorded.
+  await run(handler, payload);
+  assert.equal((await counts(s)).records, 2);
+});
+
+test("a duplicate that slips past the check loses at insert time: rolled back, handler returns", async () => {
+  const s = await setup();
+  await enable(s);
+  const real = postgresEvidenceFetchStore(s.pool);
+  // Both deliveries pass the pre-check, as two workers racing on one job would.
+  const racing: EvidenceFetchStore = {
+    ...real,
+    hasSucceeded: async () => false,
+  };
+  const handler = handlerFor(s, fixed(text("page")), racing);
+  const jobId = randomUUID();
+  const payload = { sourceId: s.sourceId };
+  await run(handler, payload, undefined, jobId);
+  await run(handler, payload, undefined, jobId);
+  const after = await counts(s);
+  assert.equal(after.records, 1, "the loser's evidence record is rolled back");
+  assert.equal(after.attempts, 1);
+  const [attempt] = await s.query<{ state: string; job_id: string }>(
+    "SELECT state,job_id FROM evidence.fetch_attempts",
+  );
+  assert.deepEqual(attempt, { state: "SUCCEEDED", job_id: jobId });
+  // The index is partial: earlier FAILED or MANUAL rows for the same job never block a success.
+  const other = randomUUID();
+  await run(
+    handlerFor(s, failing(new FetchError("HTTP_503", true))),
+    payload,
+    undefined,
+    other,
+  ).catch(() => {});
+  await run(handlerFor(s, fixed(text("page 2"))), payload, undefined, other);
+  const states = await s.query<{ state: string }>(
+    "SELECT state FROM evidence.fetch_attempts WHERE job_id=$1 ORDER BY created_at",
+    [other],
+  );
+  assert.deepEqual(
+    states.map((row) => row.state),
+    ["FAILED", "SUCCEEDED"],
+  );
+  await assert.rejects(
+    s.db.query(
+      "INSERT INTO evidence.fetch_attempts(id,source_id,job_id,state) VALUES (gen_random_uuid(),$1,$2,'SUCCEEDED')",
+      [s.sourceId, other],
+    ),
+    /duplicate key/,
+  );
+});
+
 test("an archive that reads back different bytes is a permanent failure and creates no record", async () => {
   const s = await setup();
   await enable(s);
@@ -638,6 +719,23 @@ test("enable-fetch refuses unsafe prefixes, bad MIME types, EXCERPT, unknown or 
       ),
       /INVALID_FETCH_POLICY/,
       JSON.stringify(override),
+    );
+  // A prefix must be a directory: "/files" would also admit "/filesystem".
+  for (const prefix of [
+    "https://cdn.example.test/files",
+    "https://cdn.example.test/files/q3",
+    "https://cdn.example.test/files/?kind=pdf",
+  ])
+    await assert.rejects(
+      s.as("blink_evidence_admin", () =>
+        s.admin.enableFetch({
+          sourceId: s.sourceId,
+          reason: "Reviewed",
+          redirectPrefixes: [prefix],
+        }),
+      ),
+      /REDIRECT_PREFIX_NOT_DIRECTORY/,
+      prefix,
     );
   await assert.rejects(
     s.as("blink_evidence_admin", () =>

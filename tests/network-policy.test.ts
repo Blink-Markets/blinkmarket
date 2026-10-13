@@ -61,6 +61,17 @@ const addresses: [string, boolean][] = [
   ["febf::1", false],
   ["ff02::1", false],
   ["2606:4700::1111", true],
+  ["2003::1", true],
+  // Transition and deprecated ranges are refused outright, whatever they embed.
+  ["::ffff:0:7f00:1", false], // SIIT ::ffff:0:0:0/96
+  ["::ffff:0:8.8.8.8", false],
+  ["64:ff9b:1::7f00:1", false], // local-use NAT64 64:ff9b:1::/48
+  ["64:ff9b:1:ffff::1", false],
+  ["2002:7f00:1::", false], // 6to4 2002::/16
+  ["2002:808:808::1", false],
+  ["2001:0:4136:e378:8000:63bf:3fff:fdd2", false], // Teredo 2001::/32
+  ["fec0::1", false], // deprecated site-local fec0::/10
+  ["feff::1", false],
   ["2001:4860:4860::8888", true],
   // IPv4-mapped and NAT64 forms are judged by the embedded IPv4 address.
   ["::ffff:127.0.0.1", false],
@@ -85,6 +96,8 @@ const addresses: [string, boolean][] = [
   ["1.2.3.4.5", false],
   ["256.1.1.1", false],
   ["01.2.3.4", false],
+  ["0177.0.0.1", false],
+  ["127.0.0.1.", false],
   ["fe80::1%eth0", false],
   ["1::2::3", false],
   ["12345::1", false],
@@ -119,6 +132,15 @@ const urls: [string, number, string | "ok"][] = [
   // The URL parser folds integer and hex hosts into dotted quads.
   ["https://2130706433/", 0, "IP_LITERAL"],
   ["https://0x7f.1/", 0, "IP_LITERAL"],
+  ["https://0177.0.0.1/", 0, "IP_LITERAL"],
+  ["https://127.0.0.1./", 0, "IP_LITERAL"],
+  // A trailing dot is a different name, so it can neither be the first URL nor sit under a prefix.
+  ["https://ir.example.test./reports/q1.html?lang=en", 0, "NOT_ALLOWLISTED"],
+  ["https://cdn.example.test./files/q1.pdf", 1, "NOT_ALLOWLISTED"],
+  // Dot segments are folded by the URL parser before the prefix is compared.
+  ["https://cdn.example.test/files/../secret", 1, "NOT_ALLOWLISTED"],
+  ["https://cdn.example.test/files/%2e%2e/secret", 1, "NOT_ALLOWLISTED"],
+  ["https://cdn.example.test/files/./deep/q1.pdf", 1, "ok"],
   ["https://ir.example.test/reports/q2.html?lang=en", 0, "NOT_ALLOWLISTED"],
   ["https://ir.example.test/reports/q1.html", 0, "NOT_ALLOWLISTED"],
   ["https://ir.example.test/reports/q1.html?lang=fr", 0, "NOT_ALLOWLISTED"],
@@ -155,6 +177,43 @@ test("checkFetchUrl enforces scheme, port, credentials, fragment, IP-literal and
       `${hop} ${url}`,
     );
   }
+});
+
+test("redirect prefixes only match on a directory boundary", () => {
+  const url = (path: string) => "https://ir.example.test" + path;
+  const directory = {
+    exactUrl: policy.exactUrl,
+    redirectPrefixes: ["https://ir.example.test/files/"],
+  };
+  assert.deepEqual(checkFetchUrl(url("/files/q3.pdf"), directory, 1), {
+    ok: true,
+  });
+  for (const path of ["/filesystem", "/files", "/file/q3.pdf"])
+    assert.deepEqual(checkFetchUrl(url(path), directory, 1), {
+      ok: false,
+      code: "NOT_ALLOWLISTED",
+    });
+  // A prefix that does not end with a slash can never admit anything.
+  for (const prefix of [
+    "https://ir.example.test/files",
+    "https://ir.example.test/files/q3",
+    "https://ir.example.test/files/?kind=pdf",
+  ])
+    for (const path of [
+      "/filesystem",
+      "/files/q3.pdf",
+      "/files/?kind=pdf",
+      "/files/",
+    ])
+      assert.deepEqual(
+        checkFetchUrl(
+          url(path),
+          { exactUrl: policy.exactUrl, redirectPrefixes: [prefix] },
+          1,
+        ),
+        { ok: false, code: "NOT_ALLOWLISTED" },
+        `${prefix} vs ${path}`,
+      );
 });
 
 test("an unparsable redirect prefix never matches", () => {

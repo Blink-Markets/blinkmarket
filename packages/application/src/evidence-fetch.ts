@@ -37,6 +37,8 @@ export function createEvidenceFetchHandler(deps: {
     const sourceId = job.payload["sourceId"];
     if (typeof sourceId !== "string" || !uuid.test(sourceId))
       throw new JobError("INVALID_PAYLOAD", false);
+    // Delivery is at-least-once: a redelivered job that already succeeded must not fetch again.
+    if (await deps.store.hasSucceeded(job.id)) return;
     // A failure a person must look at: one MANUAL attempt and one audit row, no more retries.
     const manual = async (errorCode: string): Promise<never> => {
       await deps.store.recordFailure({
@@ -77,6 +79,7 @@ export function createEvidenceFetchHandler(deps: {
     // Archive IO precedes SQL: a failed transaction may leave an unreferenced immutable object, never a dangling reference.
     if (deps.hash(await deps.objects.read(uri)) !== contentHash)
       return manual("EVIDENCE_HASH_MISMATCH");
+    // Null means a duplicate delivery of this job recorded its success first; that record stands.
     await deps.store.recordSuccess({
       sourceId,
       jobId: job.id,

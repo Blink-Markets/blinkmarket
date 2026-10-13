@@ -21,6 +21,9 @@ CREATE TABLE evidence.fetch_attempts (
   final_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
+-- Job delivery is at-least-once: a job may record at most one success (FAILED/MANUAL rows are history).
+CREATE UNIQUE INDEX fetch_attempts_job_succeeded ON evidence.fetch_attempts (job_id)
+  WHERE state = 'SUCCEEDED' AND job_id IS NOT NULL;
 CREATE TRIGGER fetch_attempts_immutable BEFORE UPDATE OR DELETE OR TRUNCATE ON evidence.fetch_attempts
   FOR EACH STATEMENT EXECUTE FUNCTION operations.reject_mutation();
 

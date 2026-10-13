@@ -43,7 +43,12 @@ function parseFetchPolicy(input: unknown) {
         { exactUrl: prefix, redirectPrefixes: [] },
         0,
       );
-      return checked.ok ? new URL(prefix).href : fail();
+      if (!checked.ok) return fail();
+      const url = new URL(prefix);
+      // Prefixes are directories, so ".../files/" can never admit ".../filesystem".
+      if (!url.pathname.endsWith("/") || url.search)
+        throw new Error("REDIRECT_PREFIX_NOT_DIRECTORY");
+      return url.href;
     }),
   );
   const allowedMime = unique(

@@ -107,9 +107,15 @@ export function isPublicAddress(ip: string): boolean {
     return publicV4(embedded);
   if (zeros(0, 6)) return publicV4(embedded);
   if (g[0] === 0x100 && zeros(1, 4)) return false; // 100::/64
+  // Transition ranges are refused outright rather than judged by what they embed.
+  if (zeros(0, 4) && g[4] === 0xffff && g[5] === 0) return false; // ::ffff:0:0:0/96 (SIIT)
+  if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 1) return false; // 64:ff9b:1::/48
+  if (g[0] === 0x2002) return false; // 2002::/16 (6to4)
+  if (g[0] === 0x2001 && g[1] === 0) return false; // 2001::/32 (Teredo)
   if (g[0] === 0x2001 && g[1] === 0xdb8) return false; // 2001:db8::/32
   if ((g[0]! & 0xfe00) === 0xfc00) return false; // fc00::/7
   if ((g[0]! & 0xffc0) === 0xfe80) return false; // fe80::/10
+  if ((g[0]! & 0xffc0) === 0xfec0) return false; // fec0::/10 (deprecated site-local)
   if ((g[0]! & 0xff00) === 0xff00) return false; // ff00::/8
   return true;
 }
@@ -122,12 +128,16 @@ export type FetchUrlCode =
   | "NOT_ALLOWLISTED"
   | "IP_LITERAL"
   | "TOO_MANY_REDIRECTS";
+// A prefix is a directory: it must end with "/" and carry no query, so that
+// ".../files/" can never admit ".../filesystem". Anything else admits nothing.
 function underPrefix(url: URL, prefix: string) {
   try {
     const base = new URL(prefix);
     return (
+      base.pathname.endsWith("/") &&
+      !base.search &&
       url.origin === base.origin &&
-      (url.pathname + url.search).startsWith(base.pathname + base.search)
+      url.pathname.startsWith(base.pathname)
     );
   } catch {
     return false;

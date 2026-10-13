@@ -1,11 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import type https from "node:https";
+import { PassThrough } from "node:stream";
 import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
 import { FetchError } from "../packages/domain/src/network-policy.ts";
 import type { FetchTransport } from "../packages/ports/src/index.js";
 import {
   allowlistFetcher,
   httpsRequestOptions,
+  httpsTransport,
 } from "../packages/adapters/src/allowlist-fetcher.js";
 
 const MIB = 1024 * 1024;
@@ -176,6 +180,12 @@ test("redirect targets that are IP literals, http or fragments are refused", asy
     ["https://cdn.example.test/files/a#top", "FRAGMENT"],
     ["https://user:pw@cdn.example.test/files/a", "CREDENTIALS"],
     ["https://cdn.example.test:8443/files/a", "PORT"],
+    ["https://0177.0.0.1/files/", "IP_LITERAL"],
+    ["https://127.0.0.1./files/", "IP_LITERAL"],
+    // Dot segments are folded before the prefix check, so they cannot climb out of it.
+    ["/files/../secret", "NOT_ALLOWLISTED"],
+    ["https://cdn.example.test/files/%2e%2e/secret", "NOT_ALLOWLISTED"],
+    ["https://cdn.example.test./files/a", "NOT_ALLOWLISTED"],
   ];
   for (const [location, code] of cases) {
     const { fetcher } = harness(() => redirect(location));
@@ -469,4 +479,99 @@ test("httpsRequestOptions pins IPv6 addresses and sets the Host header from the 
     address: "2606:4700::1111",
     family: 6,
   });
+});
+
+// A stand-in for node:https that records what the transport asked of the request.
+function fakeHttps() {
+  const state: {
+    idleMs?: number;
+    onIdle?: () => void;
+    destroyedWith?: unknown;
+    answer?: (response: PassThrough) => void;
+    response?: PassThrough;
+    request?: EventEmitter;
+  } = {};
+  const request = (_options: unknown, callback: (response: never) => void) => {
+    const fake = Object.assign(new EventEmitter(), {
+      setTimeout(ms: number, onIdle: () => void) {
+        state.idleMs = ms;
+        state.onIdle = onIdle;
+        return fake;
+      },
+      end() {
+        if (!state.answer) return;
+        const response = Object.assign(new PassThrough(), {
+          statusCode: 200,
+          headers: { "content-type": "text/html" },
+        });
+        state.response = response;
+        state.answer(response);
+        callback(response as never);
+      },
+      destroy(error: unknown) {
+        state.destroyedWith = error;
+        // Like node:http: before the response the request errors; after it the response is aborted.
+        if (state.response) state.response.destroy(new Error("aborted"));
+        else queueMicrotask(() => fake.emit("error", error));
+        return fake;
+      },
+    });
+    state.request = fake;
+    return fake;
+  };
+  return { state, request: request as unknown as typeof https.request };
+}
+const transportInput = (timeoutMs: number) => ({
+  ip: "93.184.216.34",
+  family: 4 as const,
+  url: new URL("https://ir.example.test/q1.html"),
+  signal: new AbortController().signal,
+  timeoutMs,
+});
+
+test("an idle socket before the response surfaces as a retryable TIMEOUT", async () => {
+  const { state, request } = fakeHttps();
+  const pending = httpsTransport({ request }).request(transportInput(1234));
+  assert.equal(state.idleMs, 1234);
+  state.onIdle!();
+  await fails(pending, "TIMEOUT", true);
+});
+
+test("an idle socket while the body is streaming surfaces as a retryable TIMEOUT", async () => {
+  const { state, request } = fakeHttps();
+  state.answer = (response) => {
+    response.write("part");
+  };
+  const response = await httpsTransport({ request }).request(
+    transportInput(500),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers["content-type"], "text/html");
+  const iterator = response.body[Symbol.asyncIterator]();
+  assert.equal(Buffer.from((await iterator.next()).value!).toString(), "part");
+  const next = iterator.next();
+  state.onIdle!();
+  await fails(next, "TIMEOUT", true);
+});
+
+test("a socket error that is not the idle timer is passed through untouched", async () => {
+  const { state, request } = fakeHttps();
+  const pending = httpsTransport({ request }).request(transportInput(500));
+  const reset = Object.assign(new Error("socket hang up"), {
+    code: "ECONNRESET",
+  });
+  state.request!.emit("error", reset);
+  await assert.rejects(pending, (error) => error === reset);
+});
+
+test("through the fetcher, an idle socket is a retryable TIMEOUT, not NETWORK_ERROR", async () => {
+  const { state, request } = fakeHttps();
+  const fetcher = allowlistFetcher({
+    resolve: async () => [{ address: "93.184.216.34", family: 4 }],
+    transport: httpsTransport({ request }),
+  });
+  const result = fetcher.fetch(policy, live);
+  await new Promise((resolve) => setImmediate(resolve));
+  state.onIdle!();
+  await fails(result, "TIMEOUT", true);
 });

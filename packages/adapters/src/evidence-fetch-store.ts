@@ -6,6 +6,32 @@ import { createUnitOfWork } from "./database.js";
 // Runs as blink_worker: reads reviewed source policy, appends records and attempts, never edits them.
 export function postgresEvidenceFetchStore(pool: Pool): EvidenceFetchStore {
   const uow = createUnitOfWork(pool);
+  const insertSuccess = (
+    input: Parameters<EvidenceFetchStore["recordSuccess"]>[0],
+  ) =>
+    uow.run(async (context) => {
+      const db = uow.client(context),
+        evidenceId = randomUUID();
+      // observed_at is business time: the database clock, not this host's.
+      await db.query(
+        `INSERT INTO evidence.records(id,source_id,operator_id,content_hash,object_uri,observed_at,published_at,access_policy)
+        VALUES ($1,$2,$3,decode($4,'hex'),$5,blink.now(),NULL,$6)`,
+        [
+          evidenceId,
+          input.sourceId,
+          input.operatorId,
+          input.contentHash.slice(2),
+          input.objectUri,
+          input.accessPolicy,
+        ],
+      );
+      await db.query(
+        `INSERT INTO evidence.fetch_attempts(id,source_id,job_id,state,evidence_id,final_url)
+        VALUES ($1,$2,$3,'SUCCEEDED',$4,$5)`,
+        [randomUUID(), input.sourceId, input.jobId, evidenceId, input.finalUrl],
+      );
+      return { evidenceId };
+    });
   return {
     source: (sourceId) =>
       uow.run(async (context) => {
@@ -24,36 +50,25 @@ export function postgresEvidenceFetchStore(pool: Pool): EvidenceFetchStore {
         );
         return rows[0] ?? null;
       }),
-    recordSuccess: (input) =>
+    hasSucceeded: (jobId) =>
       uow.run(async (context) => {
-        const db = uow.client(context),
-          evidenceId = randomUUID();
-        // observed_at is business time: the database clock, not this host's.
-        await db.query(
-          `INSERT INTO evidence.records(id,source_id,operator_id,content_hash,object_uri,observed_at,published_at,access_policy)
-          VALUES ($1,$2,$3,decode($4,'hex'),$5,blink.now(),NULL,$6)`,
-          [
-            evidenceId,
-            input.sourceId,
-            input.operatorId,
-            input.contentHash.slice(2),
-            input.objectUri,
-            input.accessPolicy,
-          ],
-        );
-        await db.query(
-          `INSERT INTO evidence.fetch_attempts(id,source_id,job_id,state,evidence_id,final_url)
-          VALUES ($1,$2,$3,'SUCCEEDED',$4,$5)`,
-          [
-            randomUUID(),
-            input.sourceId,
-            input.jobId,
-            evidenceId,
-            input.finalUrl,
-          ],
-        );
-        return { evidenceId };
+        const { rows } = await uow
+          .client(context)
+          .query(
+            "SELECT 1 FROM evidence.fetch_attempts WHERE job_id=$1 AND state='SUCCEEDED'",
+            [jobId],
+          );
+        return rows.length > 0;
       }),
+    async recordSuccess(input) {
+      try {
+        return await insertSuccess(input);
+      } catch (error) {
+        // The transaction has rolled back, including the evidence record written just before it.
+        if (isDuplicateSuccess(error)) return null;
+        throw error;
+      }
+    },
     recordFailure: (input) =>
       uow.run(async (context) => {
         const db = uow.client(context);
@@ -76,4 +91,13 @@ export function postgresEvidenceFetchStore(pool: Pool): EvidenceFetchStore {
           );
       }),
   };
+}
+
+// The partial unique index on (job_id) WHERE state='SUCCEEDED' makes a duplicate delivery lose.
+function isDuplicateSuccess(error: unknown) {
+  const { code, constraint } = error as {
+    code?: unknown;
+    constraint?: unknown;
+  };
+  return code === "23505" && constraint === "fetch_attempts_job_succeeded";
 }

@@ -47,7 +47,12 @@ export interface FetchSource {
 }
 export interface EvidenceFetchStore {
   source(sourceId: string): Promise<FetchSource | null>;
-  /** One transaction: the evidence record and its SUCCEEDED attempt. */
+  /** Job delivery is at-least-once: true when this job already recorded a SUCCEEDED attempt. */
+  hasSucceeded(jobId: string): Promise<boolean>;
+  /**
+   * One transaction: the evidence record and its SUCCEEDED attempt. Resolves null, with nothing
+   * written, when the job already has a SUCCEEDED attempt (lost a race with a duplicate delivery).
+   */
   recordSuccess(input: {
     sourceId: string;
     jobId: string;
@@ -56,7 +61,7 @@ export interface EvidenceFetchStore {
     objectUri: string;
     finalUrl: string;
     accessPolicy: "PUBLIC" | "PRIVATE";
-  }): Promise<{ evidenceId: string }>;
+  }): Promise<{ evidenceId: string } | null>;
   /** FAILED for a retryable error; MANUAL for one that needs a person, which also writes an audit row. */
   recordFailure(input: {
     sourceId: string;

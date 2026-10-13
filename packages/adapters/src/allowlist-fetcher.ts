@@ -289,11 +289,18 @@ export function httpsRequestOptions(input: {
     rejectUnauthorized: true,
   };
 }
-export function httpsTransport(): FetchTransport {
+// `request` is injectable so tests can drive the socket without a network.
+export function httpsTransport(
+  deps: { request?: typeof https.request } = {},
+): FetchTransport {
+  const open = deps.request ?? https.request;
   return {
     request: ({ ip, family, url, signal, timeoutMs }) =>
       new Promise((resolve, reject) => {
-        const request = https.request(
+        // An idle socket destroys the request; the error that follows is a timeout, whatever its shape.
+        let idle = false;
+        const timeout = () => new FetchError("TIMEOUT", true);
+        const request = open(
           { ...httpsRequestOptions({ ip, family, url }), signal },
           (response) => {
             // Read through the async iterator; this listener only prevents an unhandled error event.
@@ -305,14 +312,21 @@ export function httpsTransport(): FetchTransport {
             resolve({
               status: response.statusCode ?? 0,
               headers,
-              body: response,
+              body: (async function* () {
+                try {
+                  yield* response;
+                } catch (error) {
+                  throw idle ? timeout() : error;
+                }
+              })(),
             });
           },
         );
-        request.setTimeout(timeoutMs, () =>
-          request.destroy(new Error("REQUEST_TIMEOUT")),
-        );
-        request.on("error", reject);
+        request.setTimeout(timeoutMs, () => {
+          idle = true;
+          request.destroy(timeout());
+        });
+        request.on("error", (error) => reject(idle ? timeout() : error));
         request.end();
       }),
   };
