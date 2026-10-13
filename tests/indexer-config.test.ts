@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   creationObservationReady,
+  indexerConfig,
   indexerFetchWithTimeout,
 } from "../apps/indexer/src/config.js";
 
@@ -91,4 +92,23 @@ test("indexer RPC fetch propagates parent cancellation and removes timeout after
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("transaction tracking is independently enabled and requires RPC/database configuration", () => {
+  assert.equal(indexerConfig({}).txTrackingEnabled, false);
+  assert.throws(
+    () => indexerConfig({ INDEXER_TX_TRACKING_ENABLED: "yes" }),
+    /INVALID_INDEXER_TX_TRACKING_ENABLED/,
+  );
+  assert.throws(
+    () => indexerConfig({ INDEXER_TX_TRACKING_ENABLED: "true" }),
+    /INDEXER_TRACKER_CONFIGURATION_REQUIRED/,
+  );
+  const config = indexerConfig({
+    INDEXER_TX_TRACKING_ENABLED: "true",
+    INDEXER_DATABASE_URL: "postgres://local.invalid/blink",
+    BASE_SEPOLIA_RPC_URL: "http://rpc.invalid",
+  });
+  assert.equal(config.txTrackingEnabled, true);
+  assert.equal(config.enabled, false);
 });

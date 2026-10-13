@@ -23,3 +23,7 @@ export {
 } from "./approval.js";
 export { createCreationTracker } from "./creation-tracker.js";
 export { startCreationPoller } from "./creation-poller.js";
+
+export { authenticateIdentity } from "./identity.js";
+export { createMarketReadService } from "./market-read.js";
+export { createTxTracker } from "./tx-tracking.js";

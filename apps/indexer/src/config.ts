@@ -1,5 +1,6 @@
 export interface IndexerConfig {
   enabled: boolean;
+  txTrackingEnabled: boolean;
   port: number;
   host: string;
   databaseUrl: string | null;
@@ -34,6 +35,13 @@ function integer(env: NodeJS.ProcessEnv, key: string, fallback: number) {
 
 export function indexerConfig(env: NodeJS.ProcessEnv): IndexerConfig {
   const enabled = env.INDEXER_CREATION_POLLING_ENABLED === "true";
+  const txTrackingEnabled = env.INDEXER_TX_TRACKING_ENABLED === "true";
+  if (
+    env.INDEXER_TX_TRACKING_ENABLED !== undefined &&
+    env.INDEXER_TX_TRACKING_ENABLED !== "true" &&
+    env.INDEXER_TX_TRACKING_ENABLED !== "false"
+  )
+    throw new Error("INVALID_INDEXER_TX_TRACKING_ENABLED");
   if (
     env.INDEXER_CREATION_POLLING_ENABLED !== undefined &&
     env.INDEXER_CREATION_POLLING_ENABLED !== "true" &&
@@ -42,7 +50,7 @@ export function indexerConfig(env: NodeJS.ProcessEnv): IndexerConfig {
     throw new Error("INVALID_INDEXER_CREATION_POLLING_ENABLED");
   const databaseUrl = env.INDEXER_DATABASE_URL?.trim() || null;
   const rpcUrl = env.BASE_SEPOLIA_RPC_URL?.trim() || null;
-  if (enabled && (!databaseUrl || !rpcUrl))
+  if ((enabled || txTrackingEnabled) && (!databaseUrl || !rpcUrl))
     throw new Error("INDEXER_TRACKER_CONFIGURATION_REQUIRED");
   if (rpcUrl) {
     let parsed: URL;
@@ -56,6 +64,7 @@ export function indexerConfig(env: NodeJS.ProcessEnv): IndexerConfig {
   }
   const config: IndexerConfig = {
     enabled,
+    txTrackingEnabled,
     port: integer(env, "INDEXER_PORT", 3003),
     host: env.INDEXER_HOST?.trim() || "127.0.0.1",
     databaseUrl,
