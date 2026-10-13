@@ -62,3 +62,27 @@ test("actual API entry bundle fails closed without identity configuration", asyn
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("actual worker entry bundle fails closed when enabled without a database login", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "blink-worker-entry-"));
+  try {
+    await copyFile(
+      resolve("dist/services/worker.mjs"),
+      join(directory, "worker.mjs"),
+    );
+    const result = spawnSync(process.execPath, ["worker.mjs"], {
+      cwd: directory,
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH,
+        NODE_ENV: "production",
+        WORKER_ENABLED: "true",
+      },
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /WORKER_CONFIGURATION_REQUIRED/);
+    assert.doesNotMatch(result.stderr, /MODULE_NOT_FOUND|Cannot find package/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

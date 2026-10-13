@@ -1,6 +1,11 @@
 import Fastify from "fastify";
 
-export function createService(name: string, stage = "architecture") {
+export function createService(
+  name: string,
+  stage = "architecture",
+  // Services that have connected their business adapters report real readiness here.
+  ready: () => boolean = () => false,
+) {
   const app = Fastify({
     bodyLimit: 65536,
     logger: { redact: ["req.headers.authorization", "req.headers.cookie"] },
@@ -11,11 +16,13 @@ export function createService(name: string, stage = "architecture") {
     stage,
   }));
   app.get("/health/ready", async (_request, reply) =>
-    reply.code(503).send({
-      service: name,
-      status: "not-ready",
-      reason: "Business adapters are not connected",
-    }),
+    ready()
+      ? reply.code(200).send({ service: name, status: "ready", stage })
+      : reply.code(503).send({
+          service: name,
+          status: "not-ready",
+          reason: "Business adapters are not connected",
+        }),
   );
   app.setErrorHandler((error, request, reply) => {
     const status =

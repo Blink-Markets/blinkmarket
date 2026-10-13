@@ -23,3 +23,8 @@ export {
 } from "./approval.js";
 export { createCreationTracker } from "./creation-tracker.js";
 export { startCreationPoller } from "./creation-poller.js";
+export { startWorker, schedulePeriodic } from "./worker-runtime.js";
+export {
+  createBudgetedModelCaller,
+  ModelCallError,
+} from "./budgeted-model.js";
