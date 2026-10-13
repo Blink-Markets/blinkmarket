@@ -28,3 +28,10 @@ export {
   assertCreationTrackingScheduleInstalled,
   assertCreationTrackingMigrationsInstalled,
 } from "./creation-tracking-schedule.js";
+export {
+  planDeployment,
+  deployContracts,
+  assertDeployChain,
+  readReleaseCommit,
+  type RoleAddresses,
+} from "./contract-deployer.js";
