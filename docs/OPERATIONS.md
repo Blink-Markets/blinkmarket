@@ -36,7 +36,7 @@ deployments/base-sepolia/manifest.template.json 是未部署範本，不能作 r
 
 `deploymentBlock` 定義為兩份合約的 **inclusive 安全重播下界**，應填兩份部署 receipt 的最早 block number；更早的起點（含 0）安全但會增加掃描成本。Verifier 除核對同一 head 的 code／角色外，也查詢 `deploymentBlock - 1`，要求兩個地址當時都尚無 code，避免漏掉 token 或市場早期事件。此驗證適用於本專案固定、不可升級且無 selfdestruct 的合約；不是通用部署歷史證明。RPC 若無法提供所需歷史 state，驗證失敗，不跳過檢查；需換用支援該歷史區塊的 provider。最後仍核對 head hash，拒絕驗證期間的重組。
 
-禁止主網，即使 env 寫 8453 也拒絕。部署 script 尚未加入；未提供可能誤部署的 placeholder 指令。
+禁止主網，即使 env 寫 8453 也拒絕。部署工具 `pnpm contracts:deploy` 預設 dry run，只有加上 `--broadcast` 才讀取部署金鑰並送出交易；用法、檢查與限制見 [M5 部署工具](M5_DEPLOYMENT_TOOLING.md)。目前只在本機 Anvil（chainId 84532）驗證，尚未部署到 Base Sepolia。
 
 ## Health 與觀測
 
