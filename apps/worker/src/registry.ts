@@ -1,6 +1,8 @@
 import type { JobType } from "@blink/domain";
 export const jobs = [
   "evidence.fetch", "discovery.scan", "candidate.validate", "market.deploy",
-  "forecast.run", "baseline.run", "budget.reconcile", "quote.reconcile",
-  "chain.reconcile", "resolution.parse", "keeper.finalize", "faucet.mint", "evaluation.score",
+  "forecast.schedule", "forecast.dispatch", "forecast.run", "baseline.run",
+  "budget.reconcile", "quote.reconcile", "chain.reconcile", "tx.dispatch",
+  "tx.track", "resolution.parse", "resolution.alerts", "keeper.finalize",
+  "faucet.mint", "trader.evaluate", "evaluation.score",
 ] as const satisfies readonly JobType[];

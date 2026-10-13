@@ -5,6 +5,11 @@ export {
   type IdentityService,
 } from "./identity.js";
 export const implementationStage = "m2-identity" as const;
+export type {
+  RouteService,
+  ServiceRequest,
+  ServiceResponse,
+} from "./route-service.js";
 export {
   createPreparationService,
   preparationPaths,

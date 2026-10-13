@@ -11,7 +11,7 @@
     "dev": "pnpm --parallel --filter './apps/*' dev",
     "typecheck": "tsc --noEmit && pnpm --filter @blink/web typecheck",
     "test": "node --import tsx --test tests/*.test.ts",
-    "check": "pnpm typecheck && pnpm test && pnpm check:boundaries && pnpm check:contracts",
+    "check": "pnpm typecheck && pnpm check:contracts && pnpm test && pnpm check:boundaries",
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "check:contracts": "node scripts/check-contracts.mjs",
     "test:contracts": "node scripts/foundry.mjs forge test --root contracts",
@@ -29,7 +29,8 @@
     "build:pages": "pnpm --filter @blink/web build:pages",
     "build:services": "node scripts/build-services.mjs",
     "test:service-build": "node --test tests/service-build.test.mjs",
-    "test:postgres": "node --import tsx --test tests/postgres/identity.test.ts",
+    "test:postgres": "node --import tsx --test tests/postgres/*.test.ts",
+    "test:anvil": "node --import tsx --test tests/anvil/*.test.ts",
     "test:browsers": "playwright test -c tests/browser/playwright.config.ts",
     "infra:up": "docker compose -f infra/compose.yaml up -d",
     "infra:down": "docker compose -f infra/compose.yaml down"

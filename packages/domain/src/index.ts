@@ -7,14 +7,20 @@ export type JobType =
   | "discovery.scan"
   | "candidate.validate"
   | "market.deploy"
+  | "forecast.schedule"
+  | "forecast.dispatch"
   | "forecast.run"
   | "baseline.run"
   | "budget.reconcile"
   | "quote.reconcile"
   | "chain.reconcile"
+  | "tx.dispatch"
+  | "tx.track"
   | "resolution.parse"
+  | "resolution.alerts"
   | "keeper.finalize"
   | "faucet.mint"
+  | "trader.evaluate"
   | "evaluation.score";
 export type Job<T extends JobType = JobType> = {
   id: string;

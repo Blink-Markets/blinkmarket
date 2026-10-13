@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PGlite } from "@electric-sql/pglite";
-import { migrate } from "../packages/adapters/src/migrations.js";
+import { readdir } from "node:fs/promises";
+import {
+  migrate,
+  migrationDirectory,
+} from "../packages/adapters/src/migrations.js";
 import { createUnitOfWork } from "../packages/adapters/src/database.js";
 import type { Pool } from "pg";
 
@@ -18,12 +22,16 @@ test("migration checksums, uint256 precision, runtime grants and append-only aud
     },
   };
   try {
+    // Every migration file is applied exactly once; adding one must not edit this test.
+    const files = (await readdir(migrationDirectory)).filter((f) =>
+      f.endsWith(".sql"),
+    ).length;
     const first = await migrate(client);
-    assert.equal(first.versions.length, 6);
+    assert.equal(first.versions.length, files);
     await migrate(client);
     assert.equal(
       (await db.query("SELECT * FROM blink_migrations.applied")).rows.length,
-      6,
+      files,
     );
     await assert.rejects(
       db.query("SELECT $1::blink.uint256", [(2n ** 256n).toString()]),
