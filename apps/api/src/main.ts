@@ -28,6 +28,7 @@ import {
   postgresBudgetLedger,
 } from "@blink/adapters";
 import { apiConfig, modeAtLeast } from "./config.js";
+import { tradingServices } from "./trading.js";
 
 const config = apiConfig(process.env);
 const pool =
@@ -61,6 +62,16 @@ try {
     if (modeAtLeast(config.mode, "markets"))
       await pool.query("SELECT id FROM forecasts.windows LIMIT 0");
   }
+  // Trading mode adds the RFQ service, a truthful /v1/config and the canTrade hook of market reads.
+  const trading =
+    pool && config.mode === "trading"
+      ? await tradingServices(pool, {
+          deploymentId: config.deploymentId!,
+          signerUrl: config.signerUrl!,
+          signerToken: config.signerToken!,
+          rpcUrl: config.rpcUrl!,
+        })
+      : null;
   const app = buildApi(
     pool
       ? {
@@ -107,11 +118,15 @@ try {
                   store: postgresForecastStore(pool),
                   crypto: identityCrypto,
                 }),
+                ...(trading ? [trading.rfq] : []),
                 createMarketReadService({
                   store: postgresMarketReadStore(pool),
                   archive: createSpecArchive(
                     fileObjectStore(config.specDirectory!),
                   ),
+                  ...(trading
+                    ? { hooks: { canTrade: trading.readiness.canTrade } }
+                    : {}),
                   identity: {
                     authenticate: (authorization) =>
                       postgresIdentityStore(pool).run(async (tx) => {
@@ -132,6 +147,7 @@ try {
           ...(config.mode === "markets" || config.mode === "trading"
             ? {
                 stage: `m2-${config.mode}` as const,
+                ...(trading ? { config: trading.readiness.config } : {}),
                 publicReadLimit: { capacity: 60, refillPerSecond: 1 },
               }
             : {}),

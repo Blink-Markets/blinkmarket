@@ -15,14 +15,17 @@ import {
   handlers,
   outboxMapping,
   registerEvaluationHandler,
+  registerQuoteReconcile,
   registerResolutionHandlers,
   scheduleEvaluation,
+  scheduleQuoteReconcile,
   scheduleResolution,
 } from "./handlers.js";
 import { jobs } from "./registry.js";
 
 const OUTBOX_DISPATCH_INTERVAL_MS = 1000;
 const PERIODIC_SCHEDULE_INTERVAL_MS = 30_000;
+const QUOTE_RECONCILE_INTERVAL_MS = 5000;
 
 let pool: pg.Pool | null = null;
 let worker: ReturnType<typeof startWorker> | null = null;
@@ -30,6 +33,8 @@ let outboxTimer: ReturnType<typeof setInterval> | null = null;
 let outboxRun: Promise<unknown> = Promise.resolve();
 let scheduleTimer: ReturnType<typeof setInterval> | null = null;
 let scheduleRun: Promise<unknown> = Promise.resolve();
+let quoteTimer: ReturnType<typeof setInterval> | null = null;
+let quoteRun: Promise<unknown> = Promise.resolve();
 
 try {
   const config = workerConfig(process.env);
@@ -57,6 +62,7 @@ try {
     const queue = postgresJobQueue(database);
     registerEvaluationHandler(database);
     registerResolutionHandlers(database, process.env.EVIDENCE_OBJECT_DIRECTORY);
+    registerQuoteReconcile(database);
     const research = await buildResearch({
       pool: database,
       queue,
@@ -98,6 +104,16 @@ try {
     };
     schedule();
     scheduleTimer = setInterval(schedule, PERIODIC_SCHEDULE_INTERVAL_MS);
+    let reconciling = false;
+    quoteTimer = setInterval(() => {
+      if (reconciling) return;
+      reconciling = true;
+      quoteRun = scheduleQuoteReconcile(database)
+        .catch(() => console.error("WORKER_QUOTE_RECONCILE_SCHEDULE_FAILED"))
+        .finally(() => {
+          reconciling = false;
+        });
+    }, QUOTE_RECONCILE_INTERVAL_MS);
     app.get("/health/jobs", async (_request, reply) => {
       try {
         return await queue.stats();
@@ -106,6 +122,8 @@ try {
       }
     });
     app.addHook("onClose", async () => {
+      if (quoteTimer) clearInterval(quoteTimer);
+      await quoteRun;
       if (scheduleTimer) clearInterval(scheduleTimer);
       await scheduleRun;
       if (outboxTimer) clearInterval(outboxTimer);
@@ -116,6 +134,8 @@ try {
   }
   await startService(app, 3002);
 } catch (error) {
+  if (quoteTimer) clearInterval(quoteTimer);
+  await quoteRun;
   if (scheduleTimer) clearInterval(scheduleTimer);
   await scheduleRun;
   if (outboxTimer) clearInterval(outboxTimer);

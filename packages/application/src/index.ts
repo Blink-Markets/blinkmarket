@@ -62,6 +62,7 @@ export {
   quoteRequestHash,
   quoteTypedData,
   QuoteCheckRejection,
+  createReservationQuoteCheck,
   type SignerDeps,
   type SignerCaller,
   type SignerPolicy,
@@ -74,3 +75,14 @@ export {
   type DispatchResult,
   type TxDispatchHandler,
 } from "./tx-dispatcher.js";
+export {
+  createRfqService,
+  createTradingReadiness,
+  indexerStatus,
+  type SnapshotSource,
+} from "./rfq.js";
+export {
+  createQuoteReconciler,
+  createQuoteReconcileHandler,
+  decideReservation,
+} from "./quote-reconcile.js";

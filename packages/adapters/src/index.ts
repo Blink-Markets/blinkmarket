@@ -52,6 +52,7 @@ export {
 export {
   dispatchOutbox,
   type OutboxEvent,
+  type OutboxJobSpec,
   type OutboxMapping,
 } from "./outbox-dispatcher.js";
 export { postgresBudgetLedger } from "./budget-ledger.js";
@@ -98,3 +99,10 @@ export { readKeyFile } from "./key-file.js";
 export { isLoopbackUrl, baseGasPriceOracle } from "./gas-oracle.js";
 export { viemSignerRpc, viemDispatchRpc } from "./signing-rpc.js";
 export { encodeAllowedCall } from "./signing-calldata.js";
+export {
+  postgresTradingStore,
+  postgresReservationReader,
+  assertTradingInstalled,
+} from "./trading-store.js";
+export { chainSnapshotReader } from "./chain-snapshot-reader.js";
+export * from "./trading-admin.js";

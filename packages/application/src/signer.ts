@@ -18,6 +18,7 @@ import {
   maxFeePerGas,
   parseQuoteMessage,
   parseTransactionPayload,
+  quoteCosts,
   quoteDomain,
   replacementFeesAccepted,
   signRoles,
@@ -31,6 +32,7 @@ import type {
   CallEncoder,
   Hex,
   IntentRecord,
+  ReservationReader,
   SignerRpc,
   SignerStore,
   SignerTransaction,
@@ -50,6 +52,31 @@ export type QuoteCheck = (input: {
   /** The signer transaction's database client, so the check sees the same snapshot. */
   client: unknown;
 }) => Promise<void>;
+
+/**
+ * The quote check of the RFQ service: a quote is signed only while the quote row exists, still
+ * waits for its signature, and a HELD reservation of exactly its maker cost backs it.
+ */
+export function createReservationQuoteCheck(
+  reader: ReservationReader,
+): QuoteCheck {
+  return async ({ signRequest, client }) => {
+    const message = parseQuoteMessage(signRequest.unsignedPayload);
+    const backing = message
+      ? await reader.reservationFor(client, signRequest.requestHash)
+      : null;
+    if (
+      !message ||
+      !backing ||
+      (backing.quoteStatus !== "SIGN_REQUESTED" &&
+        backing.quoteStatus !== "SIGN_UNKNOWN") ||
+      backing.reservationState !== "HELD" ||
+      backing.amountMicros !==
+        quoteCosts(message.quantity, Number(message.priceBps)).makerCostMicros
+    )
+      throw new QuoteCheckRejection("RESERVATION_MISSING");
+  };
+}
 
 export interface SignerCaller {
   name: string;

@@ -9,7 +9,15 @@ export interface OutboxEvent {
   aggregateId: string;
   payload: Record<string, unknown>;
 }
-export type OutboxMapping = Record<string, (event: OutboxEvent) => JobSpec[]>;
+/**
+ * A mapped job normally gets its own `outbox:<id>:<jobType>` dedupe key. `coalesce` keeps the
+ * spec's own key instead, so a burst of events (one per block) can share one pending job.
+ */
+export type OutboxJobSpec = JobSpec & { coalesce?: boolean };
+export type OutboxMapping = Record<
+  string,
+  (event: OutboxEvent) => OutboxJobSpec[]
+>;
 
 /**
  * Turns undispatched outbox events into jobs. Jobs and the dispatched mark commit
@@ -51,10 +59,12 @@ export async function dispatchOutbox(
           aggregateId: row.aggregate_id,
           payload: row.payload,
         }) ?? [];
-      for (const spec of specs)
+      for (const { coalesce, ...spec } of specs)
         await insertJob(
           db,
-          { ...spec, dedupeKey: `outbox:${row.id}:${spec.type}` },
+          coalesce
+            ? spec
+            : { ...spec, dedupeKey: `outbox:${row.id}:${spec.type}` },
           row.id,
         );
     }

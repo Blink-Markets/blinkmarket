@@ -1,4 +1,4 @@
-import type { ChainCursor, MarketRef, NewMarketSpec } from "@blink/schemas";
+import type { NewMarketSpec } from "@blink/schemas";
 export type * from "./identity.js";
 export type * from "./preparation.js";
 export type * from "./approval.js";
@@ -9,28 +9,12 @@ export * from "./evidence-fetch.js";
 export type * from "./chain-index.js";
 export * from "./research.js";
 export type * from "./signing.js";
+export type * from "./trading.js";
 
 // 邊界合約：實作留到後續 milestone；不公開 ORM 或私鑰。
 export interface ImmutableObjectStore {
   putIfAbsent(bytes: Uint8Array, contentHash: string): Promise<{ uri: string }>;
   read(uri: string): Promise<Uint8Array>;
-}
-export interface ChainReader {
-  getSnapshot(
-    ref: MarketRef,
-    blockHash: string,
-  ): Promise<{
-    cursor: ChainCursor;
-    makerFreeMicros: string;
-    paused: boolean;
-    epoch: string;
-    verifyingContract: string;
-    specHash: string;
-    closeAt: string;
-    state: string;
-  }>;
-  getQuoteConsumed(digest: string, cursor: ChainCursor): Promise<boolean>;
-  getQuoteCancelled(digest: string, cursor: ChainCursor): Promise<boolean>;
 }
 export interface SpecArchive {
   freeze(

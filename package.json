@@ -21,6 +21,7 @@
     "identity:admin": "node --import tsx scripts/identity-admin.ts",
     "resolution:draft": "node --import tsx scripts/resolution-draft.ts",
     "forecast:admin": "node --import tsx scripts/forecast-admin.ts",
+    "trading:admin": "node --import tsx scripts/trading-admin.ts",
     "evidence:admin": "node --import tsx scripts/evidence-admin.ts",
     "manifest:validate": "node --import tsx scripts/validate-manifest.ts",
     "contracts:deploy": "node --import tsx scripts/deploy-contracts.ts",

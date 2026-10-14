@@ -62,7 +62,7 @@ Ports are the interfaces the application layer depends on. Adapters provide the 
 | `ImmutableObjectStore` | Put-if-absent storage and reads of evidence and specification bytes |
 | `SourceFetcher` | Fetch from allowlisted sources |
 | `ModelGateway` | Budgeted model forecast calls |
-| `ChainReader` | Read market snapshots and whether a quote was consumed or cancelled |
+| `ChainSnapshotReader` | Read the RPC head, then the market, maker and taker state at that one block hash |
 | `SpecArchive` | Freeze a market specification to bytes and a hash, and read it back |
 | `JobQueue` | Enqueue within a transaction, lease and acknowledge jobs |
 | `UnitOfWork` | Run work inside one database transaction |
