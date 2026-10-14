@@ -1,9 +1,10 @@
 import type { ChainCursor, MarketRef, NewMarketSpec } from "@blink/schemas";
-import type { Job, SignRequest, SignResult } from "@blink/domain";
+import type { Job } from "@blink/domain";
 export type * from "./identity.js";
 export type * from "./preparation.js";
 export type * from "./approval.js";
 export type * from "./creation-tracker.js";
+export type * from "./signing.js";
 
 // 邊界合約：實作留到後續 milestone；不公開 ORM 或私鑰。
 export interface ImmutableObjectStore {
@@ -78,8 +79,5 @@ export interface UnitOfWork {
     signal?: AbortSignal,
   ): Promise<T>;
 }
-// Signer 自行重新載入受信 intent、policy、nonce 與 reservation；不信任 caller 的授權聲明。
-export interface RestrictedSigner {
-  sign(request: SignRequest): Promise<SignResult>;
-}
+// RestrictedSigner 與持久化 sign request 協定見 signing.ts；signer 自行重載受信資料，不信任 caller 的授權聲明。
 // 管理員 / proposer / challenger / arbiter 透過各自人工錢包操作，不走此自動 signer。

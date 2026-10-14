@@ -23,3 +23,22 @@ export {
 } from "./approval.js";
 export { createCreationTracker } from "./creation-tracker.js";
 export { startCreationPoller } from "./creation-poller.js";
+export {
+  createSignerService,
+  assertSignerStartup,
+  transactionRequestHash,
+  quoteRequestHash,
+  quoteTypedData,
+  QuoteCheckRejection,
+  type SignerDeps,
+  type SignerCaller,
+  type SignerPolicy,
+  type QuoteCheck,
+} from "./signer.js";
+export {
+  createTxDispatcher,
+  createTxDispatchHandler,
+  TxDispatchError,
+  type DispatchResult,
+  type TxDispatchHandler,
+} from "./tx-dispatcher.js";
