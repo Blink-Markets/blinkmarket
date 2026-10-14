@@ -68,6 +68,10 @@ export const quoteFilled = (
     },
   };
 };
+export const marketPaused = (id: number, paused: boolean): NewEvent => ({
+  name: "TradingPauseChanged",
+  args: { marketId: String(id), globalPause: false, paused },
+});
 export const quoteCancelled = (digest: number): NewEvent => ({
   name: "QuoteCancelled",
   args: { digest: hashOf(0x900 + digest) },
@@ -91,6 +95,10 @@ export interface FakeReaderOptions {
   afterBlockCall?: (calls: number) => void | Promise<void>;
   /** Called after logs() computed its answer and before it returns. */
   afterLogs?: () => void | Promise<void>;
+  /** Called after block(number) has been answered. */
+  afterBlock?: (number: bigint) => void | Promise<void>;
+  /** Answers every logs() call with nothing, as a misbehaving provider might. */
+  omitLogs?: boolean;
 }
 
 // A scriptable chain: blocks carry decoded events, a rewind starts a new fork, and the reader serves it
@@ -166,13 +174,15 @@ export class FakeChain {
 
   reader(
     options: FakeReaderOptions = {},
-  ): ChainLogReader & { blockCalls: number } {
+  ): ChainLogReader & { blockCalls: number; viewCalls: bigint[][] } {
     let blockCalls = 0;
+    const viewCalls: bigint[][] = [];
     const self = this;
     return {
       get blockCalls() {
         return blockCalls;
       },
+      viewCalls,
       async chainId() {
         return options.chainId ?? 84532;
       },
@@ -196,6 +206,7 @@ export class FakeChain {
             }
           : null;
         await options.afterBlockCall?.(blockCalls);
+        await options.afterBlock?.(number);
         return answer;
       },
       async logs(address, from, to) {
@@ -207,11 +218,13 @@ export class FakeChain {
           .filter((event) => event.blockNumber >= lower)
           .map((event) => ({ ...event }));
         await options.afterLogs?.();
+        if (options.omitLogs) return [];
         return options.duplicateLogs
           ? found.flatMap((e) => [e, { ...e }])
           : found;
       },
       async views(_address, blockHash, marketIds) {
+        viewCalls.push([...marketIds]);
         const block = [...self.blocks.values()].find(
           (b) => b.hash === blockHash,
         );

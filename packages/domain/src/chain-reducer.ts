@@ -300,10 +300,12 @@ const handlers: Record<
   },
   OutcomeProposed(state, event) {
     const m = market(state, event);
+    const outcome = member(event, "outcome", OUTCOMES);
+    const evidenceHash = lower(event, "evidenceHash");
     if (m.state !== "OPEN") fail(event, "market is not OPEN");
-    m.proposedOutcome = member(event, "outcome", OUTCOMES);
+    m.proposedOutcome = outcome;
     m.proposedAt = event.blockTimestamp;
-    m.proposalEvidenceHash = lower(event, "evidenceHash");
+    m.proposalEvidenceHash = evidenceHash;
     m.state = "PROPOSED";
   },
   OutcomeChallenged(state, event) {
@@ -316,6 +318,7 @@ const handlers: Record<
     const m = market(state, event);
     const outcome = member(event, "outcome", OUTCOMES);
     const reason = member(event, "reason", REASONS);
+    const evidenceHash = lower(event, "evidenceHash");
     if (m.state === "FINAL") fail(event, "market is already FINAL");
     if (reason === "UNCHALLENGED" && m.state !== "PROPOSED")
       fail(event, "unchallenged finalization needs a PROPOSED market");
@@ -323,7 +326,7 @@ const handlers: Record<
       fail(event, "arbitration needs a DISPUTED market");
     m.finalOutcome = outcome;
     m.finalReason = reason;
-    m.finalEvidenceHash = lower(event, "evidenceHash");
+    m.finalEvidenceHash = evidenceHash;
     m.state = "FINAL";
   },
   PositionRedeemed(state, event) {
@@ -354,14 +357,15 @@ const handlers: Record<
   },
 };
 
-// Handlers validate before they mutate, so a rejected event changes nothing; only the closing
-// escrow check can fire after a change, and it means the loaded projection was already unsound.
+// Handlers parse and validate every field before they assign, so a rejected event changes nothing.
+// The escrow invariant (a market that is not FINAL holds exactly totalPairs * 1e6) is checked on the
+// market the event names before the handler runs; each handler preserves it, so it holds after
+// every event, and an unsound loaded projection is refused without being touched.
 export function applyEvent(state: ChainProjection, event: DecodedEvent): void {
-  handlers[event.name](state, event);
+  const named = event.args.marketId;
   const touched =
-    event.args.marketId !== undefined &&
-    /^\d+$/.test(String(event.args.marketId))
-      ? state.markets.get(String(event.args.marketId))
+    typeof named === "string" && /^\d+$/.test(named)
+      ? state.markets.get(named)
       : undefined;
   if (
     touched &&
@@ -369,6 +373,19 @@ export function applyEvent(state: ChainProjection, event: DecodedEvent): void {
     touched.escrowMicros !== touched.totalPairs * UNIT
   )
     fail(event, "escrow differs from total pairs times one unit");
+  handlers[event.name](state, event);
+}
+
+// Markets an event batch names, whether or not the fold ends up changing them (market 0 is the
+// global pause marker, not a market).
+export function touchedMarketIds(events: readonly DecodedEvent[]): string[] {
+  const ids = new Set<string>();
+  for (const event of events) {
+    const id = event.args.marketId;
+    if (typeof id === "string" && /^\d+$/.test(id) && BigInt(id) > 0n)
+      ids.add(BigInt(id).toString());
+  }
+  return [...ids];
 }
 
 export const compareEvents = (a: DecodedEvent, b: DecodedEvent) =>

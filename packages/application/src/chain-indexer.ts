@@ -4,6 +4,7 @@ import {
   compareEvents,
   foldEvents,
   projectionChanges,
+  touchedMarketIds,
   type ChainProjection,
   type DecodedEvent,
 } from "@blink/domain";
@@ -256,12 +257,16 @@ export function createChainIndexer(deps: {
           ? head.number
           : cursor.blockNumber + rangeSize;
       const atHead = to === head.number;
-      // The reorg gate lifts once a verified sync reaches the head; a mismatch lifts on any clean sync.
+      // The reorg gate lifts once a verified sync reaches the head. A mismatch gate lifts only
+      // below, after a cross-check that passed in this very call.
       const gateReason: ChainGateReason | null =
         cursor.gateReason === "REORG_IN_PROGRESS" && !atHead
           ? "REORG_IN_PROGRESS"
           : null;
       if (to === cursor.blockNumber) {
+        // An idle poll compares nothing, so it cannot vouch for a mismatched projection.
+        if (cursor.gateReason === "PROJECTION_MISMATCH")
+          return result(cursor.gateReason);
         await store.refreshCursor(lease, cursor.version, {
           headNumber: head.number,
           finalizedNumber: finalized,
@@ -270,6 +275,9 @@ export function createChainIndexer(deps: {
         return result(gateReason);
       }
 
+      // Pin the range end before reading anything that belongs to the range.
+      const end = await reader.block(to);
+      if (!end) return result(cursor.gateReason);
       const events: DecodedEvent[] = [];
       const seen = new Set<string>();
       for (const event of await reader.logs(
@@ -287,73 +295,78 @@ export function createChainIndexer(deps: {
       events.sort(compareEvents);
       checkpoint();
 
-      const heights = [
-        ...new Set([to, ...events.map((e) => e.blockNumber)]),
-      ].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-      const headers = new Map<bigint, ChainBlock>();
-      for (const height of heights) {
-        const header = await reader.block(height);
+      const headers = new Map<bigint, ChainBlock>([[to, end]]);
+      for (const event of events) {
+        if (headers.has(event.blockNumber)) continue;
+        const header = await reader.block(event.blockNumber);
         if (!header) return result(cursor.gateReason);
-        headers.set(height, header);
+        headers.set(event.blockNumber, header);
       }
-      const end = headers.get(to)!;
-      // A log whose block is no longer the header at its height came from another branch.
+      // A log whose block is not the header read for its height in this pass came from another branch.
       if (
         events.some(
           (e) => !sameHash(headers.get(e.blockNumber)!.hash, e.blockHash),
         )
       )
         return result(cursor.gateReason);
-      const [liveCursor, liveEnd] = [
-        await reader.block(cursor.blockNumber),
-        await reader.block(to),
+      // Read the anchors again: the cursor, the pinned end and every event block must be unchanged,
+      // or part of the range may belong to a branch the end is not on. Retry on the next poll.
+      const anchors: Array<[bigint, string]> = [
+        [cursor.blockNumber, cursor.blockHash],
+        ...[...headers].map(([height, h]): [bigint, string] => [
+          height,
+          h.hash,
+        ]),
       ];
-      if (
-        !liveCursor ||
-        !liveEnd ||
-        !sameHash(liveCursor.hash, cursor.blockHash) ||
-        !sameHash(liveEnd.hash, end.hash)
-      )
-        return result(cursor.gateReason);
+      for (const [height, hash] of anchors) {
+        const again = await reader.block(height);
+        if (!again || !sameHash(again.hash, hash))
+          return result(cursor.gateReason);
+      }
 
+      // Every advancing range, empty or not, is compared with the chain at the pinned end. The
+      // markets compared are those the events name, those the fold changed, and all of them while
+      // recovering from a mismatch.
       const before = await store.loadProjection(deploymentId);
-      let after = before;
-      let changes: ProjectionChanges | null = projectionChanges(before, before);
-      if (events.length) {
-        const next = tryAdvance(before, events);
-        const nextChanges = next && projectionChanges(before, next);
+      const touched = touchedMarketIds(events);
+      const recovering = cursor.gateReason === "PROJECTION_MISMATCH";
+      const compared = (candidate: ChainProjection) => [
+        ...new Set([
+          ...touched,
+          ...projectionChanges(before, candidate).markets,
+          ...(recovering ? candidate.markets.keys() : []),
+        ]),
+      ];
+      let after: ChainProjection | null = null;
+      let changes: ProjectionChanges | null = null;
+      const next = events.length ? tryAdvance(before, events) : before;
+      if (next && (await agreesWithChain(next, compared(next), end.hash))) {
+        after = next;
+        changes = projectionChanges(before, next);
+      } else {
+        // The stored projection may have drifted: refold every canonical event and compare again.
+        const refolded = tryFold([
+          ...(await store.loadCanonicalEvents(deploymentId)),
+          ...events,
+        ]);
         if (
-          next &&
-          nextChanges &&
-          (await agreesWithChain(next, nextChanges.markets, end.hash))
-        ) {
-          after = next;
-          changes = nextChanges;
-        } else {
-          // The stored projection may have drifted: refold every canonical event and compare again.
-          const refolded = tryFold([
-            ...(await store.loadCanonicalEvents(deploymentId)),
-            ...events,
-          ]);
-          const wide = refolded && projectionChanges(before, refolded);
-          if (
-            !refolded ||
-            !wide ||
-            !(await agreesWithChain(refolded, wide.markets, end.hash))
-          ) {
-            if (cursor.gateReason !== "PROJECTION_MISMATCH")
-              await store.setGate(lease, cursor.version, "PROJECTION_MISMATCH");
-            return result("PROJECTION_MISMATCH");
-          }
-          after = refolded;
-          changes = null;
-        }
+          refolded &&
+          (await agreesWithChain(refolded, compared(refolded), end.hash))
+        )
+          after = refolded; // `changes` stays null: the stored rows are rewritten wholesale
+      }
+      if (!after) {
+        if (cursor.gateReason !== "PROJECTION_MISMATCH")
+          await store.setGate(lease, cursor.version, "PROJECTION_MISMATCH");
+        return result("PROJECTION_MISMATCH");
       }
 
       await store.commitRange(lease, {
         expectedVersion: cursor.version,
         block: end,
-        blocks: heights.map((height) => headers.get(height)!),
+        blocks: [...headers.values()].sort((a, b) =>
+          a.number < b.number ? -1 : a.number > b.number ? 1 : 0,
+        ),
         events,
         projection: after,
         changes,
@@ -462,7 +475,7 @@ export async function rebuildChainProjection(
     if (!rebuilt) throw new Error("INCONSISTENT_EVENT");
     const changes = projectionChanges(snapshot.projection, rebuilt);
     const differences = [
-      ...(changes.maker ? ["maker"] : []),
+      ...(changes.maker || !snapshot.makerRowPresent ? ["maker"] : []),
       ...changes.markets.map((key) => `market:${key}`),
       ...changes.positions.map((key) => `position:${key}`),
       ...changes.digests.map((key) => `digest:${key}`),

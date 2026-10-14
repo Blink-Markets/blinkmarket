@@ -23,6 +23,7 @@ import {
   hashOf,
   makerDeposited,
   marketCreated,
+  marketPaused,
   quoteCancelled,
   quoteFilled,
   takerAllowed,
@@ -62,10 +63,15 @@ async function setup(
   const chain = options.chain ?? world();
   const store = postgresChainIndexStore(t.pool);
   const readerOptions: FakeReaderOptions = { ...options.reader };
+  const readers: ReturnType<FakeChain["reader"]>[] = [];
   const indexerFor = (workerId: string, leaseMs = options.leaseMs) =>
     createChainIndexer({
       store,
-      reader: chain.reader(readerOptions),
+      reader: (() => {
+        const reader = chain.reader(readerOptions);
+        readers.push(reader);
+        return reader;
+      })(),
       deploymentId: "d1",
       marketAddress: MARKET_ADDRESS,
       deploymentBlock: DEPLOYMENT_BLOCK,
@@ -84,6 +90,8 @@ async function setup(
     readerOptions,
     indexer: indexerFor(options.workerId ?? "w1"),
     indexerFor,
+    /** Market ids of every contract read the indexers made, in order. */
+    viewCalls: () => readers.flatMap((reader) => reader.viewCalls),
     query,
     cursor: async () => (await store.loadCursor("d1"))!,
     outbox: (type: string) =>
@@ -435,7 +443,7 @@ test("a header that changes while the range is read aborts without writing", asy
     let calls = 0;
     reader.afterBlockCall = () => {
       calls += 1;
-      // Calls: cursor check, headers for the event block and the range end, then the two re-reads.
+      // Calls: cursor check, the pinned end, the event block header (3), then the three re-reads.
       if (calls === 3) {
         s.chain.rewind(21n);
         s.chain.mine();
@@ -919,6 +927,248 @@ test("chain:rebuild compares and repairs the projections from the canonical even
     // The indexer carries on from the repaired state.
     s.chain.mine([quoteFilled(2, { quantity: 1n })]);
     assert.equal((await s.indexer.syncOnce()).advancedTo, 21n);
+  } finally {
+    await s.close();
+  }
+});
+
+test("a reorg between the event-block read and the end read cannot commit the old branch's events", async () => {
+  const s = await setup();
+  try {
+    await s.indexer.syncOnce();
+    s.chain.mine([quoteFilled(2, { quantity: 1n, taker: TAKER })]); // block 21, branch A
+    s.chain.mine(); // 22
+    const before = await s.cursor();
+    const eventCount = (await s.events()).length;
+    let logsServed = false;
+    let reorged = false;
+    s.readerOptions.afterLogs = () => {
+      logsServed = true;
+    };
+    s.readerOptions.afterBlock = (number) => {
+      if (!logsServed || reorged || number !== 21n) return;
+      reorged = true;
+      // Branch B replaces 21-22; its fill has the same size and price but a different taker.
+      s.chain.rewind(20n);
+      s.chain.mine([quoteFilled(3, { quantity: 1n, taker: TAKER2 })]);
+      s.chain.mine();
+    };
+    assert.deepEqual(await s.indexer.syncOnce(), {
+      advancedTo: null,
+      reorgedTo: null,
+      gateReason: null,
+    });
+    assert.equal(reorged, true, "the interleaving happened");
+    assert.deepEqual(await s.cursor(), before, "nothing was committed");
+    assert.equal((await s.events()).length, eventCount);
+
+    delete s.readerOptions.afterLogs;
+    delete s.readerOptions.afterBlock;
+    assert.equal((await s.indexer.syncOnce()).advancedTo, 22n);
+    const projection = await s.store.loadProjection("d1");
+    assert.deepEqual(projection, foldEvents(s.chain.allEvents()));
+    assert.equal(projection.positions.get("1:" + TAKER)!.yesShares, 10n);
+    assert.equal(projection.positions.get("1:" + TAKER2)!.yesShares, 1n);
+    assert.equal(
+      projection.digests.has(hashOf(0x902)),
+      false,
+      "branch A's fill never landed",
+    );
+    assert.equal(projection.digests.has(hashOf(0x903)), true);
+  } finally {
+    await s.close();
+  }
+});
+
+test("a branch that flips to another fork and back during the read is not committed", async () => {
+  const s = await setup();
+  try {
+    await s.indexer.syncOnce();
+    s.chain.mine([quoteFilled(2, { quantity: 1n, taker: TAKER })]); // 21 on branch A
+    s.chain.mine(); // 22
+    const branchA = s.chain.snapshot();
+    const before = await s.cursor();
+    let onBranchB = false;
+    let backOnA = false;
+    s.readerOptions.afterBlock = (number) => {
+      if (number === 22n && !onBranchB) {
+        // The end is pinned on A; the logs and the event header are then read from B.
+        onBranchB = true;
+        s.chain.rewind(20n);
+        s.chain.mine([quoteFilled(3, { quantity: 1n, taker: TAKER2 })]);
+        s.chain.mine();
+      } else if (number === 21n && onBranchB && !backOnA) {
+        backOnA = true;
+        s.chain.restore(branchA);
+      }
+    };
+    assert.equal((await s.indexer.syncOnce()).advancedTo, null);
+    assert.equal(backOnA, true, "the interleaving happened");
+    assert.deepEqual(await s.cursor(), before);
+    assert.equal(
+      (await s.store.loadProjection("d1")).positions.has("1:" + TAKER2),
+      false,
+    );
+
+    delete s.readerOptions.afterBlock;
+    assert.equal((await s.indexer.syncOnce()).advancedTo, 22n);
+    assert.deepEqual(
+      await s.store.loadProjection("d1"),
+      foldEvents(s.chain.allEvents()),
+    );
+  } finally {
+    await s.close();
+  }
+});
+
+test("an empty range is compared with the chain, repairs a drifted balance and only then clears a mismatch gate", async () => {
+  const s = await setup();
+  try {
+    await s.indexer.syncOnce();
+    await s.query("UPDATE chain.maker_state SET free_balance_micros = 1");
+    await s.query(
+      "UPDATE chain.cursors SET gate_reason = 'PROJECTION_MISMATCH'",
+    );
+    s.chain.mine();
+    s.chain.mine();
+    const reads = s.viewCalls().length;
+    assert.deepEqual(await s.indexer.syncOnce(), {
+      advancedTo: 22n,
+      reorgedTo: null,
+      gateReason: null,
+    });
+    assert.ok(
+      s.viewCalls().length > reads,
+      "the empty range was cross-checked",
+    );
+    assert.deepEqual(
+      await s.store.loadProjection("d1"),
+      foldEvents(s.chain.allEvents()),
+    );
+    assert.equal((await s.cursor()).gateReason, null);
+  } finally {
+    await s.close();
+  }
+});
+
+test("a provider that returns no logs for a range with a deposit cannot move the cursor past it", async () => {
+  const s = await setup();
+  try {
+    await s.indexer.syncOnce();
+    s.chain.mine([makerDeposited(5_000_000n)]); // 21
+    s.chain.mine(); // 22
+    s.readerOptions.omitLogs = true;
+    const before = await s.cursor();
+    assert.deepEqual(await s.indexer.syncOnce(), {
+      advancedTo: null,
+      reorgedTo: null,
+      gateReason: "PROJECTION_MISMATCH",
+    });
+    const gated = await s.cursor();
+    assert.equal(gated.blockNumber, before.blockNumber);
+    assert.equal(gated.gateReason, "PROJECTION_MISMATCH");
+    assert.equal((await s.indexer.health()).ready, false);
+
+    delete s.readerOptions.omitLogs;
+    assert.deepEqual(await s.indexer.syncOnce(), {
+      advancedTo: 22n,
+      reorgedTo: null,
+      gateReason: null,
+    });
+    assert.deepEqual(
+      await s.store.loadProjection("d1"),
+      foldEvents(s.chain.allEvents()),
+    );
+  } finally {
+    await s.close();
+  }
+});
+
+test("an idle poll never clears a mismatch gate", async () => {
+  const s = await setup();
+  try {
+    await s.indexer.syncOnce();
+    await s.query(
+      "UPDATE chain.cursors SET gate_reason = 'PROJECTION_MISMATCH'",
+    );
+    const gated = await s.cursor();
+    assert.deepEqual(await s.indexer.syncOnce(), {
+      advancedTo: null,
+      reorgedTo: null,
+      gateReason: "PROJECTION_MISMATCH",
+    });
+    assert.deepEqual(
+      await s.cursor(),
+      gated,
+      "an idle poll writes nothing while gated",
+    );
+    s.chain.mine();
+    assert.deepEqual(await s.indexer.syncOnce(), {
+      advancedTo: 21n,
+      reorgedTo: null,
+      gateReason: null,
+    });
+    assert.equal((await s.cursor()).gateReason, null);
+  } finally {
+    await s.close();
+  }
+});
+
+test("a market that events only touch without changing is still compared with the chain", async () => {
+  const s = await setup();
+  try {
+    await s.indexer.syncOnce();
+    // Pause and unpause cancel out, so the fold changes nothing, but the market was named.
+    s.chain.mine([marketPaused(1, true)]);
+    s.chain.mine([marketPaused(1, false)]);
+    s.chain.mine();
+    s.readerOptions.views = (v) => ({
+      ...v,
+      markets: new Map(
+        [...v.markets].map(([id, m]) => [
+          id,
+          { ...m, escrowMicros: m.escrowMicros + 1n },
+        ]),
+      ),
+    });
+    const before = await s.cursor();
+    assert.deepEqual(await s.indexer.syncOnce(), {
+      advancedTo: null,
+      reorgedTo: null,
+      gateReason: "PROJECTION_MISMATCH",
+    });
+    assert.ok(s.viewCalls().some((ids) => ids.includes(1n)));
+    assert.equal((await s.cursor()).blockNumber, before.blockNumber);
+
+    delete s.readerOptions.views;
+    assert.equal((await s.indexer.syncOnce()).advancedTo, 23n);
+  } finally {
+    await s.close();
+  }
+});
+
+test("chain:rebuild --verify reports a missing maker row and repair recreates it", async () => {
+  const chain = new FakeChain(11n);
+  chain.mine([marketCreated(1)]);
+  chain.mineTo(14n);
+  const s = await setup({ chain });
+  try {
+    const rebuild = (verify: boolean) =>
+      rebuildChainProjection(s.store, "d1", {
+        verify,
+        workerId: "rebuild-tool",
+      });
+    await s.indexer.syncOnce();
+    assert.deepEqual((await rebuild(true)).differences, []);
+    // The fold of a market with no maker activity has all-zero maker state: the row, not the values, is missing.
+    await s.query("DELETE FROM chain.maker_state");
+    assert.deepEqual((await rebuild(true)).differences, ["maker"]);
+    await s.query(
+      "UPDATE chain.cursors SET lease_until = blink.now() - interval '1 second'",
+    );
+    assert.equal((await rebuild(false)).rewritten, true);
+    assert.equal((await s.query("SELECT 1 FROM chain.maker_state")).length, 1);
+    assert.deepEqual((await rebuild(true)).differences, []);
   } finally {
     await s.close();
   }

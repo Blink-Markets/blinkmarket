@@ -96,6 +96,8 @@ export interface ChainSnapshot {
   cursor: IndexCursor;
   events: DecodedEvent[];
   projection: ChainProjection;
+  /** The maker projection always has a row to restore; a missing one reads as zeros in `projection`. */
+  makerRowPresent: boolean;
 }
 
 /**

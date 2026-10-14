@@ -603,6 +603,13 @@ export function postgresChainIndexStore(pool: Pool): ChainIndexStore {
           cursor,
           events: await readEvents(db, deploymentId),
           projection: await readProjection(db, deploymentId),
+          makerRowPresent:
+            (
+              await db.query(
+                "SELECT 1 FROM chain.maker_state WHERE deployment_id=$1",
+                [deploymentId],
+              )
+            ).rows.length === 1,
         };
       }),
     async canonicalBlockAtOrBelow(deploymentId, number) {

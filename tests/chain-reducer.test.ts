@@ -8,6 +8,7 @@ import {
   emptyProjection,
   foldEvents,
   projectionChanges,
+  touchedMarketIds,
   type DecodedEvent,
 } from "../packages/domain/src/chain-reducer.ts";
 
@@ -491,6 +492,79 @@ test("malformed event arguments are inconsistent rather than silently coerced", 
       fold(event("TakerAllowedChanged", { account: TAKER, allowed: "true" })),
     inconsistent,
   );
+});
+
+test("a rejected outcome event leaves the projection exactly as it was", () => {
+  const rejects = (state: ReturnType<typeof fold>, bad: DecodedEvent) => {
+    const before = structuredClone(state);
+    assert.throws(() => applyEvent(state, bad), inconsistent);
+    assert.deepEqual(state, before);
+  };
+  // A proposal whose evidence hash is unusable must not leave its outcome or time behind.
+  rejects(
+    fold(created(1)),
+    event("OutcomeProposed", { marketId: "1", outcome: "1" }),
+  );
+  rejects(
+    fold(created(1)),
+    event("OutcomeProposed", {
+      marketId: "1",
+      outcome: "1",
+      evidenceHash: true,
+    }),
+  );
+  // Same for a finalization: the market stays PROPOSED with no final outcome or reason.
+  rejects(
+    fold(created(1), proposed(0)),
+    event("OutcomeFinalized", { marketId: "1", outcome: "0", reason: "0" }),
+  );
+  rejects(
+    fold(created(1), proposed(0)),
+    event("OutcomeFinalized", {
+      marketId: "1",
+      outcome: "9",
+      reason: "0",
+      evidenceHash: hash(0xe1),
+    }),
+  );
+  rejects(
+    fold(created(1)),
+    event("OutcomeChallenged", { marketId: "1", evidenceHash: hash(1) }),
+  );
+});
+
+test("an unsound loaded projection is refused before anything changes", () => {
+  const state = fold(created(1), deposited(100_000_000n));
+  state.markets.get("1")!.escrowMicros = 1n; // totalPairs is 0, so escrow must be 0
+  const before = structuredClone(state);
+  assert.throws(() => applyEvent(state, fill()), inconsistent);
+  assert.deepEqual(state, before);
+});
+
+test("touchedMarketIds names every market an event batch refers to, even when the fold changes nothing", () => {
+  assert.deepEqual(touchedMarketIds([]), []);
+  const batch = [
+    created(3),
+    event("TradingPauseChanged", {
+      marketId: "0",
+      globalPause: true,
+      paused: true,
+    }),
+    event("TradingPauseChanged", {
+      marketId: "7",
+      globalPause: false,
+      paused: true,
+    }),
+    event("TradingPauseChanged", {
+      marketId: "7",
+      globalPause: false,
+      paused: false,
+    }),
+    redeemed(TAKER, 1n, 0n, 0n, 4),
+    deposited(1n),
+    event("QuoteCancelled", { digest: hash(0x950) }),
+  ];
+  assert.deepEqual(touchedMarketIds(batch).sort(), ["3", "4", "7"]);
 });
 
 test("projectionChanges names the added, changed and removed entries", () => {

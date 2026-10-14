@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import pg from "pg";
 import { migrate } from "../../packages/adapters/src/migrations.js";
 import { postgresChainIndexStore } from "../../packages/adapters/src/chain-index-store.js";
@@ -37,15 +38,17 @@ test(
     let created = false;
     const databaseUrl = new URL(adminUrl!);
     databaseUrl.pathname = "/" + name;
+    // Any connection error while the test runs, or after it, is a failure of the test.
+    const poolErrors: unknown[] = [];
+    const teardownFailures: unknown[] = [];
     const pool = (role: string | null, max = 4) => {
-      const created = new pg.Pool({
+      const made = new pg.Pool({
         connectionString: databaseUrl.toString(),
         ...(role ? { options: `-c role=${role}` } : {}),
         max,
       });
-      // DROP DATABASE ... WITH (FORCE) can reach a socket that is still closing after end().
-      created.on("error", () => undefined);
-      return created;
+      made.on("error", (error) => poolErrors.push(error));
+      return made;
     };
     const owner = pool(null, 2);
     const poolA = pool("blink_indexer");
@@ -217,9 +220,40 @@ test(
         foldEvents(chain.allEvents()),
       );
     } finally {
-      await Promise.allSettled([owner.end(), poolA.end(), poolB.end()]);
-      if (created) await control.query(`DROP DATABASE "${name}" WITH (FORCE)`);
-      await control.end();
+      const ended = await Promise.allSettled([
+        owner.end(),
+        poolA.end(),
+        poolB.end(),
+      ]);
+      for (const result of ended)
+        if (result.status === "rejected") teardownFailures.push(result.reason);
+      if (created) {
+        try {
+          await dropDatabase(control, name);
+        } catch (error) {
+          teardownFailures.push(error);
+        }
+      }
+      await control
+        .end()
+        .catch((error: unknown) => teardownFailures.push(error));
     }
+    assert.deepEqual(poolErrors, [], "no pool connection error");
+    assert.deepEqual(teardownFailures, [], "clean teardown");
   },
 );
+
+// Plain DROP DATABASE (never FORCE, so nothing is terminated): the backends of pools that just
+// ended need a moment to exit, and that is the only error waited out.
+async function dropDatabase(control: pg.Client, name: string) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await control.query(`DROP DATABASE "${name}"`);
+      return;
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code !== "55006" || attempt >= 40) throw error;
+      await delay(50);
+    }
+  }
+}
