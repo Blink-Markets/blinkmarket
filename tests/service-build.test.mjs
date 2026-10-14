@@ -86,3 +86,33 @@ test("actual signer entry bundle fails closed when enabled without configuration
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("actual signer entry bundle prints a code only for an invalid configuration", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "blink-signer-config-"));
+  try {
+    await copyFile(
+      resolve("dist/services/signer.mjs"),
+      join(directory, "signer.mjs"),
+    );
+    for (const [variable, value, code] of [
+      ["SIGNER_ENABLED", "maybe", "INVALID_SIGNER_ENABLED"],
+      ["SIGNER_PORT", "70000", "INVALID_SIGNER_PORT"],
+      ["SIGNER_L1_FEE_MODE", "none", "INVALID_SIGNER_L1_FEE_MODE"],
+    ]) {
+      const result = spawnSync(process.execPath, ["signer.mjs"], {
+        cwd: directory,
+        encoding: "utf8",
+        env: {
+          PATH: process.env.PATH,
+          NODE_ENV: "production",
+          [variable]: value,
+        },
+      });
+      assert.equal(result.status, 1, variable);
+      // The code and nothing else: no stack trace, no Node banner.
+      assert.equal(result.stderr, code + "\n", variable);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

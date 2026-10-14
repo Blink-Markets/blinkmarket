@@ -19,6 +19,7 @@ import {
   transactionRequestHash,
 } from "../packages/application/src/signer.js";
 import {
+  minimumReplacementFees,
   parseQuoteMessage,
   SIGNING_POLICY_VERSION,
 } from "../packages/domain/src/signing-policy.js";
@@ -128,7 +129,27 @@ async function harness(
       return state.l1Fee;
     },
   };
-  const store = postgresSignerStore(t.pool);
+  const baseStore = postgresSignerStore(t.pool);
+  const faults = { crashAfterArtifact: false };
+  const insertedHashes: Hex[] = [];
+  const store: typeof baseStore = {
+    loadDeployment: (id) => baseStore.loadDeployment(id),
+    run: (work) =>
+      baseStore.run((tx) =>
+        work({
+          ...tx,
+          async insertArtifact(input) {
+            insertedHashes.push(input.artifactHash);
+            await tx.insertArtifact(input);
+          },
+          async markSigned(signRequestId, intentId) {
+            // The process dies after signing and persisting, before the transaction commits.
+            if (faults.crashAfterArtifact) throw new Error("CRASH_AFTER_SIGN");
+            await tx.markSigned(signRequestId, intentId);
+          },
+        }),
+      ),
+  };
   const service = createSignerService({
     store,
     keys: {
@@ -169,7 +190,19 @@ async function harness(
     );
     return { ...prepared, response };
   };
-  return { t, manifest, state, rpc, service, store, client, scalar, call };
+  return {
+    t,
+    manifest,
+    state,
+    rpc,
+    service,
+    store,
+    client,
+    scalar,
+    call,
+    faults,
+    insertedHashes,
+  };
 }
 
 const senderOf = async (raw: Hex) =>
@@ -260,38 +293,103 @@ test("callers are authenticated by token hash and limited to their roles", async
   }
 });
 
-test("a request hash that differs from the stored one is rejected without poisoning the request", async () => {
+test("a request hash that differs from the stored one: a pending request is rejected for good, a finished one replays only to a caller that agrees", async () => {
   const h = await harness();
   try {
-    const prepared = await prepareRequest(h.client, h.manifest, {
+    // A request still waiting for its signature is rejected and stays rejected.
+    const pending = await prepareRequest(h.client, h.manifest, {
       kind: "FINALIZE_TIMEOUT",
       payload: finalizeTimeout(),
     });
     const wrong = await h.service.handle(tokens.worker, {
-      signRequestId: prepared.signRequestId,
+      signRequestId: pending.signRequestId,
       expectedRequestHash: "0x" + "00".repeat(32),
     });
     assert.deepEqual(
       { status: wrong.status, state: wrong.body.state, code: wrong.body.code },
       { status: 422, state: "REJECTED", code: "REQUEST_HASH_MISMATCH" },
     );
-    assert.equal(
-      (
-        await h.scalar(
-          "SELECT state FROM signing.sign_requests WHERE id = $1",
-          [prepared.signRequestId],
-        )
-      ).state,
-      "REQUESTED",
+    assert.deepEqual(
+      await h.scalar(
+        "SELECT state, reject_code FROM signing.sign_requests WHERE id = $1",
+        [pending.signRequestId],
+      ),
+      { state: "REJECTED", reject_code: "REQUEST_HASH_MISMATCH" },
     );
-    const ok = await h.service.handle(tokens.worker, {
-      signRequestId: prepared.signRequestId,
-      expectedRequestHash: prepared.requestHash
+    const afterwards = await h.service.handle(tokens.worker, {
+      signRequestId: pending.signRequestId,
+      expectedRequestHash: pending.requestHash
         .toUpperCase()
         .replace("0X", "0x"),
     });
-    assert.equal(ok.status, 200);
-    assert.equal(ok.body.state, "SIGNED");
+    assert.deepEqual(afterwards.body, {
+      state: "REJECTED",
+      code: "REQUEST_HASH_MISMATCH",
+    });
+    assert.equal(
+      (await h.scalar("SELECT count(*)::int AS n FROM signing.artifacts")).n,
+      0,
+    );
+    assert.equal(
+      (await h.scalar("SELECT count(*)::int AS n FROM signing.signing_plans"))
+        .n,
+      0,
+    );
+
+    // A signed request replays its artifact to a caller that names the same hash, and reveals
+    // nothing to one that does not.
+    const signed = await h.call("FINALIZE_TIMEOUT", finalizeTimeout("4"));
+    assert.equal(signed.response.body.state, "SIGNED");
+    const mismatch = await h.service.handle(tokens.worker, {
+      signRequestId: signed.signRequestId,
+      expectedRequestHash: "0x" + "11".repeat(32),
+    });
+    assert.deepEqual(
+      { status: mismatch.status, body: mismatch.body },
+      {
+        status: 422,
+        body: { state: "REJECTED", code: "REQUEST_HASH_MISMATCH" },
+      },
+    );
+    assert.deepEqual(
+      await h.scalar(
+        "SELECT state, reject_code FROM signing.sign_requests WHERE id = $1",
+        [signed.signRequestId],
+      ),
+      { state: "SIGNED", reject_code: null },
+    );
+    assert.equal(
+      (await h.scalar("SELECT count(*)::int AS n FROM signing.artifacts")).n,
+      1,
+    );
+    assert.deepEqual(
+      await h.service.handle(tokens.worker, {
+        signRequestId: signed.signRequestId,
+        expectedRequestHash: signed.requestHash,
+      }),
+      signed.response,
+    );
+
+    // A rejected request replays its own code to a caller that agrees, never to one that does not.
+    const bad = await h.call("REDEEM", { ...redeem(), data: "0xa9059cbb" });
+    assert.equal(bad.response.body.code, "PAYLOAD_INVALID");
+    const badMismatch = await h.service.handle(tokens.worker, {
+      signRequestId: bad.signRequestId,
+      expectedRequestHash: "0x" + "22".repeat(32),
+    });
+    assert.deepEqual(badMismatch.body, {
+      state: "REJECTED",
+      code: "REQUEST_HASH_MISMATCH",
+    });
+    assert.equal(
+      (
+        await h.scalar(
+          "SELECT reject_code FROM signing.sign_requests WHERE id = $1",
+          [bad.signRequestId],
+        )
+      ).reject_code,
+      "PAYLOAD_INVALID",
+    );
   } finally {
     await h.t.close();
   }
@@ -847,6 +945,284 @@ test("a replacement may not change the calldata or skip a version", async () => 
   }
 });
 
+test("a crash after signing re-signs the same bytes even if the base fee moved, and nobody takes the nonce in between", async () => {
+  const h = await harness();
+  try {
+    const first = await prepareRequest(h.client, h.manifest, {
+      kind: "FINALIZE_TIMEOUT",
+      payload: finalizeTimeout("8"),
+    });
+    const body = {
+      signRequestId: first.signRequestId,
+      expectedRequestHash: first.requestHash,
+    };
+    h.faults.crashAfterArtifact = true;
+    const lost = await h.service.handle(tokens.worker, body);
+    assert.deepEqual(
+      { status: lost.status, code: lost.body.code },
+      { status: 503, code: "SIGNER_ERROR" },
+    );
+    assert.equal(
+      h.insertedHashes.length,
+      1,
+      "a signature existed in the dying process",
+    );
+    // The plan, the nonce allocation and the gas reservation were committed before signing.
+    assert.deepEqual(
+      await h.scalar(
+        `SELECT nonce::int AS nonce, gas_limit::text AS gas, max_fee_per_gas::text AS fee,
+          max_priority_fee_per_gas::text AS tip, max_cost_wei::text AS cost FROM signing.signing_plans`,
+      ),
+      {
+        nonce: 5,
+        gas: "120000",
+        fee: "2100000",
+        tip: "100000",
+        cost: MAX_COST.toString(),
+      },
+    );
+    assert.equal(
+      (
+        await h.scalar(
+          "SELECT nonce::int AS nonce FROM signing.nonce_allocations",
+        )
+      ).nonce,
+      5,
+    );
+    assert.equal(
+      (
+        await h.scalar(
+          "SELECT reserved_wei::text AS r FROM signing.gas_spend WHERE role = 'keeper'",
+        )
+      ).r,
+      MAX_COST.toString(),
+    );
+    assert.equal(
+      (await h.scalar("SELECT count(*)::int AS n FROM signing.artifacts")).n,
+      0,
+    );
+    assert.equal(
+      (
+        await h.scalar(
+          "SELECT state FROM signing.sign_requests WHERE id = $1",
+          [first.signRequestId],
+        )
+      ).state,
+      "REQUESTED",
+    );
+
+    // Between the crash and the retry the fee market moves and another intent is signed.
+    h.faults.crashAfterArtifact = false;
+    h.state.baseFee = 9_000_000n;
+    h.state.pending = 5n;
+    const other = await h.call("FINALIZE_TIMEOUT", finalizeTimeout("7"));
+    assert.equal(other.response.body.state, "SIGNED");
+    assert.equal(
+      (
+        await h.scalar(
+          "SELECT nonce::int AS nonce FROM signing.nonce_allocations WHERE intent_id = $1",
+          [other.intentId],
+        )
+      ).nonce,
+      6,
+      "the crashed request's nonce was not reused by anyone else",
+    );
+    const estimates = h.state.estimateCalls;
+
+    const again = await h.service.handle(tokens.worker, body);
+    assert.equal(again.body.state, "SIGNED");
+    assert.equal(
+      again.body.txHash,
+      h.insertedHashes[0],
+      "same bytes, same hash",
+    );
+    assert.equal(h.insertedHashes.at(-1), h.insertedHashes[0]);
+    assert.equal(
+      h.state.estimateCalls,
+      estimates,
+      "a planned request never asks the chain again",
+    );
+    const raw = (
+      await h.scalar(
+        "SELECT raw_transaction FROM signing.artifacts WHERE sign_request_id = $1",
+        [first.signRequestId],
+      )
+    ).raw_transaction as Hex;
+    const tx = parseTransaction(raw);
+    assert.equal(tx.nonce, 5);
+    assert.equal(
+      tx.maxFeePerGas,
+      2_100_000n,
+      "the planned fee, not the new market",
+    );
+    assert.equal(tx.gas, 120_000n);
+    // The reservation was made once per request, not again by the retry.
+    const otherCost = 120_000n * (2n * 9_000_000n + 100_000n);
+    assert.equal(
+      (
+        await h.scalar(
+          "SELECT reserved_wei::text AS r FROM signing.gas_spend WHERE role = 'keeper'",
+        )
+      ).r,
+      (MAX_COST + otherCost).toString(),
+    );
+    assert.equal(
+      (await h.scalar("SELECT count(*)::int AS n FROM signing.signing_plans"))
+        .n,
+      2,
+    );
+  } finally {
+    await h.t.close();
+  }
+});
+
+test("a planned request that is rejected afterwards gives its gas back and raises a nonce-hole alert", async () => {
+  const h = await harness();
+  try {
+    const request = await prepareRequest(h.client, h.manifest, {
+      kind: "FINALIZE_TIMEOUT",
+      payload: finalizeTimeout("8"),
+    });
+    const body = {
+      signRequestId: request.signRequestId,
+      expectedRequestHash: request.requestHash,
+    };
+    h.faults.crashAfterArtifact = true;
+    await h.service.handle(tokens.worker, body);
+    h.faults.crashAfterArtifact = false;
+    const reserved = async () =>
+      (
+        await h.scalar(
+          "SELECT reserved_wei::text AS r FROM signing.gas_spend WHERE role = 'keeper'",
+        )
+      ).r;
+    assert.equal(await reserved(), MAX_COST.toString());
+
+    // The deployment is switched off between the plan and the signature: nothing is signed.
+    await h.t.db.query("UPDATE markets.deployments SET enabled = false");
+    const rejected = await h.service.handle(tokens.worker, body);
+    assert.deepEqual(rejected.body, {
+      state: "REJECTED",
+      code: "DEPLOYMENT_DISABLED",
+    });
+    assert.equal(await reserved(), "0", "the reservation was released");
+    assert.equal(
+      (await h.scalar("SELECT count(*)::int AS n FROM signing.artifacts")).n,
+      0,
+    );
+    const alert = await h.scalar(
+      "SELECT resource, reason FROM operations.audit_log WHERE action = 'signer.plan_abandoned'",
+    );
+    assert.equal(alert.resource, testAccounts.keeper.address.toLowerCase());
+    assert.match(
+      String(alert.reason),
+      /nonce=5 version=1 code=DEPLOYMENT_DISABLED/,
+    );
+
+    // A caller that disagrees about the hash also abandons a planned request, once.
+    await h.t.db.query("UPDATE markets.deployments SET enabled = true");
+    const second = await prepareRequest(h.client, h.manifest, {
+      kind: "FINALIZE_TIMEOUT",
+      payload: finalizeTimeout("9"),
+    });
+    h.faults.crashAfterArtifact = true;
+    await h.service.handle(tokens.worker, {
+      signRequestId: second.signRequestId,
+      expectedRequestHash: second.requestHash,
+    });
+    h.faults.crashAfterArtifact = false;
+    assert.equal(await reserved(), MAX_COST.toString());
+    const mismatch = await h.service.handle(tokens.worker, {
+      signRequestId: second.signRequestId,
+      expectedRequestHash: "0x" + "33".repeat(32),
+    });
+    assert.equal(mismatch.body.code, "REQUEST_HASH_MISMATCH");
+    assert.equal(await reserved(), "0");
+    await h.service.handle(tokens.worker, {
+      signRequestId: second.signRequestId,
+      expectedRequestHash: "0x" + "33".repeat(32),
+    });
+    assert.equal(
+      await reserved(),
+      "0",
+      "replaying the rejection releases nothing twice",
+    );
+  } finally {
+    await h.t.close();
+  }
+});
+
+test("a zero priority fee is a valid transaction and is replaced with a positive minimum tip", async () => {
+  const h = await harness();
+  try {
+    h.state.priority = 0n;
+    const first = await h.call("FINALIZE_TIMEOUT", finalizeTimeout("8"));
+    assert.equal(first.response.body.state, "SIGNED");
+    const rawOf = async (version: number) =>
+      (
+        await h.scalar(
+          `SELECT a.raw_transaction FROM signing.artifacts a JOIN signing.sign_requests r ON r.id = a.sign_request_id
+          WHERE r.artifact_version = $1`,
+          [version],
+        )
+      ).raw_transaction as Hex;
+    const v1 = parseTransaction(await rawOf(1));
+    // viem decodes a zero RLP field as undefined.
+    assert.equal(v1.maxPriorityFeePerGas ?? 0n, 0n, "the tip really is zero");
+    assert.equal(v1.maxFeePerGas, 2_000_000n);
+
+    // A replacement that keeps the tip at zero is refused.
+    const stuck = await h.call(
+      "FINALIZE_TIMEOUT",
+      {
+        ...finalizeTimeout("8"),
+        maxFeePerGas: "2250000",
+        maxPriorityFeePerGas: "0",
+      },
+      { intentId: first.intentId, version: 2 },
+    );
+    assert.equal(stuck.response.body.code, "REPLACEMENT_FEE_TOO_LOW");
+  } finally {
+    await h.t.close();
+  }
+
+  const g = await harness();
+  try {
+    g.state.priority = 0n;
+    const first = await g.call("FINALIZE_TIMEOUT", finalizeTimeout("8"));
+    const fees = minimumReplacementFees({
+      maxFeePerGas: 2_000_000n,
+      maxPriorityFeePerGas: 0n,
+    });
+    assert.deepEqual(fees, {
+      maxFeePerGas: 1_000_000_000n,
+      maxPriorityFeePerGas: 1_000_000_000n,
+    });
+    const second = await g.call(
+      "FINALIZE_TIMEOUT",
+      {
+        ...finalizeTimeout("8"),
+        maxFeePerGas: fees.maxFeePerGas.toString(),
+        maxPriorityFeePerGas: fees.maxPriorityFeePerGas.toString(),
+      },
+      { intentId: first.intentId, version: 2 },
+    );
+    assert.equal(second.response.body.state, "SIGNED");
+    const raw = (
+      await g.scalar(
+        `SELECT a.raw_transaction FROM signing.artifacts a JOIN signing.sign_requests r ON r.id = a.sign_request_id
+        WHERE r.artifact_version = 2`,
+      )
+    ).raw_transaction as Hex;
+    const v2 = parseTransaction(raw);
+    assert.equal(v2.maxPriorityFeePerGas, 1_000_000_000n);
+    assert.equal(v2.maxFeePerGas, 1_000_000_000n);
+    assert.equal(v2.nonce, 5);
+  } finally {
+    await g.t.close();
+  }
+});
+
 test("maker quotes: the signature recovers to the maker and the artifact is the EIP-712 digest", async () => {
   const h = await harness();
   try {
@@ -1349,29 +1725,99 @@ test("the database confines each role: blink_api never reads raw_transaction and
       h.t.db.query("DELETE FROM signing.nonce_allocations"),
       /append-only/,
     );
+  } finally {
+    await h.t.close();
+  }
+});
 
-    // The signer runtime refuses privileged logins; the signer group role itself passes.
+test("the signer runtime accepts only an ordinary signer login and judges the session, not the effective role", async () => {
+  const t = await createTestDatabase();
+  try {
+    const exec = (sql: string) => t.db.exec(sql);
+    await exec(`
+      CREATE ROLE signer_login LOGIN IN ROLE blink_signer;
+      CREATE ROLE signer_also_worker LOGIN IN ROLE blink_signer, blink_worker;
+      CREATE ROLE signer_creator LOGIN CREATEROLE IN ROLE blink_signer;
+      CREATE ROLE signer_createdb LOGIN CREATEDB IN ROLE blink_signer;
+      CREATE ROLE signer_bypass LOGIN BYPASSRLS IN ROLE blink_signer;
+      CREATE ROLE signer_builder LOGIN IN ROLE blink_signer;
+      GRANT CREATE ON SCHEMA signing TO signer_builder;
+      CREATE ROLE signer_extra LOGIN IN ROLE blink_signer;
+      CREATE ROLE harmless_group NOLOGIN;
+      GRANT harmless_group TO signer_extra;
+      CREATE ROLE not_a_signer LOGIN;
+    `);
+    const accepted = async (session: string) => {
+      await exec(`SET SESSION AUTHORIZATION ${session}`);
+      try {
+        await assertSignerRuntimeRole(t.pool);
+      } finally {
+        await exec("SET SESSION AUTHORIZATION postgres");
+      }
+    };
+    const refused = async (session: string) => {
+      await exec(`SET SESSION AUTHORIZATION ${session}`);
+      try {
+        await assert.rejects(
+          assertSignerRuntimeRole(t.pool),
+          /UNSAFE_SIGNER_DATABASE_ROLE/,
+          session,
+        );
+      } finally {
+        await exec("SET SESSION AUTHORIZATION postgres");
+      }
+    };
+    // The one accepted shape: a login that is a member of blink_signer and nothing else.
+    await accepted("signer_login");
+
+    // The owner and a superuser are refused outright...
     await assert.rejects(
-      assertSignerRuntimeRole(h.t.pool),
+      assertSignerRuntimeRole(t.pool),
       /UNSAFE_SIGNER_DATABASE_ROLE/,
     );
-    await h.t.setRole("blink_signer");
-    try {
-      await assertSignerRuntimeRole(h.t.pool);
-    } finally {
-      await h.t.setRole(null);
+    // ...and so are they when they merely start with role=blink_signer (or SET ROLE): the
+    // effective role looks right, the authenticated login does not.
+    for (const role of ["blink_signer", "signer_login"]) {
+      await exec(`SET ROLE ${role}`);
+      try {
+        await assert.rejects(
+          assertSignerRuntimeRole(t.pool),
+          /UNSAFE_SIGNER_DATABASE_ROLE/,
+          "SET ROLE " + role,
+        );
+      } finally {
+        await exec("RESET ROLE");
+      }
     }
-    await h.t.setRole("blink_worker");
+    // A login that can switch to another runtime role, or holds any other privilege, is refused.
+    for (const session of [
+      "signer_also_worker",
+      "signer_creator",
+      "signer_createdb",
+      "signer_bypass",
+      "signer_builder",
+      "signer_extra",
+      "not_a_signer",
+      // The NOLOGIN group role is not a login either.
+      "blink_signer",
+      "blink_worker",
+      "blink_api",
+    ])
+      await refused(session);
+    // A signer login that has switched its effective role away from itself is refused too.
+    await exec("SET SESSION AUTHORIZATION signer_login");
     try {
+      await exec("SET ROLE blink_signer");
       await assert.rejects(
-        assertSignerRuntimeRole(h.t.pool),
+        assertSignerRuntimeRole(t.pool),
         /UNSAFE_SIGNER_DATABASE_ROLE/,
       );
     } finally {
-      await h.t.setRole(null);
+      await exec("RESET ROLE");
+      await exec("SET SESSION AUTHORIZATION postgres");
     }
   } finally {
-    await h.t.close();
+    await t.close();
   }
 });
 

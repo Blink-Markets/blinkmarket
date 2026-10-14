@@ -8,6 +8,8 @@ import {
   gasLimitFor,
   intentRole,
   maxFeePerGas,
+  minimumReplacementFees,
+  minReplacementTipWei,
   parseTransactionPayload,
   replacementFeesAccepted,
   signingLimits,
@@ -361,12 +363,27 @@ test("replacement payloads carry exactly the two fee fields", () => {
     parseTransactionPayload({ ...base, maxFeePerGas: "1" }, true),
     null,
   );
+  // Field presence is what counts: a zero tip is a valid EIP-1559 field.
+  assert.deepEqual(
+    parseTransactionPayload(
+      { ...base, maxFeePerGas: "5", maxPriorityFeePerGas: "0" },
+      true,
+    )?.fees,
+    { maxFeePerGas: 5n, maxPriorityFeePerGas: 0n },
+  );
   assert.equal(
     parseTransactionPayload(
-      { ...base, maxFeePerGas: "0", maxPriorityFeePerGas: "0" },
+      { ...base, maxFeePerGas: "-1", maxPriorityFeePerGas: "0" },
       true,
     ),
     null,
+  );
+  assert.equal(
+    replacementFeesAccepted(
+      { maxFeePerGas: 5n, maxPriorityFeePerGas: 0n },
+      { maxFeePerGas: 0n, maxPriorityFeePerGas: 0n },
+    ),
+    false,
     "zero fees are not a replacement",
   );
 });
@@ -404,6 +421,70 @@ test("a replacement must raise both fee fields by at least 12.5 percent", () => 
     }),
     false,
     "lowering one field is never allowed",
+  );
+});
+
+test("a zero-tip transaction is replaced with the 1 gwei minimum tip, and the fee cap still rises 12.5 percent", () => {
+  assert.equal(minReplacementTipWei, 1_000_000_000n);
+  // Non-zero tips are bumped by 12.5 percent, rounded up.
+  assert.deepEqual(
+    minimumReplacementFees({ maxFeePerGas: 1000n, maxPriorityFeePerGas: 100n }),
+    { maxFeePerGas: 1125n, maxPriorityFeePerGas: 113n },
+  );
+  // A zero tip becomes the minimum tip; the cap never drops below the tip.
+  assert.deepEqual(
+    minimumReplacementFees({ maxFeePerGas: 1000n, maxPriorityFeePerGas: 0n }),
+    { maxFeePerGas: 1_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n },
+  );
+  assert.deepEqual(
+    minimumReplacementFees({
+      maxFeePerGas: 4_000_000_000n,
+      maxPriorityFeePerGas: 0n,
+    }),
+    { maxFeePerGas: 4_500_000_000n, maxPriorityFeePerGas: 1_000_000_000n },
+  );
+  assert.deepEqual(
+    minimumReplacementFees({ maxFeePerGas: 0n, maxPriorityFeePerGas: 0n }),
+    { maxFeePerGas: 1_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n },
+  );
+  // The signer accepts exactly what the dispatcher asks for, and anything higher; nothing lower.
+  const prev = { maxFeePerGas: 4_000_000_000n, maxPriorityFeePerGas: 0n };
+  const min = minimumReplacementFees(prev);
+  assert.equal(replacementFeesAccepted(prev, min), true);
+  assert.equal(
+    replacementFeesAccepted(prev, {
+      ...min,
+      maxPriorityFeePerGas: min.maxPriorityFeePerGas + 1n,
+    }),
+    true,
+  );
+  assert.equal(
+    replacementFeesAccepted(prev, { ...min, maxPriorityFeePerGas: 0n }),
+    false,
+    "a zero tip stays zero",
+  );
+  assert.equal(
+    replacementFeesAccepted(prev, {
+      ...min,
+      maxPriorityFeePerGas: min.maxPriorityFeePerGas - 1n,
+    }),
+    false,
+  );
+  assert.equal(
+    replacementFeesAccepted(prev, {
+      ...min,
+      maxFeePerGas: min.maxFeePerGas - 1n,
+    }),
+    false,
+    "fee cap below +12.5%",
+  );
+  assert.equal(
+    replacementFeesAccepted(
+      { maxFeePerGas: 1000n, maxPriorityFeePerGas: 0n },
+      { maxFeePerGas: 1125n, maxPriorityFeePerGas: 1_000_000_000n },
+    ),
+    false,
+    "a fee cap below the tip is not a valid transaction",
   );
 });
 

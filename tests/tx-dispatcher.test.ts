@@ -7,6 +7,7 @@ import {
   createTxDispatcher,
   TxDispatchError,
 } from "../packages/application/src/index.js";
+import { minimumReplacementFees } from "../packages/domain/src/signing-policy.js";
 import { encodeAllowedCall } from "../packages/adapters/src/signing-calldata.js";
 import {
   postgresDispatchStore,
@@ -41,11 +42,12 @@ async function harness(perTxCapWei = 200_000_000_000_000n) {
   const manifest = testManifest();
   await seedDeployment(t.db, manifest);
   await seedChain(t.db, { deploymentId: manifest.deploymentId });
+  const fees = { baseFee: 1_000_000n, priority: 100_000n };
   const signerRpc: SignerRpc = {
     chainId: async () => 84532,
     estimateGas: async () => 100_000n,
-    baseFeePerGas: async () => 1_000_000n,
-    maxPriorityFeePerGas: async () => 100_000n,
+    baseFeePerGas: async () => fees.baseFee,
+    maxPriorityFeePerGas: async () => fees.priority,
     pendingNonce: async () => 5n,
     l1Fee: async () => 0n,
   };
@@ -87,6 +89,7 @@ async function harness(perTxCapWei = 200_000_000_000_000n) {
     finalized: null as bigint | null,
     send: [] as SendRawResult[] | "fail",
     sent: [] as Hex[],
+    lookups: [] as string[],
   };
   const rpc: DispatchRpc = {
     async sendRawTransaction(raw) {
@@ -95,6 +98,7 @@ async function harness(perTxCapWei = 200_000_000_000_000n) {
       return chain.send.shift() ?? { state: "ACCEPTED", hash: keccak256(raw) };
     },
     async getReceipt(hash) {
+      chain.lookups.push(hash.toLowerCase());
       return chain.receipts.get(hash.toLowerCase()) ?? null;
     },
     async blockHashAt(number) {
@@ -104,12 +108,34 @@ async function harness(perTxCapWei = 200_000_000_000_000n) {
       return chain.finalized;
     },
   };
-  const dispatcher = createTxDispatcher({
-    store: postgresDispatchStore(t.pool),
-    rpc,
-    signer,
-    replaceAfterMs: 30_000,
-  });
+  const makeDispatcher = (view: DispatchRpc = rpc) =>
+    createTxDispatcher({
+      store: postgresDispatchStore(t.pool),
+      rpc: view,
+      signer,
+      replaceAfterMs: 30_000,
+    });
+  const dispatcher = makeDispatcher();
+  // The business clock moves forward for every query of the single PGlite session.
+  const advance = (seconds: number) =>
+    t.db.exec(`SET blink.test_clock_offset_seconds = '${seconds}'`);
+  const attempts = async () =>
+    await rows(
+      `SELECT t.id, t.status, t.receipt_status, t.nonce::int AS nonce, t.max_cost_wei::text AS max_cost,
+        t.gas_reserved_wei::text AS reserved, t.gas_spent_wei::text AS spent, t.replacement_of,
+        t.max_fee_per_gas::text AS max_fee, t.max_priority_fee_per_gas::text AS tip,
+        '0x' || encode(t.tx_hash, 'hex') AS hash
+      FROM signing.tx_attempts t JOIN signing.artifacts a ON a.id = t.artifact_id
+      JOIN signing.sign_requests r ON r.id = a.sign_request_id ORDER BY r.artifact_version`,
+    );
+  const ledger = async () =>
+    (
+      await rows(
+        "SELECT reserved_wei::text AS reserved, spent_wei::text AS spent FROM signing.gas_spend",
+      )
+    )[0];
+  const intentState = async () =>
+    (await rows("SELECT state FROM signing.economic_intents"))[0]!.state;
   const client = t.pool as unknown as Parameters<typeof prepareRequest>[0];
   const keeperIntent = (id = "3") =>
     prepareRequest(client, manifest, {
@@ -145,6 +171,13 @@ async function harness(perTxCapWei = 200_000_000_000_000n) {
     t,
     manifest,
     dispatcher,
+    rpc,
+    makeDispatcher,
+    fees,
+    advance,
+    attempts,
+    ledger,
+    intentState,
     chain,
     signerLog,
     signerMode,
@@ -194,28 +227,72 @@ test("a dispatched transaction is INCLUDED, then FINALIZED once the provider rep
   }
 });
 
-test("a reverted transaction fails the intent, records its gas and is not retried", async () => {
+test("a reverted receipt fails the intent only once its block is final", async () => {
   const h = await harness();
   try {
     const intent = await h.keeperIntent();
     await h.dispatcher.dispatch(intent.intentId);
     const [hash] = await h.hashOf();
     h.mine(hash!, 7n, { status: "reverted", gasSpentWei: 55_000_000_000n });
+
+    // Mined and reverted, but not final (and no finality signal at all): still being watched.
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "INCLUDED");
+    assert.equal(await h.intentState(), "INCLUDED");
+    let [attempt] = await h.attempts();
+    assert.deepEqual(
+      { status: attempt!.status, receipt: attempt!.receipt_status },
+      { status: "INCLUDED", receipt: "reverted" },
+    );
+    assert.deepEqual(await h.ledger(), { reserved: "0", spent: "55000000000" });
+    h.chain.finalized = 6n;
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "INCLUDED");
+    assert.equal(await h.intentState(), "INCLUDED");
+
+    // Final: now it is REVERTED, the intent FAILED, and the job may stop.
+    h.chain.finalized = 7n;
     assert.equal(await h.dispatcher.dispatch(intent.intentId), "REVERTED");
-    assert.equal(
-      (await h.rows("SELECT state FROM signing.economic_intents"))[0]!.state,
-      "FAILED",
-    );
-    assert.equal(
-      (await h.rows("SELECT status FROM signing.tx_attempts"))[0]!.status,
-      "REVERTED",
-    );
-    const [gas] = await h.rows(
-      "SELECT reserved_wei::text AS reserved, spent_wei::text AS spent FROM signing.gas_spend",
-    );
-    assert.deepEqual(gas, { reserved: "0", spent: "55000000000" });
+    assert.equal(await h.intentState(), "FAILED");
+    [attempt] = await h.attempts();
+    assert.equal(attempt!.status, "REVERTED");
+    assert.deepEqual(await h.ledger(), { reserved: "0", spent: "55000000000" });
     assert.equal(await h.dispatcher.dispatch(intent.intentId), "REVERTED");
     assert.equal(h.chain.sent.length, 1);
+  } finally {
+    await h.t.close();
+  }
+});
+
+test("an orphaned reverted receipt is REORGED and rebroadcast with the same bytes, not left FAILED", async () => {
+  const h = await harness();
+  try {
+    const intent = await h.keeperIntent();
+    await h.dispatcher.dispatch(intent.intentId);
+    const [hash] = await h.hashOf();
+    h.mine(hash!, 7n, { status: "reverted", gasSpentWei: 55_000_000_000n });
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "INCLUDED");
+    const maxCost = (await h.attempts())[0]!.max_cost as string;
+
+    // A shallow reorg removes the revert (finality unknown the whole time).
+    h.chain.receipts.delete(hash!.toLowerCase());
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "SUBMITTED");
+    assert.equal((await h.attempts())[0]!.status, "SUBMITTED");
+    assert.equal(await h.intentState(), "SUBMITTED");
+    assert.equal(h.chain.sent.length, 2);
+    assert.equal(
+      h.chain.sent[1],
+      h.chain.sent[0],
+      "the same raw bytes, the same nonce",
+    );
+    assert.equal((await h.attempts()).length, 1);
+    // Pending again: its reservation is back and the orphaned spend is gone.
+    assert.deepEqual(await h.ledger(), { reserved: maxCost, spent: "0" });
+
+    // On the new branch the same transaction succeeds, and that is what finalizes.
+    h.mine(hash!, 9n, { gasSpentWei: 41_000_000_000n });
+    h.chain.finalized = 9n;
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "FINALIZED");
+    assert.equal(await h.intentState(), "FINALIZED");
+    assert.deepEqual(await h.ledger(), { reserved: "0", spent: "41000000000" });
   } finally {
     await h.t.close();
   }
@@ -411,6 +488,294 @@ test("two dispatchers racing on one intent leave one attempt, one nonce and one 
       1,
       "every broadcast carried the same bytes",
     );
+  } finally {
+    await h.t.close();
+  }
+});
+
+// v1 is signed and broadcast, the business clock moves past replaceAfterMs, and the dispatcher
+// asks the signer for the higher-fee v2 and broadcasts it.
+async function withReplacement(h: Awaited<ReturnType<typeof harness>>) {
+  const intent = await h.keeperIntent();
+  assert.equal(await h.dispatcher.dispatch(intent.intentId), "SUBMITTED");
+  await h.advance(120);
+  assert.equal(await h.dispatcher.dispatch(intent.intentId), "SUBMITTED");
+  const attempts = await h.attempts();
+  assert.equal(attempts.length, 2);
+  return { intent, v1: attempts[0]!, v2: attempts[1]! };
+}
+
+test("a reorg after a replacement recovers the included version, moves the intent back to pending and may be replaced again", async () => {
+  const h = await harness();
+  try {
+    const { intent, v1, v2 } = await withReplacement(h);
+    assert.equal(v2.replacement_of, v1.id);
+    h.mine(v1.hash as Hex, 10n, { gasSpentWei: 10n });
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "INCLUDED");
+    assert.deepEqual(
+      (await h.attempts()).map((a) => a.status),
+      ["INCLUDED", "REPLACED"],
+    );
+    assert.equal(await h.intentState(), "INCLUDED");
+
+    // v1's block is orphaned and v2 was never mined: v1 comes back with its persisted bytes.
+    h.chain.receipts.delete((v1.hash as string).toLowerCase());
+    const sentBefore = h.chain.sent.length;
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "SUBMITTED");
+    assert.deepEqual(
+      (await h.attempts()).map((a) => a.status),
+      ["SUBMITTED", "REPLACED"],
+    );
+    assert.equal(await h.intentState(), "SUBMITTED", "no longer INCLUDED");
+    assert.equal(h.chain.sent.length, sentBefore + 1);
+    assert.equal(h.chain.sent.at(-1), h.chain.sent[0], "v1's raw bytes");
+    assert.equal(
+      (await h.rows("SELECT 1 FROM signing.nonce_allocations")).length,
+      1,
+    );
+    assert.equal(
+      (await h.rows("SELECT 1 FROM signing.economic_intents")).length,
+      1,
+    );
+    assert.deepEqual(await h.ledger(), {
+      reserved: v1.max_cost,
+      spent: "0",
+    });
+
+    // Still unmined for too long: a third version can be signed because the intent is pending.
+    await h.advance(600);
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "SUBMITTED");
+    const after = await h.attempts();
+    assert.equal(after.length, 3);
+    assert.equal(after[2]!.nonce, v1.nonce, "never a new nonce");
+    assert.equal(after[2]!.replacement_of, v2.id);
+    assert.deepEqual(
+      (
+        await h.rows(
+          "SELECT artifact_version AS v, state FROM signing.sign_requests ORDER BY artifact_version",
+        )
+      ).map((r) => r.state),
+      ["SIGNED", "SIGNED", "SIGNED"],
+    );
+    assert.equal(await h.intentState(), "SUBMITTED");
+  } finally {
+    await h.t.close();
+  }
+});
+
+test("gas follows the canonical receipt: a replaced sibling that wins after a reorg is charged, an orphan is refunded", async () => {
+  const h = await harness();
+  try {
+    const { intent, v1, v2 } = await withReplacement(h);
+    const c1 = BigInt(v1.max_cost as string);
+    const c2 = BigInt(v2.max_cost as string);
+    assert.deepEqual(await h.ledger(), {
+      reserved: (c1 + c2).toString(),
+      spent: "0",
+    });
+
+    // v1 is mined and costs 10; v2 releases its reservation as REPLACED.
+    h.mine(v1.hash as Hex, 10n, { gasSpentWei: 10n });
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "INCLUDED");
+    assert.deepEqual(await h.ledger(), { reserved: "0", spent: "10" });
+    assert.deepEqual(
+      (await h.attempts()).map((a) => [a.status, a.reserved, a.spent]),
+      [
+        ["INCLUDED", "0", "10"],
+        ["REPLACED", "0", "0"],
+      ],
+    );
+
+    // The chain reorganizes: v1 is gone and v2 is mined with an actual cost of 25.
+    h.chain.receipts.delete((v1.hash as string).toLowerCase());
+    h.mine(v2.hash as Hex, 11n, { gasSpentWei: 25n });
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "INCLUDED");
+    assert.deepEqual(await h.ledger(), { reserved: "0", spent: "25" });
+    assert.deepEqual(
+      (await h.attempts()).map((a) => [a.status, a.reserved, a.spent]),
+      [
+        ["REPLACED", "0", "0"],
+        ["INCLUDED", "0", "25"],
+      ],
+    );
+
+    // The same transaction is re-included elsewhere at another actual cost: replaced, not added.
+    h.mine(v2.hash as Hex, 12n, { gasSpentWei: 30n });
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "INCLUDED");
+    assert.deepEqual(await h.ledger(), { reserved: "0", spent: "30" });
+    assert.equal((await h.attempts())[1]!.spent, "30");
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "INCLUDED");
+    assert.deepEqual(
+      await h.ledger(),
+      { reserved: "0", spent: "30" },
+      "idempotent",
+    );
+
+    // Orphaned with nothing else mined: the spend is reversed and the pending v2 reserves again.
+    h.chain.receipts.delete((v2.hash as string).toLowerCase());
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "SUBMITTED");
+    assert.deepEqual(await h.ledger(), { reserved: c2.toString(), spent: "0" });
+    assert.deepEqual(
+      (await h.attempts()).map((a) => [a.status, a.reserved, a.spent]),
+      [
+        ["REPLACED", "0", "0"],
+        ["SUBMITTED", c2.toString(), "0"],
+      ],
+    );
+
+    h.mine(v2.hash as Hex, 14n, { gasSpentWei: 31n });
+    h.chain.finalized = 14n;
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "FINALIZED");
+    assert.deepEqual(await h.ledger(), { reserved: "0", spent: "31" });
+  } finally {
+    await h.t.close();
+  }
+});
+
+test("a zero-priority-fee transaction dispatches and is replaced with the 1 gwei minimum tip", async () => {
+  const h = await harness();
+  try {
+    h.fees.priority = 0n;
+    const intent = await h.keeperIntent();
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "SUBMITTED");
+    const [v1] = await h.attempts();
+    assert.equal(v1!.tip, "0");
+    assert.equal(v1!.max_fee, "2000000");
+
+    await h.advance(120);
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "SUBMITTED");
+    const [, v2] = await h.attempts();
+    const wanted = minimumReplacementFees({
+      maxFeePerGas: 2_000_000n,
+      maxPriorityFeePerGas: 0n,
+    });
+    assert.deepEqual(
+      { fee: v2!.max_fee, tip: v2!.tip, nonce: v2!.nonce },
+      {
+        fee: wanted.maxFeePerGas.toString(),
+        tip: "1000000000",
+        nonce: v1!.nonce,
+      },
+    );
+    assert.equal(
+      (
+        await h.rows(
+          "SELECT state FROM signing.sign_requests WHERE artifact_version = 2",
+        )
+      )[0]!.state,
+      "SIGNED",
+      "the signer accepts exactly what the dispatcher asks for",
+    );
+  } finally {
+    await h.t.close();
+  }
+});
+
+test("two observers with different views cannot overwrite a newer intent state", async () => {
+  const h = await harness();
+  try {
+    const intent = await h.keeperIntent();
+    await h.dispatcher.dispatch(intent.intentId);
+    const blockA = keccak256("0xaa");
+    const blockB = keccak256("0xbb");
+    const viewB: DispatchRpc = {
+      ...h.rpc,
+      getReceipt: async () => ({
+        status: "success",
+        blockHash: blockB,
+        blockNumber: 6n,
+        gasSpentWei: 40n,
+      }),
+      blockHashAt: async (number) => (number === 6n ? blockB : null),
+      finalizedBlockNumber: async () => 6n,
+    };
+    const observerB = h.makeDispatcher(viewB);
+    let bRan = false;
+    // Observer A has read the attempt and is waiting on its receipt lookup when observer B
+    // completes. A saw a final revert; B saw a final success.
+    const viewA: DispatchRpc = {
+      ...h.rpc,
+      async getReceipt() {
+        if (!bRan) {
+          bRan = true;
+          assert.equal(await observerB.dispatch(intent.intentId), "FINALIZED");
+        }
+        return {
+          status: "reverted",
+          blockHash: blockA,
+          blockNumber: 5n,
+          gasSpentWei: 10n,
+        };
+      },
+      blockHashAt: async (number) => (number === 5n ? blockA : null),
+      finalizedBlockNumber: async () => 5n,
+    };
+    const result = await h.makeDispatcher(viewA).dispatch(intent.intentId);
+    assert.equal(result, "FINALIZED");
+    assert.equal(
+      await h.intentState(),
+      "FINALIZED",
+      "not FAILED by the stale observer",
+    );
+    const [attempt] = await h.attempts();
+    assert.deepEqual(
+      {
+        status: attempt!.status,
+        receipt: attempt!.receipt_status,
+        spent: attempt!.spent,
+      },
+      { status: "FINALIZED", receipt: "success", spent: "40" },
+    );
+    assert.deepEqual(await h.ledger(), { reserved: "0", spent: "40" });
+  } finally {
+    await h.t.close();
+  }
+});
+
+test("a signer outage never stops the dispatcher from observing versions that are already signed", async () => {
+  const h = await harness();
+  try {
+    const intent = await h.keeperIntent();
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "SUBMITTED");
+    const [v1] = await h.attempts();
+    await h.advance(120);
+    h.signerMode.unknown = true;
+    // The replacement is requested but the signer does not answer; v1 is still pending.
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "PENDING");
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "PENDING");
+    assert.equal(
+      (
+        await h.rows(
+          "SELECT state FROM signing.sign_requests WHERE artifact_version = 2",
+        )
+      )[0]!.state,
+      "REQUESTED",
+    );
+
+    // Meanwhile v1 is mined: it is found, charged and tracked although the signer is down.
+    h.chain.lookups.length = 0;
+    h.mine(v1!.hash as Hex, 10n, { gasSpentWei: 10n });
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "INCLUDED");
+    assert.ok(h.chain.lookups.includes((v1!.hash as string).toLowerCase()));
+    assert.equal(await h.intentState(), "INCLUDED");
+    assert.deepEqual(await h.ledger(), { reserved: "0", spent: "10" });
+    h.chain.finalized = 10n;
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "FINALIZED");
+    assert.equal(await h.intentState(), "FINALIZED");
+  } finally {
+    await h.t.close();
+  }
+});
+
+test("a send that loses to a higher-priced pooled version is UNKNOWN, not a failure", async () => {
+  const h = await harness();
+  try {
+    const intent = await h.keeperIntent();
+    h.chain.send = [{ state: "UNDERPRICED" }];
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "UNKNOWN");
+    assert.equal((await h.attempts())[0]!.status, "UNKNOWN");
+    assert.equal(await h.intentState(), "UNKNOWN");
+    assert.equal(h.chain.sent.length, 1, "not blindly resent");
   } finally {
     await h.t.close();
   }

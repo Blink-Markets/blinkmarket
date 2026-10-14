@@ -27,9 +27,9 @@ pnpm dev
 | OpenAPI 契約 | http://127.0.0.1:3001/openapi.json | 從共享 schemas 產生請求／回應／身份契約；業務標註未實作 |
 | Worker       | http://127.0.0.1:3002/health/live  | 活性檢查；/jobs 可看規劃工作                            |
 | Indexer      | http://127.0.0.1:3003/health/live  | 活性檢查，尚未同步區塊                                  |
-| Signer       | http://127.0.0.1:3004/health/live  | 活性檢查，沒有簽章 API                                  |
+| Signer       | http://127.0.0.1:3004/health/live  | 活性檢查；`SIGNER_ENABLED=true` 才有 /internal/sign     |
 
-預設 scaffold 模式：API 格式錯誤回 400，有效業務請求仍回 501。identity 模式接入 PostgreSQL 與兩個 wallet auth endpoint，見 [身份交付](M2_IDENTITY_DELIVERY.md)。preparation 模式另啟用證據 metadata、候選新增／修訂／查詢／拒絕，離線匯入及權限見 [證據與候選交付](M2_PREPARATION_DELIVERY.md)。所有後端 /health/ready 及 API /v1/health 仍回 503，完整交易鏈路尚未 ready。
+預設 scaffold 模式：API 格式錯誤回 400，有效業務請求仍回 501。identity 模式接入 PostgreSQL 與兩個 wallet auth endpoint，見 [身份交付](M2_IDENTITY_DELIVERY.md)。preparation 模式另啟用證據 metadata、候選新增／修訂／查詢／拒絕，離線匯入及權限見 [證據與候選交付](M2_PREPARATION_DELIVERY.md)。除啟用中的 Signer（其 /health/ready 依 DB、部署與 RPC 即時回報）外，所有後端 /health/ready 及 API /v1/health 仍回 503，完整交易鏈路尚未 ready。
 
 單獨啟動可用 `pnpm --filter @blink/api dev`，其他 app 同理。Web 建置：`pnpm build`。
 

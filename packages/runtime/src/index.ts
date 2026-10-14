@@ -1,6 +1,11 @@
 import Fastify from "fastify";
 
-export function createService(name: string, stage = "architecture") {
+export function createService(
+  name: string,
+  stage = "architecture",
+  // A service with real dependencies supplies its own readiness; the default stays not-ready.
+  options: { ready?: () => Promise<boolean> } = {},
+) {
   const app = Fastify({
     bodyLimit: 65536,
     logger: { redact: ["req.headers.authorization", "req.headers.cookie"] },
@@ -10,13 +15,15 @@ export function createService(name: string, stage = "architecture") {
     status: "alive",
     stage,
   }));
-  app.get("/health/ready", async (_request, reply) =>
-    reply.code(503).send({
+  app.get("/health/ready", async (_request, reply) => {
+    const ready = await options.ready?.().catch(() => false);
+    if (ready) return { service: name, status: "ready", stage };
+    return reply.code(503).send({
       service: name,
       status: "not-ready",
       reason: "Business adapters are not connected",
-    }),
-  );
+    });
+  });
   app.setErrorHandler((error, request, reply) => {
     const status =
       typeof error === "object" && error !== null && "statusCode" in error

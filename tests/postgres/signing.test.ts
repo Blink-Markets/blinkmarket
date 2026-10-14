@@ -1,9 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { keccak256 } from "viem";
-import { migrate } from "../../packages/adapters/src/migrations.js";
 import { encodeAllowedCall } from "../../packages/adapters/src/signing-calldata.js";
 import {
   assertSignerRuntimeRole,
@@ -22,6 +20,7 @@ import type {
   SignerRpc,
   SignResult,
 } from "../../packages/ports/src/index.js";
+import { withDatabase } from "../helpers/postgres-database.js";
 import {
   prepareRequest,
   seedChain,
@@ -32,70 +31,7 @@ import {
   testMarket,
 } from "../helpers/signer-fixture.js";
 
-const adminUrl = process.env.TEST_POSTGRES_ADMIN_URL;
-if (!adminUrl)
-  throw new Error(
-    "TEST_POSTGRES_ADMIN_URL_REQUIRED: dedicated local/CI PostgreSQL with CREATEDB and CREATEROLE privileges",
-  );
-
 const TOKEN = "pg-worker-token";
-
-// Each test creates and drops its own random database; the supplied database is never touched.
-async function withDatabase(
-  run: (pools: {
-    owner: pg.Pool;
-    pool: (role: string, max?: number) => pg.Pool;
-  }) => Promise<void>,
-) {
-  const name = "blink_t8_" + randomUUID().replaceAll("-", "");
-  assert.match(name, /^blink_t8_[a-f0-9]{32}$/);
-  const control = new pg.Client({ connectionString: adminUrl });
-  await control.connect();
-  let created = false;
-  const url = new URL(adminUrl!);
-  url.pathname = "/" + name;
-  const owner = new pg.Pool({ connectionString: url.toString(), max: 2 });
-  const opened: pg.Pool[] = [];
-  try {
-    await control.query(`CREATE DATABASE "${name}"`);
-    created = true;
-    const client = await owner.connect();
-    try {
-      await migrate(client);
-    } finally {
-      client.release();
-    }
-    await run({
-      owner,
-      pool(role, max = 8) {
-        const pool = new pg.Pool({
-          connectionString: url.toString(),
-          options: "-c role=" + role,
-          max,
-        });
-        opened.push(pool);
-        return pool;
-      },
-    });
-  } finally {
-    await Promise.all(opened.map((pool) => pool.end()));
-    await owner.end();
-    if (created) {
-      // pool.end() resolves before the sockets are fully closed: let the sessions leave on their
-      // own so DROP ... FORCE never kills a client that is still shutting down.
-      for (let i = 0; i < 100; i += 1) {
-        const { rows } = await control.query(
-          "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = $1",
-          [name],
-        );
-        if (rows[0].n === 0) break;
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-      await control.query(`DROP DATABASE "${name}" WITH (FORCE)`);
-    }
-    await control.end();
-  }
-}
 
 function fakeSignerRpc(pending = 5n): SignerRpc {
   return {
@@ -142,7 +78,7 @@ test(
   "real PostgreSQL: two signer pools allocate distinct, consecutive nonces for one sender",
   { timeout: 60000 },
   async () => {
-    await withDatabase(async ({ owner, pool }) => {
+    await withDatabase(async ({ owner, pool, login }) => {
       const manifest = testManifest();
       await seedDeployment(owner, manifest);
       await seedChain(owner, { deploymentId: manifest.deploymentId });
@@ -155,10 +91,11 @@ test(
             payload: finalize(id),
           }),
         );
-      // Two separate signer processes' worth of connections, both as the signer runtime role.
-      const poolA = pool("blink_signer", 6);
-      const poolB = pool("blink_signer", 6);
+      // Two separate signer processes' worth of connections, each an ordinary signer login.
+      const poolA = await login({ max: 6 });
+      const poolB = await login({ max: 6 });
       await assertSignerRuntimeRole(poolA);
+      await assertSignerRuntimeRole(poolB);
       const services = [signerService(poolA), signerService(poolB)];
       const responses = await Promise.all(
         requests.map((request, index) =>
@@ -209,7 +146,7 @@ test(
   "real PostgreSQL: the same sign request signed from two pools at once yields one artifact",
   { timeout: 60000 },
   async () => {
-    await withDatabase(async ({ owner, pool }) => {
+    await withDatabase(async ({ owner, pool, login }) => {
       const manifest = testManifest();
       await seedDeployment(owner, manifest);
       await seedChain(owner, { deploymentId: manifest.deploymentId });
@@ -218,8 +155,8 @@ test(
         payload: finalize(1),
       });
       const services = [
-        signerService(pool("blink_signer", 4)),
-        signerService(pool("blink_signer", 4)),
+        signerService(await login({ max: 4 })),
+        signerService(await login({ max: 4 })),
       ];
       const responses = await Promise.all(
         Array.from({ length: 8 }, (_, i) =>
@@ -251,7 +188,7 @@ test(
   "real PostgreSQL S07: a restarted dispatcher with an UNKNOWN attempt creates no new nonce, intent or attempt",
   { timeout: 60000 },
   async () => {
-    await withDatabase(async ({ owner, pool }) => {
+    await withDatabase(async ({ owner, pool, login }) => {
       const manifest = testManifest();
       await seedDeployment(owner, manifest);
       await seedChain(owner, { deploymentId: manifest.deploymentId });
@@ -260,7 +197,7 @@ test(
         kind: "FINALIZE_TIMEOUT",
         payload: finalize(9),
       });
-      const service = signerService(pool("blink_signer"));
+      const service = signerService(await login());
       const signer: RestrictedSigner = {
         async sign(input) {
           const response = await service.handle(TOKEN, input);
@@ -357,6 +294,155 @@ test(
         { reserved: "0", spent: "40000000000" },
         "gas settled once despite racing dispatchers",
       );
+    });
+  },
+);
+
+test(
+  "real PostgreSQL: the runtime guard accepts an ordinary signer login and refuses privileged sessions",
+  { timeout: 60000 },
+  async () => {
+    await withDatabase(async ({ owner, pool, login }) => {
+      // The one accepted shape: a login of its own that belongs to blink_signer only.
+      await assertSignerRuntimeRole(await login());
+
+      // The administrator is refused, and so is the administrator that merely starts with
+      // role=blink_signer: the effective role looks right, the authenticated login does not.
+      await assert.rejects(
+        assertSignerRuntimeRole(owner),
+        /UNSAFE_SIGNER_DATABASE_ROLE/,
+      );
+      await assert.rejects(
+        assertSignerRuntimeRole(pool("blink_signer", 1)),
+        /UNSAFE_SIGNER_DATABASE_ROLE/,
+      );
+      // A signer login that is also a worker (or API) login, can create databases, or owns the
+      // database is not an ordinary signer.
+      for (const options of [
+        { memberOf: ["blink_signer", "blink_worker"] },
+        { memberOf: ["blink_signer", "blink_api"] },
+        { createdb: true },
+        { ownsDatabase: true },
+        { memberOf: ["blink_worker"] },
+      ])
+        await assert.rejects(
+          assertSignerRuntimeRole(await login(options)),
+          /UNSAFE_SIGNER_DATABASE_ROLE/,
+          JSON.stringify(options),
+        );
+    });
+  },
+);
+
+test(
+  "real PostgreSQL: observers with conflicting views leave one coherent final state",
+  { timeout: 120000 },
+  async () => {
+    await withDatabase(async ({ owner, pool, login }) => {
+      const manifest = testManifest();
+      await seedDeployment(owner, manifest);
+      await seedChain(owner, { deploymentId: manifest.deploymentId });
+      const worker = pool("blink_worker", 4);
+      const service = signerService(await login());
+      const signer: RestrictedSigner = {
+        async sign(input) {
+          const response = await service.handle(TOKEN, input);
+          return response.status === 200
+            ? (response.body as SignResult)
+            : { state: "UNKNOWN", code: String(response.body.code) };
+        },
+      };
+      const blockA = keccak256("0x0a");
+      const blockB = keccak256("0x0b");
+      const base: DispatchRpc = {
+        sendRawTransaction: async (raw) => ({
+          state: "ACCEPTED",
+          hash: keccak256(raw),
+        }),
+        getReceipt: async () => null,
+        blockHashAt: async () => null,
+        finalizedBlockNumber: async () => null,
+      };
+      // One observer sees a final revert, the other a final success of the same transaction.
+      const reverted: DispatchRpc = {
+        ...base,
+        getReceipt: async () => ({
+          status: "reverted",
+          blockHash: blockA,
+          blockNumber: 5n,
+          gasSpentWei: 10n,
+        }),
+        blockHashAt: async (number) => (number === 5n ? blockA : null),
+        finalizedBlockNumber: async () => 5n,
+      };
+      const success: DispatchRpc = {
+        ...base,
+        getReceipt: async () => ({
+          status: "success",
+          blockHash: blockB,
+          blockNumber: 6n,
+          gasSpentWei: 40n,
+        }),
+        blockHashAt: async (number) => (number === 6n ? blockB : null),
+        finalizedBlockNumber: async () => 6n,
+      };
+      const observer = (rpc: DispatchRpc) =>
+        createTxDispatcher({
+          store: postgresDispatchStore(pool("blink_worker", 4)),
+          rpc,
+          signer,
+          replaceAfterMs: 60_000,
+        });
+      for (let round = 1; round <= 6; round += 1) {
+        const intent = await prepareRequest(worker, manifest, {
+          kind: "FINALIZE_TIMEOUT",
+          payload: finalize(round),
+        });
+        assert.equal(
+          await observer(base).dispatch(intent.intentId),
+          "SUBMITTED",
+        );
+        const results = await Promise.all([
+          observer(reverted).dispatch(intent.intentId),
+          observer(success).dispatch(intent.intentId),
+        ]);
+        const { rows } = await owner.query(
+          `SELECT t.status, t.gas_spent_wei::text AS spent, t.gas_reserved_wei::text AS reserved, i.state
+          FROM signing.tx_attempts t JOIN signing.economic_intents i ON i.id = t.intent_id WHERE t.intent_id = $1`,
+          [intent.intentId],
+        );
+        const only = rows[0];
+        // Either outcome is fine; a mixed one (attempt FINALIZED, intent FAILED, ...) is not.
+        const ok =
+          (only.status === "FINALIZED" &&
+            only.state === "FINALIZED" &&
+            only.spent === "40") ||
+          (only.status === "REVERTED" &&
+            only.state === "FAILED" &&
+            only.spent === "10");
+        assert.ok(ok, JSON.stringify({ round, only, results }));
+        assert.equal(only.reserved, "0");
+        assert.ok(
+          results.every((r) => r === "FINALIZED" || r === "REVERTED"),
+          results.join(),
+        );
+        // Each result is the persisted final state, never the loser's view.
+        assert.deepEqual(
+          [...new Set(results)],
+          only.status === "FINALIZED" ? ["FINALIZED"] : ["REVERTED"],
+        );
+      }
+      // The ledger holds exactly the sum of the winners' actual costs.
+      const { rows: ledger } = await owner.query(
+        `SELECT spent_wei::text AS spent, reserved_wei::text AS reserved FROM signing.gas_spend WHERE role = 'keeper'`,
+      );
+      const { rows: attempts } = await owner.query(
+        `SELECT sum(gas_spent_wei)::text AS spent FROM signing.tx_attempts`,
+      );
+      assert.deepEqual(ledger[0], {
+        spent: attempts[0].spent,
+        reserved: "0",
+      });
     });
   },
 );

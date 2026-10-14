@@ -54,7 +54,7 @@ const artifactOf = (row: Row): ArtifactRecord => ({
     row.max_cost_wei == null ? null : BigInt(String(row.max_cost_wei)),
   createdAt: new Date(row.created_at as string | Date),
 });
-const attemptColumns = `id, intent_id, artifact_id, ${hexOf("tx_hash", "tx_hash")}, nonce::text AS nonce, replacement_of, gas_limit::text AS gas_limit, max_fee_per_gas::text AS max_fee_per_gas, max_priority_fee_per_gas::text AS max_priority_fee_per_gas, max_cost_wei::text AS max_cost_wei, status, ${hexOf("receipt_block_hash", "receipt_block_hash")}, receipt_block_number::text AS receipt_block_number, gas_spent_wei::text AS gas_spent_wei, submitted_at, version`;
+const attemptColumns = `id, intent_id, artifact_id, ${hexOf("tx_hash", "tx_hash")}, nonce::text AS nonce, replacement_of, gas_limit::text AS gas_limit, max_fee_per_gas::text AS max_fee_per_gas, max_priority_fee_per_gas::text AS max_priority_fee_per_gas, max_cost_wei::text AS max_cost_wei, status, ${hexOf("receipt_block_hash", "receipt_block_hash")}, receipt_block_number::text AS receipt_block_number, receipt_status, gas_reserved_wei::text AS gas_reserved_wei, gas_spent_wei::text AS gas_spent_wei, submitted_at, version`;
 const attemptOf = (row: Row): AttemptRecord => ({
   id: String(row.id),
   intentId: String(row.intent_id),
@@ -72,8 +72,9 @@ const attemptOf = (row: Row): AttemptRecord => ({
     row.receipt_block_number == null
       ? null
       : BigInt(String(row.receipt_block_number)),
-  gasSpentWei:
-    row.gas_spent_wei == null ? null : BigInt(String(row.gas_spent_wei)),
+  receiptStatus: (row.receipt_status as "success" | "reverted" | null) ?? null,
+  gasReservedWei: BigInt(String(row.gas_reserved_wei)),
+  gasSpentWei: BigInt(String(row.gas_spent_wei)),
   submittedAt:
     row.submitted_at == null
       ? null
@@ -269,10 +270,68 @@ function signerTransaction(client: PoolClient): SignerTransaction {
         spentWei: BigInt(String(rows[0]!.spent)),
       };
     },
-    async reserveGas(role, amountWei) {
+    async insertPlan(plan, role) {
+      const createdAt = await clock();
+      const day = await gasDay();
+      await q(
+        `INSERT INTO signing.signing_plans(sign_request_id, intent_id, sender, nonce, gas_limit, max_fee_per_gas,
+          max_priority_fee_per_gas, l1_fee_wei, max_cost_wei, created_at)
+        VALUES ($1, $2, decode($3, 'hex'), $4::numeric, $5::numeric, $6::numeric, $7::numeric, $8::numeric, $9::numeric, $10)`,
+        [
+          plan.signRequestId,
+          plan.intentId,
+          bytes(plan.sender),
+          plan.nonce.toString(),
+          plan.gasLimit.toString(),
+          plan.maxFeePerGas.toString(),
+          plan.maxPriorityFeePerGas.toString(),
+          plan.l1FeeWei.toString(),
+          plan.maxCostWei.toString(),
+          createdAt,
+        ],
+      );
+      await q(
+        "INSERT INTO signing.gas_spend(role, day) VALUES ($1, $2::date) ON CONFLICT DO NOTHING",
+        [role, day],
+      );
       await q(
         `UPDATE signing.gas_spend SET reserved_wei = reserved_wei + $3::numeric WHERE role = $1 AND day = $2::date`,
-        [role, await gasDay(), amountWei.toString()],
+        [role, day, plan.maxCostWei.toString()],
+      );
+      return { ...plan, createdAt };
+    },
+    async planOf(signRequestId) {
+      const rows = await q(
+        `SELECT sign_request_id, intent_id, ${hexOf("sender", "sender")}, nonce::text AS nonce, gas_limit::text AS gas_limit,
+          max_fee_per_gas::text AS max_fee_per_gas, max_priority_fee_per_gas::text AS max_priority_fee_per_gas,
+          l1_fee_wei::text AS l1_fee_wei, max_cost_wei::text AS max_cost_wei, created_at
+        FROM signing.signing_plans WHERE sign_request_id = $1`,
+        [signRequestId],
+      );
+      const row = rows[0];
+      return row
+        ? {
+            signRequestId: String(row.sign_request_id),
+            intentId: String(row.intent_id),
+            sender: row.sender as Hex,
+            nonce: BigInt(String(row.nonce)),
+            gasLimit: BigInt(String(row.gas_limit)),
+            maxFeePerGas: BigInt(String(row.max_fee_per_gas)),
+            maxPriorityFeePerGas: BigInt(String(row.max_priority_fee_per_gas)),
+            l1FeeWei: BigInt(String(row.l1_fee_wei)),
+            maxCostWei: BigInt(String(row.max_cost_wei)),
+            createdAt: new Date(row.created_at as string | Date),
+          }
+        : null;
+    },
+    async releasePlan(plan, role) {
+      await q(
+        `UPDATE signing.gas_spend SET reserved_wei = GREATEST(reserved_wei - $3::numeric, 0) WHERE role = $1 AND day = $2::date`,
+        [
+          role,
+          plan.createdAt.toISOString().slice(0, 10),
+          plan.maxCostWei.toString(),
+        ],
       );
     },
     async insertArtifact(input) {
@@ -374,8 +433,8 @@ function dispatchTransaction(client: PoolClient): DispatchTransaction {
     async insertAttempt(a) {
       await q(
         `INSERT INTO signing.tx_attempts(id, intent_id, artifact_id, tx_hash, nonce, replacement_of, gas_limit,
-          max_fee_per_gas, max_priority_fee_per_gas, max_cost_wei, status)
-        VALUES ($1, $2, $3, decode($4, 'hex'), $5::numeric, $6, $7::numeric, $8::numeric, $9::numeric, $10::numeric, 'SIGNED')
+          max_fee_per_gas, max_priority_fee_per_gas, max_cost_wei, gas_reserved_wei, status)
+        VALUES ($1, $2, $3, decode($4, 'hex'), $5::numeric, $6, $7::numeric, $8::numeric, $9::numeric, $10::numeric, $10::numeric, 'SIGNED')
         ON CONFLICT DO NOTHING`,
         [
           a.id,
@@ -414,6 +473,10 @@ function dispatchTransaction(client: PoolClient): DispatchTransaction {
             ? null
             : patch.receiptBlockNumber.toString(),
         );
+      if (patch.receiptStatus !== undefined)
+        add("receipt_status", "?", patch.receiptStatus);
+      if (patch.gasReservedWei !== undefined)
+        add("gas_reserved_wei", "?::numeric", patch.gasReservedWei.toString());
       if (patch.gasSpentWei !== undefined)
         add("gas_spent_wei", "?::numeric", patch.gasSpentWei.toString());
       if (patch.submittedAt === "now") sets.push("submitted_at = blink.now()");
@@ -425,20 +488,24 @@ function dispatchTransaction(client: PoolClient): DispatchTransaction {
       return rows.length === 1;
     },
     async setIntentState(intentId, state) {
+      // A settled or cancelled intent never moves again, whatever a late writer believes.
       await q(
         `UPDATE signing.economic_intents SET state = $2, updated_at = clock_timestamp(), version = version + 1
-        WHERE id = $1 AND state <> $2`,
+        WHERE id = $1 AND state <> $2 AND state NOT IN ('FINALIZED', 'FAILED', 'CANCELLED')`,
         [intentId, state],
       );
     },
-    async settleGas(artifactId, maxCostWei, spentWei) {
+    async applyGasDelta(artifactId, reservedDelta, spentDelta) {
+      if (reservedDelta === 0n && spentDelta === 0n) return;
       const rows = await q(
         `UPDATE signing.gas_spend g
-        SET reserved_wei = GREATEST(g.reserved_wei - $2::numeric, 0), spent_wei = g.spent_wei + $3::numeric
-        FROM signing.artifacts a JOIN signing.sign_requests r ON r.id = a.sign_request_id
-        WHERE a.id = $1 AND g.role = r.role AND g.day = (a.created_at AT TIME ZONE 'UTC')::date
+        SET reserved_wei = GREATEST(g.reserved_wei + $2::numeric, 0), spent_wei = GREATEST(g.spent_wei + $3::numeric, 0)
+        FROM signing.artifacts a
+          JOIN signing.sign_requests r ON r.id = a.sign_request_id
+          JOIN signing.signing_plans p ON p.sign_request_id = r.id
+        WHERE a.id = $1 AND g.role = r.role AND g.day = (p.created_at AT TIME ZONE 'UTC')::date
         RETURNING g.role`,
-        [artifactId, maxCostWei.toString(), spentWei.toString()],
+        [artifactId, reservedDelta.toString(), spentDelta.toString()],
       );
       if (rows.length !== 1) throw new Error("GAS_RESERVATION_MISSING");
     },
@@ -454,19 +521,22 @@ export function postgresDispatchStore(pool: Pool): DispatchStore {
   };
 }
 
+// The signer must run as an ordinary, non-owner login that belongs to blink_signer and nothing
+// else. The authenticated login (session_user) is judged, not just the effective role: a
+// privileged connection that merely starts with role=blink_signer can switch back.
 export async function assertSignerRuntimeRole(
   client: Pick<PoolClient, "query">,
 ) {
   const { rows } = await client.query<{ allowed: boolean }>(`SELECT
-    NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
-    AND pg_has_role(current_user, 'blink_signer', 'USAGE')
-    AND NOT pg_has_role(current_user, 'blink_api', 'USAGE')
-    AND NOT pg_has_role(current_user, 'blink_worker', 'USAGE')
-    AND NOT pg_has_role(current_user, 'blink_indexer', 'USAGE')
-    AND NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname IN ('blink_identity_admin','blink_evidence_admin','blink_deployment_admin')
-      AND pg_has_role(current_user, oid, 'USAGE'))
+    session_user = current_user
+    AND s.rolcanlogin
+    AND NOT s.rolsuper AND NOT s.rolcreaterole AND NOT s.rolcreatedb AND NOT s.rolbypassrls
+    AND pg_has_role(session_user, 'blink_signer', 'MEMBER')
+    AND NOT EXISTS (SELECT 1 FROM pg_roles r WHERE r.oid <> s.oid AND r.rolname <> 'blink_signer'
+      AND pg_has_role(session_user, r.oid, 'MEMBER'))
+    AND NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = current_database() AND datdba = s.oid)
     AND NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname IN ('signing','markets','chain','operations','identity','blink')
-      AND has_schema_privilege(current_user, oid, 'CREATE')) AS allowed
-    FROM pg_roles WHERE rolname = current_user`);
+      AND has_schema_privilege(session_user, oid, 'CREATE')) AS allowed
+    FROM pg_roles s WHERE s.rolname = session_user`);
   if (rows[0]?.allowed !== true) throw new Error("UNSAFE_SIGNER_DATABASE_ROLE");
 }

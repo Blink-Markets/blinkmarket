@@ -2,6 +2,7 @@ import pg from "pg";
 import { privateKeyToAccount } from "viem/accounts";
 import { signRoles, signingLimits, type SignRole } from "@blink/domain";
 import {
+  assertProductionClock,
   assertSignerRuntimeRole,
   encodeAllowedCall,
   postgresSignerStore,
@@ -14,9 +15,10 @@ import { createService, startService } from "@blink/runtime";
 import { signerConfig } from "./config.js";
 import { buildSignerServer } from "./server.js";
 
-const config = signerConfig(process.env);
 let pool: pg.Pool | null = null;
+// Every failure, including an invalid configuration, leaves as a code only and exit status 1.
 try {
+  const config = signerConfig(process.env);
   if (!config.enabled) {
     // Without SIGNER_ENABLED=true the process is a health-only stub: no key is read, no route signs.
     await startService(createService("signer"), config.port, config.host);
@@ -31,6 +33,11 @@ try {
     });
     pool.on("error", () => console.error("SIGNER_DATABASE_CONNECTION_ERROR"));
     await assertSignerRuntimeRole(pool);
+    // blink.now() dates the gas budget: a shifted test clock must never reach a real signer.
+    await assertProductionClock(
+      pool,
+      process.env.BLINK_ALLOW_TEST_CLOCK === "1",
+    );
     const store = postgresSignerStore(pool);
     const rpc = viemSignerRpc({
       url: config.rpcUrl!,
@@ -71,7 +78,14 @@ try {
               : "UNEXPECTED"),
         ),
     });
-    const app = buildSignerServer(service);
+    const database = pool;
+    const app = buildSignerServer(service, async () => {
+      // Startup checks passed; ready means the dependencies still answer right now: the database,
+      // an enabled deployment, and an RPC that is still the 84532 chain.
+      await database.query("SELECT 1");
+      const current = await store.loadDeployment(manifest.data.deploymentId);
+      return current?.enabled === true && (await rpc.chainId()) === 84532;
+    });
     app.addHook("onClose", async () => {
       await pool?.end();
     });

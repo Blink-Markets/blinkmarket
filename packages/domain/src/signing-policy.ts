@@ -286,8 +286,9 @@ export function parseTransactionPayload(
   if (!hasExactKeys(payload, [...callKeys, ...feeKeys])) return null;
   const maxFee = uint(payload.maxFeePerGas, 256n);
   const priority = uint(payload.maxPriorityFeePerGas, 256n);
-  if (maxFee === null || priority === null || maxFee === 0n || priority === 0n)
-    return null;
+  // Presence, not positivity: a zero tip is a valid EIP-1559 field. Whether the pair is an
+  // acceptable replacement is replacementFeesAccepted's call.
+  if (maxFee === null || priority === null) return null;
   const { maxFeePerGas: _a, maxPriorityFeePerGas: _b, ...call } = payload;
   return {
     call,
@@ -394,10 +395,32 @@ export function checkGasCaps(input: {
   return null;
 }
 
-/** A replacement must raise both fee fields by at least 12.5 percent. */
+/** The smallest tip a replacement of a zero-tip transaction may use (1 gwei). */
+export const minReplacementTipWei = 1_000_000_000n;
+const ceilBump = (value: bigint) => (value * 1125n + 999n) / 1000n;
+
+/**
+ * The cheapest acceptable replacement of a transaction: both fee fields up by at least 12.5
+ * percent (rounded up), a zero tip replaced by the 1 gwei minimum, and never a fee cap below
+ * the tip. The dispatcher asks for exactly this; the signer accepts anything at least this high.
+ */
+export function minimumReplacementFees(prev: FeeFields): FeeFields {
+  const tip =
+    prev.maxPriorityFeePerGas === 0n
+      ? minReplacementTipWei
+      : ceilBump(prev.maxPriorityFeePerGas);
+  const cap = ceilBump(prev.maxFeePerGas);
+  return {
+    maxFeePerGas: cap > tip ? cap : tip,
+    maxPriorityFeePerGas: tip,
+  };
+}
+
 export function replacementFeesAccepted(prev: FeeFields, next: FeeFields) {
+  const min = minimumReplacementFees(prev);
   return (
-    next.maxFeePerGas * 1000n >= prev.maxFeePerGas * 1125n &&
-    next.maxPriorityFeePerGas * 1000n >= prev.maxPriorityFeePerGas * 1125n
+    next.maxFeePerGas >= min.maxFeePerGas &&
+    next.maxPriorityFeePerGas >= min.maxPriorityFeePerGas &&
+    next.maxFeePerGas >= next.maxPriorityFeePerGas
   );
 }

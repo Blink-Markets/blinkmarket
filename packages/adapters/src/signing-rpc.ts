@@ -98,6 +98,8 @@ export function viemDispatchRpc(options: {
           )
         )
           return { state: "NONCE_TOO_LOW" };
+        // Another transaction with this nonce is already pooled at a higher price.
+        if (/underpriced/i.test(text)) return { state: "UNDERPRICED" };
         throw error;
       }
     },

@@ -22,6 +22,7 @@ import {
   replacementFeesAccepted,
   signRoles,
   SIGNING_POLICY_VERSION,
+  type FeeFields,
   type QuoteMessage,
   type SignRole,
 } from "@blink/domain";
@@ -74,6 +75,27 @@ export interface SignerDeps {
   now?: () => number;
   /** Called with the cause of a 503, so operators can see it; never part of the response. */
   onError?: (error: unknown) => void;
+}
+
+/**
+ * The fields of a signed EIP-1559 transaction as the signer and the dispatcher both read them.
+ * viem decodes a zero RLP field (a zero tip, a zero nonce, ...) as undefined, so within a
+ * well-formed EIP-1559 transaction an absent field means zero, never "missing".
+ */
+export function decodeEip1559(raw: Hex) {
+  let tx;
+  try {
+    tx = parseTransaction(raw);
+  } catch {
+    return null;
+  }
+  if (tx.type !== "eip1559") return null;
+  return {
+    nonce: BigInt(tx.nonce ?? 0),
+    gas: tx.gas ?? 0n,
+    maxFeePerGas: tx.maxFeePerGas ?? 0n,
+    maxPriorityFeePerGas: tx.maxPriorityFeePerGas ?? 0n,
+  };
 }
 
 /** What a caller must send to be able to ask for the same hash the signer will check. */
@@ -137,12 +159,23 @@ type Signed = {
   signature?: string;
   txHash?: string;
 };
-type Decision = { ok: true; result: Signed } | { ok: false; code: string };
+type Decision =
+  | { ok: true; result: Signed }
+  | { ok: true; planned: true }
+  | { ok: false; code: string };
+type Prepared = {
+  ok: true;
+  to: Hex;
+  data: Hex;
+  replacement: { fees: FeeFields; allocated: bigint; prevGas: bigint } | null;
+};
 type Outcome =
   | { kind: "signed"; result: Signed }
+  // The transaction plan was committed; signing is a second transaction.
+  | { kind: "planned" }
   | { kind: "rejected"; code: string }
   | { kind: "error"; status: number; code: string };
-const reject = (code: string): Decision => ({ ok: false, code });
+const reject = (code: string) => ({ ok: false as const, code });
 const isRpcUnavailable = (error: unknown) =>
   error instanceof Error && error.message === "RPC_UNAVAILABLE";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -287,14 +320,15 @@ export function createSignerService(deps: SignerDeps) {
     });
   }
 
-  async function signTransaction(
+  // Everything about a transaction request that does not depend on the chain: the payload shape,
+  // the role policy, the request hash, the calldata, and for a replacement the signed history it
+  // must extend. Run in both phases, so a plan is never signed for a request that stopped passing.
+  async function prepareTransaction(
     tx: SignerTransaction,
     request: SignRequestRecord,
     intent: IntentRecord,
-    actor: string,
-  ): Promise<Decision> {
+  ): Promise<Prepared | { ok: false; code: string }> {
     const role = request.role;
-    const account = deps.keys[role]!;
     const replacement = request.artifactVersion > 1;
     const split = parseTransactionPayload(request.unsignedPayload, replacement);
     if (!split) return reject("PAYLOAD_INVALID");
@@ -313,14 +347,99 @@ export function createSignerService(deps: SignerDeps) {
       return reject("PAYLOAD_HASH_MISMATCH");
     const to = checked.call.to as Hex;
     const data = deps.encodeCall(checked.call);
-
-    let nonce: bigint;
-    let gasLimit: bigint;
-    let fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint };
-    // Serialize allocation per sender before any nonce or fee decision.
-    await tx.lockSender(CHAIN_ID, account.address);
     if (!replacement) {
       if (intent.state !== "PREPARED") return reject("INTENT_NOT_SIGNABLE");
+      return { ok: true, to, data, replacement: null };
+    }
+    if (!["SIGNED", "SUBMITTED", "UNKNOWN"].includes(intent.state))
+      return reject("INTENT_NOT_SIGNABLE");
+    const versions = await tx.signedVersions(intent.id);
+    const last = versions.at(-1);
+    const base = versions[0];
+    if (
+      !last ||
+      !base ||
+      versions.length !== request.artifactVersion - 1 ||
+      versions.some((v, index) => v.artifactVersion !== index + 1) ||
+      !last.rawTransaction
+    )
+      return reject("REPLACEMENT_BASE_MISSING");
+    const allocated = await tx.allocationOf(intent.id);
+    const prev = decodeEip1559(last.rawTransaction);
+    if (!prev || allocated === null || prev.nonce !== allocated)
+      throw new Error("REPLACEMENT_BASE_INCONSISTENT");
+    // The economic call must be exactly the first version's: same target, same calldata.
+    const first = parseTransactionPayload(base.unsignedPayload, false);
+    const firstChecked = first
+      ? checkTransactionCall({
+          manifest: deployment,
+          addresses: addresses(),
+          role,
+          kind: intent.kind,
+          payload: first.call,
+        })
+      : null;
+    if (
+      !firstChecked?.ok ||
+      firstChecked.call.to !== checked.call.to ||
+      deps.encodeCall(firstChecked.call) !== data
+    )
+      return reject("REPLACEMENT_CALLDATA_CHANGED");
+    const prevFees = {
+      maxFeePerGas: prev.maxFeePerGas,
+      maxPriorityFeePerGas: prev.maxPriorityFeePerGas,
+    };
+    if (!replacementFeesAccepted(prevFees, split.fees!))
+      return reject("REPLACEMENT_FEE_TOO_LOW");
+    return {
+      ok: true,
+      to,
+      data,
+      replacement: {
+        fees: split.fees!,
+        allocated,
+        prevGas: prev.gas,
+      },
+    };
+  }
+
+  const unsignedTransaction = (input: {
+    to: Hex;
+    data: Hex;
+    nonce: bigint;
+    gasLimit: bigint;
+    maxFeePerGas: bigint;
+    maxPriorityFeePerGas: bigint;
+  }) => ({
+    type: "eip1559" as const,
+    chainId: CHAIN_ID,
+    to: input.to,
+    data: input.data,
+    value: 0n,
+    nonce: Number(input.nonce),
+    gas: input.gasLimit,
+    maxFeePerGas: input.maxFeePerGas,
+    maxPriorityFeePerGas: input.maxPriorityFeePerGas,
+  });
+
+  // Phase 1: decide nonce, gas and fees against the chain and commit them as an immutable plan,
+  // together with the nonce allocation and the gas reservation, before any signature exists.
+  async function planTransaction(
+    tx: SignerTransaction,
+    request: SignRequestRecord,
+    intent: IntentRecord,
+    actor: string,
+    prepared: Prepared,
+  ): Promise<Decision> {
+    const role = request.role;
+    const account = deps.keys[role]!;
+    const { to, data } = prepared;
+    // Serialize allocation per sender before any nonce or fee decision.
+    await tx.lockSender(CHAIN_ID, account.address);
+    let nonce: bigint;
+    let gasLimit: bigint;
+    let fees: FeeFields;
+    if (!prepared.replacement) {
       // An allocation without an artifact cannot come from this flow: never hand out another.
       if ((await tx.allocationOf(intent.id)) !== null)
         throw new Error("ALLOCATION_WITHOUT_ARTIFACT");
@@ -352,78 +471,19 @@ export function createSignerService(deps: SignerDeps) {
         maxPriorityFeePerGas: priority,
       };
     } else {
-      if (!["SIGNED", "SUBMITTED", "UNKNOWN"].includes(intent.state))
-        return reject("INTENT_NOT_SIGNABLE");
-      const versions = await tx.signedVersions(intent.id);
-      const last = versions.at(-1);
-      const base = versions[0];
-      if (
-        !last ||
-        !base ||
-        versions.length !== request.artifactVersion - 1 ||
-        versions.some((v, index) => v.artifactVersion !== index + 1) ||
-        !last.rawTransaction
-      )
-        return reject("REPLACEMENT_BASE_MISSING");
-      const allocated = await tx.allocationOf(intent.id);
-      const prev = parseTransaction(last.rawTransaction);
-      if (
-        allocated === null ||
-        prev.type !== "eip1559" ||
-        BigInt(prev.nonce ?? -1) !== allocated ||
-        !prev.gas ||
-        !prev.maxFeePerGas ||
-        !prev.maxPriorityFeePerGas
-      )
-        throw new Error("REPLACEMENT_BASE_INCONSISTENT");
-      // The economic call must be exactly the first version's: same target, same calldata.
-      const first = parseTransactionPayload(base.unsignedPayload, false);
-      const firstChecked = first
-        ? checkTransactionCall({
-            manifest: deployment,
-            addresses: addresses(),
-            role,
-            kind: intent.kind,
-            payload: first.call,
-          })
-        : null;
-      if (
-        !firstChecked?.ok ||
-        firstChecked.call.to !== checked.call.to ||
-        deps.encodeCall(firstChecked.call) !== data
-      )
-        return reject("REPLACEMENT_CALLDATA_CHANGED");
-      if (
-        !replacementFeesAccepted(
-          {
-            maxFeePerGas: prev.maxFeePerGas,
-            maxPriorityFeePerGas: prev.maxPriorityFeePerGas,
-          },
-          split.fees!,
-        )
-      )
-        return reject("REPLACEMENT_FEE_TOO_LOW");
-      nonce = allocated;
-      gasLimit = prev.gas;
-      fees = split.fees!;
+      nonce = prepared.replacement.allocated;
+      gasLimit = prepared.replacement.prevGas;
+      fees = prepared.replacement.fees;
     }
     if (nonce > BigInt(Number.MAX_SAFE_INTEGER))
       throw new Error("NONCE_OUT_OF_RANGE");
-
-    const unsigned = {
-      type: "eip1559" as const,
-      chainId: CHAIN_ID,
-      to,
-      data,
-      value: 0n,
-      nonce: Number(nonce),
-      gas: gasLimit,
-      maxFeePerGas: fees.maxFeePerGas,
-      maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
-    };
     const l1Fee =
       policy.l1FeeMode === "oracle"
-        ? await rpc.l1Fee(serializeTransaction(unsigned))
+        ? await rpc.l1Fee(
+            serializeTransaction(
+              unsignedTransaction({ to, data, nonce, gasLimit, ...fees }),
+            ),
+          )
         : 0n;
     const maxCost = gasLimit * fees.maxFeePerGas + l1Fee;
     const usage = await tx.gasUsage(role);
@@ -436,21 +496,60 @@ export function createSignerService(deps: SignerDeps) {
     });
     if (capped) return reject(capped);
 
-    if (!replacement)
+    if (!prepared.replacement)
       await tx.allocateNonce({
         chainId: CHAIN_ID,
         sender: account.address,
         nonce,
         intentId: intent.id,
       });
-    await tx.reserveGas(role, maxCost);
+    await tx.insertPlan(
+      {
+        signRequestId: request.id,
+        intentId: intent.id,
+        sender: account.address,
+        nonce,
+        gasLimit,
+        maxFeePerGas: fees.maxFeePerGas,
+        maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+        l1FeeWei: l1Fee,
+        maxCostWei: maxCost,
+      },
+      role,
+    );
+    return { ok: true, planned: true };
+  }
+
+  async function signTransaction(
+    tx: SignerTransaction,
+    request: SignRequestRecord,
+    intent: IntentRecord,
+    actor: string,
+  ): Promise<Decision> {
+    const account = deps.keys[request.role]!;
+    const prepared = await prepareTransaction(tx, request, intent);
+    if (!prepared.ok) return prepared;
+    const plan = await tx.planOf(request.id);
+    if (!plan) return planTransaction(tx, request, intent, actor, prepared);
+    // Phase 2: the plan decides nonce, gas and fees; nothing is recomputed from the chain.
+    if (lower(plan.sender) !== lower(account.address))
+      throw new Error("PLAN_SENDER_MISMATCH");
     // RFC 6979: the same unsigned transaction always yields the same bytes and hash.
-    const raw = await account.signTransaction(unsigned);
+    const raw = await account.signTransaction(
+      unsignedTransaction({
+        to: prepared.to,
+        data: prepared.data,
+        nonce: plan.nonce,
+        gasLimit: plan.gasLimit,
+        maxFeePerGas: plan.maxFeePerGas,
+        maxPriorityFeePerGas: plan.maxPriorityFeePerGas,
+      }),
+    );
     return persistArtifact(tx, request, intent, {
       artifactHash: keccak256(raw),
       signature: null,
       rawTransaction: raw,
-      maxCostWei: maxCost,
+      maxCostWei: plan.maxCostWei,
     });
   }
 
@@ -487,6 +586,36 @@ export function createSignerService(deps: SignerDeps) {
     ...(artifact.rawTransaction ? { txHash: artifact.artifactHash } : {}),
   });
 
+  // A request is rejected for good. If a plan was already committed its gas reservation goes
+  // back; the nonce a first version allocated cannot, so that is alerted.
+  async function rejectRequest(
+    tx: SignerTransaction,
+    request: SignRequestRecord,
+    code: string,
+    actor: string,
+  ): Promise<Outcome> {
+    const plan = await tx.planOf(request.id);
+    if (plan) {
+      await tx.releasePlan(plan, request.role);
+      await tx.audit({
+        actor,
+        action: "signer.plan_abandoned",
+        resource: lower(plan.sender),
+        reason: `nonce=${plan.nonce} version=${request.artifactVersion} code=${code}`,
+        requestId: request.id,
+      });
+    }
+    await tx.markRejected(request.id, code);
+    await tx.audit({
+      actor,
+      action: "signer.rejected",
+      resource: request.id,
+      reason: code,
+      requestId: request.id,
+    });
+    return { kind: "rejected", code };
+  }
+
   async function process(
     tx: SignerTransaction,
     caller: (typeof callers)[number],
@@ -498,44 +627,41 @@ export function createSignerService(deps: SignerDeps) {
     if (!caller.roles.has(request.role) || !deps.keys[request.role])
       return { kind: "error", status: 403, code: "ROLE_DENIED" };
     const actor = "signer:" + caller.name;
-    // The caller must agree on what is being signed; a disagreement leaves the request untouched.
-    if (lower(request.requestHash) !== input.expectedRequestHash) {
-      await tx.audit({
-        actor,
-        action: "signer.request_hash_mismatch",
-        resource: request.id,
-        reason: "REQUEST_HASH_MISMATCH",
-        requestId: request.id,
-      });
-      return { kind: "rejected", code: "REQUEST_HASH_MISMATCH" };
-    }
-    if (request.state === "SIGNED") {
-      const artifact = await tx.artifactOf(request.id);
-      if (!artifact) throw new Error("ARTIFACT_MISSING");
-      return { kind: "signed", result: signedFrom(artifact) };
-    }
-    if (request.state === "REJECTED")
+    const agreed = lower(request.requestHash) === input.expectedRequestHash;
+    if (request.state !== "REQUESTED") {
+      // A finished request replays its persisted result, but only to a caller that names the
+      // same hash; otherwise nothing is revealed and nothing changes.
+      if (!agreed) {
+        await tx.audit({
+          actor,
+          action: "signer.request_hash_mismatch",
+          resource: request.id,
+          reason: "REQUEST_HASH_MISMATCH",
+          requestId: request.id,
+        });
+        return { kind: "rejected", code: "REQUEST_HASH_MISMATCH" };
+      }
+      if (request.state === "SIGNED") {
+        const artifact = await tx.artifactOf(request.id);
+        if (!artifact) throw new Error("ARTIFACT_MISSING");
+        return { kind: "signed", result: signedFrom(artifact) };
+      }
       return { kind: "rejected", code: request.rejectCode ?? "REJECTED" };
-    const decision = await decide(tx, request, actor);
-    if (decision.ok) {
-      await tx.audit({
-        actor,
-        action: "signer.signed",
-        resource: request.id,
-        reason: decision.result.artifactHash,
-        requestId: request.id,
-      });
-      return { kind: "signed", result: decision.result };
     }
-    await tx.markRejected(request.id, decision.code);
+    // The caller must agree on what is being signed; a disagreement rejects the request for good.
+    if (!agreed)
+      return rejectRequest(tx, request, "REQUEST_HASH_MISMATCH", actor);
+    const decision = await decide(tx, request, actor);
+    if (!decision.ok) return rejectRequest(tx, request, decision.code, actor);
+    if ("planned" in decision) return { kind: "planned" };
     await tx.audit({
       actor,
-      action: "signer.rejected",
+      action: "signer.signed",
       resource: request.id,
-      reason: decision.code,
+      reason: decision.result.artifactHash,
       requestId: request.id,
     });
-    return { kind: "rejected", code: decision.code };
+    return { kind: "signed", result: decision.result };
   }
 
   return {
@@ -577,6 +703,12 @@ export function createSignerService(deps: SignerDeps) {
       let outcome: Outcome;
       try {
         outcome = await store.run((tx) => process(tx, caller, input));
+        if (outcome.kind === "planned") {
+          // The plan is committed; only now is anything signed. A crash between the two
+          // transactions leaves the plan for the retry to sign unchanged.
+          outcome = await store.run((tx) => process(tx, caller, input));
+          if (outcome.kind === "planned") throw new Error("PLAN_NOT_SIGNED");
+        }
       } catch (error) {
         // Nothing was committed. The caller keeps its reservation and retries the same request.
         deps.onError?.(error);

@@ -110,6 +110,20 @@ export interface SignerRpc {
   l1Fee(serializedUnsigned: Hex): Promise<bigint>;
 }
 
+/** The immutable decision about nonce, gas and fees, committed before anything is signed. */
+export interface SigningPlan {
+  signRequestId: string;
+  intentId: string;
+  sender: Hex;
+  nonce: bigint;
+  gasLimit: bigint;
+  maxFeePerGas: bigint;
+  maxPriorityFeePerGas: bigint;
+  l1FeeWei: bigint;
+  maxCostWei: bigint;
+  createdAt: Date;
+}
+
 export interface SignerTransaction {
   /** The underlying database client of this transaction, for the quoteCheck hook. */
   readonly client: unknown;
@@ -138,7 +152,17 @@ export interface SignerTransaction {
   }): Promise<void>;
   /** Locks today's (UTC, business clock) row for the role and returns its totals. */
   gasUsage(role: SignRole): Promise<{ reservedWei: bigint; spentWei: bigint }>;
-  reserveGas(role: SignRole, amountWei: bigint): Promise<void>;
+  /**
+   * Stores the plan (stamped with this transaction's business-clock reading) and reserves its
+   * maximum cost on that same UTC day.
+   */
+  insertPlan(
+    plan: Omit<SigningPlan, "createdAt">,
+    role: SignRole,
+  ): Promise<SigningPlan>;
+  planOf(signRequestId: string): Promise<SigningPlan | null>;
+  /** Gives back a plan's reservation on the day it was made (the request will never be signed). */
+  releasePlan(plan: SigningPlan, role: SignRole): Promise<void>;
   insertArtifact(input: {
     id: string;
     signRequestId: string;
@@ -188,7 +212,11 @@ export interface AttemptRecord {
   status: AttemptStatus;
   receiptBlockHash: Hex | null;
   receiptBlockNumber: bigint | null;
-  gasSpentWei: bigint | null;
+  receiptStatus: "success" | "reverted" | null;
+  /** What this attempt currently holds in gas_spend.reserved_wei. */
+  gasReservedWei: bigint;
+  /** What this attempt has currently charged to gas_spend.spent_wei. */
+  gasSpentWei: bigint;
   submittedAt: Date | null;
   version: number;
 }
@@ -204,6 +232,8 @@ export interface AttemptPatch {
   status: AttemptStatus;
   receiptBlockHash?: Hex | null;
   receiptBlockNumber?: bigint | null;
+  receiptStatus?: "success" | "reverted" | null;
+  gasReservedWei?: bigint;
   gasSpentWei?: bigint;
   /** Stamps the store (business) clock; only a broadcast sets it. */
   submittedAt?: "now";
@@ -218,6 +248,8 @@ export interface DispatchTransaction {
       | "status"
       | "receiptBlockHash"
       | "receiptBlockNumber"
+      | "receiptStatus"
+      | "gasReservedWei"
       | "gasSpentWei"
       | "submittedAt"
       | "version"
@@ -230,11 +262,15 @@ export interface DispatchTransaction {
     patch: AttemptPatch,
   ): Promise<boolean>;
   setIntentState(intentId: string, state: IntentState): Promise<void>;
-  /** Moves the attempt's reservation into spent: reserved -= maxCost, spent += spentWei. */
-  settleGas(
+  /**
+   * Moves the role's ledger row of the attempt's plan day by signed deltas. The caller derives the
+   * deltas from the attempt's own recorded reserved/spent amounts in the same transaction as the
+   * compare-and-set that changes them, so replaying an observation moves nothing twice.
+   */
+  applyGasDelta(
     artifactId: string,
-    maxCostWei: bigint,
-    spentWei: bigint,
+    reservedDelta: bigint,
+    spentDelta: bigint,
   ): Promise<void>;
   createSignRequest(input: {
     intentId: string;
@@ -252,7 +288,9 @@ export interface DispatchStore {
 export type SendRawResult =
   | { state: "ACCEPTED"; hash: Hex }
   | { state: "ALREADY_KNOWN" }
-  | { state: "NONCE_TOO_LOW" };
+  | { state: "NONCE_TOO_LOW" }
+  // A different transaction with the same nonce is in the pool at a higher price.
+  | { state: "UNDERPRICED" };
 export interface DispatchReceipt {
   status: "success" | "reverted";
   blockHash: Hex;

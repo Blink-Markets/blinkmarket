@@ -72,6 +72,23 @@ CREATE TABLE signing.sender_guards (
   PRIMARY KEY (chain_id, sender)
 );
 
+-- The immutable plan of one transaction sign request: nonce, gas and fees are decided and committed
+-- (with the nonce allocation and the gas reservation) BEFORE anything is signed, so a retry after a
+-- crash signs exactly the same bytes even if fees moved, and no other intent can take the nonce.
+CREATE TABLE signing.signing_plans (
+  sign_request_id UUID PRIMARY KEY REFERENCES signing.sign_requests(id),
+  intent_id UUID NOT NULL REFERENCES signing.economic_intents(id),
+  sender blink.address NOT NULL,
+  nonce blink.uint256 NOT NULL,
+  gas_limit blink.uint256 NOT NULL,
+  max_fee_per_gas blink.uint256 NOT NULL,
+  max_priority_fee_per_gas blink.uint256 NOT NULL,
+  l1_fee_wei blink.uint256 NOT NULL,
+  max_cost_wei blink.uint256 NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  CHECK (max_fee_per_gas >= max_priority_fee_per_gas)
+);
+
 CREATE TABLE signing.tx_attempts (
   id UUID PRIMARY KEY,
   intent_id UUID NOT NULL REFERENCES signing.economic_intents(id),
@@ -86,7 +103,11 @@ CREATE TABLE signing.tx_attempts (
   status TEXT NOT NULL CHECK (status IN ('SIGNED','SUBMITTED','INCLUDED','FINALIZED','REVERTED','REPLACED','UNKNOWN','REORGED')),
   receipt_block_hash blink.hash,
   receipt_block_number blink.uint256,
-  gas_spent_wei blink.uint256,
+  receipt_status TEXT CHECK (receipt_status IN ('success','reverted')),
+  -- Ledger columns: what this attempt currently holds in gas_spend.reserved_wei and has charged to
+  -- gas_spend.spent_wei. The dispatcher moves them by idempotent deltas as receipts come and go.
+  gas_reserved_wei blink.uint256 NOT NULL DEFAULT 0,
+  gas_spent_wei blink.uint256 NOT NULL DEFAULT 0,
   submitted_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
@@ -102,8 +123,10 @@ CREATE TABLE signing.gas_spend (
   PRIMARY KEY (role, day)
 );
 
--- Append-only: signed bytes and allocations are never edited or removed.
+-- Append-only: signed bytes, plans and allocations are never edited or removed.
 CREATE TRIGGER artifacts_append_only BEFORE UPDATE OR DELETE OR TRUNCATE ON signing.artifacts
+  FOR EACH STATEMENT EXECUTE FUNCTION operations.reject_mutation();
+CREATE TRIGGER signing_plans_append_only BEFORE UPDATE OR DELETE OR TRUNCATE ON signing.signing_plans
   FOR EACH STATEMENT EXECUTE FUNCTION operations.reject_mutation();
 CREATE TRIGGER nonce_allocations_append_only BEFORE UPDATE OR DELETE OR TRUNCATE ON signing.nonce_allocations
   FOR EACH STATEMENT EXECUTE FUNCTION operations.reject_mutation();
@@ -148,11 +171,11 @@ GRANT USAGE ON SCHEMA signing TO blink_api, blink_worker, blink_signer;
 GRANT USAGE ON SCHEMA markets TO blink_signer;
 GRANT SELECT ON markets.deployments TO blink_signer;
 GRANT SELECT ON signing.economic_intents, signing.sign_requests, signing.sender_guards,
-  signing.nonce_allocations, signing.gas_spend, signing.artifacts TO blink_signer;
+  signing.nonce_allocations, signing.gas_spend, signing.artifacts, signing.signing_plans TO blink_signer;
 GRANT UPDATE (state, reject_code, updated_at) ON signing.sign_requests TO blink_signer;
 GRANT UPDATE (state, updated_at, version) ON signing.economic_intents TO blink_signer;
 GRANT UPDATE (updated_at) ON signing.sender_guards TO blink_signer;
-GRANT INSERT ON signing.artifacts, signing.nonce_allocations, signing.sender_guards TO blink_signer;
+GRANT INSERT ON signing.artifacts, signing.signing_plans, signing.nonce_allocations, signing.sender_guards TO blink_signer;
 GRANT INSERT, UPDATE ON signing.gas_spend TO blink_signer;
 
 -- The API requests maker quotes and reads the signature; it can never read raw_transaction.
@@ -163,7 +186,7 @@ GRANT SELECT (id, sign_request_id, artifact_hash, signature, created_at) ON sign
 -- It settles gas by moving a reservation into spent, so it needs reserved_wei as well as spent_wei.
 GRANT SELECT, INSERT ON signing.economic_intents, signing.sign_requests TO blink_worker;
 GRANT UPDATE (state, updated_at, version) ON signing.economic_intents TO blink_worker;
-GRANT SELECT ON signing.artifacts TO blink_worker;
+GRANT SELECT ON signing.artifacts, signing.signing_plans TO blink_worker;
 GRANT SELECT, INSERT, UPDATE ON signing.tx_attempts TO blink_worker;
 GRANT SELECT ON signing.gas_spend TO blink_worker;
 GRANT UPDATE (reserved_wei, spent_wei) ON signing.gas_spend TO blink_worker;
