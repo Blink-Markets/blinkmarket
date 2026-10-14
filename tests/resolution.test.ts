@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { keccak256 } from "viem";
 import { createTestDatabase, inviteAgent } from "./helpers/database.js";
 import { identityCrypto } from "../packages/adapters/src/identity-crypto.js";
 import { postgresResolutionStore } from "../packages/adapters/src/resolution-store.js";
@@ -64,6 +68,37 @@ async function setup() {
       await t.close();
     },
   };
+}
+async function approveMarket(s: Awaited<ReturnType<typeof setup>>) {
+  await s.t.setRole(null);
+  const candidate = randomUUID();
+  await s.t.db.exec("BEGIN");
+  await s.t.db.query(
+    "INSERT INTO discovery.candidates(id,operator_id,current_revision) VALUES($1,$2,1)",
+    [candidate, s.reporter.operatorId],
+  );
+  await s.t.db.query(
+    "INSERT INTO discovery.candidate_revisions(candidate_id,revision,snapshot) VALUES($1,1,$2)",
+    [
+      candidate,
+      {
+        candidateId: candidate,
+        revision: 1,
+        state: "APPROVED",
+        templateId: "GM_LT_V1",
+        entityId: "fixture",
+        thresholdBps: 6125,
+      },
+    ],
+  );
+  await s.t.db.exec(
+    "INSERT INTO markets.specs(hash,object_uri,public_uri) VALUES(decode(repeat('22',32),'hex'),'fixture','fixture')",
+  );
+  await s.t.db.query(
+    "INSERT INTO markets.approvals(id,candidate_id,revision,deployment_id,spec_hash,actor_key_id,budget_micros,reason) VALUES($1,$2,1,'test',decode(repeat('22',32),'hex'),$3,1,'fixture')",
+    [randomUUID(), candidate, s.admin.keyId],
+  );
+  await s.t.db.exec("COMMIT");
 }
 test("reports enforce visibility and scope, replay idempotently, and triage appends audited events", async () => {
   const s = await setup();
@@ -142,14 +177,19 @@ test("reports enforce visibility and scope, replay idempotently, and triage appe
         .length,
       5,
     );
-    assert.equal(
-      (
-        await s.t.db.query(
-          "SELECT * FROM operations.audit_log WHERE action LIKE 'resolution.%'",
-        )
-      ).rows.length,
-      5,
-    );
+    const audits = (
+      await s.t.db.query<{ action: string; reason: string }>(
+        "SELECT action,reason FROM operations.audit_log WHERE action LIKE 'resolution.%'",
+      )
+    ).rows;
+    assert.equal(audits.length, 5);
+    for (const audit of audits)
+      assert.equal(
+        audit.reason,
+        audit.action === "resolution.report_received"
+          ? "Resolution report received; advisory only, no chain action"
+          : "Resolution report triage appended",
+      );
     await assert.rejects(
       s.t.db.exec("UPDATE resolution.reports SET reason=reason"),
       /permission denied/,
@@ -242,35 +282,7 @@ test("parser job requires approval, close and entity evidence; saves strict-thre
     await import("../packages/adapters/src/resolution-store.js");
   const s = await setup();
   try {
-    await s.t.setRole(null);
-    const candidate = randomUUID();
-    await s.t.db.exec("BEGIN");
-    await s.t.db.query(
-      "INSERT INTO discovery.candidates(id,operator_id,current_revision) VALUES($1,$2,1)",
-      [candidate, s.reporter.operatorId],
-    );
-    await s.t.db.query(
-      "INSERT INTO discovery.candidate_revisions(candidate_id,revision,snapshot) VALUES($1,1,$2)",
-      [
-        candidate,
-        {
-          candidateId: candidate,
-          revision: 1,
-          state: "APPROVED",
-          templateId: "GM_LT_V1",
-          entityId: "fixture",
-          thresholdBps: 6125,
-        },
-      ],
-    );
-    await s.t.db.exec(
-      "INSERT INTO markets.specs(hash,object_uri,public_uri) VALUES(decode(repeat('22',32),'hex'),'fixture','fixture')",
-    );
-    await s.t.db.query(
-      "INSERT INTO markets.approvals(id,candidate_id,revision,deployment_id,spec_hash,actor_key_id,budget_micros,reason) VALUES($1,$2,1,'test',decode(repeat('22',32),'hex'),$3,1,'fixture')",
-      [randomUUID(), candidate, s.admin.keyId],
-    );
-    await s.t.db.exec("COMMIT");
+    await approveMarket(s);
     const text = "GAAP gross margin 61.25%";
     const handler = createResolutionParseHandler(
       postgresResolutionJobsStore(s.t.pool),
@@ -495,6 +507,175 @@ test("draft command encodes unsigned calls for manifest roles and warns about ti
     );
     assert.equal(
       (await s.t.db.query("SELECT * FROM operations.outbox")).rows.length,
+      0,
+    );
+  } finally {
+    await s.close();
+  }
+});
+
+const scanContext = (signal = new AbortController().signal) => ({
+  job: {
+    id: "fixture",
+    payload: {},
+    type: "resolution.parse" as const,
+    attempt: 1,
+    maxAttempts: 3,
+    leaseToken: "1",
+    workerId: "test",
+  },
+  signal,
+});
+
+test("one unreadable evidence object cannot block other records, is audited once and recovers after repair", async () => {
+  const { createResolutionParseHandler } =
+    await import("../packages/application/src/resolution.js");
+  const { postgresResolutionJobsStore, resolutionEvidenceReader } =
+    await import("../packages/adapters/src/resolution-store.js");
+  const { fileObjectStore } =
+    await import("../packages/adapters/src/file-object-store.js");
+  const directory = await mkdtemp(join(tmpdir(), "blink-resolution-"));
+  const s = await setup();
+  try {
+    await approveMarket(s);
+    await s.t.db.exec(
+      "UPDATE chain.markets SET close_at=floor(extract(epoch from blink.now()))-60",
+    );
+    const objects = fileObjectStore(directory);
+    const bytes = (text: string) => new TextEncoder().encode(text);
+    const record = async (
+      text: string,
+      options: { store?: boolean; recordHash?: string } = {},
+    ) => {
+      const hash = keccak256(bytes(text));
+      if (options.store ?? true) await objects.putIfAbsent(bytes(text), hash);
+      const id = randomUUID();
+      await s.t.db.query(
+        "INSERT INTO evidence.records(id,source_id,operator_id,content_hash,object_uri,access_policy,observed_at) VALUES($1,$2,$3,decode($4,'hex'),$5,'PRIVATE',blink.now())",
+        [
+          id,
+          s.source,
+          s.reporter.operatorId,
+          (options.recordHash ?? hash).slice(2),
+          "local-object:" + hash,
+        ],
+      );
+      return { id, hash };
+    };
+    const valid = await record("GAAP gross margin 61.00%");
+    const ambiguous = await record("GAAP gross margin 61.255%");
+    const missing = await record("GAAP gross margin 60%", { store: false });
+    const corrupt = await record("GAAP gross margin 62%");
+    await rm(join(directory, corrupt.hash + ".bin"));
+    await writeFile(join(directory, corrupt.hash + ".bin"), "tampered");
+    // The stored object is intact but is not the bytes this record claims.
+    const mismatched = await record("GAAP gross margin 63%", {
+      recordHash: keccak256(bytes("something else")),
+    });
+    const read = resolutionEvidenceReader(objects);
+    // The record created by setup() has no stored object; give it readable text.
+    const handler = createResolutionParseHandler(
+      postgresResolutionJobsStore(s.t.pool),
+      async (uri, hash) =>
+        uri === "fixture" ? "GAAP gross margin 70%" : read(uri, hash),
+    );
+    const unreadable = async () =>
+      (
+        await s.t.db.query<{ resource: string; reason: string }>(
+          "SELECT resource,reason FROM operations.audit_log WHERE action='resolution.evidence_unreadable' ORDER BY resource",
+        )
+      ).rows.map((r) => [JSON.parse(r.resource)[0], r.reason]);
+    const expected = [
+      [missing.id, "EVIDENCE_OBJECT_MISSING"],
+      [corrupt.id, "EVIDENCE_HASH_MISMATCH"],
+      [mismatched.id, "EVIDENCE_HASH_MISMATCH"],
+    ].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    const sortedUnreadable = async () =>
+      (await unreadable()).sort((a, b) =>
+        JSON.stringify(a).localeCompare(JSON.stringify(b)),
+      );
+
+    await s.t.setRole("blink_worker");
+    await handler(scanContext());
+    await handler(scanContext());
+    const suggestions = async () =>
+      (
+        await s.t.db.query<{ evidence_id: string; outcome: string }>(
+          "SELECT evidence_id,outcome FROM resolution.suggestions",
+        )
+      ).rows;
+    assert.deepEqual(
+      (await suggestions()).map((r) => r.evidence_id).sort(),
+      [valid.id, s.evidence].sort(),
+    );
+    assert.equal(
+      (await suggestions()).find((r) => r.evidence_id === valid.id)!.outcome,
+      "YES",
+    );
+    const manualRequired = async () =>
+      (
+        await s.t.db.query<{ resource: string }>(
+          "SELECT resource FROM operations.audit_log WHERE action='resolution.manual_required'",
+        )
+      ).rows.map((r) => JSON.parse(r.resource)[2]);
+    assert.deepEqual(await manualRequired(), [ambiguous.id]);
+    assert.deepEqual(await sortedUnreadable(), expected);
+
+    // Repair the missing and the tampered objects; a later scan picks them up.
+    await objects.putIfAbsent(bytes("GAAP gross margin 60%"), missing.hash);
+    await rm(join(directory, corrupt.hash + ".bin"));
+    await writeFile(
+      join(directory, corrupt.hash + ".bin"),
+      bytes("GAAP gross margin 62%"),
+    );
+    await handler(scanContext());
+    const after = await suggestions();
+    assert.equal(after.length, 4);
+    assert.equal(after.find((r) => r.evidence_id === missing.id)!.outcome, "YES");
+    assert.equal(after.find((r) => r.evidence_id === corrupt.id)!.outcome, "NO");
+    // The still-mismatched record adds no duplicate audit and nothing new for repaired ones.
+    assert.deepEqual(await sortedUnreadable(), expected);
+    assert.deepEqual(await manualRequired(), [ambiguous.id]);
+  } finally {
+    await s.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("cancellation and unexpected read errors still fail the parse job without partial writes", async () => {
+  const { createResolutionParseHandler } =
+    await import("../packages/application/src/resolution.js");
+  const { postgresResolutionJobsStore, EvidenceUnreadableError } =
+    await import("../packages/adapters/src/resolution-store.js");
+  const s = await setup();
+  try {
+    await approveMarket(s);
+    await s.t.db.exec(
+      "UPDATE chain.markets SET close_at=floor(extract(epoch from blink.now()))-60",
+    );
+    await s.t.setRole("blink_worker");
+    const store = postgresResolutionJobsStore(s.t.pool);
+    const controller = new AbortController();
+    await assert.rejects(
+      createResolutionParseHandler(store, async () => {
+        controller.abort();
+        throw new EvidenceUnreadableError("EVIDENCE_OBJECT_MISSING");
+      })(scanContext(controller.signal)),
+      { name: "AbortError" },
+    );
+    await assert.rejects(
+      createResolutionParseHandler(store, async () => {
+        throw new Error("EIO");
+      })(scanContext()),
+      /EIO/,
+    );
+    assert.equal(
+      (await s.t.db.query("SELECT * FROM operations.audit_log WHERE action LIKE 'resolution.%'"))
+        .rows.length,
+      0,
+    );
+    assert.equal(
+      (await s.t.db.query("SELECT * FROM resolution.suggestions")).rows.length,
       0,
     );
   } finally {

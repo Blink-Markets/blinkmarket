@@ -4,6 +4,16 @@ import type { Pool, PoolClient } from "pg";
 import type { ResolutionStore, ResolutionTransaction } from "@blink/ports";
 import { createUnitOfWork } from "./database.js";
 import { identityTransaction } from "./identity-store.js";
+/** An evidence object that is missing or corrupt: a per-record problem for an operator, not a failed scan. */
+export type EvidenceUnreadableCode =
+  | "EVIDENCE_OBJECT_MISSING"
+  | "EVIDENCE_HASH_MISMATCH"
+  | "EVIDENCE_OBJECT_INVALID";
+export class EvidenceUnreadableError extends Error {
+  constructor(readonly code: EvidenceUnreadableCode) {
+    super(code);
+  }
+}
 export function postgresResolutionStore(pool: Pool): ResolutionStore {
   const uow = createUnitOfWork(pool);
   return {
@@ -61,6 +71,12 @@ function resolutionTransaction(db: PoolClient): ResolutionTransaction {
         [randomUUID(), id, state, actor, reason],
       );
     },
+    async auditResolution(actor, action, reportId, reason, requestId) {
+      await db.query(
+        "INSERT INTO operations.audit_log(id,actor,action,resource,reason,request_id) VALUES($1,$2,$3,$4,$5,$6)",
+        [randomUUID(), actor, action, reportId, reason, requestId],
+      );
+    },
     async reports(deploymentId, marketId, state, limit, after) {
       const result = await db.query(
         `SELECT r.id AS "reportId",r.deployment_id AS "deploymentId",r.market_id::text AS "marketId",r.agent_id AS "agentId",r.operator_id AS "operatorId",r.outcome,r.evidence_ids AS "evidenceIds",r.reason,r.created_at AS "createdAt",e.state,e.reason AS "stateReason"
@@ -107,11 +123,27 @@ export function postgresResolutionJobsStore(
         );
         for (const row of rows) {
           signal.throwIfAborted();
-          const result = await parse({
-            uri: row.object_uri,
-            hash: row.hash,
-            thresholdBps: row.threshold_bps,
-          });
+          let result;
+          try {
+            result = await parse({
+              uri: row.object_uri,
+              hash: row.hash,
+              thresholdBps: row.threshold_bps,
+            });
+          } catch (error) {
+            // Only expected per-record read failures are isolated; cancellation and
+            // anything unexpected still fail (and roll back) the whole scan.
+            if (!(error instanceof EvidenceUnreadableError)) throw error;
+            signal.throwIfAborted();
+            // Surface once per evidence/code/version; the next scan retries the read.
+            await db.query(
+              `INSERT INTO operations.audit_log(id,actor,action,resource,reason,request_id)
+ SELECT $1::uuid,'resolution.parse','resolution.evidence_unreadable',jsonb_build_array($2::text,$3::text,$4::text)::text,$3,'resolution.parse'
+ WHERE NOT EXISTS(SELECT 1 FROM operations.audit_log WHERE action='resolution.evidence_unreadable' AND resource=jsonb_build_array($2::text,$3::text,$4::text)::text)`,
+              [randomUUID(), row.evidence_id, error.code, version],
+            );
+            continue;
+          }
           signal.throwIfAborted();
           if ("ambiguous" in result) {
             await db.query(
@@ -197,13 +229,26 @@ export function postgresResolutionJobsStore(
   };
 }
 
+function unreadable(error: unknown): unknown {
+  const code = (error as { code?: unknown } | null)?.code;
+  const message = error instanceof Error ? error.message : "";
+  if (code === "ENOENT") return new EvidenceUnreadableError("EVIDENCE_OBJECT_MISSING");
+  if (message === "OBJECT_HASH_MISMATCH")
+    return new EvidenceUnreadableError("EVIDENCE_HASH_MISMATCH");
+  if (message === "INVALID_OBJECT_URI" || message === "INVALID_OBJECT_HASH")
+    return new EvidenceUnreadableError("EVIDENCE_OBJECT_INVALID");
+  return error;
+}
+
 export function resolutionEvidenceReader(
   objects: import("@blink/ports").ImmutableObjectStore,
 ) {
   return async (uri: string, hash: string) => {
-    const bytes = await objects.read(uri);
+    const bytes = await objects.read(uri).catch((error) => {
+      throw unreadable(error);
+    });
     if (keccak256(bytes).toLowerCase() !== hash.toLowerCase())
-      throw new Error("EVIDENCE_HASH_MISMATCH");
+      throw new EvidenceUnreadableError("EVIDENCE_HASH_MISMATCH");
     // Binary documents have no parseable text. Returning "" lets the parser report NONE
     // (an auditor reviews it) instead of failing the scan for every other market.
     try {

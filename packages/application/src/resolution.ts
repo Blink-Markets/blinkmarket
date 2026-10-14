@@ -118,12 +118,15 @@ export function createResolutionService({
           await tx.submitReport(reportId, deploymentId, id, principal, input);
         } else if (!(await tx.reportExists(id))) return fail(404, "NOT_FOUND");
         await tx.appendEvent(reportId, state, principal.keyId, input.reason);
-        await tx.audit(
+        await tx.auditResolution(
           principal.keyId,
           state === "RECEIVED"
             ? "resolution.report_received"
             : "resolution.report_triaged",
           reportId,
+          state === "RECEIVED"
+            ? "Resolution report received; advisory only, no chain action"
+            : "Resolution report triage appended",
           request.requestId,
         );
         const result = {

@@ -22,6 +22,13 @@ export interface ResolutionTransaction extends IdentityTransaction {
     actor: string,
     reason: string,
   ): Promise<void>;
+  auditResolution(
+    actor: string,
+    action: "resolution.report_received" | "resolution.report_triaged",
+    reportId: string,
+    reason: string,
+    requestId: string,
+  ): Promise<void>;
   reports(
     deploymentId: string,
     marketId: string | null,

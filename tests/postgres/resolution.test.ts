@@ -6,6 +6,7 @@ import { migrate } from "../../packages/adapters/src/migrations.js";
 import { identityAdmin } from "../../packages/adapters/src/identity-admin.js";
 import { identityCrypto } from "../../packages/adapters/src/identity-crypto.js";
 import {
+  EvidenceUnreadableError,
   postgresResolutionJobsStore,
   postgresResolutionStore,
 } from "../../packages/adapters/src/resolution-store.js";
@@ -215,7 +216,7 @@ test(
 );
 
 test(
-  "real PostgreSQL: concurrent parse scans store each suggestion and manual-review audit once",
+  "real PostgreSQL: concurrent parse scans store each suggestion and manual-review or unreadable audit once",
   { skip: !adminUrl, timeout: 30000 },
   () =>
     withDatabase(async ({ owner, worker, reporter, admin }) => {
@@ -258,17 +259,20 @@ test(
         "INSERT INTO evidence.sources(id,entity_id,source_url) VALUES($1,'fixture','https://fixture.invalid/report')",
         [source],
       );
-      for (const uri of ["yes", "ambiguous"])
+      for (const uri of ["yes", "ambiguous", "missing"])
         await owner.query(
           "INSERT INTO evidence.records(id,source_id,operator_id,content_hash,object_uri,access_policy,observed_at) VALUES($1,$2,$3,decode(repeat('66',32),'hex'),$4,'PRIVATE',blink.now())",
           [randomUUID(), source, reporter.operatorId, uri],
         );
       const handler = createResolutionParseHandler(
         postgresResolutionJobsStore(worker),
-        async (uri) =>
-          uri === "yes"
+        async (uri) => {
+          if (uri === "missing")
+            throw new EvidenceUnreadableError("EVIDENCE_OBJECT_MISSING");
+          return uri === "yes"
             ? "GAAP gross margin 61.24%"
-            : "GAAP gross margin 61.255%",
+            : "GAAP gross margin 61.255%";
+        },
       );
       await Promise.all(
         Array.from({ length: 4 }, () => handler(jobContext("resolution.parse"))),
@@ -284,6 +288,14 @@ test(
         (
           await owner.query(
             "SELECT 1 FROM operations.audit_log WHERE action='resolution.manual_required'",
+          )
+        ).rowCount,
+        1,
+      );
+      assert.equal(
+        (
+          await owner.query(
+            "SELECT 1 FROM operations.audit_log WHERE action='resolution.evidence_unreadable'",
           )
         ).rowCount,
         1,
