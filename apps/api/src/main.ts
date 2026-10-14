@@ -7,6 +7,7 @@ import {
   createApprovalService,
   createForecastService,
   createMarketReadService,
+  createMetricsService,
   authenticateIdentity,
 } from "@blink/application";
 import {
@@ -21,6 +22,8 @@ import {
   encodeMarketCreation,
   evidenceIntegrity,
   postgresMarketReadStore,
+  postgresEvaluationStore,
+  postgresBudgetLedger,
 } from "@blink/adapters";
 import { apiConfig, modeAtLeast } from "./config.js";
 
@@ -90,6 +93,10 @@ try {
           ),
           services: modeAtLeast(config.mode, "markets")
             ? [
+                createMetricsService({
+                  store: postgresEvaluationStore(pool),
+                  budgets: postgresBudgetLedger(pool),
+                }),
                 createForecastService({
                   store: postgresForecastStore(pool),
                   crypto: identityCrypto,
