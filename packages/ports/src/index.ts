@@ -55,3 +55,4 @@ export interface RestrictedSigner {
 export * from "./forecasts.js";
 
 export type * from "./market-read.js";
+export * from "./evaluation.js";

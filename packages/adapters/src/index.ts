@@ -70,3 +70,4 @@ export {
   txTrackingManifest,
 } from "./tx-tracking-store.js";
 export { txReceiptReader } from "./tx-receipt-reader.js";
+export * from "./evaluation-store.js";
