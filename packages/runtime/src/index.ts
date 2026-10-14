@@ -3,8 +3,9 @@ import Fastify from "fastify";
 export function createService(
   name: string,
   stage = "architecture",
-  // Services that have connected their business adapters report real readiness here.
-  ready: () => boolean = () => false,
+  // Services that have connected their business adapters report real readiness here
+  // (synchronously or not); the default stays not-ready.
+  ready: () => boolean | Promise<boolean> = () => false,
 ) {
   const app = Fastify({
     bodyLimit: 65536,
@@ -15,15 +16,18 @@ export function createService(
     status: "alive",
     stage,
   }));
-  app.get("/health/ready", async (_request, reply) =>
-    ready()
-      ? reply.code(200).send({ service: name, status: "ready", stage })
-      : reply.code(503).send({
-          service: name,
-          status: "not-ready",
-          reason: "Business adapters are not connected",
-        }),
-  );
+  app.get("/health/ready", async (_request, reply) => {
+    const isReady = await Promise.resolve()
+      .then(ready)
+      .catch(() => false);
+    if (isReady)
+      return reply.code(200).send({ service: name, status: "ready", stage });
+    return reply.code(503).send({
+      service: name,
+      status: "not-ready",
+      reason: "Business adapters are not connected",
+    });
+  });
   app.setErrorHandler((error, request, reply) => {
     const status =
       typeof error === "object" && error !== null && "statusCode" in error

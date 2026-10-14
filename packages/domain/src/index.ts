@@ -3,6 +3,7 @@ export * from "./chain-reducer.ts";
 export * from "./execution.ts";
 export * from "./jobs.ts";
 export * from "./costs.ts";
+export * from "./signing-policy.ts";
 export type { MarketRef, ChainCursor, MarketSpec, Quote } from "@blink/schemas";
 
 export type JobType =

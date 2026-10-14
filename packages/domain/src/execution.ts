@@ -34,17 +34,6 @@ export type Reservation = {
   accountedBlockHash: string | null;
   unit: "USD" | "bUSD" | "wei";
 };
-export type SignRole = "maker" | "trader" | "keeper" | "faucet";
-export type SignRequest = {
-  signRequestId: string;
-  intentId: string;
-  expectedPayloadHash: string;
-  deploymentId: string;
-  role: SignRole;
-};
-export type SignResult =
-  | { state: "SIGNED"; artifactId: string; artifactHash: string }
-  | { state: "UNKNOWN" | "REJECTED"; requestId: string; reason: string };
 export const signerScopes = {
   "quote-api": ["maker-quote"],
   "trader-execution": ["approveExact", "fillQuote", "redeem"],

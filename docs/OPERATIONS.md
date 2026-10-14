@@ -4,7 +4,7 @@ M0/M1更新：已有本機合約、基礎DB migration、spec file archive及mani
 
 ## 現在可執行
 
-README 的 pnpm dev 啟動五個 loopback HTTP host。API config、route inventory、health 可讀；Worker 不消費 queue；Indexer 不連 RPC；Signer 沒有簽署 endpoint。沒有後端 production artifact/container 或對外部署。
+README 的 pnpm dev 啟動五個 loopback HTTP host。API config、route inventory、health 可讀；Worker 不消費 queue；Indexer 不連 RPC；Signer 預設只有 health，設 `SIGNER_ENABLED=true` 並提供 key 檔、DB 登入、RPC 與 caller 白名單後才提供 `POST /internal/sign`（見 [Signer 交付](M2_SIGNER.md)，尚未接上 API 與 worker）。沒有後端 production artifact/container 或對外部署。
 
 pnpm check：TS typecheck、M0 tests、package boundaries、完整Solidity合約編譯。pnpm test:contracts / pnpm replay驗證本機帳本；pnpm build建置Next Web host。這些不等於Alpha或安全審計。
 
