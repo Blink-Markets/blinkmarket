@@ -692,12 +692,13 @@ test(
       await api.query(
         "SELECT id, sign_request_id, artifact_hash, signature, created_at FROM signing.artifacts",
       );
+      await prepareRequest(api, manifest, {
+        kind: "MINT",
+        payload: { to: manifest.contracts.BlinkTestUSD, functionName: "mint", args: [testAccounts.taker.address, "1000000000"] },
+      });
       await assert.rejects(
-        prepareRequest(api, manifest, {
-          kind: "MINT",
-          payload: { to: "0x00", functionName: "mint", args: [] },
-        }),
-        /MAKER_QUOTE intents only/,
+        prepareRequest(api, manifest, { kind: "FINALIZE_TIMEOUT", payload: finalize(1) }),
+        /MAKER_QUOTE and MINT intents only/,
       );
       // The worker can create any intent; the guard rows and artifacts stay signer-only.
       await prepareRequest(worker, manifest, {

@@ -74,3 +74,7 @@ export {
   type DispatchResult,
   type TxDispatchHandler,
 } from "./tx-dispatcher.js";
+
+export * from "./faucet.js";
+export * from "./keeper.js";
+export * from "./execution.js";

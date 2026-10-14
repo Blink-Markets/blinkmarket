@@ -9,9 +9,10 @@ import {
 } from "@blink/adapters";
 import { startWorker } from "@blink/application";
 import { createService, startService } from "@blink/runtime";
-import { researchConfig, workerConfig } from "./config.js";
+import { executionConfig, researchConfig, workerConfig } from "./config.js";
 import {
   buildResearch,
+  buildExecution,
   handlers,
   outboxMapping,
   registerEvaluationHandler,
@@ -22,7 +23,7 @@ import {
 import { jobs } from "./registry.js";
 
 const OUTBOX_DISPATCH_INTERVAL_MS = 1000;
-const PERIODIC_SCHEDULE_INTERVAL_MS = 30_000;
+const PERIODIC_SCHEDULE_INTERVAL_MS = 15_000;
 
 let pool: pg.Pool | null = null;
 let worker: ReturnType<typeof startWorker> | null = null;
@@ -62,9 +63,14 @@ try {
       queue,
       config: researchConfig(process.env),
     });
+    const execution = await buildExecution({
+      pool: database,
+      queue,
+      config: executionConfig(process.env),
+    });
     worker = startWorker({
       queue,
-      handlers: { ...handlers, ...research.handlers },
+      handlers: { ...handlers, ...research.handlers, ...execution.handlers },
       workerId: hostname() + ":" + process.pid + ":" + randomUUID(),
       onError: (code) => console.error("WORKER_JOB_ERROR:" + code),
     });
@@ -85,6 +91,7 @@ try {
       // Each periodic family enqueues independently, deduplicated per time bucket.
       scheduleRun = Promise.allSettled([
         research.tick(),
+        execution.tick(),
         scheduleEvaluation(database),
         scheduleResolution(database),
       ])

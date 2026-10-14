@@ -64,3 +64,5 @@ export async function scheduleResolution(pool: Pool): Promise<void> {
 }
 // Research jobs (evidence, discovery, forecasts) are composed in ./research.ts.
 export { buildResearch } from "./research.js";
+
+export { buildExecution } from "./execution.js";

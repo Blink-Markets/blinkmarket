@@ -356,7 +356,7 @@ function signerTransaction(client: PoolClient): SignerTransaction {
       );
       await q(
         `UPDATE signing.economic_intents SET state = 'SIGNED', updated_at = clock_timestamp(), version = version + 1
-        WHERE id = $1 AND state = 'PREPARED'`,
+        WHERE id = $1 AND state IN ('PREPARED','UNKNOWN')`,
         [intentId],
       );
     },
