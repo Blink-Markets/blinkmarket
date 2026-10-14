@@ -6,8 +6,8 @@ M0契約收尾與M1帳本已完成本機實作及驗證，詳見 [交付記錄](
 | ---------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | M0 工程與契約    | 已實作，本機驗證       | schemas、v0.1.1 spec bytes/hash、manifest、ports、DB foundation migration、OpenAPI/client、CI                                         |
 | M1 帳本與結算    | 已實作，本機驗證       | TestUSD/Market、EIP-712、caps、完整結算與贖回、24 個合約 tests/invariant（三位 taker、兩市場）、三種 REPLAY                           |
-| M2 核心垂直流程  | 進行中：核准、單筆追蹤與 opt-in 建市輪詢 | 已有身份／證據／核准／未簽署意圖及已驗證交易的持續輪詢、重試與 reorg 撤回；待接全鏈 cursor/indexer、replacement、reservation/RFQ、signer |
-| M3 Agent         | 待實作                 | allowlist fetch、discovery、雙forecaster/baseline、成本、mandate、營運工作                                                            |
+| M2 核心垂直流程  | 進行中：核准、建市追蹤、共用基礎（[交付](M2_FOUNDATION_SEAMS.md)） | 已有身份／證據／核准／建市輪詢，以及 API route service、chain index schema、`blink.now()` 業務時鐘與 Anvil 測試工具；待接 indexer、公開讀取、signer、RFQ |
+| M3 Agent         | 進行中：job runtime 與預算（[交付](M3_JOBS_BUDGETS.md)）、allowlist fetch（[交付](M3_EVIDENCE_FETCHER.md)） | 已有 durable job/outbox、每日與每題 USD 預算、fixture 模型 gateway、SSRF 防護的來源抓取；待接 discovery、雙forecaster/baseline、keeper、faucet、mandate |
 | M4 產品介面      | 進行中：唯讀展示站與文件系統（12 頁 Markdown），詳見 [交付記錄](M4_WEB_SHOWCASE_DELIVERY.md) | 七類頁面、錢包、有限approve、價格與研究機率分離、錯誤狀態                                                                             |
 | M5 Sepolia Alpha | 進行中：部署工具（本機 Anvil 驗證），詳見 [交付記錄](M5_DEPLOYMENT_TOOLING.md) | 真實roles/manifest、前瞻題目、RPC與備份演練、外部使用者驗收；實際部署需使用者授權                                                     |
 
