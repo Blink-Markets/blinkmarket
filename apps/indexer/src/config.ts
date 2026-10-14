@@ -122,3 +122,40 @@ export function indexerFetchWithTimeout(timeoutMs: number): typeof fetch {
     }
   };
 }
+
+export interface ChainIndexerConfig {
+  enabled: boolean;
+  databaseUrl: string | null;
+  rpcUrl: string | null;
+  deploymentId: string | null;
+  pollIntervalMs: number;
+  rangeSize: number;
+}
+
+// The canonical chain indexer is enabled on its own, independent of the creation poller.
+export function chainIndexerConfig(env: NodeJS.ProcessEnv): ChainIndexerConfig {
+  const flag = env.CHAIN_INDEXER_ENABLED;
+  if (flag !== undefined && flag !== "true" && flag !== "false")
+    throw new Error("INVALID_CHAIN_INDEXER_ENABLED");
+  const enabled = flag === "true";
+  const databaseUrl = env.INDEXER_DATABASE_URL?.trim() || null;
+  const rpcUrl = env.BASE_SEPOLIA_RPC_URL?.trim() || null;
+  const deploymentId = env.INDEXER_DEPLOYMENT_ID?.trim() || null;
+  if (enabled && (!databaseUrl || !rpcUrl || !deploymentId))
+    throw new Error("INDEXER_CHAIN_CONFIGURATION_REQUIRED");
+  if (deploymentId && !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(deploymentId))
+    throw new Error("INVALID_INDEXER_DEPLOYMENT_ID");
+  const config = {
+    enabled,
+    databaseUrl,
+    rpcUrl,
+    deploymentId,
+    pollIntervalMs: integer(env, "INDEXER_CHAIN_POLL_MS", 1000),
+    rangeSize: integer(env, "INDEXER_CHAIN_RANGE", 500),
+  };
+  if (config.pollIntervalMs > 86_400_000)
+    throw new Error("INDEXER_DURATION_TOO_LARGE");
+  // Provider eth_getLogs windows are small; a larger range would fail on a real endpoint.
+  if (config.rangeSize > 10_000) throw new Error("INVALID_INDEXER_CHAIN_RANGE");
+  return config;
+}

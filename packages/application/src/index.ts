@@ -23,3 +23,13 @@ export {
 } from "./approval.js";
 export { createCreationTracker } from "./creation-tracker.js";
 export { startCreationPoller } from "./creation-poller.js";
+export {
+  assertBaseSepolia,
+  chainIndexHealth,
+  createChainIndexer,
+  rebuildChainProjection,
+  startChainIndexer,
+  type ChainIndexHealth,
+  type ChainRebuildReport,
+  type ChainSyncResult,
+} from "./chain-indexer.js";

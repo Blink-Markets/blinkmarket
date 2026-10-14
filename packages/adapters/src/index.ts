@@ -35,3 +35,9 @@ export {
   type BlinkEventName,
 } from "./blink-abi.js";
 export { assertProductionClock } from "./business-clock.js";
+export { chainLogReader } from "./chain-log-reader.js";
+export {
+  postgresChainIndexStore,
+  loadChainDeployment,
+  assertChainIndexInstalled,
+} from "./chain-index-store.js";

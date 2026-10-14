@@ -32,6 +32,7 @@ await build({
     "evidence-admin": "scripts/evidence-admin.ts",
     "register-deployment": "scripts/register-deployment.ts",
     "reconcile-creation": "scripts/reconcile-creation.ts",
+    "rebuild-chain-index": "scripts/rebuild-chain-index.ts",
   },
   outdir: "dist/tools",
   outExtension: { ".js": ".mjs" },

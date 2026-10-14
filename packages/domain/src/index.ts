@@ -1,4 +1,5 @@
 export * from "./modules.ts";
+export * from "./chain-reducer.ts";
 export * from "./execution.ts";
 export type { MarketRef, ChainCursor, MarketSpec, Quote } from "@blink/schemas";
 
