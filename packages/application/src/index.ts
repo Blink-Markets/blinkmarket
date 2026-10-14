@@ -29,3 +29,4 @@ export {
   ModelCallError,
 } from "./budgeted-model.js";
 export { createEvidenceFetchHandler } from "./evidence-fetch.js";
+export * from "./forecasts.js";
