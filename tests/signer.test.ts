@@ -1697,7 +1697,7 @@ test("key files must be owner-only, and startup refuses keys that are not the ma
   }
 });
 
-test("the database confines each role: blink_api never reads raw_transaction and may only ask for maker quotes", async () => {
+test("the database confines each role: blink_api never reads raw_transaction and may ask for first-version quotes and faucet mints", async () => {
   const h = await harness();
   try {
     const signed = await h.call("MINT", mint());
@@ -1728,27 +1728,24 @@ test("the database confines each role: blink_api never reads raw_transaction and
         [quote.signRequestId],
       );
       assert.equal(visible.rows.length, 1);
-      await assert.rejects(
-        intentInsert("MINT", "faucet"),
-        /MAKER_QUOTE intents only/,
-      );
+      await intentInsert("MINT", "faucet");
       await assert.rejects(
         intentInsert("FILL", "trader"),
-        /MAKER_QUOTE intents only/,
+        /MAKER_QUOTE and MINT intents only/,
       );
       await assert.rejects(
         intentInsert("FINALIZE_TIMEOUT", "keeper"),
-        /MAKER_QUOTE intents only/,
+        /MAKER_QUOTE and MINT intents only/,
       );
       await intentInsert("MAKER_QUOTE", "maker");
-      // It cannot add a later version, request for a non-quote intent, or touch anything it made.
+      // It cannot add a later version, request for another role, or touch anything it made.
       await assert.rejects(
         h.t.db.query(
           `INSERT INTO signing.sign_requests(id, intent_id, artifact_version, role, request_hash, unsigned_payload, policy_version)
-          VALUES (gen_random_uuid(), $1, 1, 'faucet', decode($2, 'hex'), '{}', 'p')`,
+          VALUES (gen_random_uuid(), $1, 2, 'faucet', decode($2, 'hex'), '{}', 'p')`,
           [signed.intentId, "00".repeat(32)],
         ),
-        /maker quotes only/,
+        /first-version quotes and mints only/,
       );
       await assert.rejects(
         h.t.db.query(
@@ -1756,7 +1753,7 @@ test("the database confines each role: blink_api never reads raw_transaction and
           VALUES (gen_random_uuid(), $1, 2, 'maker', decode($2, 'hex'), '{}', 'p')`,
           [quote.intentId, "00".repeat(32)],
         ),
-        /first-version maker quotes only/,
+        /first-version quotes and mints only/,
       );
       await assert.rejects(
         h.t.db.query(

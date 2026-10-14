@@ -348,7 +348,7 @@ export function createSignerService(deps: SignerDeps) {
     const to = checked.call.to as Hex;
     const data = deps.encodeCall(checked.call);
     if (!replacement) {
-      if (intent.state !== "PREPARED") return reject("INTENT_NOT_SIGNABLE");
+      if (!["PREPARED", "UNKNOWN"].includes(intent.state)) return reject("INTENT_NOT_SIGNABLE");
       return { ok: true, to, data, replacement: null };
     }
     // A final outcome (finalized, or a revert that is final) leaves nothing to replace.

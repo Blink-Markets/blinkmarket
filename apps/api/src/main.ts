@@ -3,6 +3,7 @@ import { startService } from "@blink/runtime";
 import pg from "pg";
 import {
   createIdentityService,
+  createFaucetService,
   createPreparationService,
   createApprovalService,
   createForecastService,
@@ -13,8 +14,10 @@ import {
 } from "@blink/application";
 import {
   identityCrypto,
+  postgresFaucetStore,
   postgresIdentityStore,
   assertIdentityRuntimeRole,
+  assertProductionClock,
   postgresPreparationStore,
   postgresApprovalStore,
   postgresForecastStore,
@@ -47,6 +50,10 @@ try {
   // Deployment runs migrations separately. Startup never creates tables or credentials.
   if (pool) {
     await assertIdentityRuntimeRole(pool);
+    if (config.mode === "trading") {
+      await assertProductionClock(pool, false);
+      await pool.query("SELECT id FROM faucet.claims LIMIT 0");
+    }
     if (modeAtLeast(config.mode, "markets"))
       await pool.query("SELECT id FROM chain.transactions LIMIT 0");
     await pool.query("SELECT id FROM identity.api_keys LIMIT 0");
@@ -95,6 +102,15 @@ try {
           ),
           services: modeAtLeast(config.mode, "markets")
             ? [
+                ...(config.mode === "trading"
+                  ? [
+                      createFaucetService({
+                        store: postgresFaucetStore(pool),
+                        crypto: identityCrypto,
+                        deploymentId: config.deploymentId!,
+                      }),
+                    ]
+                  : []),
                 createMetricsService({
                   store: postgresEvaluationStore(pool),
                   budgets: postgresBudgetLedger(pool),

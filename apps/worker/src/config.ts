@@ -85,3 +85,32 @@ export function researchConfig(env: NodeJS.ProcessEnv): ResearchConfig {
     forecasters,
   };
 }
+
+export interface ExecutionConfig {
+  deploymentId: string;
+  signerUrl: string;
+  signerToken: string;
+  rpcUrl: string;
+}
+export function executionConfig(
+  env: NodeJS.ProcessEnv,
+): ExecutionConfig | null {
+  const signerUrl = env.SIGNER_URL?.trim();
+  const signerToken = env.WORKER_SIGNER_CALLER_TOKEN?.trim();
+  const rpcUrl = env.BASE_SEPOLIA_RPC_URL?.trim();
+  // Other worker features may share deployment/RPC settings without enabling execution.
+  if (!signerUrl && !signerToken) return null;
+  const deploymentId = env.BLINK_DEPLOYMENT_ID?.trim();
+  if (!deploymentId || !signerUrl || !signerToken || !rpcUrl)
+    throw new Error("WORKER_EXECUTION_CONFIGURATION_INCOMPLETE");
+  for (const url of [signerUrl, rpcUrl]) {
+    const parsed = new URL(url);
+    if (
+      !["http:", "https:"].includes(parsed.protocol) ||
+      parsed.username ||
+      parsed.password
+    )
+      throw new Error("INVALID_WORKER_EXECUTION_URL");
+  }
+  return { deploymentId, signerUrl, signerToken, rpcUrl };
+}
