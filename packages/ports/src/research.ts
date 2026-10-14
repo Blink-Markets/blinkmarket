@@ -1,6 +1,6 @@
 import type { PlatformRole } from "@blink/domain";
 // Re-exported for adapters, which may import only schemas and ports.
-export { PLATFORM_ROLES, type PlatformRole } from "@blink/domain";
+export type { PlatformRole } from "@blink/domain";
 
 // Platform agents call the public API like any external agent; @blink/client
 // satisfies these structurally, so application code never imports it. Its
@@ -46,10 +46,19 @@ export type ScanState =
   | "MANUAL_REVIEW"
   | "FAILED"
   | "SKIPPED_DAILY_CAP";
+/** The model's validated candidate proposal; everything else in the request comes from the run. */
+export interface ScanAnswer {
+  entityId: string;
+  fiscalPeriod: string;
+  thresholdBps: number;
+  thesis: string;
+}
 export interface ScanRun {
   id: string;
   state: ScanState;
   evidenceId: string | null;
+  /** Stored with the day's slot, before the API is called; a redelivery replays it. */
+  answer: ScanAnswer | null;
 }
 export interface EvidenceDocument {
   evidenceId: string;
@@ -77,11 +86,17 @@ export interface DiscoveryStore {
   /** Counts one model call against the run; null once two have been started. */
   beginModelAttempt(runId: string): Promise<number | null>;
   /**
-   * Takes one of the day's candidate slots. ALREADY: this run holds one from an
-   * earlier delivery. CAP: none left.
+   * Takes one of the day's candidate slots and stores the answer with it, in one
+   * transaction. ALREADY: this run holds one from an earlier delivery. CAP: none left.
    */
-  takeSlot(runId: string): Promise<"TAKEN" | "ALREADY" | "CAP">;
-  /** Ends a STARTED run. Any end but CANDIDATE_CREATED returns its slot. */
+  takeSlot(
+    runId: string,
+    answer: ScanAnswer,
+  ): Promise<"TAKEN" | "ALREADY" | "CAP">;
+  /**
+   * Ends a STARTED run. Any end but CANDIDATE_CREATED returns its slot, unless
+   * `keepSlot`: the outcome is unknown (a candidate may exist), so it stays counted.
+   */
   finish(
     runId: string,
     outcome: {
@@ -90,6 +105,7 @@ export interface DiscoveryStore {
       errorCode?: string;
       /** The audit action to record, for outcomes a person must look at. */
       audit?: string;
+      keepSlot?: boolean;
     },
   ): Promise<void>;
 }
@@ -116,6 +132,12 @@ export interface WindowContext {
 }
 export type ModelRunState =
   "STARTED" | "SUBMITTED" | "LATE" | "SCHEMA_INVALID" | "FAILED";
+/** A model's validated forecast, kept until its submission is settled. */
+export interface ForecastAnswer {
+  probability: number;
+  rationale: string;
+  evidenceIds: string[];
+}
 // Runs as blink_worker, which cannot read forecasts.submissions or snapshots.
 export interface PlatformRunStore {
   platformAgent(role: PlatformRole): Promise<PlatformAgentRecord | null>;
@@ -138,6 +160,21 @@ export interface PlatformRunStore {
     inputHash: string;
     dataCutoff: Date;
   }): Promise<void>;
+  /**
+   * Stores the run's validated answer with its provenance, before it is submitted. The run
+   * stays STARTED; a retry finds it with `pendingAnswer` and submits it again under the same key.
+   */
+  recordAnswer(
+    runId: string,
+    answer: ForecastAnswer,
+    provenance: { reservationId: string; providerRequestId: string },
+  ): Promise<void>;
+  /** The agent's unsettled run for the window that already holds an answer, if any. */
+  pendingAnswer(
+    agentId: string,
+    windowId: string,
+  ): Promise<{ runId: string; answer: ForecastAnswer } | null>;
+  /** Ends a run; the stored answer, if any, goes with it. */
   updateRun(
     id: string,
     update: {

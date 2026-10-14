@@ -8,7 +8,7 @@ const MAX_CANDIDATES_PER_DAY = 10;
 // Runs as blink_worker. The lock order is always the day's counter, then the run.
 export function postgresDiscoveryStore(pool: Pool): DiscoveryStore {
   const uow = createUnitOfWork(pool);
-  const runColumns = `id,state,evidence_id AS "evidenceId"`;
+  const runColumns = `id,state,evidence_id AS "evidenceId",answer`;
   return {
     async now() {
       const { rows } = await pool.query("SELECT blink.now() AS now");
@@ -82,7 +82,7 @@ export function postgresDiscoveryStore(pool: Pool): DiscoveryStore {
       );
       return rows[0] ? Number(rows[0].attempts) : null;
     },
-    takeSlot: (runId) =>
+    takeSlot: (runId, answer) =>
       uow.run(async (tx) => {
         const db = uow.client(tx);
         const run = (
@@ -114,8 +114,8 @@ export function postgresDiscoveryStore(pool: Pool): DiscoveryStore {
           [run.day],
         );
         await db.query(
-          "UPDATE discovery.scan_runs SET slot_taken=true,updated_at=blink.now() WHERE id=$1",
-          [runId],
+          "UPDATE discovery.scan_runs SET slot_taken=true,answer=$2,updated_at=blink.now() WHERE id=$1",
+          [runId, answer],
         );
         return "TAKEN";
       }),
@@ -140,7 +140,8 @@ export function postgresDiscoveryStore(pool: Pool): DiscoveryStore {
         ).rows[0]!;
         // Only a STARTED run can end; a redelivered job finds it already settled.
         if (current.state !== "STARTED") return;
-        const keepSlot = outcome.state === "CANDIDATE_CREATED";
+        const keepSlot =
+          outcome.state === "CANDIDATE_CREATED" || outcome.keepSlot === true;
         await db.query(
           `UPDATE discovery.scan_runs
            SET state=$2,candidate_id=$3,error_code=$4,slot_taken=slot_taken AND $5::boolean,updated_at=blink.now()

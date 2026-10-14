@@ -46,6 +46,8 @@ interface SetupOptions {
   rates?: Parameters<ResearchFixture["modelCaller"]>[1];
   wrap?: (gateway: ModelGateway) => ModelGateway;
   fetcher?: SourceFetcher;
+  /** Faults on createCandidate: `lose-first` commits the first call but loses its response. */
+  api?: "lose-first" | "down" | "malformed";
 }
 async function setup(
   respond: (input: string, call: number) => string,
@@ -113,7 +115,12 @@ async function build(
     api: {
       async createCandidate(input, key) {
         created.push({ input, key });
-        return client.createCandidate(input, key);
+        if (options.api === "down") throw new TypeError("fetch failed");
+        if (options.api === "malformed") return {};
+        const response = await client.createCandidate(input, key);
+        if (options.api === "lose-first" && created.length === 1)
+          throw new TypeError("fetch failed");
+        return response;
       },
     },
     hash,
@@ -127,7 +134,8 @@ async function build(
   const run = (
     payload: Record<string, unknown> = { sourceId, day: today, slot: 0 },
     signal = new AbortController().signal,
-  ) => handler({ job: { id: randomUUID(), payload }, signal });
+    attempt?: { attempt: number; maxAttempts: number },
+  ) => handler({ job: { id: randomUUID(), payload, ...attempt }, signal });
   const scans = () =>
     r.query<{
       id: string;
@@ -424,6 +432,7 @@ test("the scheduler enqueues one scan per fetch-enabled source and slot", async 
     await scheduler.scheduleOnce();
     assert.equal(queued.length, 1);
     assert.equal(queued[0]!.type, "discovery.scan");
+    assert.equal(queued[0]!.maxAttempts, 2);
     assert.deepEqual(queued[0]!.payload, {
       sourceId: s.sourceId,
       day: s.today,
@@ -451,6 +460,92 @@ test("the scheduler enqueues one scan per fetch-enabled source and slot", async 
     await s.r.close();
   }
 });
+
+test("a redelivery after a lost response replays the stored answer: no model call, same request, one candidate, slot kept", async () => {
+  // A real provider is not deterministic: every call answers differently.
+  const s = await setup(
+    (_input, call) =>
+      JSON.stringify({ ...VALID, thesis: `Answer number ${call}` }),
+    { api: "lose-first" },
+  );
+  try {
+    await assert.rejects(s.run(), jobError("API_UNAVAILABLE", true));
+    assert.equal((await s.scans())[0]!.state, "STARTED");
+    assert.equal(await s.counter(), 1);
+    await s.run();
+    const [scan] = await s.scans();
+    assert.equal(scan!.state, "CANDIDATE_CREATED");
+    assert.equal(s.calls(), 1, "the stored answer is reused");
+    assert.equal((await s.reservations()).length, 1);
+    assert.equal(s.created.length, 2);
+    assert.deepEqual(s.created[1], s.created[0], "same key, same payload");
+    assert.equal(
+      (await s.r.query("SELECT id FROM discovery.candidates")).length,
+      1,
+    );
+    assert.equal(await s.counter(), 1);
+  } finally {
+    await s.r.close();
+  }
+});
+
+test("a run whose two model calls are spent goes to manual review without another call", async () => {
+  const s = await setup(() => JSON.stringify(VALID));
+  try {
+    await postgresDiscoveryStore(s.r.worker).startRun({
+      sourceId: s.sourceId,
+      day: s.today,
+      slot: 0,
+    });
+    await s.r.query("UPDATE discovery.scan_runs SET attempts=2");
+    await s.run();
+    const [scan] = await s.scans();
+    assert.equal(scan!.state, "MANUAL_REVIEW");
+    assert.equal(scan!.error_code, "ATTEMPTS_EXHAUSTED");
+    assert.equal(s.calls(), 0);
+    assert.equal(s.created.length, 0);
+    assert.equal(await s.counter(), 0);
+    assert.equal(
+      (
+        await s.r.query(
+          "SELECT 1 FROM operations.audit_log WHERE action='discovery.manual_review'",
+        )
+      ).length,
+      1,
+    );
+  } finally {
+    await s.r.close();
+  }
+});
+
+for (const fault of ["down", "malformed"] as const)
+  test(`a ${fault} API on the last attempt ends the run for review and keeps its slot`, async () => {
+    const s = await setup(() => JSON.stringify(VALID), { api: fault });
+    try {
+      await assert.rejects(
+        s.run(undefined, undefined, { attempt: 1, maxAttempts: 2 }),
+        jobError("API_UNAVAILABLE", true),
+      );
+      assert.equal((await s.scans())[0]!.state, "STARTED");
+      // Out of attempts the outcome is unknown (a candidate may exist), so the slot is not returned.
+      await s.run(undefined, undefined, { attempt: 2, maxAttempts: 2 });
+      const [scan] = await s.scans();
+      assert.equal(scan!.state, "MANUAL_REVIEW");
+      assert.equal(scan!.error_code, "API_UNAVAILABLE");
+      assert.equal(await s.counter(), 1);
+      assert.equal(s.calls(), 1);
+      assert.equal(
+        (
+          await s.r.query(
+            "SELECT 1 FROM operations.audit_log WHERE action='discovery.manual_review'",
+          )
+        ).length,
+        1,
+      );
+    } finally {
+      await s.r.close();
+    }
+  });
 
 test("the fixed prompt template is hashed, not the document", () => {
   assert.notEqual(hashText(DISCOVERY_PROMPT_V1), hashText("x"));

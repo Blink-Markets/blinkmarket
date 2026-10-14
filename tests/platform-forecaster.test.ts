@@ -10,11 +10,8 @@ import {
 } from "../packages/domain/src/prompts.ts";
 import type { PlatformRole } from "../packages/domain/src/prompts.ts";
 import { MarketView } from "../packages/schemas/src/research.ts";
-import type {
-  JobQueue,
-  JobSpec,
-  ModelGateway,
-} from "../packages/ports/src/index.js";
+import type { ModelGateway } from "../packages/ports/src/index.js";
+import { postgresJobQueue } from "../packages/adapters/src/job-queue.js";
 import { postgresPlatformRunStore } from "../packages/adapters/src/platform-run-store.js";
 import {
   createForecastDispatchHandler,
@@ -51,6 +48,8 @@ interface SetupOptions {
   deadlineInSeconds?: number;
   hashes?: Partial<Record<PlatformRole, string>>;
   statements?: string[];
+  /** Faults on FORECASTER_A's submit: `lose-first` commits the first call but loses its response. */
+  submit?: "lose-first" | "down";
 }
 async function setup(options: SetupOptions = {}) {
   const r = await researchFixture();
@@ -122,11 +121,31 @@ async function build(
     ? recordingPool(r.worker, options.statements)
     : r.worker;
   const store = postgresPlatformRunStore(pool);
+  const submitCalls: { input: unknown; key: string }[] = [];
+  const clientA = r.clients.FORECASTER_A;
+  const apis = {
+    ...r.clients,
+    FORECASTER_A: {
+      getMarket: clientA.getMarket,
+      async submitForecast(
+        ref: { deploymentId: string; marketId: string },
+        input: unknown,
+        key: string,
+      ) {
+        submitCalls.push({ input, key });
+        if (options.submit === "down") throw new TypeError("fetch failed");
+        const response = await clientA.submitForecast(ref, input, key);
+        if (options.submit === "lose-first" && submitCalls.length === 1)
+          throw new TypeError("fetch failed");
+        return response;
+      },
+    },
+  };
   const common = {
     store,
     objects: r.objects,
     model,
-    apis: r.clients,
+    apis,
     hash,
     newId: randomUUID,
   };
@@ -142,9 +161,14 @@ async function build(
     handler: typeof forecast,
     role: PlatformRole,
     window = windowId,
+    attempt?: { attempt: number; maxAttempts: number },
   ) =>
     handler({
-      job: { id: randomUUID(), payload: { windowId: window, role } },
+      job: {
+        id: randomUUID(),
+        payload: { windowId: window, role },
+        ...attempt,
+      },
       signal: new AbortController().signal,
     });
   const runs = () =>
@@ -188,6 +212,7 @@ async function build(
     submissions,
     reservations,
     inputs,
+    submitCalls,
     calls: () => calls,
   };
 }
@@ -500,54 +525,142 @@ test("a job cannot run a role it does not own, and an unregistered role fails fo
   }
 });
 
-test("dispatch enqueues each configured role once for open windows of open markets only", async () => {
+test("dispatch enqueues each configured role once into the real job queue, for open windows of open markets only", async () => {
   const s = await setup();
   try {
     await s.r.addWindow(-10);
-    const queued: JobSpec[] = [];
-    const queue = {
-      async enqueue(spec: JobSpec) {
-        const created = !queued.some((q) => q.dedupeKey === spec.dedupeKey);
-        if (created) queued.push(spec);
-        return { jobId: randomUUID(), created };
-      },
-    } as unknown as JobQueue;
     const dispatch = createForecastDispatchHandler({
       store: s.store,
-      queue,
+      queue: postgresJobQueue(s.r.worker),
       roles: ["FORECASTER_A", "FORECASTER_B", "BASELINE"],
     });
     const ctx = {
       job: { id: randomUUID(), payload: {} },
       signal: new AbortController().signal,
     };
+    const jobs = () =>
+      s.r.query<{
+        type: string;
+        dedupe_key: string;
+        payload: unknown;
+        max_attempts: number;
+        state: string;
+      }>(
+        "SELECT type,dedupe_key,payload,max_attempts,state FROM operations.jobs ORDER BY dedupe_key",
+      );
     await dispatch(ctx);
     await dispatch(ctx);
-    assert.deepEqual(
-      queued.map((q) => [q.type, q.dedupeKey, q.payload]),
-      [
-        [
-          "forecast.run",
-          `forecast.run:${s.windowId}:FORECASTER_A`,
-          { windowId: s.windowId, role: "FORECASTER_A" },
-        ],
-        [
-          "forecast.run",
-          `forecast.run:${s.windowId}:FORECASTER_B`,
-          { windowId: s.windowId, role: "FORECASTER_B" },
-        ],
-        [
-          "baseline.run",
-          `forecast.run:${s.windowId}:BASELINE`,
-          { windowId: s.windowId, role: "BASELINE" },
-        ],
-      ],
-    );
+    assert.deepEqual(await jobs(), [
+      {
+        type: "baseline.run",
+        dedupe_key: `forecast.run:${s.windowId}:BASELINE`,
+        payload: { windowId: s.windowId, role: "BASELINE" },
+        max_attempts: 2,
+        state: "QUEUED",
+      },
+      {
+        type: "forecast.run",
+        dedupe_key: `forecast.run:${s.windowId}:FORECASTER_A`,
+        payload: { windowId: s.windowId, role: "FORECASTER_A" },
+        max_attempts: 2,
+        state: "QUEUED",
+      },
+      {
+        type: "forecast.run",
+        dedupe_key: `forecast.run:${s.windowId}:FORECASTER_B`,
+        payload: { windowId: s.windowId, role: "FORECASTER_B" },
+        max_attempts: 2,
+        state: "QUEUED",
+      },
+    ]);
     // A market that is no longer OPEN is skipped.
     await s.r.query("UPDATE chain.markets SET state='FINAL'");
-    queued.length = 0;
+    await s.r.query("DELETE FROM operations.jobs");
     await dispatch(ctx);
-    assert.equal(queued.length, 0);
+    assert.deepEqual(await jobs(), []);
+  } finally {
+    await s.r.close();
+  }
+});
+
+test("a retry after a lost submit response replays the stored answer: same key, no second model call, run ends SUBMITTED", async () => {
+  // Every model call would answer differently, so a re-asked model could not replay the request.
+  const s = await setup({
+    submit: "lose-first",
+    respond: ({ call, input }) =>
+      JSON.stringify({
+        probability: 0.3 + call / 100,
+        rationale: `Answer number ${call}.`,
+        evidenceIds: idsIn(input).slice(0, 1),
+      }),
+  });
+  try {
+    await assert.rejects(
+      s.run(s.forecast, "FORECASTER_A"),
+      jobError("API_UNAVAILABLE", true),
+    );
+    // The submission committed; the run waits, with its answer stored, for the retry.
+    assert.deepEqual(
+      (await s.runs()).map((x) => x.state),
+      ["STARTED"],
+    );
+    assert.equal(
+      (await s.r.query("SELECT 1 FROM forecasts.pending_answers")).length,
+      1,
+    );
+    await s.run(s.forecast, "FORECASTER_A");
+    const runs = await s.runs();
+    assert.deepEqual(
+      runs.map((x) => x.state),
+      ["SUBMITTED"],
+    );
+    assert.ok(runs[0]!.submission_id && runs[0]!.reservation_id);
+    assert.equal(s.calls(), 1);
+    assert.equal((await s.reservations()).length, 1);
+    assert.equal((await s.submissions()).length, 1);
+    assert.equal(s.submitCalls.length, 2);
+    assert.deepEqual(s.submitCalls[1], s.submitCalls[0]);
+    assert.equal(s.submitCalls[0]!.key, runs[0]!.id);
+    assert.equal(
+      (await s.r.query("SELECT 1 FROM forecasts.pending_answers")).length,
+      0,
+      "a settled run keeps no stored answer",
+    );
+  } finally {
+    await s.r.close();
+  }
+});
+
+test("an API that stays down on the last attempt fails the run and clears its stored answer", async () => {
+  const s = await setup({ submit: "down" });
+  try {
+    await assert.rejects(
+      s.run(s.forecast, "FORECASTER_A", undefined, {
+        attempt: 1,
+        maxAttempts: 2,
+      }),
+      jobError("API_UNAVAILABLE", true),
+    );
+    assert.deepEqual(
+      (await s.runs()).map((x) => x.state),
+      ["STARTED"],
+    );
+    await assert.rejects(
+      s.run(s.forecast, "FORECASTER_A", undefined, {
+        attempt: 2,
+        maxAttempts: 2,
+      }),
+      jobError("API_UNAVAILABLE", true),
+    );
+    assert.deepEqual(
+      (await s.runs()).map((x) => x.state),
+      ["FAILED"],
+    );
+    assert.equal(s.calls(), 1);
+    assert.equal(
+      (await s.r.query("SELECT 1 FROM forecasts.pending_answers")).length,
+      0,
+    );
   } finally {
     await s.r.close();
   }

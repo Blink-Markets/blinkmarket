@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { researchConfig } from "../apps/worker/src/config.js";
-import { buildResearch } from "../apps/worker/src/handlers.js";
+import { buildResearch } from "../apps/worker/src/research.js";
 import { postgresJobQueue } from "../packages/adapters/src/job-queue.js";
 import { createTestDatabase } from "./helpers/database.js";
 import { poolAs } from "./helpers/research.js";
@@ -84,6 +84,23 @@ test("research configuration is off unless present and all-or-nothing per featur
       { ...agents, WORKER_API_URL: "", WORKER_BASELINE_API_KEY: "c" },
       "WORKER_FORECASTER_CONFIGURATION_INCOMPLETE",
     ],
+    // forecast.run serves both forecasters, so one key alone is half a capability.
+    [
+      { ...agents, WORKER_FORECASTER_A_API_KEY: "a" },
+      "WORKER_FORECASTER_PAIR_INCOMPLETE",
+    ],
+    [
+      { ...agents, WORKER_FORECASTER_B_API_KEY: "b" },
+      "WORKER_FORECASTER_PAIR_INCOMPLETE",
+    ],
+    [
+      {
+        ...agents,
+        WORKER_FORECASTER_B_API_KEY: "b",
+        WORKER_BASELINE_API_KEY: "c",
+      },
+      "WORKER_FORECASTER_PAIR_INCOMPLETE",
+    ],
   ];
   for (const [env, code] of incomplete)
     assert.throws(
@@ -146,6 +163,20 @@ test("evidence configuration alone registers only the fetcher", async () => {
       "forecast.schedule",
     ]);
   });
+});
+
+test("a baseline-only worker registers baseline.run and dispatch but not forecast.run", async () => {
+  await withWorker(
+    { ...agents, WORKER_BASELINE_API_KEY: "c" },
+    async (research) => {
+      assert.deepEqual(Object.keys(research.handlers).sort(), [
+        "baseline.run",
+        "evidence.fetch",
+        "forecast.dispatch",
+        "forecast.schedule",
+      ]);
+    },
+  );
 });
 
 test("full configuration registers every research job and its periodic schedule", async () => {

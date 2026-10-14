@@ -7,13 +7,18 @@ import {
 } from "@blink/domain";
 import { ForecastOutput, MarketView, SubmissionReceipt } from "@blink/schemas";
 import type {
+  ForecastAnswer,
   ForecastApi,
   ImmutableObjectStore,
   JobQueue,
-  LeasedJob,
   PlatformRunStore,
 } from "@blink/ports";
-import { apiFailure, apiJobError } from "./api-failure.js";
+import {
+  apiFailure,
+  apiJobError,
+  lastAttempt,
+  type RunningJob,
+} from "./api-failure.js";
 import type { createBudgetedModelCaller } from "./budgeted-model.js";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -21,10 +26,7 @@ const encoder = new TextEncoder();
 // One model call and its single retry after a schema error.
 const MAX_ATTEMPTS = 2;
 
-type Handler = (ctx: {
-  job: Pick<LeasedJob, "id" | "payload">;
-  signal: AbortSignal;
-}) => Promise<void>;
+type Handler = (ctx: { job: RunningJob; signal: AbortSignal }) => Promise<void>;
 
 function parseOutput(
   text: string,
@@ -51,7 +53,9 @@ function parseOutput(
  * `forecast.run` / `baseline.run`: one platform agent's forecast for one window. Every input is
  * fixed by the window (data cutoff, evidence, registered prompt), each model call is a recorded
  * run with its own reservation, and the answer is submitted through the public API with the
- * agent's own key. The runner never reads other agents' answers.
+ * agent's own key. The runner never reads other agents' answers. A validated answer is stored
+ * before it is submitted, so a retry after a lost response submits the same answer under the
+ * same idempotency key instead of asking the model (and paying) again.
  */
 export function createForecastRunHandler(deps: {
   /** The roles this job type may run. */
@@ -83,6 +87,47 @@ export function createForecastRunHandler(deps: {
     if (!window) throw new JobError("WINDOW_NOT_FOUND", false);
     // Delivery is at-least-once: a window this agent already answered (or missed) is done.
     if (await store.settled(agent.agentId, window.windowId)) return;
+
+    // Submits one stored answer under its run's id; the same run id always sends the same body.
+    const submit = async (
+      runId: string,
+      answer: ForecastAnswer,
+    ): Promise<void> => {
+      let receipt: unknown;
+      try {
+        receipt = await api.submitForecast(
+          { deploymentId: window.deploymentId, marketId: window.marketId },
+          {
+            horizonKey: {
+              horizonType: window.horizonType,
+              scheduledAt: window.scheduledAt.toISOString(),
+            },
+            probability: answer.probability,
+            evidenceIds: answer.evidenceIds,
+            rationale: answer.rationale,
+            agentVersion: `${agent.model}#${agent.promptHash}`,
+          },
+          runId,
+        );
+      } catch (error) {
+        const failure = apiFailure(error);
+        // The window closed while the model worked: a recorded miss, never retried.
+        if (failure?.code === "FORECAST_WINDOW_CLOSED")
+          return store.updateRun(runId, { state: "LATE" });
+        // A refusal is final, and so is a failure with no attempt left to retry it. Otherwise
+        // the run stays STARTED with its stored answer and the retry submits it again.
+        if ((failure && !failure.retryable) || lastAttempt(job))
+          await store.updateRun(runId, { state: "FAILED" });
+        throw apiJobError(error);
+      }
+      return store.updateRun(runId, {
+        state: "SUBMITTED",
+        submissionId: SubmissionReceipt.parse(receipt).submissionId,
+      });
+    };
+
+    const pending = await store.pendingAnswer(agent.agentId, window.windowId);
+    if (pending) return submit(pending.runId, pending.answer);
     if (!window.approval) throw new JobError("APPROVAL_NOT_FOUND", false);
 
     const market = MarketView.parse(
@@ -169,34 +214,8 @@ export function createForecastRunHandler(deps: {
           throw new JobError("SCHEMA_INVALID", false);
         continue;
       }
-      let receipt: unknown;
-      try {
-        receipt = await api.submitForecast(
-          { deploymentId: window.deploymentId, marketId: window.marketId },
-          {
-            horizonKey: {
-              horizonType: window.horizonType,
-              scheduledAt: window.scheduledAt.toISOString(),
-            },
-            probability: answer.probability,
-            evidenceIds: answer.evidenceIds,
-            rationale: answer.rationale,
-            agentVersion: `${agent.model}#${agent.promptHash}`,
-          },
-          runId,
-        );
-      } catch (error) {
-        // The window closed while the model worked: a recorded miss, never retried.
-        if (apiFailure(error)?.code === "FORECAST_WINDOW_CLOSED")
-          return store.updateRun(runId, { state: "LATE", ...provenance });
-        await store.updateRun(runId, { state: "FAILED", ...provenance });
-        throw apiJobError(error);
-      }
-      return store.updateRun(runId, {
-        state: "SUBMITTED",
-        submissionId: SubmissionReceipt.parse(receipt).submissionId,
-        ...provenance,
-      });
+      await store.recordAnswer(runId, answer, provenance);
+      return submit(runId, answer);
     }
   };
 }

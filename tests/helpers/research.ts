@@ -163,6 +163,8 @@ export async function researchFixture() {
       }),
     ],
   });
+  // Request lines would bury the test output.
+  app.log.level = "silent";
   await app.listen({ port: 0, host: "127.0.0.1" });
   const url = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
 

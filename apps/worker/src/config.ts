@@ -69,6 +69,10 @@ export function researchConfig(env: NodeJS.ProcessEnv): ResearchConfig {
       throw new Error("WORKER_FORECASTER_CONFIGURATION_INCOMPLETE");
     forecasters[role as PlatformRole] = key;
   }
+  // forecast.run serves both forecasters, so a worker holding only one key would lease jobs it
+  // can only fail, and the other forecaster's window would be lost to it.
+  if (!forecasters.FORECASTER_A !== !forecasters.FORECASTER_B)
+    throw new Error("WORKER_FORECASTER_PAIR_INCOMPLETE");
   return {
     evidence,
     api: url ? { url } : null,

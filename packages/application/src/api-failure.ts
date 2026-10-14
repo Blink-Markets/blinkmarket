@@ -1,4 +1,15 @@
 import { JobError } from "@blink/domain";
+import type { LeasedJob } from "@blink/ports";
+
+/** What the worker handlers need of a leased job; attempts are optional for direct callers. */
+export type RunningJob = Pick<LeasedJob, "id" | "payload"> &
+  Partial<Pick<LeasedJob, "attempt" | "maxAttempts">>;
+
+/** True when a failure of this delivery is the job's last: no retry will resume the work. */
+export const lastAttempt = (job: RunningJob): boolean =>
+  job.attempt !== undefined &&
+  job.maxAttempts !== undefined &&
+  job.attempt >= job.maxAttempts;
 
 /**
  * The public API's error envelope as @blink/client reports it (status plus body),

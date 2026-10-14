@@ -1,9 +1,11 @@
 import type { Pool } from "pg";
 import type { EvidenceDocument, PlatformRunStore } from "@blink/ports";
+import { createUnitOfWork } from "./database.js";
 
 // Runs as blink_worker. It reads windows, platform agents, approvals' budget columns and evidence,
 // and writes model runs. It has no grant on forecasts.submissions or forecasts.snapshots.
 export function postgresPlatformRunStore(pool: Pool): PlatformRunStore {
+  const uow = createUnitOfWork(pool);
   const evidenceColumns = `id,object_uri,'0x'||encode(content_hash,'hex') AS content_hash`;
   const document = (row: Record<string, unknown>): EvidenceDocument => ({
     evidenceId: String(row.id),
@@ -109,23 +111,55 @@ export function postgresPlatformRunStore(pool: Pool): PlatformRunStore {
         ],
       );
     },
-    async updateRun(id, update) {
-      // Only the columns being set are named: the worker may not read the others.
-      const values: unknown[] = [id, update.state];
-      const sets = ["state=$2", "updated_at=blink.now()"];
-      for (const [column, value] of [
-        ["reservation_id", update.reservationId],
-        ["provider_request_id", update.providerRequestId],
-        ["submission_id", update.submissionId],
-      ] as const)
-        if (value !== undefined) {
-          values.push(value);
-          sets.push(`${column}=$${values.length}`);
-        }
-      await pool.query(
-        `UPDATE forecasts.model_runs SET ${sets.join(",")} WHERE id=$1`,
-        values,
+    recordAnswer: (runId, answer, provenance) =>
+      uow.run(async (tx) => {
+        const db = uow.client(tx);
+        await db.query(
+          "INSERT INTO forecasts.pending_answers(run_id,answer) VALUES ($1,$2)",
+          [runId, answer],
+        );
+        await db.query(
+          `UPDATE forecasts.model_runs
+           SET reservation_id=$2,provider_request_id=$3,updated_at=blink.now() WHERE id=$1`,
+          [runId, provenance.reservationId, provenance.providerRequestId],
+        );
+      }),
+    async pendingAnswer(agentId, windowId) {
+      const { rows } = await pool.query(
+        `SELECT p.run_id,p.answer FROM forecasts.pending_answers p
+         JOIN forecasts.model_runs m ON m.id=p.run_id
+         WHERE m.agent_id=$1 AND m.window_id=$2 AND m.state='STARTED'
+         ORDER BY p.created_at,p.run_id LIMIT 1`,
+        [agentId, windowId],
       );
+      return rows[0]
+        ? { runId: String(rows[0].run_id), answer: rows[0].answer }
+        : null;
     },
+    updateRun: (id, update) =>
+      uow.run(async (tx) => {
+        const db = uow.client(tx);
+        // Only the columns being set are named: the worker may not read the others.
+        const values: unknown[] = [id, update.state];
+        const sets = ["state=$2", "updated_at=blink.now()"];
+        for (const [column, value] of [
+          ["reservation_id", update.reservationId],
+          ["provider_request_id", update.providerRequestId],
+          ["submission_id", update.submissionId],
+        ] as const)
+          if (value !== undefined) {
+            values.push(value);
+            sets.push(`${column}=$${values.length}`);
+          }
+        await db.query(
+          `UPDATE forecasts.model_runs SET ${sets.join(",")} WHERE id=$1`,
+          values,
+        );
+        // An ended run keeps no stored answer.
+        await db.query(
+          "DELETE FROM forecasts.pending_answers WHERE run_id=$1",
+          [id],
+        );
+      }),
   };
 }

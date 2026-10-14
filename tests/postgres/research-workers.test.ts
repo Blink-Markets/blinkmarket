@@ -57,6 +57,12 @@ async function withDatabase(
 }
 
 const DAY = "2026-01-15";
+const ANSWER = {
+  entityId: "ACME",
+  fiscalPeriod: "FY2025Q1",
+  thresholdBps: 4200,
+  thesis: "Stored with the slot.",
+};
 async function startRuns(owner: pg.Pool, worker: pg.Pool, count: number) {
   const store = postgresDiscoveryStore(worker);
   const runs: string[] = [];
@@ -91,12 +97,24 @@ test("concurrent workers admit exactly ten candidates a day", async () => {
     const pools = [workerPool(), workerPool(), workerPool(), workerPool()];
     const runs = await startRuns(owner, pools[0]!, 15);
     const outcomes = await Promise.all(
-      runs.map((id, i) => postgresDiscoveryStore(pools[i % 4]!).takeSlot(id)),
+      runs.map((id, i) =>
+        postgresDiscoveryStore(pools[i % 4]!).takeSlot(id, ANSWER),
+      ),
     );
     assert.equal(outcomes.filter((o) => o === "TAKEN").length, 10);
     assert.equal(outcomes.filter((o) => o === "CAP").length, 5);
     assert.equal(await counter(owner), 10);
     assert.equal(await held(owner), 10);
+    // Each admitted run stored its answer with the slot, in the same transaction.
+    const stored = await owner.query(
+      "SELECT answer FROM discovery.scan_runs WHERE slot_taken",
+    );
+    assert.equal(stored.rows.length, 10);
+    assert.ok(stored.rows.every((row) => row.answer.thesis === ANSWER.thesis));
+    const capped = await owner.query(
+      "SELECT count(*) FROM discovery.scan_runs WHERE answer IS NULL",
+    );
+    assert.equal(Number(capped.rows[0].count), 5);
   });
 });
 
@@ -106,7 +124,9 @@ test("a redelivered run never holds two slots, and a returned slot is reusable u
     const runs = await startRuns(owner, pools[0]!, 12);
     // The same run racing itself: one TAKEN, the others see it already holds a slot.
     const twice = await Promise.all(
-      pools.map((pool) => postgresDiscoveryStore(pool).takeSlot(runs[0]!)),
+      pools.map((pool) =>
+        postgresDiscoveryStore(pool).takeSlot(runs[0]!, ANSWER),
+      ),
     );
     assert.deepEqual(twice.slice().sort(), [
       "ALREADY",
@@ -120,7 +140,9 @@ test("a redelivered run never holds two slots, and a returned slot is reusable u
     await Promise.all(
       taken
         .slice(1)
-        .map((id, i) => postgresDiscoveryStore(pools[i % 4]!).takeSlot(id)),
+        .map((id, i) =>
+          postgresDiscoveryStore(pools[i % 4]!).takeSlot(id, ANSWER),
+        ),
     );
     assert.equal(await counter(owner), 10);
     const returning = taken
@@ -130,7 +152,9 @@ test("a redelivered run never holds two slots, and a returned slot is reusable u
       );
     const competing = runs
       .slice(10)
-      .map((id, i) => postgresDiscoveryStore(pools[i % 4]!).takeSlot(id));
+      .map((id, i) =>
+        postgresDiscoveryStore(pools[i % 4]!).takeSlot(id, ANSWER),
+      );
     const [, , , ...contenders] = await Promise.all([
       ...returning,
       ...competing,
@@ -144,11 +168,19 @@ test("a redelivered run never holds two slots, and a returned slot is reusable u
       state: "FAILED",
     });
     assert.equal(await counter(owner), await held(owner));
+    // An unknown outcome ends the run but keeps its slot counted.
+    const before = await counter(owner);
+    await postgresDiscoveryStore(pools[1]!).finish(taken[5]!, {
+      state: "MANUAL_REVIEW",
+      keepSlot: true,
+    });
+    assert.equal(await counter(owner), before);
+    assert.equal(await counter(owner), await held(owner));
   });
 });
 
 test("the worker role reads only what the research jobs need", async () => {
-  await withDatabase(async ({ workerPool }) => {
+  await withDatabase(async ({ owner, workerPool }) => {
     const worker = workerPool();
     for (const sql of [
       "SELECT * FROM forecasts.submissions",
@@ -164,5 +196,22 @@ test("the worker role reads only what the research jobs need", async () => {
     await worker.query(
       "SELECT agent_id,window_id,state FROM forecasts.model_runs",
     );
+    // Pending forecast answers: the worker stores and clears its own, nobody else sees them.
+    await worker.query("SELECT run_id,answer FROM forecasts.pending_answers");
+    await assert.rejects(
+      worker.query("UPDATE forecasts.pending_answers SET answer='{}'"),
+      /permission denied/,
+    );
+    for (const role of ["blink_api", "blink_indexer", "blink_signer"])
+      assert.equal(
+        (
+          await owner.query(
+            "SELECT has_table_privilege($1,'forecasts.pending_answers','SELECT') AS allowed",
+            [role],
+          )
+        ).rows[0].allowed,
+        false,
+        role,
+      );
   });
 });

@@ -14,6 +14,9 @@ CREATE TABLE discovery.scan_runs (
   error_code TEXT,
   -- True while this run holds one of the day's candidate slots, so redelivery never counts it twice.
   slot_taken BOOLEAN NOT NULL DEFAULT false,
+  -- The validated model answer, stored with the slot and before the API is called: a redelivery
+  -- replays the same request under the same idempotency key instead of asking the model again.
+  answer JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT blink.now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT blink.now(),
   UNIQUE (source_id, day, slot)
@@ -26,7 +29,7 @@ CREATE TABLE discovery.daily_counters (
 REVOKE ALL ON discovery.scan_runs, discovery.daily_counters FROM PUBLIC;
 GRANT USAGE ON SCHEMA discovery TO blink_worker;
 GRANT SELECT, INSERT ON discovery.scan_runs TO blink_worker;
-GRANT UPDATE (state, evidence_id, candidate_id, attempts, error_code, slot_taken, updated_at) ON discovery.scan_runs TO blink_worker;
+GRANT UPDATE (state, evidence_id, candidate_id, attempts, error_code, slot_taken, answer, updated_at) ON discovery.scan_runs TO blink_worker;
 GRANT SELECT, INSERT, UPDATE ON discovery.daily_counters TO blink_worker;
 
 -- Forecast runs need the approved candidate and research budget of the market they forecast
@@ -35,3 +38,14 @@ GRANT SELECT, INSERT, UPDATE ON discovery.daily_counters TO blink_worker;
 GRANT USAGE ON SCHEMA markets TO blink_worker;
 GRANT SELECT (candidate_id, deployment_id, spec_hash, budget_micros, created_at) ON markets.approvals TO blink_worker;
 GRANT SELECT (agent_id, window_id, state) ON forecasts.model_runs TO blink_worker;
+
+-- A forecast answer waits here from the moment the model returns it until its submission is settled,
+-- so a retry after a lost response replays the same submission under the same idempotency key.
+-- Rows are deleted once the run ends; the API role never sees them.
+CREATE TABLE forecasts.pending_answers (
+  run_id UUID PRIMARY KEY REFERENCES forecasts.model_runs(id),
+  answer JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT blink.now()
+);
+REVOKE ALL ON forecasts.pending_answers FROM PUBLIC;
+GRANT SELECT, INSERT, DELETE ON forecasts.pending_answers TO blink_worker;
