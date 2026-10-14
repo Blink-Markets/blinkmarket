@@ -51,8 +51,24 @@ async function harness(perTxCapWei = 200_000_000_000_000n) {
     pendingNonce: async () => 5n,
     l1Fee: async () => 0n,
   };
+  // The signing transaction can be made to die after the artifact is written, before commit.
+  const baseSignerStore = postgresSignerStore(t.pool);
+  const faults = { crashAfterArtifact: false };
+  const signerStore: typeof baseSignerStore = {
+    loadDeployment: (id) => baseSignerStore.loadDeployment(id),
+    run: (work) =>
+      baseSignerStore.run((tx) =>
+        work({
+          ...tx,
+          async markSigned(signRequestId, intentId) {
+            if (faults.crashAfterArtifact) throw new Error("CRASH_AFTER_SIGN");
+            await tx.markSigned(signRequestId, intentId);
+          },
+        }),
+      ),
+  };
   const service = createSignerService({
-    store: postgresSignerStore(t.pool),
+    store: signerStore,
     keys: { keeper: testAccounts.keeper },
     rpc: signerRpc,
     deployment: manifest,
@@ -181,6 +197,7 @@ async function harness(perTxCapWei = 200_000_000_000_000n) {
     chain,
     signerLog,
     signerMode,
+    faults,
     keeperIntent,
     rows,
     hashOf,
@@ -760,8 +777,14 @@ test("a signer outage never stops the dispatcher from observing versions that ar
     assert.equal(await h.intentState(), "INCLUDED");
     assert.deepEqual(await h.ledger(), { reserved: "0", spent: "10" });
     h.chain.finalized = 10n;
-    assert.equal(await h.dispatcher.dispatch(intent.intentId), "FINALIZED");
+    // Finality is recorded although the signer is down; only the unsigned replacement is left
+    // to reconcile, so the job is not done yet.
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "PENDING");
     assert.equal(await h.intentState(), "FINALIZED");
+    assert.equal((await h.attempts())[0]!.status, "FINALIZED");
+    h.signerMode.unknown = false;
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "FINALIZED");
+    assert.deepEqual(await h.ledger(), { reserved: "0", spent: "10" });
   } finally {
     await h.t.close();
   }
@@ -776,6 +799,241 @@ test("a send that loses to a higher-priced pooled version is UNKNOWN, not a fail
     assert.equal((await h.attempts())[0]!.status, "UNKNOWN");
     assert.equal(await h.intentState(), "UNKNOWN");
     assert.equal(h.chain.sent.length, 1, "not blindly resent");
+  } finally {
+    await h.t.close();
+  }
+});
+
+// v1 is signed and broadcast, then the business clock moves and the dispatcher asks for v2, whose
+// plan (and gas reservation) commits but whose signing transaction dies before it commits.
+async function withCrashedReplacementPlan(
+  h: Awaited<ReturnType<typeof harness>>,
+) {
+  const intent = await h.keeperIntent();
+  assert.equal(await h.dispatcher.dispatch(intent.intentId), "SUBMITTED");
+  const [v1] = await h.attempts();
+  await h.advance(120);
+  h.faults.crashAfterArtifact = true;
+  assert.equal(await h.dispatcher.dispatch(intent.intentId), "PENDING");
+  h.faults.crashAfterArtifact = false;
+  const [plan] = await h.rows(
+    `SELECT p.sign_request_id AS id, p.nonce::int AS nonce, p.max_cost_wei::text AS cost,
+      p.max_fee_per_gas::text AS fee, p.max_priority_fee_per_gas::text AS tip
+    FROM signing.signing_plans p JOIN signing.sign_requests r ON r.id = p.sign_request_id
+    WHERE r.artifact_version = 2`,
+  );
+  assert.ok(plan, "v2's plan was committed");
+  return { intent, v1: v1!, plan: plan! };
+}
+const requestStates = (h: Awaited<ReturnType<typeof harness>>) =>
+  h.rows(
+    "SELECT artifact_version AS v, state, reject_code FROM signing.sign_requests ORDER BY artifact_version",
+  );
+
+test("a replacement planned but never signed returns its reservation once the original is final, exactly once", async () => {
+  const h = await harness();
+  try {
+    const { intent, v1, plan } = await withCrashedReplacementPlan(h);
+    const c1 = BigInt(v1.max_cost as string);
+    const c2 = BigInt(plan.cost as string);
+    assert.deepEqual(await h.ledger(), {
+      reserved: (c1 + c2).toString(),
+      spent: "0",
+    });
+    // The signing retry crashes again; the plan is reused, never duplicated.
+    h.faults.crashAfterArtifact = true;
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "PENDING");
+    h.faults.crashAfterArtifact = false;
+    assert.equal(
+      (await h.rows("SELECT 1 FROM signing.signing_plans")).length,
+      2,
+    );
+    assert.deepEqual(await h.ledger(), {
+      reserved: (c1 + c2).toString(),
+      spent: "0",
+    });
+
+    // v1 becomes canonical and final at cost 10.
+    h.mine(v1.hash as Hex, 7n, { gasSpentWei: 10n });
+    h.chain.finalized = 7n;
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "FINALIZED");
+    assert.equal(await h.intentState(), "FINALIZED");
+    assert.deepEqual(await h.ledger(), { reserved: "0", spent: "10" });
+    assert.deepEqual(await requestStates(h), [
+      { v: 1, state: "SIGNED", reject_code: null },
+      { v: 2, state: "REJECTED", reject_code: "SUPERSEDED_BY_FINAL" },
+    ]);
+    assert.equal((await h.rows("SELECT 1 FROM signing.artifacts")).length, 1);
+    assert.equal((await h.attempts()).length, 1);
+    // The plan row is immutable evidence: still there, unchanged.
+    const [kept] = await h.rows(
+      `SELECT p.nonce::int AS nonce, p.max_cost_wei::text AS cost, p.max_fee_per_gas::text AS fee,
+        p.max_priority_fee_per_gas::text AS tip
+      FROM signing.signing_plans p WHERE p.sign_request_id = $1`,
+      [plan.id],
+    );
+    assert.deepEqual(kept, {
+      nonce: plan.nonce,
+      cost: plan.cost,
+      fee: plan.fee,
+      tip: plan.tip,
+    });
+
+    // Repeating the dispatch changes nothing and never asks the signer again.
+    const asked = h.signerLog.length;
+    for (let i = 0; i < 3; i += 1)
+      assert.equal(await h.dispatcher.dispatch(intent.intentId), "FINALIZED");
+    assert.equal(h.signerLog.length, asked);
+    assert.deepEqual(await h.ledger(), { reserved: "0", spent: "10" });
+    assert.equal(
+      (
+        await h.rows(
+          "SELECT 1 FROM operations.audit_log WHERE action = 'signer.plan_abandoned'",
+        )
+      ).length,
+      1,
+      "released and reported once",
+    );
+  } finally {
+    await h.t.close();
+  }
+});
+
+test("the replacement's reservation is kept while the original is only included, and whatever is left is reconciled when it is final", async () => {
+  const h = await harness();
+  try {
+    const { intent, v1, plan } = await withCrashedReplacementPlan(h);
+    const c1 = BigInt(v1.max_cost as string);
+    const c2 = BigInt(plan.cost as string);
+    h.mine(v1.hash as Hex, 7n, { gasSpentWei: 10n });
+    const asked = h.signerLog.length;
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "INCLUDED");
+    // Not final: the inclusion can still reorg and v2 may still be needed.
+    assert.deepEqual(await h.ledger(), {
+      reserved: c2.toString(),
+      spent: "10",
+    });
+    assert.equal((await requestStates(h))[1]!.state, "REQUESTED");
+    assert.equal(h.signerLog.length, asked, "the signer is not asked yet");
+
+    // The inclusion reorgs: v1 is pending again and holds its reservation next to v2's. The
+    // healthy signer now finishes the replacement it had planned.
+    h.chain.receipts.delete((v1.hash as string).toLowerCase());
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "SUBMITTED");
+    assert.deepEqual(await h.ledger(), {
+      reserved: (c1 + c2).toString(),
+      spent: "0",
+    });
+    assert.equal((await requestStates(h))[1]!.state, "SIGNED");
+    assert.equal((await h.attempts()).length, 2);
+
+    // v1 is mined again and final: the signed v2 is REPLACED and gives its reservation back.
+    h.mine(v1.hash as Hex, 9n, { gasSpentWei: 12n });
+    h.chain.finalized = 9n;
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "FINALIZED");
+    assert.deepEqual(await h.ledger(), { reserved: "0", spent: "12" });
+    assert.deepEqual(
+      (await h.attempts()).map((a) => [a.status, a.reserved, a.spent]),
+      [
+        ["FINALIZED", "0", "12"],
+        ["REPLACED", "0", "0"],
+      ],
+    );
+  } finally {
+    await h.t.close();
+  }
+});
+
+test("a final outcome observed during a signer outage is recorded, and the job only stops after the reconciliation", async () => {
+  const h = await harness();
+  try {
+    const { intent, v1, plan } = await withCrashedReplacementPlan(h);
+    const c2 = BigInt(plan.cost as string);
+    h.mine(v1.hash as Hex, 7n, { gasSpentWei: 10n });
+    h.chain.finalized = 7n;
+    h.signerMode.unknown = true;
+    // The receipt is observed, charged and finalized regardless of the signer...
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "PENDING");
+    assert.equal(await h.intentState(), "FINALIZED");
+    assert.equal((await h.attempts())[0]!.status, "FINALIZED");
+    // ...but the unsigned replacement still holds gas, so the job must come back.
+    assert.deepEqual(await h.ledger(), {
+      reserved: c2.toString(),
+      spent: "10",
+    });
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "PENDING");
+    h.signerMode.unknown = false;
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "FINALIZED");
+    assert.deepEqual(await h.ledger(), { reserved: "0", spent: "10" });
+
+    // The handler agrees: pending while unreconciled, done afterwards.
+    const handler = createTxDispatchHandler(h.dispatcher);
+    await handler({
+      job: { id: "j", payload: { intentId: intent.intentId } },
+      signal: new AbortController().signal,
+    });
+  } finally {
+    await h.t.close();
+  }
+});
+
+test("a version signed just before the outcome became final still gets its attempt and is replaced", async () => {
+  const h = await harness();
+  try {
+    const intent = await h.keeperIntent();
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "SUBMITTED");
+    const [v1] = await h.attempts();
+    // v2 is signed by a retry that won the race, before the dispatcher has an attempt for it.
+    const fees = minimumReplacementFees({
+      maxFeePerGas: BigInt(v1!.max_fee as string),
+      maxPriorityFeePerGas: BigInt(v1!.tip as string),
+    });
+    const second = await prepareRequest(
+      h.t.pool as unknown as Parameters<typeof prepareRequest>[0],
+      h.manifest,
+      {
+        kind: "FINALIZE_TIMEOUT",
+        payload: {
+          to: testMarket,
+          functionName: "finalizeTimeout",
+          args: ["3"],
+          maxFeePerGas: fees.maxFeePerGas.toString(),
+          maxPriorityFeePerGas: fees.maxPriorityFeePerGas.toString(),
+        },
+        intentId: intent.intentId,
+        version: 2,
+      },
+    );
+    assert.equal(
+      (
+        await h.signer.sign({
+          signRequestId: second.signRequestId,
+          expectedRequestHash: second.requestHash,
+        })
+      ).state,
+      "SIGNED",
+    );
+    // Another observer finalized v1 meanwhile (state set directly: this is the interleaving).
+    await h.t.db.exec(`
+      UPDATE signing.tx_attempts SET status = 'FINALIZED', receipt_status = 'success', gas_reserved_wei = 0, gas_spent_wei = 10;
+      UPDATE signing.gas_spend SET reserved_wei = reserved_wei - ${v1!.max_cost}, spent_wei = 10;
+      UPDATE signing.economic_intents SET state = 'FINALIZED';
+    `);
+    assert.equal((await h.attempts()).length, 1);
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "FINALIZED");
+    assert.deepEqual(
+      (await h.attempts()).map((a) => [a.status, a.reserved, a.spent]),
+      [
+        ["FINALIZED", "0", "10"],
+        ["REPLACED", "0", "0"],
+      ],
+    );
+    assert.deepEqual(await h.ledger(), { reserved: "0", spent: "10" });
+    assert.equal(
+      h.chain.sent.length,
+      1,
+      "the late version is never broadcast after the outcome is final",
+    );
   } finally {
     await h.t.close();
   }

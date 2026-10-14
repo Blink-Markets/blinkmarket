@@ -18,6 +18,7 @@ import type {
   RestrictedSigner,
   SendRawResult,
   SignerRpc,
+  SignerStore,
   SignResult,
 } from "../../packages/ports/src/index.js";
 import { withDatabase } from "../helpers/postgres-database.js";
@@ -43,9 +44,13 @@ function fakeSignerRpc(pending = 5n): SignerRpc {
     l1Fee: async () => 0n,
   };
 }
-function signerService(pool: pg.Pool, rpc = fakeSignerRpc()) {
+function signerService(
+  pool: pg.Pool,
+  rpc = fakeSignerRpc(),
+  store: SignerStore = postgresSignerStore(pool),
+) {
   return createSignerService({
-    store: postgresSignerStore(pool),
+    store,
     keys: {
       maker: testAccounts.maker,
       keeper: testAccounts.keeper,
@@ -443,6 +448,212 @@ test(
         spent: attempts[0].spent,
         reserved: "0",
       });
+    });
+  },
+);
+
+test(
+  "real PostgreSQL: a replacement plan left behind by a final outcome is released exactly once, against racing signing retries",
+  { timeout: 180000 },
+  async () => {
+    await withDatabase(async ({ owner, pool, login }) => {
+      const manifest = testManifest();
+      await seedDeployment(owner, manifest);
+      await seedChain(owner, { deploymentId: manifest.deploymentId });
+      const worker = pool("blink_worker", 4);
+      // Signer A can die after a plan commits; signer B is a second, healthy signer process.
+      const crash = { on: false };
+      const poolA = await login({ max: 4 });
+      const baseStoreA = postgresSignerStore(poolA);
+      const serviceA = signerService(poolA, fakeSignerRpc(), {
+        loadDeployment: (id) => baseStoreA.loadDeployment(id),
+        run: (work) =>
+          baseStoreA.run((tx) =>
+            work({
+              ...tx,
+              async markSigned(signRequestId, intentId) {
+                if (crash.on) throw new Error("CRASH_AFTER_SIGN");
+                await tx.markSigned(signRequestId, intentId);
+              },
+            }),
+          ),
+      });
+      const serviceB = signerService(await login({ max: 4 }));
+      const asSigner = (
+        service: ReturnType<typeof signerService>,
+      ): RestrictedSigner => ({
+        async sign(input) {
+          const response = await service.handle(TOKEN, input);
+          return response.status === 200
+            ? (response.body as SignResult)
+            : response.status === 422
+              ? { state: "REJECTED", code: String(response.body.code) }
+              : { state: "UNKNOWN", code: String(response.body.code) };
+        },
+      });
+      const unreachable: RestrictedSigner = {
+        sign: async () => ({ state: "UNKNOWN", code: "SIGNER_TIMEOUT" }),
+      };
+
+      // The chain: whatever is in `mined` is canonical, successful and final at block 7.
+      const mined = new Map<string, bigint>();
+      const blockHash = keccak256("0x07");
+      const chainRpc: DispatchRpc = {
+        sendRawTransaction: async (raw) => ({
+          state: "ACCEPTED",
+          hash: keccak256(raw),
+        }),
+        getReceipt: async (hash) =>
+          mined.has(hash.toLowerCase())
+            ? {
+                status: "success",
+                blockHash,
+                blockNumber: 7n,
+                gasSpentWei: mined.get(hash.toLowerCase())!,
+              }
+            : null,
+        blockHashAt: async (number) => (number === 7n ? blockHash : null),
+        finalizedBlockNumber: async () => 7n,
+      };
+      const dispatcher = (signer: RestrictedSigner, replaceAfterMs = 60_000) =>
+        createTxDispatcher({
+          store: postgresDispatchStore(pool("blink_worker", 4)),
+          rpc: chainRpc,
+          signer,
+          replaceAfterMs,
+        });
+      const ledger = async () =>
+        (
+          await owner.query(
+            "SELECT reserved_wei::text AS reserved, spent_wei::text AS spent FROM signing.gas_spend WHERE role = 'keeper'",
+          )
+        ).rows[0];
+
+      // Three unrelated reservations stay held for the whole test, so one release too many
+      // would show up in the total instead of being clamped at zero.
+      for (const id of [31, 32, 33]) {
+        const other = await prepareRequest(worker, manifest, {
+          kind: "FINALIZE_TIMEOUT",
+          payload: finalize(id),
+        });
+        const response = await serviceB.handle(TOKEN, {
+          signRequestId: other.signRequestId,
+          expectedRequestHash: other.requestHash,
+        });
+        assert.equal(response.body.state, "SIGNED");
+      }
+      const held = (await ledger()).reserved;
+      assert.equal(held, (3n * 252_000_000_000n).toString());
+
+      for (let round = 1; round <= 4; round += 1) {
+        const intent = await prepareRequest(worker, manifest, {
+          kind: "FINALIZE_TIMEOUT",
+          payload: finalize(round),
+        });
+        assert.equal(
+          await dispatcher(asSigner(serviceA)).dispatch(intent.intentId),
+          "SUBMITTED",
+        );
+        // v2's plan and reservation commit; its signing transaction dies.
+        crash.on = true;
+        assert.equal(
+          await dispatcher(asSigner(serviceA), 0).dispatch(intent.intentId),
+          "PENDING",
+        );
+        crash.on = false;
+        const [v2] = (
+          await owner.query(
+            `SELECT r.id, '0x' || encode(r.request_hash, 'hex') AS hash FROM signing.sign_requests r
+            JOIN signing.signing_plans p ON p.sign_request_id = r.id
+            WHERE r.intent_id = $1 AND r.artifact_version = 2`,
+            [intent.intentId],
+          )
+        ).rows;
+        assert.ok(v2, "v2's plan was committed");
+        const v1Hash = (
+          await owner.query(
+            `SELECT '0x' || encode(a.artifact_hash, 'hex') AS h FROM signing.artifacts a
+            JOIN signing.sign_requests r ON r.id = a.sign_request_id
+            WHERE r.intent_id = $1 AND r.artifact_version = 1`,
+            [intent.intentId],
+          )
+        ).rows[0].h as string;
+        mined.set(v1Hash.toLowerCase(), 10n);
+
+        // v1 is final and charged, observed while the signer is unreachable: the unsigned
+        // replacement still holds its reservation and the job is told to come back.
+        assert.equal(
+          await dispatcher(unreachable).dispatch(intent.intentId),
+          "PENDING",
+        );
+        assert.equal(
+          (
+            await owner.query(
+              "SELECT state FROM signing.economic_intents WHERE id = $1",
+              [intent.intentId],
+            )
+          ).rows[0].state,
+          "FINALIZED",
+        );
+        assert.notEqual((await ledger()).reserved, held);
+
+        // The cleanup races signing retries of the very request it is rejecting.
+        const body = { signRequestId: v2.id, expectedRequestHash: v2.hash };
+        const [result, ...retries] = await Promise.all([
+          dispatcher(asSigner(serviceB)).dispatch(intent.intentId),
+          serviceA.handle(TOKEN, body),
+          serviceB.handle(TOKEN, body),
+          serviceB.handle(TOKEN, body),
+        ]);
+        assert.equal(result, "FINALIZED");
+        for (const retry of retries)
+          assert.deepEqual(retry.body, {
+            state: "REJECTED",
+            code: "SUPERSEDED_BY_FINAL",
+          });
+        assert.deepEqual(await ledger(), {
+          reserved: held,
+          spent: String(10 * round),
+        });
+        assert.deepEqual(
+          (
+            await owner.query(
+              "SELECT state, reject_code FROM signing.sign_requests WHERE id = $1",
+              [v2.id],
+            )
+          ).rows[0],
+          { state: "REJECTED", reject_code: "SUPERSEDED_BY_FINAL" },
+        );
+        assert.equal(
+          (
+            await owner.query(
+              `SELECT count(*)::int AS n FROM signing.artifacts a JOIN signing.sign_requests r ON r.id = a.sign_request_id
+              WHERE r.intent_id = $1`,
+              [intent.intentId],
+            )
+          ).rows[0].n,
+          1,
+          "v2 was never signed",
+        );
+        assert.equal(
+          (
+            await owner.query(
+              "SELECT count(*)::int AS n FROM operations.audit_log WHERE action = 'signer.plan_abandoned'",
+            )
+          ).rows[0].n,
+          round,
+          "one release per abandoned plan",
+        );
+        // And the job is now genuinely done, repeatedly.
+        assert.equal(
+          await dispatcher(asSigner(serviceB)).dispatch(intent.intentId),
+          "FINALIZED",
+        );
+        assert.deepEqual(await ledger(), {
+          reserved: held,
+          spent: String(10 * round),
+        });
+      }
     });
   },
 );

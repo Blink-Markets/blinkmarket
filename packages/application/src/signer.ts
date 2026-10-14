@@ -351,6 +351,9 @@ export function createSignerService(deps: SignerDeps) {
       if (intent.state !== "PREPARED") return reject("INTENT_NOT_SIGNABLE");
       return { ok: true, to, data, replacement: null };
     }
+    // A final outcome (finalized, or a revert that is final) leaves nothing to replace.
+    if (intent.state === "FINALIZED" || intent.state === "FAILED")
+      return reject("SUPERSEDED_BY_FINAL");
     if (!["SIGNED", "SUBMITTED", "UNKNOWN"].includes(intent.state))
       return reject("INTENT_NOT_SIGNABLE");
     const versions = await tx.signedVersions(intent.id);

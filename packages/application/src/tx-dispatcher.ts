@@ -48,6 +48,15 @@ const WATCHED: Status[] = [
   "REPLACED",
 ];
 
+// Versions that can still be mined or that still hold a reservation.
+const LIVE: Status[] = [
+  "SIGNED",
+  "SUBMITTED",
+  "UNKNOWN",
+  "INCLUDED",
+  "REORGED",
+];
+
 type Change = { attempt: AttemptRecord; patch: AttemptPatch };
 
 // The intent follows its attempts: final outcomes first, then a mined version, then the newest
@@ -271,11 +280,34 @@ export function createTxDispatcher(deps: {
       const { intent } = snap;
       if (intent.kind === "MAKER_QUOTE" || intent.state === "CANCELLED")
         throw new TxDispatchError("INTENT_NOT_DISPATCHABLE", false);
-      if (intent.state === "FINALIZED") return "FINALIZED";
-      if (intent.state === "FAILED") {
-        if (snap.attempts.some((a) => a.status === "REVERTED"))
-          return "REVERTED";
+      const reverted = snap.attempts.some((a) => a.status === "REVERTED");
+      if (intent.state === "FAILED" && !reverted)
         throw new TxDispatchError("INTENT_NOT_DISPATCHABLE", false);
+      if (intent.state === "FINALIZED" || intent.state === "FAILED") {
+        // The outcome is final, but the job may only stop once nothing still holds gas: a version
+        // signed after the winner was read gets its attempt (and is REPLACED), and a replacement
+        // that was planned but never signed is rejected so its reservation is returned. The
+        // signer does that under the request lock, exactly once, even against a racing retry.
+        if (await ensureAttempts(snap)) continue;
+        if (
+          snap.attempts.some((a) => LIVE.includes(a.status)) &&
+          (await observe(snap))
+        )
+          continue;
+        const unsigned = snap.signRequests.filter(
+          (r) =>
+            r.artifactVersion > snap.artifacts.length &&
+            r.state === "REQUESTED",
+        );
+        if (unsigned.length) {
+          for (const request of unsigned) {
+            const result = await askSigner(request);
+            // Unanswered: the reservation is still held, so the job must come back.
+            if (result.state === "UNKNOWN") return "PENDING";
+          }
+          continue;
+        }
+        return intent.state === "FINALIZED" ? "FINALIZED" : "REVERTED";
       }
 
       // 1. Nothing signed yet: ask the signer for the first version.

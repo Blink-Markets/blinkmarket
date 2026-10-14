@@ -1223,6 +1223,120 @@ test("a zero priority fee is a valid transaction and is replaced with a positive
   }
 });
 
+test("a replacement planned before the outcome became final is superseded: rejected once, its reservation returned once, never signed", async () => {
+  const h = await harness();
+  try {
+    // Three unrelated reservations stay held, so a double release would show up in the total.
+    for (const id of ["21", "22", "23"])
+      assert.equal(
+        (await h.call("FINALIZE_TIMEOUT", finalizeTimeout(id))).response.body
+          .state,
+        "SIGNED",
+      );
+    const first = await h.call("FINALIZE_TIMEOUT", finalizeTimeout("8"));
+    const fees = minimumReplacementFees({
+      maxFeePerGas: 2_100_000n,
+      maxPriorityFeePerGas: 100_000n,
+    });
+    const second = await prepareRequest(h.client, h.manifest, {
+      kind: "FINALIZE_TIMEOUT",
+      payload: {
+        ...finalizeTimeout("8"),
+        maxFeePerGas: fees.maxFeePerGas.toString(),
+        maxPriorityFeePerGas: fees.maxPriorityFeePerGas.toString(),
+      },
+      intentId: first.intentId,
+      version: 2,
+    });
+    const body = {
+      signRequestId: second.signRequestId,
+      expectedRequestHash: second.requestHash,
+    };
+    const reserved = async () =>
+      (
+        await h.scalar(
+          "SELECT reserved_wei::text AS r FROM signing.gas_spend WHERE role = 'keeper'",
+        )
+      ).r;
+    const held = 4n * MAX_COST; // three others and v1
+
+    h.faults.crashAfterArtifact = true;
+    assert.equal((await h.service.handle(tokens.worker, body)).status, 503);
+    h.faults.crashAfterArtifact = false;
+    const plan = await h.scalar(
+      "SELECT max_cost_wei::text AS cost, nonce::int AS nonce FROM signing.signing_plans WHERE sign_request_id = $1",
+      [second.signRequestId],
+    );
+    assert.equal(
+      await reserved(),
+      (held + BigInt(plan.cost as string)).toString(),
+    );
+
+    // The original version became final: the planned replacement can never be signed.
+    await h.t.db.query(
+      "UPDATE signing.economic_intents SET state = 'FINALIZED' WHERE id = $1",
+      [first.intentId],
+    );
+    const rejected = await h.service.handle(tokens.worker, body);
+    assert.deepEqual(
+      { status: rejected.status, body: rejected.body },
+      {
+        status: 422,
+        body: { state: "REJECTED", code: "SUPERSEDED_BY_FINAL" },
+      },
+    );
+    assert.equal(await reserved(), held.toString(), "released exactly once");
+    assert.deepEqual(
+      await h.scalar(
+        "SELECT state, reject_code FROM signing.sign_requests WHERE id = $1",
+        [second.signRequestId],
+      ),
+      { state: "REJECTED", reject_code: "SUPERSEDED_BY_FINAL" },
+    );
+    assert.equal(
+      (await h.scalar("SELECT count(*)::int AS n FROM signing.artifacts")).n,
+      4,
+      "no artifact for the superseded request",
+    );
+    // The plan row stays as immutable evidence.
+    assert.deepEqual(
+      await h.scalar(
+        "SELECT max_cost_wei::text AS cost, nonce::int AS nonce FROM signing.signing_plans WHERE sign_request_id = $1",
+        [second.signRequestId],
+      ),
+      plan,
+    );
+
+    // Retries replay the persisted rejection and release nothing more.
+    for (let i = 0; i < 3; i += 1)
+      assert.deepEqual(await h.service.handle(tokens.worker, body), rejected);
+    assert.equal(await reserved(), held.toString());
+    assert.equal(
+      (
+        await h.scalar(
+          "SELECT count(*)::int AS n FROM operations.audit_log WHERE action = 'signer.plan_abandoned'",
+        )
+      ).n,
+      1,
+    );
+
+    // A replacement requested only now has no plan and nothing to release.
+    const late = await h.call(
+      "FINALIZE_TIMEOUT",
+      {
+        ...finalizeTimeout("8"),
+        maxFeePerGas: (fees.maxFeePerGas * 2n).toString(),
+        maxPriorityFeePerGas: (fees.maxPriorityFeePerGas * 2n).toString(),
+      },
+      { intentId: first.intentId, version: 3 },
+    );
+    assert.equal(late.response.body.code, "SUPERSEDED_BY_FINAL");
+    assert.equal(await reserved(), held.toString());
+  } finally {
+    await h.t.close();
+  }
+});
+
 test("maker quotes: the signature recovers to the maker and the artifact is the EIP-712 digest", async () => {
   const h = await harness();
   try {
