@@ -40,7 +40,7 @@ const signal = new AbortController().signal;
 test(
   "Anvil: faucet API mints 1,000 bUSD and periodic keeper finalizes a proposal observed by the indexer",
   { timeout: 180000 },
-  async () => {
+  async (suite) => {
     const anvil = await startAnvil();
     const t = await createTestDatabase();
     let server: ReturnType<typeof buildSignerServer> | undefined;
@@ -106,13 +106,32 @@ test(
       await sync();
       const signerRpc = viemSignerRpc({ url: anvil.url });
       let signerOutage = false;
+      let crashAfterPlan = false;
+      let crashedKeeperInput: unknown;
       server = buildSignerServer(
         createSignerService({
           store: postgresSignerStore(t.pool),
           deployment: d.manifest,
           keys: {
             faucet: anvil.accounts.minter,
-            keeper: anvil.accounts.keeper,
+            keeper: {
+              ...anvil.accounts.keeper,
+              async signTransaction(input) {
+                if (crashAfterPlan) {
+                  crashedKeeperInput = input;
+                  throw new Error("CRASH_AFTER_PLAN");
+                }
+                if (crashedKeeperInput) {
+                  assert.deepEqual(
+                    input,
+                    crashedKeeperInput,
+                    "retry signs identical planned transaction bytes",
+                  );
+                  crashedKeeperInput = undefined;
+                }
+                return anvil.accounts.keeper.signTransaction(input);
+              },
+            },
           },
           rpc: {
             ...signerRpc,
@@ -160,7 +179,8 @@ test(
           }),
         ],
       });
-      const claim = await api.inject({
+      const faucetApi = api;
+      const claim = await faucetApi.inject({
         method: "POST",
         url: "/v1/faucet/claims",
         headers: {
@@ -247,7 +267,7 @@ test(
         ).rows[0].state,
         "SUBMITTED",
       );
-      const pending = await api.inject({
+      const pending = await faucetApi.inject({
         method: "POST",
         url: "/v1/faucet/claims",
         headers: {
@@ -345,7 +365,137 @@ test(
         faucet: postgresFaucetStore(t.pool),
         reader,
       });
-      assert.equal(await finalDispatcher.dispatch(intentId), "FINALIZED");
+      const recoverSettlement = async (
+        stuckIntent: string,
+        stuckClaim: string,
+        terminal: "FINALIZED" | "FAILED",
+      ) => {
+        // Simulate settlement being unavailable since the last pending observation.
+        await t.pool.query(
+          "UPDATE faucet.claims SET state='SUBMITTED',succeeded_at=NULL WHERE id=$1",
+          [stuckClaim],
+        );
+        await t.pool.query(
+          "UPDATE operations.jobs SET state='DEAD' WHERE type='tx.dispatch'",
+        );
+        const counts = (
+          await t.pool.query(
+            "SELECT (SELECT count(*) FROM signing.economic_intents WHERE kind='MINT')::int AS intents,(SELECT count(*) FROM signing.artifacts)::int AS artifacts",
+          )
+        ).rows[0];
+        const unavailable = createExecutionDispatcher({
+          dispatcher: createTxDispatcher({
+            store: dispatchStore,
+            signer: signerClient({ url: signerUrl, token: TOKEN }),
+            rpc: finalizedRpc,
+          }),
+          store: dispatchStore,
+          faucet:
+            terminal === "FAILED"
+              ? {
+                  ...postgresFaucetStore(t.pool),
+                  settle: async () => {
+                    throw new Error("SETTLEMENT_UNAVAILABLE");
+                  },
+                }
+              : postgresFaucetStore(t.pool),
+          reader: {
+            blockTimestamp: async () => {
+              throw new Error("SETTLEMENT_UNAVAILABLE");
+            },
+          },
+        });
+        await queue.enqueue({
+          type: "tx.dispatch",
+          dedupeKey: "settlement-fixture:" + stuckIntent,
+          payload: { intentId: stuckIntent },
+          maxAttempts: 10,
+        });
+        for (let attempt = 1; attempt <= 10; attempt++) {
+          const job = await queue.lease(
+            "settlement-fixture",
+            ["tx.dispatch"],
+            60000,
+          );
+          assert.ok(job);
+          assert.equal(job.payload.intentId, stuckIntent);
+          await assert.rejects(
+            unavailable.dispatch(stuckIntent),
+            /SETTLEMENT_UNAVAILABLE/,
+          );
+          assert.equal(
+            await queue.fail(job, {
+              code: "SETTLEMENT_UNAVAILABLE",
+              retryable: true,
+            }),
+            attempt === 10 ? "DEAD" : "RETRY",
+          );
+          await t.pool.query(
+            "UPDATE operations.jobs SET next_run_at=blink.now() WHERE id=$1",
+            [job.id],
+          );
+        }
+        assert.equal(
+          (
+            await t.pool.query(
+              "SELECT state FROM signing.economic_intents WHERE id=$1",
+              [stuckIntent],
+            )
+          ).rows[0].state,
+          terminal,
+        );
+        // Recovery resumes in a new 15-second bucket after the exhausted job.
+        await t.db.exec("SET blink.test_clock_offset_seconds='15'");
+        await execution.tick();
+        const recovery = await queue.lease(
+          "settlement-recovery",
+          ["tx.dispatch"],
+          60000,
+        );
+        assert.ok(
+          recovery,
+          "terminal intent with a pending claim gets recovery work",
+        );
+        assert.equal(recovery.payload.intentId, stuckIntent);
+        await execution.handlers["tx.dispatch"]!({ job: recovery, signal });
+        assert.equal(await queue.complete(recovery), true);
+        await t.db.exec("SET blink.test_clock_offset_seconds='0'");
+        // Replaying recovery is idempotent and does not sign or mint again.
+        await execution.handlers["tx.dispatch"]!({ job: recovery, signal });
+        assert.equal(
+          (
+            await t.pool.query("SELECT state FROM faucet.claims WHERE id=$1", [
+              stuckClaim,
+            ])
+          ).rows[0].state,
+          terminal === "FINALIZED" ? "SUCCEEDED" : "FAILED",
+        );
+        assert.deepEqual(
+          (
+            await t.pool.query(
+              "SELECT (SELECT count(*) FROM signing.economic_intents WHERE kind='MINT')::int AS intents,(SELECT count(*) FROM signing.artifacts)::int AS artifacts",
+            )
+          ).rows[0],
+          counts,
+        );
+      };
+      await suite.test(
+        "FINALIZED faucet claim recovers after ten failed settlement attempts",
+        async () => {
+          await recoverSettlement(intentId, claimId, "FINALIZED");
+          const afterRecovery = await faucetApi.inject({
+            method: "POST",
+            url: "/v1/faucet/claims",
+            headers: {
+              authorization: "Bearer " + agent.apiKey,
+              "idempotency-key": "recovered-success",
+            },
+            payload: { deploymentId },
+          });
+          assert.equal(afterRecovery.statusCode, 429);
+          assert.equal(afterRecovery.json().code, "RATE_LIMITED");
+        },
+      );
 
       await anvil.setNextTimestamp(closeAt + 1n);
       await call(anvil.accounts.proposer, "proposeOutcome", [
@@ -363,6 +513,11 @@ test(
       await anvil.mine();
       await sync();
       await execution.tick();
+      const keeperJobs = (
+        await t.pool.query(
+          "SELECT id FROM operations.jobs WHERE type='keeper.finalize'",
+        )
+      ).rows.length;
       await execution.tick();
       assert.equal(
         (
@@ -370,54 +525,154 @@ test(
             "SELECT id FROM operations.jobs WHERE type='keeper.finalize'",
           )
         ).rows.length,
-        1,
+        keeperJobs,
+        "same time bucket deduplicates the keeper job",
       );
-      signerOutage = true;
-      await execution.handlers["keeper.finalize"]!({
-        job: { id: "fixture", payload: {} } as never,
-        signal,
-      });
-      assert.equal(
-        (
+      await suite.test(
+        "allocated keeper plan survives FINAL and consumes its nonce after recovery",
+        async () => {
+          signerOutage = true;
+          await execution.handlers["keeper.finalize"]!({
+            job: { id: "fixture", payload: {} } as never,
+            signal,
+          });
+          assert.equal(
+            (
+              await t.pool.query(
+                "SELECT state FROM signing.economic_intents WHERE kind='FINALIZE_UNCHALLENGED'",
+              )
+            ).rows[0].state,
+            "UNKNOWN",
+          );
+          signerOutage = false;
+          crashAfterPlan = true;
+          await execution.handlers["keeper.finalize"]!({
+            job: { id: "fixture", payload: {} } as never,
+            signal,
+          });
+          const keeperIntent = (
+            await t.pool.query(
+              "SELECT id FROM signing.economic_intents WHERE kind='FINALIZE_UNCHALLENGED'",
+            )
+          ).rows[0].id;
+          const plan = (
+            await t.pool.query(
+              "SELECT p.* FROM signing.signing_plans p WHERE intent_id=$1",
+              [keeperIntent],
+            )
+          ).rows[0];
+          assert.ok(plan, "crash leaves a committed plan");
+          assert.equal(
+            (
+              await t.pool.query(
+                "SELECT id FROM signing.artifacts WHERE sign_request_id=$1",
+                [plan.sign_request_id],
+              )
+            ).rows.length,
+            0,
+          );
+          await call(anvil.accounts.admin, "finalizeUnchallenged", [1n]);
+          await sync();
+          crashAfterPlan = false;
           await t.pool.query(
-            "SELECT state FROM signing.economic_intents WHERE kind='FINALIZE_UNCHALLENGED'",
-          )
-        ).rows[0].state,
-        "UNKNOWN",
-      );
-      signerOutage = false;
-      await execution.handlers["keeper.finalize"]!({
-        job: { id: "fixture", payload: {} } as never,
-        signal,
-      });
-      const keeperIntent = (
-        await t.pool.query(
-          "SELECT id FROM signing.economic_intents WHERE kind='FINALIZE_UNCHALLENGED'",
-        )
-      ).rows[0].id;
-      await assert.rejects(
-        execution.handlers["tx.dispatch"]!({
-          job: { id: "fixture", payload: { intentId: keeperIntent } } as never,
-          signal,
-        }),
-        /TX_PENDING/,
-      );
-      await sync();
-      assert.equal(
-        (
-          await t.pool.query(
-            "SELECT state,final_reason FROM chain.markets WHERE market_id=1",
-          )
-        ).rows[0].state,
-        "FINAL",
-      );
-      assert.equal(
-        (
-          await t.pool.query(
-            "SELECT final_reason FROM chain.markets WHERE market_id=1",
-          )
-        ).rows[0].final_reason,
-        "UNCHALLENGED",
+            "UPDATE operations.jobs SET state='DEAD' WHERE type='keeper.finalize'",
+          );
+          await t.db.exec("SET blink.test_clock_offset_seconds='30'");
+          await execution.tick();
+          const recoveredKeeper = await queue.lease(
+            "keeper-recovery",
+            ["keeper.finalize"],
+            60000,
+          );
+          assert.ok(
+            recoveredKeeper,
+            "periodic recovery includes allocated plans without artifacts",
+          );
+          await execution.handlers["keeper.finalize"]!({
+            job: recoveredKeeper,
+            signal,
+          });
+          assert.equal(await queue.complete(recoveredKeeper), true);
+          await t.db.exec("SET blink.test_clock_offset_seconds='0'");
+          assert.equal(
+            (
+              await t.pool.query(
+                "SELECT state FROM signing.economic_intents WHERE id=$1",
+                [keeperIntent],
+              )
+            ).rows[0].state,
+            "SIGNED",
+            "allocated work stays live and re-requests signing",
+          );
+          assert.equal(
+            (
+              await t.pool.query(
+                "SELECT sign_request_id,nonce FROM signing.signing_plans WHERE intent_id=$1",
+                [keeperIntent],
+              )
+            ).rows[0].sign_request_id,
+            plan.sign_request_id,
+          );
+          await assert.rejects(
+            execution.handlers["tx.dispatch"]!({
+              job: {
+                id: "fixture",
+                payload: { intentId: keeperIntent },
+              } as never,
+              signal,
+            }),
+            /TX_PENDING/,
+          );
+          await sync();
+          assert.equal(
+            (
+              await t.pool.query(
+                "SELECT state,final_reason FROM chain.markets WHERE market_id=1",
+              )
+            ).rows[0].state,
+            "FINAL",
+          );
+          assert.equal(
+            (
+              await t.pool.query(
+                "SELECT final_reason FROM chain.markets WHERE market_id=1",
+              )
+            ).rows[0].final_reason,
+            "UNCHALLENGED",
+          );
+
+          assert.equal(
+            await finalDispatcher.dispatch(keeperIntent),
+            "REVERTED",
+          );
+          assert.equal(
+            (
+              await t.pool.query(
+                "SELECT state FROM signing.economic_intents WHERE id=$1",
+                [keeperIntent],
+              )
+            ).rows[0].state,
+            "FAILED",
+          );
+          assert.equal(
+            BigInt(
+              await anvil.publicClient.getTransactionCount({
+                address: anvil.accounts.keeper.address,
+              }),
+            ),
+            BigInt(plan.nonce) + 1n,
+            "revert consumes the allocated nonce",
+          );
+          assert.equal(
+            (
+              await t.pool.query(
+                "SELECT count(*)::int AS n FROM signing.nonce_allocations WHERE intent_id=$1",
+                [keeperIntent],
+              )
+            ).rows[0].n,
+            1,
+          );
+        },
       );
 
       // A signed unchallenged call can cross the hard deadline while pending. Its revert fails
@@ -521,7 +776,7 @@ test(
       });
       await bindWallet(t, secondAgent.agentId, anvil.accounts.taker2.address);
       const revertedClaim = (
-        await api.inject({
+        await faucetApi.inject({
           method: "POST",
           url: "/v1/faucet/claims",
           headers: {
@@ -545,23 +800,90 @@ test(
         method: "anvil_setCode" as never,
         params: [d.token, "0x60006000fd"] as never,
       });
-      assert.equal(
-        await finalDispatcher.dispatch(revertedClaim.intentId),
-        "REVERTED",
-      );
-      assert.deepEqual(
-        (
-          await t.pool.query(
-            "SELECT state,succeeded_at FROM faucet.claims WHERE id=$1",
-            [revertedClaim.claimId],
-          )
-        ).rows[0],
-        { state: "FAILED", succeeded_at: null },
+      await suite.test(
+        "FAILED faucet claim recovers after ten failed settlement attempts",
+        async () => {
+          await recoverSettlement(
+            revertedClaim.intentId,
+            revertedClaim.claimId,
+            "FAILED",
+          );
+          const afterFailure = await faucetApi.inject({
+            method: "POST",
+            url: "/v1/faucet/claims",
+            headers: {
+              authorization: "Bearer " + secondAgent.apiKey,
+              "idempotency-key": "recovered-failure",
+            },
+            payload: { deploymentId },
+          });
+          assert.equal(afterFailure.statusCode, 202, afterFailure.body);
+          assert.deepEqual(
+            (
+              await t.pool.query(
+                "SELECT state,succeeded_at FROM faucet.claims WHERE id=$1",
+                [revertedClaim.claimId],
+              )
+            ).rows[0],
+            { state: "FAILED", succeeded_at: null },
+          );
+        },
       );
       await anvil.publicClient.request({
         method: "anvil_setCode" as never,
         params: [d.token, originalCode] as never,
       });
+
+      // Keep the original successful unchallenged-finalization coverage as well as the nonce regression.
+      const thirdNow = (await anvil.publicClient.getBlock()).timestamp;
+      await call(anvil.accounts.admin, "createMarket", [
+        keccak256(toBytes("keeper successful fixture")),
+        "fixture://successful",
+        1,
+        thirdNow + 1000n,
+        thirdNow + 2000n,
+        thirdNow + 4000n,
+        120,
+        10000n,
+        500n,
+      ]);
+      await anvil.setNextTimestamp(thirdNow + 1001n);
+      await call(anvil.accounts.proposer, "proposeOutcome", [
+        3n,
+        0,
+        keccak256(toBytes("successful evidence")),
+      ]);
+      const thirdMarket = (await anvil.publicClient.readContract({
+        address: d.market,
+        abi: blinkMarketAbi,
+        functionName: "getMarket",
+        args: [3n],
+      })) as { proposedAt: bigint };
+      await anvil.setNextTimestamp(thirdMarket.proposedAt + 120n);
+      await anvil.mine();
+      await sync();
+      await execution.handlers["keeper.finalize"]!({
+        job: { id: "fixture", payload: {} } as never,
+        signal,
+      });
+      const successfulIntent = (
+        await t.pool.query(
+          "SELECT id FROM signing.economic_intents WHERE kind='FINALIZE_UNCHALLENGED' AND payload->>'marketId'='3'",
+        )
+      ).rows[0].id;
+      assert.equal(
+        await finalDispatcher.dispatch(successfulIntent),
+        "FINALIZED",
+      );
+      await sync();
+      assert.deepEqual(
+        (
+          await t.pool.query(
+            "SELECT state,final_reason FROM chain.markets WHERE market_id=3",
+          )
+        ).rows[0],
+        { state: "FINAL", final_reason: "UNCHALLENGED" },
+      );
     } finally {
       await api?.close();
       await server?.close();

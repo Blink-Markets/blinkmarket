@@ -76,8 +76,8 @@ export function postgresKeeperStore(pool: Pool): KeeperStore {
     cancel: (request) =>
       uow.run(async (ctx) => {
         const db = uow.client(ctx);
-        // Same lock order as the signer. If UNKNOWN already produced bytes, dispatch those bytes
-        // rather than abandoning its allocated nonce (a revert is still a receipt).
+        // The signer commits its nonce plan under this request lock before producing bytes.
+        // Allocated work must sign/dispatch even if the market is already FINAL.
         await db.query(
           "SELECT id FROM signing.sign_requests WHERE id=$1 FOR UPDATE",
           [request.signRequestId],
@@ -90,7 +90,7 @@ export function postgresKeeperStore(pool: Pool): KeeperStore {
           !rows[0] ||
           !["PREPARED", "UNKNOWN", "SIGNED"].includes(rows[0].state)
         )
-          return;
+          return true;
         const artifacts = await db.query(
           "SELECT id FROM signing.artifacts WHERE sign_request_id=$1",
           [request.signRequestId],
@@ -102,11 +102,18 @@ export function postgresKeeperStore(pool: Pool): KeeperStore {
             payload: { intentId: request.intentId },
             maxAttempts: 10,
           });
-        } else
-          await db.query(
-            "UPDATE signing.economic_intents SET state='CANCELLED',updated_at=blink.now(),version=version+1 WHERE id=$1",
-            [request.intentId],
-          );
+          return true;
+        }
+        const plan = await db.query(
+          "SELECT sign_request_id FROM signing.signing_plans WHERE sign_request_id=$1",
+          [request.signRequestId],
+        );
+        if (plan.rows.length) return false;
+        await db.query(
+          "UPDATE signing.economic_intents SET state='CANCELLED',updated_at=blink.now(),version=version+1 WHERE id=$1",
+          [request.intentId],
+        );
+        return true;
       }),
     signed: (request, result) =>
       uow.run(async (ctx) => {

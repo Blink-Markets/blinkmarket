@@ -22,8 +22,6 @@ REVOKE ALL ON SCHEMA faucet FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA faucet FROM PUBLIC;
 GRANT USAGE ON SCHEMA faucet TO blink_api, blink_worker;
 GRANT INSERT, SELECT ON faucet.claims, faucet.address_guards TO blink_api;
--- PostgreSQL requires UPDATE on at least one column for SELECT ... FOR UPDATE.
-GRANT UPDATE (address) ON faucet.address_guards TO blink_api;
 GRANT SELECT ON faucet.claims TO blink_worker;
 GRANT UPDATE (state, succeeded_at, updated_at) ON faucet.claims TO blink_worker;
 

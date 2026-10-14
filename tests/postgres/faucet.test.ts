@@ -124,3 +124,27 @@ test(
     });
   },
 );
+
+test("real PostgreSQL: API cannot update address guard keys", async () => {
+  await withDatabase(async ({ owner, pool }) => {
+    const manifest = testManifest();
+    await seedDeployment(owner, manifest);
+    const api = pool("blink_api");
+    await api.query(
+      "INSERT INTO faucet.address_guards VALUES($1,decode($2,'hex'))",
+      [manifest.deploymentId, testAccounts.taker.address.slice(2)],
+    );
+    assert.equal(
+      (await api.query("SELECT address FROM faucet.address_guards")).rows
+        .length,
+      1,
+    );
+    await assert.rejects(
+      api.query(
+        "UPDATE faucet.address_guards SET address=decode($1,'hex') WHERE deployment_id=$2",
+        [testAccounts.taker2.address.slice(2), manifest.deploymentId],
+      ),
+      /permission denied/,
+    );
+  });
+});

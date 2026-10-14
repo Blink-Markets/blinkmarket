@@ -27,12 +27,13 @@ export function postgresFaucetStore(pool: Pool): FaucetStore {
           },
           async lockAddress(deploymentId, address) {
             const params = [deploymentId, address.slice(2)];
+            // Serialize the wallet across API keys without granting updates on guard keys.
             await db.query(
-              "INSERT INTO faucet.address_guards VALUES($1,decode($2,'hex')) ON CONFLICT DO NOTHING",
+              "SELECT pg_advisory_xact_lock(hashtextextended(json_build_array($1::text,$2::text)::text,0))",
               params,
             );
             await db.query(
-              "SELECT address FROM faucet.address_guards WHERE deployment_id=$1 AND address=decode($2,'hex') FOR UPDATE",
+              "INSERT INTO faucet.address_guards VALUES($1,decode($2,'hex')) ON CONFLICT DO NOTHING",
               params,
             );
           },

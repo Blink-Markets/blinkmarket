@@ -51,7 +51,8 @@ export interface KeeperStore {
     kind: KeeperDecision,
   ): Promise<void>;
   pending(deploymentId: string): Promise<KeeperRequest[]>;
-  cancel(request: KeeperRequest): Promise<void>;
+  // False means an allocated plan still needs signing; true means cancellation/dispatch handled it.
+  cancel(request: KeeperRequest): Promise<boolean>;
   signed(request: KeeperRequest, result: SignResult): Promise<void>;
 }
 export interface ExecutionChainReader {

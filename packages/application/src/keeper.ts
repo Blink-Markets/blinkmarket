@@ -25,8 +25,7 @@ export function createKeeperHandler(deps: {
     for (const request of await deps.store.pending(deps.deploymentId)) {
       if (ctx.signal.aborted) throw new JobError("OPERATION_ABORTED", true);
       if ((await deps.reader.marketState(request.marketId)) === "FINAL") {
-        await deps.store.cancel(request);
-        continue;
+        if (await deps.store.cancel(request)) continue;
       }
       let result;
       try {

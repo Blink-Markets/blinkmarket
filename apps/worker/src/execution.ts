@@ -81,8 +81,14 @@ export async function buildExecution(deps: {
       // time bucket after the normal bounded queue retries are exhausted.
       const { rows } = await pool.query(
         `SELECT 'faucet.mint' AS type,c.id::text AS id,'claimId' AS field FROM faucet.claims c
-        WHERE c.deployment_id=$1 AND c.state IN ('QUEUED','UNKNOWN')
+        JOIN signing.economic_intents i ON i.id=c.intent_id
+        WHERE c.deployment_id=$1 AND c.state IN ('QUEUED','UNKNOWN') AND i.state NOT IN ('FINALIZED','FAILED')
           AND NOT EXISTS(SELECT 1 FROM operations.jobs j WHERE j.type='faucet.mint' AND j.payload->>'claimId'=c.id::text AND j.state IN ('QUEUED','LEASED'))
+        UNION ALL
+        SELECT 'tx.dispatch',c.intent_id::text,'intentId' FROM faucet.claims c
+        JOIN signing.economic_intents i ON i.id=c.intent_id
+        WHERE c.deployment_id=$1 AND c.state IN ('QUEUED','SUBMITTED','UNKNOWN') AND i.state IN ('FINALIZED','FAILED')
+          AND NOT EXISTS(SELECT 1 FROM operations.jobs j WHERE j.type='tx.dispatch' AND j.payload->>'intentId'=i.id::text AND j.state IN ('QUEUED','LEASED'))
         UNION ALL
         SELECT 'tx.dispatch',i.id::text,'intentId' FROM signing.economic_intents i
         WHERE i.deployment_id=$1 AND i.state IN ('SIGNED','SUBMITTED','UNKNOWN','INCLUDED')
