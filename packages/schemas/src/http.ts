@@ -416,10 +416,47 @@ export const apiContracts: readonly HttpContract[] = [
       body: z.strictObject({
         outcome: Outcome,
         evidenceIds: EvidenceIds,
-        reason: Text,
+        reason: Text.trim().min(1),
       }),
       access: "report:write",
       status: 202,
+    },
+  ),
+  operation(
+    "GET",
+    "/v1/admin/resolution-reports",
+    list(z.strictObject({
+      reportId: Id,
+      deploymentId: DeploymentId,
+      marketId: PositiveUint256,
+      agentId: Id,
+      operatorId: Id,
+      outcome: Outcome,
+      evidenceIds: EvidenceIds,
+      reason: Text,
+      createdAt: Time,
+      state: z.enum(["RECEIVED", "TRIAGED", "DISMISSED", "ACTIONED"]),
+      stateReason: Text,
+    })),
+    {
+      access: "admin",
+      query: ListQuery.extend({
+        deploymentId: DeploymentId,
+        marketId: PositiveUint256.optional(),
+        state: z.enum(["RECEIVED", "TRIAGED", "DISMISSED", "ACTIONED"]).optional(),
+      }),
+    },
+  ),
+  operation(
+    "POST",
+    "/v1/admin/resolution-reports/:id/triage",
+    z.strictObject({ reportId: Id, state: z.enum(["TRIAGED", "DISMISSED", "ACTIONED"]) }),
+    {
+      access: "admin",
+      body: z.strictObject({
+        state: z.enum(["TRIAGED", "DISMISSED", "ACTIONED"]),
+        reason: Text.trim().min(1),
+      }),
     },
   ),
   operation("GET", "/v1/markets/:id/resolution", Resolution),

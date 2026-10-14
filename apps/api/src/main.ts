@@ -6,6 +6,7 @@ import {
   createPreparationService,
   createApprovalService,
   createForecastService,
+  createResolutionService,
   createMarketReadService,
   createMetricsService,
   authenticateIdentity,
@@ -17,6 +18,7 @@ import {
   postgresPreparationStore,
   postgresApprovalStore,
   postgresForecastStore,
+  postgresResolutionStore,
   fileObjectStore,
   createSpecArchive,
   encodeMarketCreation,
@@ -96,6 +98,10 @@ try {
                 createMetricsService({
                   store: postgresEvaluationStore(pool),
                   budgets: postgresBudgetLedger(pool),
+                }),
+                createResolutionService({
+                  store: postgresResolutionStore(pool),
+                  crypto: identityCrypto,
                 }),
                 createForecastService({
                   store: postgresForecastStore(pool),
