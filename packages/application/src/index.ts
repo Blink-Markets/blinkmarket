@@ -45,3 +45,5 @@ export {
   type ChainRebuildReport,
   type ChainSyncResult,
 } from "./chain-indexer.js";
+
+export * from "./resolution.js";

@@ -10,7 +10,7 @@ import {
 import { startWorker } from "@blink/application";
 import { createService, startService } from "@blink/runtime";
 import { workerConfig } from "./config.js";
-import { handlers, outboxMapping, registerEvaluationHandler, scheduleEvaluation } from "./handlers.js";
+import { handlers, outboxMapping, registerEvaluationHandler, scheduleEvaluation, registerResolutionHandlers, scheduleResolution } from "./handlers.js";
 import { jobs } from "./registry.js";
 
 const OUTBOX_DISPATCH_INTERVAL_MS = 1000;
@@ -45,6 +45,8 @@ try {
     await assertJobsMigrationInstalled(database);
     const queue = postgresJobQueue(database);
     registerEvaluationHandler(database);
+    registerResolutionHandlers(database, process.env.EVIDENCE_OBJECT_DIRECTORY);
+    await scheduleResolution(database);
     await scheduleEvaluation(database);
     worker = startWorker({
       queue,
@@ -58,6 +60,7 @@ try {
       dispatching = true;
       outboxRun = dispatchOutbox(database, outboxMapping)
         .then(() => scheduleEvaluation(database))
+        .then(() => scheduleResolution(database))
         .catch(() => console.error("WORKER_OUTBOX_DISPATCH_FAILED"))
         .finally(() => {
           dispatching = false;

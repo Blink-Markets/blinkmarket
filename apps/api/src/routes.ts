@@ -1,5 +1,8 @@
 import type {ModuleId} from "@blink/domain";
 export const routes = [
+  { method: "GET", path: "/v1/admin/resolution-reports", module: "resolution", access: "admin", summary: "Review resolution reports" },
+  { method: "POST", path: "/v1/admin/resolution-reports/:id/triage", module: "resolution", access: "admin", summary: "Append resolution report triage" },
+
   { method:"GET",path:"/v1/admin/creation-intents/:id/chain-status",module:"chain",access:"admin",summary:"建市交易的鏈上觀測快照" },
   { method: "GET", path: "/v1/specs/:specHash", module: "markets", access: "public", summary: "讀取已核准規格原始 bytes" },
   { method: "GET", path: "/v1/admin/creation-intents/:id", module: "markets", access: "admin", summary: "管理員讀取未簽署建市意圖" },
