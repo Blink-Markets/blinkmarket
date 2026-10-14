@@ -1019,7 +1019,8 @@ export function createQuoteReconciler(store: TradingStore): { reconcileOnce(depl
 
 **Steps:**
 - [ ] After each merge, the controller updates `docs/ROADMAP.md` (scope, commits, CI run, limits).
-- [ ] After Task 16, one docs pass (agent) over ARCHITECTURE/design notes and the web docs; `pnpm check`, `pnpm build`, `pnpm build:pages && node scripts/check-pages-export.mjs`, `pnpm test:browsers`.
+- [ ] After Task 16, one docs pass (agent) over ARCHITECTURE/design notes, the web docs, README.md (feature/status summary and doc links) and the site's non-docs pages (home, how-it-works, markets, llms.txt) wherever they describe what exists. Copy only; a visual change needs an approved mockup first.
+- [ ] Verify: `pnpm check`, `pnpm build`, `pnpm build:pages && node scripts/check-pages-export.mjs`, `pnpm test:browsers`.
 
 ---
 
