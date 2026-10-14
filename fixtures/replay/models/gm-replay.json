@@ -1,0 +1,48 @@
+{
+  "rates": {
+    "gm-replay-discovery": {
+      "inputUsdMicrosPerMillionTokens": "3000000",
+      "outputUsdMicrosPerMillionTokens": "15000000",
+      "perRequestUsdMicros": "1000"
+    },
+    "gm-replay-forecaster-a": {
+      "inputUsdMicrosPerMillionTokens": "3000000",
+      "outputUsdMicrosPerMillionTokens": "15000000",
+      "perRequestUsdMicros": "1000"
+    },
+    "gm-replay-forecaster-b": {
+      "inputUsdMicrosPerMillionTokens": "3000000",
+      "outputUsdMicrosPerMillionTokens": "15000000",
+      "perRequestUsdMicros": "1000"
+    },
+    "gm-replay-baseline": {
+      "inputUsdMicrosPerMillionTokens": "3000000",
+      "outputUsdMicrosPerMillionTokens": "15000000",
+      "perRequestUsdMicros": "1000"
+    }
+  },
+  "defaults": {
+    "gm-replay-discovery": {
+      "entityId": "fixture-company-not-real",
+      "fiscalPeriod": "FY2025Q1",
+      "thresholdBps": 7000,
+      "thesis": "REPLAY fixture: the filing guides gross margin close to the 70 percent threshold."
+    },
+    "gm-replay-forecaster-a": {
+      "probability": 0.62,
+      "rationale": "REPLAY fixture forecaster A: guidance sits just under the threshold.",
+      "evidenceIds": ["$EVIDENCE_IDS"]
+    },
+    "gm-replay-forecaster-b": {
+      "probability": 0.58,
+      "rationale": "REPLAY fixture forecaster B: the trend is flat and the threshold is near guidance.",
+      "evidenceIds": ["$EVIDENCE_IDS"]
+    },
+    "gm-replay-baseline": {
+      "probability": 0.5,
+      "rationale": "REPLAY fixture baseline: no view beyond the evidence.",
+      "evidenceIds": ["$EVIDENCE_IDS"]
+    }
+  },
+  "outputs": []
+}

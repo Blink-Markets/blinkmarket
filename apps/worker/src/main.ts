@@ -9,16 +9,19 @@ import {
 } from "@blink/adapters";
 import { startWorker } from "@blink/application";
 import { createService, startService } from "@blink/runtime";
-import { workerConfig } from "./config.js";
-import { handlers, outboxMapping } from "./handlers.js";
+import { researchConfig, workerConfig } from "./config.js";
+import { buildResearch, handlers, outboxMapping } from "./handlers.js";
 import { jobs } from "./registry.js";
 
 const OUTBOX_DISPATCH_INTERVAL_MS = 1000;
+const PERIODIC_SCHEDULE_INTERVAL_MS = 30_000;
 
 let pool: pg.Pool | null = null;
 let worker: ReturnType<typeof startWorker> | null = null;
 let outboxTimer: ReturnType<typeof setInterval> | null = null;
 let outboxRun: Promise<unknown> = Promise.resolve();
+let scheduleTimer: ReturnType<typeof setInterval> | null = null;
+let scheduleRun: Promise<unknown> = Promise.resolve();
 
 try {
   const config = workerConfig(process.env);
@@ -44,9 +47,14 @@ try {
     await assertWorkerRuntimeRole(database);
     await assertJobsMigrationInstalled(database);
     const queue = postgresJobQueue(database);
+    const research = await buildResearch({
+      pool: database,
+      queue,
+      config: researchConfig(process.env),
+    });
     worker = startWorker({
       queue,
-      handlers,
+      handlers: { ...handlers, ...research.handlers },
       workerId: hostname() + ":" + process.pid + ":" + randomUUID(),
       onError: (code) => console.error("WORKER_JOB_ERROR:" + code),
     });
@@ -60,6 +68,19 @@ try {
           dispatching = false;
         });
     }, OUTBOX_DISPATCH_INTERVAL_MS);
+    let scheduling = false;
+    const schedule = () => {
+      if (scheduling) return;
+      scheduling = true;
+      scheduleRun = research
+        .tick()
+        .catch(() => console.error("WORKER_SCHEDULE_FAILED"))
+        .finally(() => {
+          scheduling = false;
+        });
+    };
+    schedule();
+    scheduleTimer = setInterval(schedule, PERIODIC_SCHEDULE_INTERVAL_MS);
     app.get("/health/jobs", async (_request, reply) => {
       try {
         return await queue.stats();
@@ -68,6 +89,8 @@ try {
       }
     });
     app.addHook("onClose", async () => {
+      if (scheduleTimer) clearInterval(scheduleTimer);
+      await scheduleRun;
       if (outboxTimer) clearInterval(outboxTimer);
       await outboxRun;
       await worker?.stop();
@@ -76,6 +99,8 @@ try {
   }
   await startService(app, 3002);
 } catch (error) {
+  if (scheduleTimer) clearInterval(scheduleTimer);
+  await scheduleRun;
   if (outboxTimer) clearInterval(outboxTimer);
   await outboxRun;
   await worker?.stop().catch(() => undefined);

@@ -132,6 +132,9 @@ importers:
       '@blink/application':
         specifier: workspace:*
         version: link:../../packages/application
+      '@blink/client':
+        specifier: workspace:*
+        version: link:../../packages/client
       '@blink/domain':
         specifier: workspace:*
         version: link:../../packages/domain

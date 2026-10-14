@@ -10,6 +10,7 @@
   "dependencies": {
     "@blink/adapters": "workspace:*",
     "@blink/application": "workspace:*",
+    "@blink/client": "workspace:*",
     "@blink/domain": "workspace:*",
     "@blink/ports": "workspace:*",
     "@blink/runtime": "workspace:*",
