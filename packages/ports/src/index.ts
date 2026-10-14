@@ -53,3 +53,5 @@ export interface RestrictedSigner {
 }
 // 管理員 / proposer / challenger / arbiter 透過各自人工錢包操作，不走此自動 signer。
 export * from "./forecasts.js";
+
+export type * from "./market-read.js";

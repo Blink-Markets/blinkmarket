@@ -389,6 +389,7 @@ export const apiContracts: readonly HttpContract[] = [
       txHash: Hash,
       status: TransactionState,
       replacementOf: Hash.nullable(),
+      rejectReason: z.string().nullable(),
       chainCursor: ChainCursor.nullable(),
     }),
   ),

@@ -8,8 +8,15 @@ import {
   creationReceiptReader,
   postgresCreationTrackerStore,
   postgresCreationTrackingSchedule,
+  postgresTxTrackingStore,
+  txReceiptReader,
+  txTrackingManifest,
 } from "@blink/adapters";
-import { createCreationTracker, startCreationPoller } from "@blink/application";
+import {
+  createCreationTracker,
+  startCreationPoller,
+  createTxTracker,
+} from "@blink/application";
 import { createService, startService } from "@blink/runtime";
 import {
   creationObservationReady,
@@ -30,6 +37,7 @@ const pool = config.enabled
   : null;
 const app = createService("indexer", "m2-creation-receipt-poller");
 let poller: ReturnType<typeof startCreationPoller> | null = null;
+let stopTxTracking: (() => Promise<void>) | null = null;
 
 pool?.on("error", () => console.error("INDEXER_DATABASE_CONNECTION_ERROR"));
 
@@ -102,9 +110,73 @@ try {
       }),
     );
   }
+  // Independent of creation polling and the sibling chain projection indexer.
+  if (config.txTrackingEnabled) {
+    const txPool = new pg.Pool({
+      connectionString: config.databaseUrl!,
+      max: 2,
+      connectionTimeoutMillis: 5000,
+      statement_timeout: 5000,
+      query_timeout: 5000,
+    });
+    txPool.on("error", () =>
+      console.error("INDEXER_TX_DATABASE_CONNECTION_ERROR"),
+    );
+    const abort = new AbortController();
+    let timer: ReturnType<typeof setInterval> | undefined;
+    let inFlight: Promise<void> | null = null;
+    let stopped = false;
+    stopTxTracking = async () => {
+      stopped = true;
+      clearInterval(timer);
+      abort.abort();
+      await inFlight;
+      await txPool.end();
+    };
+    await assertCreationTrackingRuntimeRole(txPool);
+    await txPool.query("SELECT id FROM chain.transactions LIMIT 0");
+    const tracker = createTxTracker({
+      store: postgresTxTrackingStore(txPool),
+      reader: txReceiptReader(
+        createPublicClient({
+          transport: http(config.rpcUrl!, {
+            timeout: config.rpcTimeoutMs,
+            retryCount: 0,
+            fetchFn: indexerFetchWithTimeout(config.rpcTimeoutMs),
+            fetchOptions: { signal: abort.signal },
+          }),
+        }),
+      ),
+      manifest: (deploymentId) => txTrackingManifest(txPool, deploymentId),
+    });
+    const tick = () => {
+      if (stopped || inFlight) return;
+      inFlight = tracker
+        .trackOnce(50)
+        .then(() => undefined)
+        .catch((error: unknown) => {
+          if (!stopped)
+            console.error(
+              error instanceof Error && error.message === "MAINNET_REFUSED"
+                ? "MAINNET_REFUSED"
+                : "INDEXER_TX_TRACKING_FAILED",
+            );
+        })
+        .finally(() => {
+          inFlight = null;
+        });
+    };
+    timer = setInterval(tick, 2000);
+    tick();
+    app.addHook("onClose", async () => {
+      await stopTxTracking?.();
+      stopTxTracking = null;
+    });
+  }
   // Existing global readiness remains 503: this component only observes creation receipts.
   await startService(app, config.port, config.host);
 } catch (error) {
+  await stopTxTracking?.().catch(() => undefined);
   await poller?.stop().catch(() => undefined);
   await pool?.end();
   const code =

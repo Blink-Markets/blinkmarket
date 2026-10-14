@@ -6,6 +6,8 @@ import {
   createPreparationService,
   createApprovalService,
   createForecastService,
+  createMarketReadService,
+  authenticateIdentity,
 } from "@blink/application";
 import {
   identityCrypto,
@@ -18,6 +20,7 @@ import {
   createSpecArchive,
   encodeMarketCreation,
   evidenceIntegrity,
+  postgresMarketReadStore,
 } from "@blink/adapters";
 import { apiConfig, modeAtLeast } from "./config.js";
 
@@ -39,6 +42,8 @@ try {
   // Deployment runs migrations separately. Startup never creates tables or credentials.
   if (pool) {
     await assertIdentityRuntimeRole(pool);
+    if (modeAtLeast(config.mode, "markets"))
+      await pool.query("SELECT id FROM chain.transactions LIMIT 0");
     await pool.query("SELECT id FROM identity.api_keys LIMIT 0");
     if (modeAtLeast(config.mode, "preparation"))
       await pool.query("SELECT id FROM discovery.candidates LIMIT 0");
@@ -89,10 +94,33 @@ try {
                   store: postgresForecastStore(pool),
                   crypto: identityCrypto,
                 }),
+                createMarketReadService({
+                  store: postgresMarketReadStore(pool),
+                  archive: createSpecArchive(
+                    fileObjectStore(config.specDirectory!),
+                  ),
+                  identity: {
+                    authenticate: (authorization) =>
+                      postgresIdentityStore(pool).run(async (tx) => {
+                        const principal = await authenticateIdentity(
+                          tx,
+                          identityCrypto,
+                          authorization,
+                        );
+                        return {
+                          ...principal,
+                          wallet: await tx.wallet(principal.agentId),
+                        };
+                      }),
+                  },
+                }),
               ]
             : [],
           ...(config.mode === "markets" || config.mode === "trading"
-            ? { stage: `m2-${config.mode}` as const }
+            ? {
+                stage: `m2-${config.mode}` as const,
+                publicReadLimit: { capacity: 60, refillPerSecond: 1 },
+              }
             : {}),
         }
       : {},

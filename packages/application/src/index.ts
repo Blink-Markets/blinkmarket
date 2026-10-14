@@ -30,3 +30,7 @@ export {
 } from "./budgeted-model.js";
 export { createEvidenceFetchHandler } from "./evidence-fetch.js";
 export * from "./forecasts.js";
+
+export { authenticateIdentity } from "./identity.js";
+export { createMarketReadService } from "./market-read.js";
+export { createTxTracker } from "./tx-tracking.js";
