@@ -55,3 +55,9 @@ export {
 } from "./outbox-dispatcher.js";
 export { postgresBudgetLedger } from "./budget-ledger.js";
 export { fixtureModelGateway } from "./fixture-model-gateway.js";
+export {
+  allowlistFetcher,
+  httpsTransport,
+  httpsRequestOptions,
+} from "./allowlist-fetcher.js";
+export { postgresEvidenceFetchStore } from "./evidence-fetch-store.js";

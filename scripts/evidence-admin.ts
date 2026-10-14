@@ -12,6 +12,10 @@ const { values, positionals } = parseArgs({
     reason: { type: "string" },
     metadata: { type: "string" },
     file: { type: "string" },
+    "source-id": { type: "string" },
+    "redirect-prefix": { type: "string", multiple: true },
+    mime: { type: "string", multiple: true },
+    access: { type: "string" },
   },
 });
 const connectionString = process.env.EVIDENCE_ADMIN_DATABASE_URL;
@@ -35,6 +39,22 @@ try {
     console.log(
       JSON.stringify(
         await admin.allowSource(values.entity, values.url, values.reason),
+      ),
+    );
+  } else if (
+    positionals[0] === "enable-fetch" &&
+    values["source-id"] &&
+    values.reason
+  ) {
+    console.log(
+      JSON.stringify(
+        await admin.enableFetch({
+          sourceId: values["source-id"],
+          redirectPrefixes: values["redirect-prefix"],
+          allowedMime: values.mime,
+          accessPolicy: values.access,
+          reason: values.reason,
+        }),
       ),
     );
   } else if (positionals[0] === "import" && values.metadata && values.file) {

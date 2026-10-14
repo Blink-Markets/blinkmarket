@@ -28,3 +28,4 @@ export {
   createBudgetedModelCaller,
   ModelCallError,
 } from "./budgeted-model.js";
+export { createEvidenceFetchHandler } from "./evidence-fetch.js";

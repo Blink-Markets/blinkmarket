@@ -44,3 +44,4 @@ export {
   ApprovalPolicyError,
   type ApprovalEvidence,
 } from "./approval.ts";
+export * from "./network-policy.ts";
