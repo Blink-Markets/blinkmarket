@@ -1,4 +1,5 @@
 export * from "./modules.ts";
+export * from "./chain-reducer.ts";
 export * from "./execution.ts";
 export * from "./jobs.ts";
 export * from "./costs.ts";

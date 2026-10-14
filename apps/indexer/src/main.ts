@@ -19,12 +19,39 @@ import {
 } from "@blink/application";
 import { createService, startService } from "@blink/runtime";
 import {
+  assertChainIndexInstalled,
+  assertProductionClock,
+  chainLogReader,
+  loadChainDeployment,
+  postgresChainIndexStore,
+} from "@blink/adapters";
+import {
+  assertBaseSepolia,
+  createChainIndexer,
+  startChainIndexer,
+} from "@blink/application";
+import { registerChainIndexHealth } from "./chain-health.js";
+import {
+  chainIndexerConfig,
   creationObservationReady,
   indexerConfig,
   indexerFetchWithTimeout,
 } from "./config.js";
 
 const config = indexerConfig(process.env);
+const chainConfig = chainIndexerConfig(process.env);
+const chainPool = chainConfig.enabled
+  ? new pg.Pool({
+      connectionString: chainConfig.databaseUrl!,
+      max: 3,
+      connectionTimeoutMillis: 5000,
+      statement_timeout: 15000,
+      query_timeout: 15000,
+      idle_in_transaction_session_timeout: 20000,
+    })
+  : null;
+let chainLoop: ReturnType<typeof startChainIndexer> | null = null;
+chainPool?.on("error", () => console.error("INDEXER_DATABASE_CONNECTION_ERROR"));
 const pool = config.enabled
   ? new pg.Pool({
       connectionString: config.databaseUrl!,
@@ -173,12 +200,58 @@ try {
       stopTxTracking = null;
     });
   }
+  if (chainPool) {
+    await assertCreationTrackingRuntimeRole(chainPool);
+    await assertChainIndexInstalled(chainPool);
+    await assertProductionClock(
+      chainPool,
+      process.env.BLINK_ALLOW_TEST_CLOCK === "1",
+    );
+    const deployment = await loadChainDeployment(
+      chainPool,
+      chainConfig.deploymentId!,
+    );
+    const reader = chainLogReader(
+      createPublicClient({
+        transport: http(chainConfig.rpcUrl!, {
+          timeout: config.rpcTimeoutMs,
+          retryCount: 0,
+          fetchFn: indexerFetchWithTimeout(config.rpcTimeoutMs),
+        }),
+      }),
+    );
+    assertBaseSepolia(await reader.chainId());
+    const indexer = createChainIndexer({
+      store: postgresChainIndexStore(chainPool),
+      reader,
+      deploymentId: chainConfig.deploymentId!,
+      marketAddress: deployment.marketAddress,
+      deploymentBlock: deployment.deploymentBlock,
+      workerId:
+        hostname().slice(0, 64) + ":" + process.pid + ":" + randomUUID(),
+      rangeSize: chainConfig.rangeSize,
+    });
+    chainLoop = startChainIndexer({
+      indexer,
+      pollIntervalMs: chainConfig.pollIntervalMs,
+      onError: (code) => console.error("INDEXER_CHAIN_SYNC_ERROR:" + code),
+    });
+    registerChainIndexHealth(app, () => chainLoop!.health());
+    app.addHook("onClose", async () => {
+      await chainLoop?.stop();
+      await chainPool.end();
+    });
+  } else {
+    registerChainIndexHealth(app, null);
+  }
   // Existing global readiness remains 503: this component only observes creation receipts.
   await startService(app, config.port, config.host);
 } catch (error) {
   await stopTxTracking?.().catch(() => undefined);
   await poller?.stop().catch(() => undefined);
   await pool?.end();
+  await chainLoop?.stop().catch(() => undefined);
+  await chainPool?.end();
   const code =
     error instanceof Error && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.message)
       ? error.message

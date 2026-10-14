@@ -71,3 +71,9 @@ export {
 } from "./tx-tracking-store.js";
 export { txReceiptReader } from "./tx-receipt-reader.js";
 export * from "./evaluation-store.js";
+export { chainLogReader } from "./chain-log-reader.js";
+export {
+  postgresChainIndexStore,
+  loadChainDeployment,
+  assertChainIndexInstalled,
+} from "./chain-index-store.js";

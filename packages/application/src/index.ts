@@ -35,3 +35,13 @@ export { authenticateIdentity } from "./identity.js";
 export { createMarketReadService } from "./market-read.js";
 export { createTxTracker } from "./tx-tracking.js";
 export * from "./evaluation.js";
+export {
+  assertBaseSepolia,
+  chainIndexHealth,
+  createChainIndexer,
+  rebuildChainProjection,
+  startChainIndexer,
+  type ChainIndexHealth,
+  type ChainRebuildReport,
+  type ChainSyncResult,
+} from "./chain-indexer.js";
