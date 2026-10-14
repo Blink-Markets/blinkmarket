@@ -6,6 +6,7 @@ export {
   verifySpecBytes,
 } from "./spec-archive.js";
 export { fileObjectStore } from "./file-object-store.js";
+export { keccak256Hex } from "./content-hash.js";
 export { verifyDeploymentOnChain } from "./deployment-verifier.js";
 export {
   postgresIdentityStore,
@@ -56,11 +57,17 @@ export {
 export { postgresBudgetLedger } from "./budget-ledger.js";
 export { fixtureModelGateway } from "./fixture-model-gateway.js";
 export {
+  modelFixtureGateway,
+  loadModelFixtureGateway,
+} from "./model-fixtures.js";
+export {
   allowlistFetcher,
   httpsTransport,
   httpsRequestOptions,
 } from "./allowlist-fetcher.js";
 export { postgresEvidenceFetchStore } from "./evidence-fetch-store.js";
+export { postgresDiscoveryStore } from "./discovery-store.js";
+export { postgresPlatformRunStore } from "./platform-run-store.js";
 export * from "./forecast-store.js";
 export * from "./forecast-admin.js";
 

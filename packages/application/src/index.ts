@@ -30,6 +30,14 @@ export {
 } from "./budgeted-model.js";
 export { createEvidenceFetchHandler } from "./evidence-fetch.js";
 export * from "./forecasts.js";
+export {
+  createDiscoveryHandler,
+  createDiscoveryScheduler,
+} from "./discovery.js";
+export {
+  createForecastRunHandler,
+  createForecastDispatchHandler,
+} from "./platform-forecaster.js";
 
 export { authenticateIdentity } from "./identity.js";
 export { createMarketReadService } from "./market-read.js";

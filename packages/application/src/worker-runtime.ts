@@ -163,10 +163,12 @@ export async function schedulePeriodic(
   everyMs: number,
   payload: Record<string, unknown>,
   now = new Date(),
+  maxAttempts?: number,
 ): Promise<void> {
   await queue.enqueue({
     type,
     dedupeKey: `${type}:${JSON.stringify(payload)}:${Math.floor(now.getTime() / everyMs)}`,
     payload,
+    ...(maxAttempts !== undefined ? { maxAttempts } : {}),
   });
 }

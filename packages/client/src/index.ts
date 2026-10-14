@@ -129,6 +129,59 @@ export function createBlinkClient(baseUrl: string, apiKey?: string) {
         ),
       );
     },
+    async listForecastWindows(
+      ref: Pick<PublicMarketRef, "deploymentId" | "marketId">,
+      page: { limit?: number; cursor?: string } = {},
+    ) {
+      const contract = apiContracts.find(
+        (c) =>
+          c.path === "/v1/markets/:id/forecast-windows" && c.method === "GET",
+      )!;
+      const params = contract.params.parse({ id: ref.marketId });
+      const query = contract.query.parse({
+        deploymentId: ref.deploymentId,
+        ...page,
+      });
+      return contract.response.parse(
+        await request(
+          "/v1/markets/" +
+            params["id"] +
+            "/forecast-windows?" +
+            new URLSearchParams(
+              Object.entries(query).map(([k, v]) => [k, String(v)]),
+            ),
+        ),
+      );
+    },
+    async submitForecast(
+      ref: Pick<PublicMarketRef, "deploymentId" | "marketId">,
+      input: unknown,
+      idempotencyKey: string,
+    ) {
+      const contract = apiContracts.find(
+        (c) => c.path === "/v1/markets/:id/forecasts" && c.method === "POST",
+      )!;
+      const params = contract.params.parse({ id: ref.marketId });
+      const query = contract.query.parse({ deploymentId: ref.deploymentId });
+      const body = contract.body!.parse(input);
+      IdempotencyHeaders.parse({ "idempotency-key": idempotencyKey });
+      return contract.response.parse(
+        await request(
+          "/v1/markets/" +
+            params["id"] +
+            "/forecasts?" +
+            new URLSearchParams(query as Record<string, string>),
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Idempotency-Key": idempotencyKey,
+            },
+            body: JSON.stringify(body),
+          },
+        ),
+      );
+    },
     async requestQuote(input: unknown, idempotencyKey: string) {
       const body = RfqRequest.parse(input);
       return SignedQuoteResponse.parse(

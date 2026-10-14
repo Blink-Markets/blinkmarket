@@ -62,3 +62,5 @@ export async function scheduleResolution(pool: Pool): Promise<void> {
   for (const type of ["resolution.parse", "resolution.alerts"] as const)
     await schedulePeriodic(queue, type, 60_000, {}, rows[0]!.now);
 }
+// Research jobs (evidence, discovery, forecasts) are composed in ./research.ts.
+export { buildResearch } from "./research.js";
