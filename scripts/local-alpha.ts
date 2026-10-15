@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID, createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -39,8 +37,18 @@ import { buildApi } from "../apps/api/src/server.js";
 import { tradingServices } from "../apps/api/src/trading.js";
 import { buildSignerServer } from "../apps/signer/src/server.js";
 import { startAnvil, type Anvil } from "../tests/helpers/anvil.js";
+import { runChild, runWithCleanup } from "../tests/helpers/lifecycle.js";
 
-const exec = promisify(execFile);
+// The whole run, its child processes and its database connections are bounded: a stall fails
+// the run with the stage it was in instead of hanging CI. The test's own timeout is larger,
+// so teardown has room to finish before the runner gives up.
+export const ALPHA_DEADLINE_MS = 200_000;
+const CHILD_TIMEOUT_MS = 60_000;
+const RECEIPT_TIMEOUT_MS = 10_000;
+const DATABASE_LIMITS = {
+  connectTimeoutMs: 10_000,
+  statementTimeoutMs: 30_000,
+};
 const DEPLOYMENT = "local-alpha";
 const TOKEN = "local-alpha-public-fixture-token";
 const hash = (text: string) => keccak256(new TextEncoder().encode(text));
@@ -187,7 +195,10 @@ async function runExternalAgent(ctx: {
   await ctx.sync();
 }
 
-export async function runLocalAlpha(): Promise<AlphaReport> {
+export async function runLocalAlpha(
+  options: { signal?: AbortSignal } = {},
+): Promise<AlphaReport> {
+  const signal = options.signal ?? AbortSignal.timeout(ALPHA_DEADLINE_MS);
   if (!process.env.TEST_POSTGRES_ADMIN_URL)
     throw new Error("TEST_POSTGRES_ADMIN_URL_REQUIRED");
   const adminUrl = new URL(process.env.TEST_POSTGRES_ADMIN_URL);
@@ -205,10 +216,18 @@ export async function runLocalAlpha(): Promise<AlphaReport> {
   const { withDatabase } =
     await import("../tests/helpers/postgres-database.js");
   await withDatabase(async ({ owner, login }) => {
-    const directory = await mkdtemp(join(tmpdir(), "blink-local-alpha-"));
-    const anvil = await startAnvil({ baseFee: 1n });
-    const close: (() => Promise<unknown>)[] = [];
-    try {
+    await runWithCleanup({ signal }, async (life) => {
+      life.stage("setup");
+      const directory = await life.acquire(
+        "temporary directory",
+        () => mkdtemp(join(tmpdir(), "blink-local-alpha-")),
+        (path) => rm(path, { recursive: true, force: true }),
+      );
+      const anvil = await life.acquire(
+        "anvil",
+        () => startAnvil({ baseFee: 1n, receiptTimeoutMs: RECEIPT_TIMEOUT_MS }),
+        (node) => node.stop(),
+      );
       const pools = {
         api: await login({ memberOf: ["blink_api"], max: 1 }),
         indexer: await login({ memberOf: ["blink_indexer"], max: 1 }),
@@ -376,7 +395,7 @@ export async function runLocalAlpha(): Promise<AlphaReport> {
       });
       const signerServer = buildSignerServer(signerService);
       signerServer.log.level = "silent";
-      close.push(() => signerServer.close());
+      life.add("signer server", () => signerServer.close());
       await signerServer.listen({ port: 0, host: "127.0.0.1" });
       const signerUrl =
         "http://127.0.0.1:" +
@@ -445,7 +464,7 @@ export async function runLocalAlpha(): Promise<AlphaReport> {
         ],
       });
       app.log.level = "silent";
-      close.push(() => app.close());
+      life.add("api server", () => app.close());
       await app.listen({ port: 0, host: "127.0.0.1" });
       const url =
         "http://127.0.0.1:" + (app.server.address() as AddressInfo).port;
@@ -487,6 +506,7 @@ export async function runLocalAlpha(): Promise<AlphaReport> {
       let indexer = makeIndexer();
       const sync = async () => {
         for (let n = 0; n < 100; n++) {
+          life.signal.throwIfAborted();
           const r = await indexer.syncOnce();
           if (r.advancedTo === null && r.reorgedTo === null) return;
         }
@@ -516,6 +536,7 @@ export async function runLocalAlpha(): Promise<AlphaReport> {
       });
       const dispatchIncluded = async (intentId: string) => {
         for (let n = 0; n < 10; n++) {
+          life.signal.throwIfAborted();
           const state = await dispatcher.dispatch(intentId);
           if (state === "INCLUDED") return;
           assert.notEqual(state, "REVERTED");
@@ -583,9 +604,10 @@ export async function runLocalAlpha(): Promise<AlphaReport> {
             adapters.postgresEvaluationStore(pools.worker),
           ),
         },
+        signal: life.signal,
         onError: (code) => workerErrors.push(code),
       });
-      close.push(() => worker.stop());
+      life.add("worker", () => worker.stop());
       const runJob = async (
         type: JobType,
         payload: Record<string, unknown> = {},
@@ -597,6 +619,7 @@ export async function runLocalAlpha(): Promise<AlphaReport> {
           maxAttempts: 1,
         });
         for (let n = 0; n < 500; n++) {
+          life.signal.throwIfAborted();
           const row = (
             await owner.query(
               "SELECT state,last_error_code FROM operations.jobs WHERE id=$1",
@@ -620,6 +643,7 @@ export async function runLocalAlpha(): Promise<AlphaReport> {
       ]);
       for (const [i, scenario] of ["normal", "dispute", "timeout"].entries()) {
         console.log("ALPHA scenario " + scenario);
+        life.stage("scenario " + scenario);
         const now = (await anvil.publicClient.getBlock()).timestamp;
         const closeAt = now + 7200n,
           proposalDeadline = closeAt + 1000n,
@@ -646,8 +670,8 @@ export async function runLocalAlpha(): Promise<AlphaReport> {
           evidencePath,
           "Fixture gross margin is 60 percent. No real company or fetch.",
         );
-        const imported = await exec(
-          process.execPath,
+        const imported = await runChild(
+          "evidence import " + scenario,
           [
             "--import",
             "tsx",
@@ -666,9 +690,11 @@ export async function runLocalAlpha(): Promise<AlphaReport> {
               EVIDENCE_OBJECT_DIRECTORY: directory,
               BLINK_ALLOW_TEST_CLOCK: "1",
             },
+            timeoutMs: CHILD_TIMEOUT_MS,
+            signal: life.signal,
           },
         );
-        currentEvidence = JSON.parse(imported.stdout).evidenceId;
+        currentEvidence = JSON.parse(imported).evidenceId;
         const candidate = (await discoveryClient.createCandidate(
           {
             templateId: "GM_LT_V1",
@@ -998,11 +1024,12 @@ export async function runLocalAlpha(): Promise<AlphaReport> {
       );
       const live = await app.inject("/v1/metrics?mode=LIVE");
       assert.equal(live.json().eventCount, "0");
+      life.stage("restore drill: rebuild");
       const snapshot = async () =>
         (await chainStore.loadSnapshot(DEPLOYMENT)).projection;
       const before = await snapshot();
-      const rebuilt = await exec(
-        process.execPath,
+      const rebuilt = await runChild(
+        "chain rebuild",
         [
           "--import",
           "tsx",
@@ -1011,18 +1038,20 @@ export async function runLocalAlpha(): Promise<AlphaReport> {
           "--verify",
         ],
         {
-          timeout: 60_000,
           env: {
             ...process.env,
             INDEXER_DATABASE_URL: pools.indexer.options.connectionString!,
             BLINK_ALLOW_TEST_CLOCK: "1",
           },
+          timeoutMs: CHILD_TIMEOUT_MS,
+          signal: life.signal,
         },
       );
-      assert.deepEqual(JSON.parse(rebuilt.stdout).differences, []);
+      assert.deepEqual(JSON.parse(rebuilt).differences, []);
       assert.deepEqual(await snapshot(), before);
       report.rebuildVerified = true;
       await worker.stop();
+      life.stage("restore drill: drop and re-index");
       const notificationsBefore = (
         await owner.query(
           "SELECT max(event_version)::text AS version,count(*)::int AS count FROM operations.outbox WHERE aggregate_id=$1 AND event_type IN ('chain.synced','chain.reorged')",
@@ -1072,15 +1101,8 @@ export async function runLocalAlpha(): Promise<AlphaReport> {
       );
       assert.ok(notificationsAfter.count > notificationsBefore.count);
       report.reindexIdentical = true;
-    } finally {
-      try {
-        for (const stop of close.reverse()) await stop();
-      } finally {
-        await anvil.stop();
-        await rm(directory, { recursive: true, force: true });
-      }
-    }
-  });
+    });
+  }, DATABASE_LIMITS);
   report.wallTimeMs = Math.round(performance.now() - started);
   return report;
 }
@@ -1089,8 +1111,16 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 ) {
+  // Ctrl-C or a termination request aborts the run so its teardown still happens.
+  const interrupted = new AbortController();
+  for (const name of ["SIGINT", "SIGTERM"] as const)
+    process.once(name, () => interrupted.abort(new Error(name + " received")));
   try {
-    console.log(JSON.stringify(await runLocalAlpha(), null, 2));
+    const signal = AbortSignal.any([
+      interrupted.signal,
+      AbortSignal.timeout(ALPHA_DEADLINE_MS),
+    ]);
+    console.log(JSON.stringify(await runLocalAlpha({ signal }), null, 2));
   } catch (error) {
     console.error(error);
     process.exitCode = 1;

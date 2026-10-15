@@ -25,7 +25,11 @@ const mnemonic = "test test test test test test test test test test test junk";
 export type Anvil = Awaited<ReturnType<typeof startAnvil>>;
 
 export async function startAnvil(
-  options: { chainId?: number; baseFee?: bigint } = {},
+  options: {
+    chainId?: number;
+    baseFee?: bigint;
+    receiptTimeoutMs?: number;
+  } = {},
 ) {
   const chainId = options.chainId ?? 84532;
   // Reserve an OS-selected loopback port; this helper only ever connects to its own Anvil.
@@ -85,6 +89,15 @@ export async function startAnvil(
     // Snapshot/revert tests must never read a cached head.
     cacheTime: 0,
   });
+  const { receiptTimeoutMs } = options;
+  if (receiptTimeoutMs !== undefined) {
+    // viem polls a missing receipt for 3 minutes and swallows every error meanwhile, which
+    // would keep an abandoned run's process alive after its Anvil is gone. Anvil automines:
+    // a receipt that is not there within seconds never will be.
+    const waitForReceipt = publicClient.waitForTransactionReceipt;
+    publicClient.waitForTransactionReceipt = (args) =>
+      waitForReceipt({ timeout: receiptTimeoutMs, ...args });
+  }
   try {
     let ready = false;
     for (let i = 0; i < 100 && !ready; ++i) {

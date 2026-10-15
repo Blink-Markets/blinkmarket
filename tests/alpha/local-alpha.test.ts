@@ -1,7 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { runLocalAlpha } from "../../scripts/local-alpha.ts";
+import { setTimeout as delay } from "node:timers/promises";
+import { ALPHA_DEADLINE_MS, runLocalAlpha } from "../../scripts/local-alpha.ts";
+
+// Anvil processes started by this process (tsx may keep an esbuild child of its own).
+const anvils = () =>
+  spawnSync("pgrep", ["-P", String(process.pid), "-f", "/bin/anvil"], {
+    encoding: "utf8",
+  })
+    .stdout.split("\n")
+    .filter(Boolean);
 
 test("local Alpha refuses to start without an explicit PostgreSQL administrator", () => {
   const env = { ...process.env };
@@ -16,10 +25,38 @@ test("local Alpha refuses to start without an explicit PostgreSQL administrator"
 });
 
 test(
+  "an aborted run fails with its stage and leaves no Anvil behind",
+  { timeout: 120_000 },
+  async () => {
+    const controller = new AbortController();
+    const run = runLocalAlpha({ signal: controller.signal });
+    const settled = run.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    // Abort shortly after Anvil starts: the run is stopped mid-flight with live resources.
+    for (let n = 0; n < 1200 && anvils().length === 0; n++) await delay(25);
+    assert.equal(anvils().length, 1, "Anvil started");
+    await delay(500);
+    const abortedAt = Date.now();
+    controller.abort(new Error("test abort"));
+    const error = await settled;
+    assert.match(String(error), /LIFECYCLE_ABORTED during .+: test abort/);
+    assert.ok(Date.now() - abortedAt < 30_000, "teardown is bounded");
+    assert.deepEqual(anvils(), []);
+  },
+);
+
+// The test's own timeout leaves the harness deadline room to tear down and report the stage.
+test(
   "real local services settle three REPLAY outcomes and survive both restore drills",
   { timeout: 240_000 },
-  async () => {
-    const report = await runLocalAlpha();
+  async (t) => {
+    const signal = AbortSignal.any([
+      t.signal,
+      AbortSignal.timeout(ALPHA_DEADLINE_MS),
+    ]);
+    const report = await runLocalAlpha({ signal });
     console.log(`ALPHA wall time: ${report.wallTimeMs} ms`);
     assert.deepEqual(
       report.scenarios.map((s) => [
@@ -37,6 +74,6 @@ test(
     assert.equal(report.rebuildVerified, true);
     assert.equal(report.reindexIdentical, true);
     assert.equal(report.liveRows, 0);
-    assert.ok(report.wallTimeMs < 240_000);
+    assert.ok(report.wallTimeMs < ALPHA_DEADLINE_MS);
   },
 );

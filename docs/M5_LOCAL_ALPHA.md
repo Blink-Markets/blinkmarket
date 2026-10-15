@@ -32,6 +32,26 @@ PostgreSQL service on port 5432. The entrypoint can also be run directly with
 JSON report including wall time. The test runner prints wall time and scenario
 outcomes. No external data or model provider is contacted.
 
+## Bounds and failure cleanup
+
+A stalled run fails with its stage instead of hanging CI. `runLocalAlpha` takes an
+`AbortSignal`; the test combines its runner signal with a 200 s deadline
+(`ALPHA_DEADLINE_MS`, inside the test's own 240 s timeout), and a direct run aborts
+on that deadline, Ctrl-C or SIGTERM. On abort the stalled work is abandoned, every
+shutdown runs, and the run rejects with `LIFECYCLE_ABORTED during <stage>: <reason>`.
+Further limits: child processes (evidence import, chain rebuild) have a 60 s
+timeout and are killed on abort; PostgreSQL logins have a 10 s connect and a 30 s
+statement timeout; Anvil receipt waits end after 10 s.
+
+Shutdown never skips a resource. Worker, API, signer, Anvil and the temporary
+directory are each attempted independently (10 s per step), then the pools, the
+random database and its logins (30 s per step). Failures are collected and reported
+together as an `AggregateError` that lists the scenario error first. Covered without
+the full scenario by `tests/alpha-lifecycle.test.ts` (rejecting, throwing and
+hanging stoppers, abort mid-run, stalled child), `tests/postgres/database-lifecycle.test.ts`
+(statement and connect timeouts, database teardown with a failing pool) and the
+aborted-run test in `tests/alpha/local-alpha.test.ts` (real services, no Anvil left).
+
 ## Exercised flow
 
 The harness starts an ephemeral loopback Anvil using the project's Foundry
@@ -109,16 +129,16 @@ silencing conflicts.
 
 ## Verification
 
-| Command                                                                | Result                                                                                                                    |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm alpha:local` with the supplied local PostgreSQL URL              | PASS: 2 tests, three scenarios, both restores; harness 81.6 s under concurrent local load (excludes artifact compilation) |
-| `pnpm check`                                                           | PASS: 495 tests, no skips; typechecks, contract compilation and boundaries                                                |
-| `pnpm exec tsc --noEmit`                                               | PASS                                                                                                                      |
-| `pnpm build`                                                           | Existing Google Fonts downloads unavailable under the no-external-network constraint                                      |
-| `NEXT_FONT_GOOGLE_MOCKED_RESPONSES=/tmp/t12-font-mocks.cjs pnpm build` | PASS: full build, TypeScript and prerendering with temporary offline CSS using local Arial                                |
-| `pnpm build:services && pnpm test:service-build`                       | PASS: 5 tests                                                                                                             |
-| `pnpm test:postgres` with the supplied local PostgreSQL URL            | PASS: 30 tests, no skips                                                                                                  |
-| `pnpm test:anvil`                                                      | PASS: 44 tests, no skips                                                                                                  |
+| Command                                                                | Result                                                                                                       |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `pnpm alpha:local` with the supplied local PostgreSQL URL              | PASS: 3 tests incl. aborted-run teardown; harness 4.6 s idle, 58-82 s under heavy load (no artifact compile) |
+| `pnpm check`                                                           | PASS: 506 tests, no skips; typechecks, contract compilation and boundaries                                   |
+| `pnpm exec tsc --noEmit`                                               | PASS                                                                                                         |
+| `pnpm build`                                                           | Existing Google Fonts downloads unavailable under the no-external-network constraint                         |
+| `NEXT_FONT_GOOGLE_MOCKED_RESPONSES=/tmp/t12-font-mocks.cjs pnpm build` | PASS: full build, TypeScript and prerendering with temporary offline CSS using local Arial                   |
+| `pnpm build:services && pnpm test:service-build`                       | PASS: 5 tests                                                                                                |
+| `pnpm test:postgres` with the supplied local PostgreSQL URL            | PASS: 34 tests, no skips                                                                                     |
+| `pnpm test:anvil`                                                      | PASS: 44 tests, no skips                                                                                     |
 
 The offline build validates source resolution and route generation; production
 font downloads and font appearance remain unverified. No font source/config
