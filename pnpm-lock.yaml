@@ -201,6 +201,12 @@ importers:
       '@blink/schemas':
         specifier: workspace:*
         version: link:../schemas
+      ox:
+        specifier: 0.14.45
+        version: 0.14.45(typescript@5.9.3)(zod@4.6.5)
+      viem:
+        specifier: 2.56.8
+        version: 2.56.8(typescript@5.9.3)(zod@4.6.5)
 
   packages/domain:
     dependencies:

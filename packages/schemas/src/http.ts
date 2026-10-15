@@ -168,12 +168,17 @@ export type HttpContract = {
   status: number;
   access: string;
 };
-function operation(
-  method: "GET" | "POST",
-  path: string,
-  response: z.ZodType,
+// The literal method, path and response types stay visible, so clients can type each call.
+function operation<
+  M extends "GET" | "POST",
+  P extends string,
+  R extends z.ZodType,
+>(
+  method: M,
+  path: P,
+  response: R,
   options: Partial<Omit<HttpContract, "method" | "path" | "response">> = {},
-): HttpContract {
+): HttpContract & { method: M; path: P; response: R } {
   const params: Record<string, z.ZodType> = {};
   for (const [, name] of path.matchAll(/:([A-Za-z]+)/g)) {
     params[name!] =
@@ -199,9 +204,9 @@ function operation(
     status: 200,
     access: "public",
     ...options,
-  };
+  } as HttpContract & { method: M; path: P; response: R };
 }
-export const apiContracts: readonly HttpContract[] = [
+const contracts = [
   operation(
     "GET",
     "/v1/admin/creation-intents/:id/chain-status",
@@ -485,7 +490,10 @@ export const apiContracts: readonly HttpContract[] = [
     }),
     { query: z.strictObject({ mode: Mode }) },
   ),
-];
+] satisfies readonly HttpContract[];
+export const apiContracts: readonly HttpContract[] = contracts;
+/** Every contract with its literal method, path and response types, for typed clients. */
+export type ApiContract = (typeof contracts)[number];
 const json = (s: z.ZodType) =>
   z.toJSONSchema(s, { target: "draft-2020-12", io: "input" });
 export function generateOpenApi(enabledPaths: readonly string[] = []) {

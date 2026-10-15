@@ -16,7 +16,8 @@
     "apps/*/src/**/*.ts",
     "packages/*/src/**/*.ts",
     "tests/**/*.ts",
-    "scripts/**/*.ts"
+    "scripts/**/*.ts",
+    "examples/**/*.ts"
   ],
   "exclude": ["apps/web"]
 }

@@ -5,6 +5,8 @@
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
-    "@blink/schemas": "workspace:*"
+    "@blink/schemas": "workspace:*",
+    "viem": "2.56.8",
+    "ox": "0.14.45"
   }
 }
