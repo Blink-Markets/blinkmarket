@@ -555,8 +555,15 @@ test(
   },
 );
 
-/** A JSON-RPC proxy to `target` that loses the answer of one raw transaction (the Nth) after forwarding it. */
-async function lossyRpc(target: string, loseSendNumber: number) {
+/**
+ * A JSON-RPC proxy to `target` that can lose the answer of one raw transaction (the Nth) after
+ * forwarding it, and report the first receipt it hands out as reverted.
+ */
+async function lossyRpc(
+  target: string,
+  options: { loseSendNumber?: number; revertFirstReceipt?: boolean },
+) {
+  let receiptsReverted = false;
   const sent: string[] = [];
   const server: Server = createServer((request, response) => {
     const chunks: Buffer[] = [];
@@ -569,12 +576,27 @@ async function lossyRpc(target: string, loseSendNumber: number) {
         headers: { "Content-Type": "application/json" },
         body,
       });
-      const payload = Buffer.from(await answer.arrayBuffer());
+      let payload = Buffer.from(await answer.arrayBuffer());
       if (call.method === "eth_sendRawTransaction") {
         sent.push(call.method);
-        if (sent.length === loseSendNumber) {
+        if (sent.length === options.loseSendNumber) {
           response.writeHead(502);
           return void response.end("answer lost");
+        }
+      }
+      if (
+        call.method === "eth_getTransactionReceipt" &&
+        options.revertFirstReceipt &&
+        !receiptsReverted
+      ) {
+        // The first receipt the agent asks for is its approval's: report it as reverted.
+        const reply = JSON.parse(payload.toString("utf8")) as {
+          result: { status: string } | null;
+        };
+        if (reply.result) {
+          receiptsReverted = true;
+          reply.result.status = "0x0";
+          payload = Buffer.from(JSON.stringify(reply));
         }
       }
       response.writeHead(200, { "Content-Type": "application/json" });
@@ -601,7 +623,7 @@ test(
   async () => {
     await withStack(async (s) => {
       // The approval is the agent's first transaction; the fill is its second and loses its answer.
-      const rpc = await lossyRpc(s.anvil.url, 2);
+      const rpc = await lossyRpc(s.anvil.url, { loseSendNumber: 2 });
       try {
         const agent = startAgent(s, { rpcUrl: rpc.url });
         await agent.until(
@@ -628,6 +650,37 @@ test(
           true,
         );
         assert.equal(agent.seen(/^quote 0x/).length, 1);
+      } finally {
+        await rpc.close();
+      }
+    });
+  },
+);
+
+test(
+  "Anvil: a reverted approval stops the example before it sends the fill",
+  { timeout: 240_000 },
+  async () => {
+    await withStack(async (s) => {
+      const rpc = await lossyRpc(s.anvil.url, { revertFirstReceipt: true });
+      try {
+        const agent = startAgent(s, { rpcUrl: rpc.url });
+        const outcome = await Promise.race([
+          agent.run.then(
+            () => "the run finished",
+            (error: Error) => error.message,
+          ),
+          agent
+            .until("a second transaction", () => rpc.sent.length >= 2)
+            .then(
+              () => "the fill was sent after the approval reverted",
+              () => "no second transaction",
+            ),
+        ]);
+        assert.match(outcome, /^APPROVE_REVERTED: 0x[0-9a-f]{64}$/);
+        // Only the approval left the agent, and its log never says it was approved.
+        assert.equal(rpc.sent.length, 1);
+        assert.equal(agent.seen(/^approved /).length, 0);
       } finally {
         await rpc.close();
       }

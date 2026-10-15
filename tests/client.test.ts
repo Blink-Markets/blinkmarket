@@ -805,13 +805,16 @@ test("an answer that breaks the contract is an error, an API refusal is a BlinkA
 test("the example agent refuses a node that is not local or not chain 84532 before it touches the API", async () => {
   const dummyKey = ("0x" + "11".repeat(32)) as `0x${string}`;
   const api = await scripted(() => ({ body: {} }));
-  const rpc = await scripted((seen) => ({
-    body: {
-      jsonrpc: "2.0",
-      id: (JSON.parse(seen.body) as { id: number }).id,
-      result: "0x2105", // chain ID 8453
-    },
-  }));
+  const nodeOn = (chainId: string) =>
+    scripted((seen) => ({
+      body: {
+        jsonrpc: "2.0",
+        id: (JSON.parse(seen.body) as { id: number }).id,
+        result: chainId,
+      },
+    }));
+  const mainnet = await nodeOn("0x2105"); // chain ID 8453
+  const other = await nodeOn("0x1"); // chain ID 1
   try {
     const agent = (rpcUrl: string) =>
       runAgent({
@@ -825,12 +828,16 @@ test("the example agent refuses a node that is not local or not chain 84532 befo
       agent("https://rpc.blink.invalid"),
       /RPC_NOT_LOOPBACK/,
     );
-    await assert.rejects(agent(rpc.origin), /RPC_CHAIN_MISMATCH/);
-    assert.equal(rpc.seen.length, 1);
+    // Base mainnet has its own refusal (the global MAINNET_REFUSED); any other chain is a mismatch.
+    await assert.rejects(agent(mainnet.origin), /MAINNET_REFUSED/);
+    await assert.rejects(agent(other.origin), /RPC_CHAIN_MISMATCH/);
+    assert.equal(mainnet.seen.length, 1);
+    assert.equal(other.seen.length, 1);
     assert.equal(api.seen.length, 0);
   } finally {
     await api.close();
-    await rpc.close();
+    await mainnet.close();
+    await other.close();
   }
   assert.throws(() => configFromEnv({}), /BLINK_API_URL/);
   assert.deepEqual(

@@ -1,6 +1,7 @@
 import { Secp256k1, Signature } from "ox";
 import { encodeFunctionData, hashTypedData, parseAbi, type Hex } from "viem";
 import {
+  CHAIN_ID,
   quoteTypes,
   type ConfigResponse,
   type PublicDeployment,
@@ -20,6 +21,7 @@ export type QuoteVerificationCode =
   | "TERMS_MISMATCH"
   | "COST_MISMATCH"
   | "MAX_COST_EXCEEDED"
+  | "NOT_YET_VALID"
   | "EXPIRED"
   | "CALLDATA_MISMATCH";
 
@@ -38,7 +40,23 @@ export type QuoteVerificationContext = {
   request: RfqRequest;
   /** Chain time in seconds (the latest block's timestamp), never the host clock. */
   nowSeconds: bigint;
+  /**
+   * Seconds the quote must still have left (default `DEFAULT_MIN_VALIDITY_SECONDS`); 0 accepts a
+   * quote until its last second. Use 0 only to ask whether a quote has really expired.
+   */
+  minValiditySeconds?: bigint | undefined;
 };
+
+/**
+ * Time to approve and fill: Base makes a block every 2 seconds, the approval takes one and the
+ * fill the next, and one more block covers propagation and receipt polling. The API signs quotes
+ * for 30 seconds (never fewer than 5), so this costs a taker a fifth of a normal quote.
+ */
+export const DEFAULT_MIN_VALIDITY_SECONDS = 6n;
+
+// OpenZeppelin ECDSA.tryRecover, which fillQuote uses, refuses s above half the curve order.
+const HALF_CURVE_ORDER =
+  0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n;
 
 const fillQuoteAbi = parseAbi([
   "struct Quote { uint256 marketId; bytes32 specHash; address maker; address taker; uint8 side; uint64 quantity; uint16 priceBps; uint64 validAfter; uint64 expiresAt; uint256 nonce; uint256 epoch; }",
@@ -72,8 +90,9 @@ export function verifySignedQuote(
   if (
     domain.name !== "Blink RFQ" ||
     domain.version !== "0.1" ||
-    domain.chainId !== config.chainId ||
-    envelope.chainId !== config.chainId ||
+    domain.chainId !== CHAIN_ID ||
+    envelope.chainId !== CHAIN_ID ||
+    config.chainId !== CHAIN_ID ||
     lower(domain.verifyingContract) !== market ||
     lower(envelope.verifyingContract) !== market
   )
@@ -86,7 +105,7 @@ export function verifySignedQuote(
     domain: {
       name: "Blink RFQ",
       version: "0.1",
-      chainId: config.chainId,
+      chainId: CHAIN_ID,
       verifyingContract: market as Hex,
     },
     types: quoteTypes,
@@ -111,12 +130,17 @@ export function verifySignedQuote(
   // be called without `await` and would then verify nothing.
   let signer: string | null = null;
   try {
-    signer = lower(
-      Secp256k1.recoverAddress({
-        payload: digest,
-        signature: Signature.fromHex(signature),
-      }),
-    );
+    // The contract recovers with OpenZeppelin's ECDSA: s in the lower half and v of 27 or 28. A
+    // signature outside that recovers the maker here (`ox` is lenient) and then reverts on chain.
+    const s = BigInt("0x" + signature.slice(66, 130));
+    const v = Number.parseInt(signature.slice(130, 132), 16);
+    if (s <= HALF_CURVE_ORDER && (v === 27 || v === 28))
+      signer = lower(
+        Secp256k1.recoverAddress({
+          payload: digest,
+          signature: Signature.fromHex(signature),
+        }),
+      );
   } catch {
     // A signature that cannot be recovered is as invalid as one by another key.
   }
@@ -146,7 +170,15 @@ export function verifySignedQuote(
     return fail("COST_MISMATCH");
   if (takerCost > BigInt(request.maxCostMicros))
     return fail("MAX_COST_EXCEEDED");
-  if (ctx.nowSeconds >= BigInt(message.expiresAt)) return fail("EXPIRED");
+  // Chain time against the signed window (the contract needs validAfter <= now < expiresAt) and
+  // the room an approval and a fill need.
+  if (ctx.nowSeconds < BigInt(message.validAfter)) return fail("NOT_YET_VALID");
+  const left = BigInt(message.expiresAt) - ctx.nowSeconds;
+  if (
+    left <= 0n ||
+    left < (ctx.minValiditySeconds ?? DEFAULT_MIN_VALIDITY_SECONDS)
+  )
+    return fail("EXPIRED");
 
   const expected = encodeFunctionData({
     abi: fillQuoteAbi,
