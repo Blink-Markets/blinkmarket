@@ -187,6 +187,7 @@ async function world() {
     const apiPool = poolAs(t, "blink_api");
     const { rfq: rfqService, readiness } = await tradingServices(
       apiPool as never,
+      poolAs(t, "blink_api") as never,
       {
         deploymentId: DEPLOYMENT,
         signerUrl,

@@ -3,6 +3,7 @@ import { startService } from "@blink/runtime";
 import pg from "pg";
 import {
   createIdentityService,
+  createHealthService,
   createFaucetService,
   createPreparationService,
   createApprovalService,
@@ -29,9 +30,10 @@ import {
   postgresMarketReadStore,
   postgresEvaluationStore,
   postgresBudgetLedger,
+  postgresHealthReader,
 } from "@blink/adapters";
 import { apiConfig, modeAtLeast } from "./config.js";
-import { tradingServices } from "./trading.js";
+import { createRfqPool, tradingServices } from "./trading.js";
 
 const config = apiConfig(process.env);
 const pool =
@@ -44,6 +46,7 @@ const pool =
         idle_in_transaction_session_timeout: 10000,
       })
     : null;
+const rfqPool = pool && config.mode === "trading" ? createRfqPool(pool) : null;
 pool?.on("error", () => {
   console.error("API_DATABASE_CONNECTION_ERROR");
 });
@@ -72,16 +75,46 @@ try {
   // Trading mode adds the RFQ service, a truthful /v1/config and the canTrade hook of market reads.
   const trading =
     pool && config.mode === "trading"
-      ? await tradingServices(pool, {
+      ? await tradingServices(pool, rfqPool!, {
           deploymentId: config.deploymentId!,
           signerUrl: config.signerUrl!,
           signerToken: config.signerToken!,
           rpcUrl: config.rpcUrl!,
         })
       : null;
+  const health =
+    pool && config.mode === "trading"
+      ? createHealthService({
+          reader: postgresHealthReader(pool, config.deploymentId!),
+          authenticateAdmin: (authorization) =>
+            createIdentityService(
+              postgresIdentityStore(pool),
+              identityCrypto,
+              config.walletOrigin!,
+            ).authenticate(authorization, "admin"),
+          signerReachable: async () => {
+            const response = await fetch(
+              new URL("/health/ready", config.signerUrl!),
+              {
+                signal: AbortSignal.timeout(3000),
+              },
+            );
+            const body = (await response.json()) as {
+              service?: string;
+              status?: string;
+            };
+            return (
+              response.ok &&
+              body.service === "signer" &&
+              body.status === "ready"
+            );
+          },
+        })
+      : undefined;
   const app = buildApi(
     pool
       ? {
+          ...(health ? { health } : {}),
           ...(modeAtLeast(config.mode, "approval")
             ? {
                 approval: createApprovalService({
@@ -113,6 +146,7 @@ try {
           ),
           services: modeAtLeast(config.mode, "markets")
             ? [
+                ...(health ? [health] : []),
                 ...(config.mode === "trading"
                   ? [
                       createFaucetService({
@@ -172,11 +206,11 @@ try {
   );
   if (pool)
     app.addHook("onClose", async () => {
-      await pool.end();
+      await Promise.all([pool.end(), rfqPool?.end()]);
     });
   await startService(app, config.port, config.host);
 } catch {
-  await pool?.end();
+  await Promise.all([pool?.end(), rfqPool?.end()]);
   console.error(
     "API_STARTUP_FAILED: check mode, origin, database permissions and migrations",
   );

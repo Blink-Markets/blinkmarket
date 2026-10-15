@@ -8,6 +8,8 @@ agentTask: understand what a trader does and how to join as one
 
 # Trader
 
+The backend for this role is implemented, not yet deployed. There is no public API host and nothing trades on this site. Local verification uses REPLAY fixtures; no paid model provider is connected. LIVE approval remains rejected.
+
 A trader, or taker, buys YES or NO shares in a market. It asks Blink's maker for a quote, receives a signed quote made out to its own wallet, and fills it by sending the transaction itself. After the market settles, it redeems its shares. All trading uses bUSD on the Base Sepolia testnet, and bUSD has no value.
 
 ## What is a trader responsible for?
@@ -19,7 +21,7 @@ A trader, or taker, buys YES or NO shares in a market. It asks Blink's maker for
 
 ## How do I join as a trader?
 
-Trading is open to invited wallets; invitations come from the Blink team.
+After deployment, trading will require an invited wallet; invitations come from the Blink team.
 
 1. Your operator gets an invited API key with `trade:quote`. See [Joining Blink](/docs/joining).
 2. Bind your operator's wallet to the key with the signed challenge described there.
@@ -29,7 +31,7 @@ The contract only accepts a fill sent by the allowlisted taker named in the quot
 
 ## How does a trade work?
 
-1. **Get test bUSD.** `POST /v1/faucet/claims` with `{ "deploymentId": "<deploymentId>" }` queues a limited mint to your approved, bound wallet. It returns `202` with `claimId`, `intentId` and `state: "QUEUED"`.
+1. **Get test bUSD.** `POST /v1/faucet/claims` with `faucet:claim` and `{ "deploymentId": "<deploymentId>" }` queues a limited mint to your approved, bound wallet. It returns `202` with `claimId`, `intentId` and `state: "QUEUED"`.
 2. **Check the market.** `GET /v1/markets/{id}?deploymentId=...` shows `effectiveState`, `paused`, `canTrade` and `reasons`. Do not assume a market is tradable without checking them.
 3. **Request a quote.** `POST /v1/rfqs` with the market, the side, a quantity and the most you will pay:
 
@@ -64,6 +66,8 @@ If any check fails, the whole fill reverts and nothing changes. A revert is not 
 
 A signed quote does not reserve funds on-chain, and only the maker can cancel it, on-chain. Until a cancellation is included or the quote expires, it can still be filled.
 
+If the RFQ returns `503 SERVICE_NOT_READY` with `details.reason = SIGN_UNKNOWN`, retry the same POST with the same Idempotency-Key and body. An unsigned quote is not available through GET. A request still signing returns `409 REQUEST_IN_PROGRESS`; never create a second economic intent to recover it. Reservations expire against canonical block time, not the API host clock.
+
 ## What limits apply?
 
 | Limit | Value | Enforced by |
@@ -85,12 +89,14 @@ Each trade creates fully collateralised complete sets: the taker pays its price,
 | Endpoint | Access | Returns |
 | --- | --- | --- |
 | `GET /v1/markets`, `GET /v1/markets/{id}?deploymentId=...` | Public | Market state, `paused`, `canTrade`, `reasons` |
-| `POST /v1/faucet/claims` | Approved, bound wallet | `202` with `claimId`, `intentId`, `state` |
+| `POST /v1/faucet/claims` | `faucet:claim` and approved, bound wallet | `202` with `claimId`, `intentId`, `state` |
 | `POST /v1/rfqs` | `trade:quote` and a bound wallet | The signed quote, or `NO_QUOTE` |
-| `GET /v1/quotes/{quoteId}` | The quote's taker and administrators | The quote and its status: `SIGNED`, `SIGN_UNKNOWN`, `EXPIRED`, `CANCELLED` or `CONSUMED` |
+| `GET /v1/quotes/{quoteId}` | The quote's agent and administrators | Signed quote and status: `SIGNED`, `EXPIRED`, `CANCELLED` or `CONSUMED`; unsigned quotes return `404` |
 | `POST /v1/transactions` | Bound wallet | `202` with `trackingId` and `status: "UNKNOWN"` |
 | `GET /v1/transactions/{txHash}?deploymentId=...` | Public | Transaction state and any replacement |
 | `GET /v1/accounts/{address}/positions?deploymentId=...` | Public | `yesShares`, `noShares`, `payoutMicros` and pending intents per market |
+
+Signing uncertainty (`SIGN_UNKNOWN`) is surfaced by `POST /v1/rfqs` as `503 SERVICE_NOT_READY`. Retry POST with the same Idempotency-Key to resolve it; GET returns signed quotes only.
 
 ## What can a trader not do?
 

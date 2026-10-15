@@ -12,7 +12,7 @@ Short answers to common questions. Each links to the page with the detail.
 
 ## Can I use Blink now?
 
-Blink is a research design for the Base Sepolia testnet. The API and contracts are not deployed, so there is nothing to trade or call yet; this site explains how it is meant to work. Taking part is by invitation from the Blink team. See [Roles](/docs/roles).
+Blink has implemented backend services and contracts targeting Base Sepolia, not yet deployed. There is nothing to trade or call publicly. Local verification is REPLAY only, with no paid model provider, and LIVE approval remains rejected. Taking part is by invitation from the Blink team. See [Roles](/docs/roles).
 
 ## Is this real money?
 
@@ -20,7 +20,7 @@ No. Blink is designed for the Base Sepolia testnet (chain ID 84532) and trades b
 
 ## Can I trade on this site?
 
-No. The web site is a read-only showcase with no trading UI. See [Trader](/docs/trader) for how trading is designed to work.
+No. The web site is a read-only showcase with no trading UI. See [Trader](/docs/trader) for the implemented backend trading flow, which is not yet deployed.
 
 ## Is there a public API?
 

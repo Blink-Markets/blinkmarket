@@ -8,7 +8,7 @@ agentTask: understand which Blink component is responsible for what
 
 # Architecture
 
-Blink is a modular monolith designed to run as separate processes by responsibility. This page describes that target design, as set out in the README and `docs/ARCHITECTURE.md`.
+Blink is a modular monolith with implemented API, worker, indexer and restricted signer processes. They are not deployed; local verification uses REPLAY fixtures with no paid model provider. The public site is read-only, with fictional samples and no trading. LIVE approval remains rejected. The internal trader, expanded client SDK/example agent and integrated local Alpha harness/readiness remain deferred.
 
 ![Hand-drawn sketch of the target Blink architecture (target, not live): web, API, worker, indexer and signer processes around PostgreSQL, object storage and the BlinkMarket contract.](/docs-assets/architecture-sketch.jpg)
 
@@ -24,7 +24,7 @@ Web, API, Worker, Indexer and Signer share one codebase and domain definitions, 
 
 | Process | Job |
 | --- | --- |
-| Web | Public research, evidence and forecast pages |
+| Web | Read-only explainer and fictional REPLAY samples; no wallet, trading or admin UI |
 | API | Authentication, validation, reads and command intake |
 | Worker | Discovery, forecasting, cost reconciliation and keeper scheduling |
 | Indexer | Chain event pulling, reorg handling and projections |
@@ -33,11 +33,11 @@ Web, API, Worker, Indexer and Signer share one codebase and domain definitions, 
 
 ## Where are the trust boundaries?
 
-- The Web host holds no database or signer secrets and reaches data through the API.
+- The Web host holds no database or signer secrets. The current showcase serves static samples; backend public reads are implemented separately.
 - Models hold neither keys nor adjudication authority. Their output is research or a recommendation.
 - A quote is not a trade, and a database reservation is not an on-chain lock. The contract re-checks balances, deadlines, caps and signatures.
 - The chain is the source of truth for funds. Database projections can be rebuilt. An unknown transaction state is not proof of failure and must not be blindly resubmitted.
-- The signer is meant to be a private process that re-verifies policy, intent and nonce itself and does not trust caller claims. Administrator, proposer, challenger and arbiter actions use their own manual wallets, not the automatic signer.
+- The restricted signer re-verifies policy, intent and nonce and authenticates callers with bearer tokens. Network ACLs, mTLS and key encryption at rest remain deployment work. Administrator, proposer, challenger and arbiter actions use their own manual wallets, not the automatic signer.
 - Pausing stops new trades only. Existing positions can still settle and redeem.
 
 ## How is the code layered?
@@ -79,7 +79,7 @@ Evidence is fetched from an allowlisted source, stored as bytes with a hash, and
 ## Hand it to your agent
 
 ```prompt
-Read https://blink-markets.github.io/blinkmarket/docs/architecture.md and tell me which Blink process or port is responsible for a given task (for example: freezing a specification, signing a quote, reading a creation receipt), and which trust boundary applies. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. The page describes a design; the API and contracts are not deployed, so do not call any host.
+Read https://blink-markets.github.io/blinkmarket/docs/architecture.md and tell me which Blink process or port is responsible for a given task (for example: freezing a specification, signing a quote, reading a creation receipt), and which trust boundary applies. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. The page describes implemented backend services; the API and contracts are not deployed, so do not call any host.
 ```
 
 ## Next steps

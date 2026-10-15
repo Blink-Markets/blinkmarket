@@ -31,7 +31,7 @@ const quoteColumns = `q.id, ${hex("q.digest", "digest")}, q.deployment_id, q.mar
   q.valid_after::text AS valid_after, q.expires_at::text AS expires_at, q.nonce::text AS nonce,
   q.epoch::text AS epoch, ${hex("q.spec_hash", "spec_hash")}, q.forecast_snapshot_id,
   q.sign_request_id, q.snapshot_block_number::text AS snapshot_block_number,
-  ${hex("q.snapshot_block_hash", "snapshot_block_hash")}, q.status, q.envelope`;
+  ${hex("q.snapshot_block_hash", "snapshot_block_hash")}, q.status, q.envelope, q.updated_at`;
 const quoteOf = (row: Row): QuoteRecord => ({
   id: String(row.id),
   digest: row.digest as Hex,
@@ -57,6 +57,7 @@ const quoteOf = (row: Row): QuoteRecord => ({
   signRequestId: String(row.sign_request_id),
   snapshotBlockNumber: big(row.snapshot_block_number),
   snapshotBlockHash: row.snapshot_block_hash as Hex,
+  updatedAt: new Date(row.updated_at as Date | string),
   status: row.status as QuoteStatus,
   envelope: (row.envelope as Record<string, unknown> | null) ?? null,
 });
@@ -89,6 +90,14 @@ function tradingTransaction(db: PoolClient): TradingTransaction {
   const writer = signingIntentWriter();
   return {
     ...identityTransaction(db),
+    async requestPayloadHash(operatorId, scope, key) {
+      const { rows } = await db.query(
+        `SELECT encode(payload_hash,'hex') AS hash FROM operations.idempotency_records
+        WHERE operator_id=$1 AND endpoint_scope=$2 AND key=$3`,
+        [operatorId, scope, key],
+      );
+      return rows[0]?.hash ?? null;
+    },
     async deployment(deploymentId) {
       const { rows } = await db.query(
         "SELECT manifest, enabled FROM markets.deployments WHERE id=$1",
@@ -171,6 +180,7 @@ function tradingTransaction(db: PoolClient): TradingTransaction {
         `SELECT EXISTS (
           SELECT 1 FROM trading.collateral_reservations r
           WHERE r.deployment_id=$1 AND r.state IN ('ACCOUNTED','RELEASED') AND r.state_block_hash IS NOT NULL
+            AND r.state_block_number > COALESCE((SELECT finalized_number FROM chain.cursors WHERE deployment_id=$1), -1)
             AND NOT EXISTS (SELECT 1 FROM chain.blocks b
               WHERE b.deployment_id=r.deployment_id AND b.hash=r.state_block_hash AND b.canonical)
         ) AS needed`,
@@ -348,6 +358,7 @@ function tradingTransaction(db: PoolClient): TradingTransaction {
         `SELECT r.id, r.quote_id, r.state, ${hex("r.state_block_hash", "block_hash")}
         FROM trading.collateral_reservations r
         WHERE r.deployment_id=$1 AND r.state IN ('ACCOUNTED','RELEASED') AND r.state_block_hash IS NOT NULL
+            AND r.state_block_number > COALESCE((SELECT finalized_number FROM chain.cursors WHERE deployment_id=$1), -1)
           AND NOT EXISTS (SELECT 1 FROM chain.blocks b
             WHERE b.deployment_id=r.deployment_id AND b.hash=r.state_block_hash AND b.canonical)
         ORDER BY r.created_at, r.id FOR UPDATE OF r`,

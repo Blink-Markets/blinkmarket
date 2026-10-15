@@ -424,6 +424,14 @@ test("chain-state rejections: pauses, closing, allow-list, caps and operator gat
       "UPDATE trading.quote_gates SET reopened_at=blink.now(), reopened_by='op'",
     );
     assert.equal((await w.post("reopened")).statusCode, 200);
+    await w.query(
+      "INSERT INTO trading.quote_gates(id,deployment_id,market_id,reason,actor,note) VALUES (gen_random_uuid(),$1,1,'ANNOUNCEMENT_EARLY','op','results leaked early')",
+      [DEPLOYMENT],
+    );
+    await reject("early-announcement", 409, "NO_QUOTE", "ANNOUNCEMENT_EARLY");
+    await w.query(
+      "UPDATE trading.quote_gates SET reopened_at=blink.now(), reopened_by='op' WHERE reopened_at IS NULL",
+    );
     // Rejections are stored terminally: the closed gate does not change an answered key.
     assert.equal((await w.post("gate")).json().details.reason, "OUTCOME_KNOWN");
   } finally {
@@ -1074,3 +1082,68 @@ test("readiness without a fresh ensemble reports NO_FORECAST; an unknown deploym
     await w.close();
   }
 });
+
+for (const crash of ["before signer", "transaction B"]) {
+  test(`a stale SIGN_REQUESTED quote resumes after a crash in ${crash}`, async () => {
+    const w = await tradingWorld();
+    try {
+      if (crash === "before signer") w.signing.faults.crashBeforeSign = true;
+      else {
+        await w.query(`
+        CREATE FUNCTION trading.fail_completion() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN IF NEW.status='SIGNED' THEN RAISE EXCEPTION 'SIMULATED_COMMIT_FAILURE'; END IF; RETURN NEW; END $$`);
+        await w.query(`CREATE TRIGGER fail_completion BEFORE UPDATE ON trading.quotes
+          FOR EACH ROW EXECUTE FUNCTION trading.fail_completion()`);
+      }
+      assert.equal((await w.post("crash")).statusCode, 500);
+      const [before] = await w.query<{
+        digest: string;
+        nonce: string;
+        sign_request_id: string;
+        status: string;
+      }>(
+        "SELECT '0x'||encode(digest,'hex') AS digest, nonce::text, sign_request_id, status FROM trading.quotes",
+      );
+      assert.equal(before!.status, "SIGN_REQUESTED");
+      assert.equal(
+        (await w.get(before!.digest, w.agents.taker)).statusCode,
+        404,
+      );
+      w.signing.faults.crashBeforeSign = false;
+      if (crash === "transaction B")
+        await w.query("DROP TRIGGER fail_completion ON trading.quotes");
+      const fresh = await w.post("crash");
+      assert.equal(fresh.statusCode, 409);
+      assert.equal(fresh.json().code, "REQUEST_IN_PROGRESS");
+      await w.query(
+        "UPDATE trading.quotes SET updated_at=clock_timestamp()-interval '6 seconds'",
+      );
+      const resumed = await w.post("crash");
+      assert.equal(resumed.statusCode, 200, resumed.body);
+      assert.equal(resumed.json().quoteId, before!.digest);
+      assert.equal(resumed.json().message.nonce, before!.nonce);
+      assert.equal(
+        (await w.get(before!.digest, w.agents.taker)).statusCode,
+        200,
+      );
+      assert.deepEqual(await counts(w), {
+        quotes: 1,
+        reservations: 1,
+        intents: 1,
+        requests: 1,
+      });
+      assert.ok(
+        w.signing.calls.every(
+          (call) => call.signRequestId === before!.sign_request_id,
+        ),
+      );
+      assert.equal(
+        (await w.query("SELECT * FROM signing.artifacts")).length,
+        1,
+      );
+      assert.deepEqual((await w.post("crash")).json(), resumed.json());
+    } finally {
+      await w.close();
+    }
+  });
+}

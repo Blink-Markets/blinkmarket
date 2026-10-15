@@ -292,6 +292,7 @@ test("a thrown plain Error is a 500 INTERNAL_ERROR that leaks nothing", async ()
       },
     ],
   });
+  app.log.level = "silent";
   try {
     const res = await app.inject("/v1/markets");
     assert.equal(res.statusCode, 500);

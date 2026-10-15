@@ -130,6 +130,8 @@ export function createRfqService(deps: {
   store: TradingStore;
   crypto: IdentityCrypto;
   signer: RestrictedSigner;
+  /** Must match the signer transport timeout. */
+  signerTimeoutMs?: number;
   chain: ChainSnapshotReader;
   snapshots: SnapshotSource;
   /** The one canonical calldata encoder; application code cannot import adapters. */
@@ -211,31 +213,45 @@ export function createRfqService(deps: {
     snapshot: Awaited<ReturnType<SnapshotSource["latest"]>>,
   ): Promise<Admission> {
     const { principal, taker } = caller;
+    const payloadHash = deps.crypto.hash(
+      JSON.stringify({
+        keyId: principal.keyId,
+        body: {
+          deploymentId: body.deploymentId,
+          marketId: body.marketId,
+          side: body.side,
+          quantity: body.quantity,
+          maxCostMicros: body.maxCostMicros,
+        },
+      }),
+    );
     const claim = await tx.claimRequest(
       principal.operatorId,
       SCOPE,
       key,
-      deps.crypto.hash(
-        JSON.stringify({
-          keyId: principal.keyId,
-          body: {
-            deploymentId: body.deploymentId,
-            marketId: body.marketId,
-            side: body.side,
-            quantity: body.quantity,
-            maxCostMicros: body.maxCostMicros,
-          },
-        }),
-      ),
+      payloadHash,
     );
     if (claim.state === "DONE")
       return { kind: "respond", response: claim.result };
     if (claim.state === "CONFLICT")
       throw new IdentityError(409, "IDEMPOTENCY_CONFLICT");
     if (claim.state === "BUSY") {
+      const storedHash = await tx.requestPayloadHash(
+        principal.operatorId,
+        SCOPE,
+        key,
+      );
+      if (storedHash === null)
+        throw new IdentityError(409, "REQUEST_IN_PROGRESS");
+      if (storedHash !== payloadHash)
+        throw new IdentityError(409, "IDEMPOTENCY_CONFLICT");
       const existing = await tx.quoteByKey(principal.operatorId, key);
-      // The first attempt left its signing outcome unknown: ask the signer about that same request.
-      if (existing?.status === "SIGN_UNKNOWN")
+      // A crash can leave Transaction A committed without any signing outcome recorded.
+      const staleRequested =
+        existing?.status === "SIGN_REQUESTED" &&
+        (await tx.now()).getTime() - existing.updatedAt.getTime() >
+          (deps.signerTimeoutMs ?? 5000);
+      if (existing?.status === "SIGN_UNKNOWN" || staleRequested)
         return { kind: "sign", quote: existing };
       // It expired (by block time) before a signature was ever seen: nothing can come of this key.
       if (
@@ -396,6 +412,7 @@ export function createRfqService(deps: {
       quote: {
         ...quote,
         signRequestId,
+        updatedAt: await tx.now(),
         status: "SIGN_REQUESTED",
         envelope: null,
       },
