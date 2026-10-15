@@ -52,6 +52,7 @@ export {
 export {
   dispatchOutbox,
   type OutboxEvent,
+  type OutboxJobSpec,
   type OutboxMapping,
 } from "./outbox-dispatcher.js";
 export { postgresBudgetLedger } from "./budget-ledger.js";
@@ -102,3 +103,10 @@ export { encodeAllowedCall } from "./signing-calldata.js";
 export * from "./faucet-store.js";
 export * from "./keeper-store.js";
 export * from "./execution-chain-reader.js";
+export {
+  postgresTradingStore,
+  postgresReservationReader,
+  assertTradingInstalled,
+} from "./trading-store.js";
+export { chainSnapshotReader } from "./chain-snapshot-reader.js";
+export * from "./trading-admin.js";

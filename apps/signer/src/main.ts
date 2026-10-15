@@ -5,11 +5,16 @@ import {
   assertProductionClock,
   assertSignerRuntimeRole,
   encodeAllowedCall,
+  postgresReservationReader,
   postgresSignerStore,
   readKeyFile,
   viemSignerRpc,
 } from "@blink/adapters";
-import { assertSignerStartup, createSignerService } from "@blink/application";
+import {
+  assertSignerStartup,
+  createReservationQuoteCheck,
+  createSignerService,
+} from "@blink/application";
 import { DeploymentManifest } from "@blink/schemas";
 import { createService, startService } from "@blink/runtime";
 import { signerConfig } from "./config.js";
@@ -38,6 +43,8 @@ try {
       pool,
       process.env.BLINK_ALLOW_TEST_CLOCK === "1",
     );
+    // The reservation check reads trading.*: a database without that migration cannot sign quotes.
+    await pool.query("SELECT id FROM trading.quotes LIMIT 0");
     const store = postgresSignerStore(pool);
     const rpc = viemSignerRpc({
       url: config.rpcUrl!,
@@ -68,6 +75,8 @@ try {
         dailyCapWei: signingLimits.dailyCapWei,
       },
       encodeCall: encodeAllowedCall,
+      // A quote is signed only while a reservation of its maker cost is HELD (RFQ service, Task 9).
+      quoteCheck: createReservationQuoteCheck(postgresReservationReader()),
       // Codes only: an error message must never carry a key, a token or a request body.
       onError: (error) =>
         console.error(

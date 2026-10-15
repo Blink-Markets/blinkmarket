@@ -62,6 +62,7 @@ export {
   quoteRequestHash,
   quoteTypedData,
   QuoteCheckRejection,
+  createReservationQuoteCheck,
   type SignerDeps,
   type SignerCaller,
   type SignerPolicy,
@@ -78,3 +79,14 @@ export {
 export * from "./faucet.js";
 export * from "./keeper.js";
 export * from "./execution.js";
+export {
+  createRfqService,
+  createTradingReadiness,
+  indexerStatus,
+  type SnapshotSource,
+} from "./rfq.js";
+export {
+  createQuoteReconciler,
+  createQuoteReconcileHandler,
+  decideReservation,
+} from "./quote-reconcile.js";
