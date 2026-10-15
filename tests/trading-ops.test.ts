@@ -153,6 +153,75 @@ test("trading:admin closes and reopens a market's quoting, with an audit row eac
   }
 });
 
+test("a SPEC_INTEGRITY gate stops new quotes for the market and rewrites nothing settlement depends on", async () => {
+  const w = await tradingWorld();
+  try {
+    assert.equal((await w.post("before-gate")).statusCode, 200);
+    const settlement = () =>
+      w.query<{ name: string; rows: unknown }>(
+        `SELECT name, rows FROM (VALUES
+          ('markets', (SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY to_jsonb(x)::text),'[]') FROM chain.markets x)),
+          ('positions', (SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY to_jsonb(x)::text),'[]') FROM chain.positions x)),
+          ('digests', (SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY to_jsonb(x)::text),'[]') FROM chain.quote_digests x)),
+          ('quotes', (SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY to_jsonb(x)::text),'[]') FROM trading.quotes x)),
+          ('reservations', (SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY to_jsonb(x)::text),'[]') FROM trading.collateral_reservations x)),
+          ('events', (SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY to_jsonb(x)::text),'[]') FROM trading.reservation_events x)),
+          ('sign_requests', (SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY to_jsonb(x)::text),'[]') FROM signing.sign_requests x))
+        ) AS t(name, rows) ORDER BY name`,
+      );
+    const before = await settlement();
+    for (const name of ["markets", "quotes", "reservations", "sign_requests"])
+      assert.equal(
+        (before.find((row) => row.name === name)!.rows as unknown[]).length,
+        1,
+        name + " has the state being protected",
+      );
+    const [market] = await w.query<{ spec_hash: string }>(
+      "SELECT spec_hash FROM chain.markets WHERE market_id=1",
+    );
+    const gate = {
+      deploymentId: DEPLOYMENT,
+      marketId: "1",
+      reason: "SPEC_INTEGRITY" as const,
+      note: "Stored specification bytes no longer match the on-chain hash",
+    };
+    await w.t.db.exec("RESET ROLE; SET ROLE blink_trading_admin");
+    const admin = tradingAdmin(w.t.pool);
+    await admin.closeGate(gate);
+
+    const blocked = await w.post("while-gated");
+    assert.equal(blocked.statusCode, 409);
+    assert.equal(blocked.json().code, "NO_QUOTE");
+    assert.equal(blocked.json().details.reason, "SPEC_INTEGRITY");
+    assert.equal(blocked.json().retryable, false);
+    // Nothing was quoted, reserved or signed; the existing quote, positions and the market are exactly as they were.
+    assert.deepEqual(await settlement(), before);
+    assert.deepEqual(
+      await w.query(
+        "SELECT spec_hash FROM chain.markets WHERE market_id=1",
+      ),
+      [market],
+    );
+    assert.deepEqual(
+      await w.query(
+        "SELECT action, resource FROM operations.audit_log WHERE action LIKE 'trading.%'",
+      ),
+      [
+        {
+          action: "trading.gate_closed",
+          resource: `${DEPLOYMENT}:1:SPEC_INTEGRITY`,
+        },
+      ],
+    );
+
+    await w.t.db.exec("RESET ROLE; SET ROLE blink_trading_admin");
+    await admin.reopenGate(gate);
+    assert.equal((await w.post("after-integrity-restored")).statusCode, 200);
+  } finally {
+    await w.close();
+  }
+});
+
 test("least privilege: each runtime role touches only what its job needs", async () => {
   const w = await tradingWorld();
   try {

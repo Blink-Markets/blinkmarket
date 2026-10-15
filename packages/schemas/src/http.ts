@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AdminMetricsResponse, HealthResponse } from "./health.ts";
 import { CreationChainStatus } from "./creation-status.ts";
 import { PublicDeployment } from "./deployment.ts";
 import {
@@ -202,6 +203,9 @@ function operation(
   };
 }
 export const apiContracts: readonly HttpContract[] = [
+  operation("GET", "/v1/admin/metrics", AdminMetricsResponse, {
+    access: "admin",
+  }),
   operation(
     "GET",
     "/v1/admin/creation-intents/:id/chain-status",
@@ -557,6 +561,20 @@ export function generateOpenApi(enabledPaths: readonly string[] = []) {
       responses,
     };
   }
+  paths["/v1/health"] = {
+    get: {
+      security: [{}, { ApiKey: [] }],
+      responses: Object.fromEntries(
+        [200, 503].map((code) => [
+          String(code),
+          {
+            description: "Readiness; details require an admin key",
+            content: { "application/json": { schema: json(HealthResponse) } },
+          },
+        ]),
+      ),
+    },
+  };
   paths["/v1/config"] = {
     get: {
       responses: {
