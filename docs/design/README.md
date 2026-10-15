@@ -1,8 +1,8 @@
 # v0.1 細部設計
 
-進度更新：工作包A/M0與B/M1已完成本機實作，詳見 [交付與驗證](../M0_M1_DELIVERY.md)。下文「尚未實作」描述設計提出時的狀態；API業務接線仍未啟用。
+進度更新（Tasks 1–13）：A/M0、B/M1 與 backend 的公開讀取、indexer、signer、RFQ、研究及營運切片已實作，尚未部署。見 [文件交付與狀態索引](../T17_DOCS_PASS1.md)、[RFQ](../M2_RFQ.md) 與 [研究 worker](../M3_RESEARCH_WORKERS.md)。僅本機 REPLAY，沒有付費模型；LIVE 核准仍拒絕。內部 trader、擴充 SDK／example agent、整合式本機 Alpha harness 與 readiness 留待後續工作。
 
-狀態：設計基線，2026-09-22。依第一版產品規格與既有架構拆解，可作後續實作與 code review 的依據；**文件中的 API、SQL、狀態與服務協定尚未接線**。
+狀態：設計基線，2026-09-22。依第一版產品規格與既有架構拆解，可作後續實作與 code review 的依據；**下文是設計基線，實作範圍與差異以各交付記錄及程式為準，不代表已部署或所有工作包已完成**。
 
 本輪範圍是 M0/M1 的完整設計，以及 M2/M3 關鍵整合契約。前端視覺、實際公司、模型供應商、hosting、RPC 及正式角色地址不在此虛構。
 
@@ -32,4 +32,4 @@
 
 ## 設計提出時的程式狀態（歷史）
 
-本輪只新增／修正文檔，沒有改 API 行為、schema、合約或資料庫。原骨架仍回 501、tradingEnabled=false。尤其新 deploymentId 規則、spec v0.1.1、Signer intent 協定尚未寫入程式；差異逐項列在工作包，不能用設計文件宣稱它們已生效。
+2026-09-22 設計提出時只有骨架，API 回 501。此為歷史背景：deploymentId、spec v0.1.1、持久化 signer intent、公開讀取與 trading 模式現已實作。未啟用的模式仍 fail-closed；`tradingEnabled` 受 manifest、deployment、indexer 與抵押池 gate 控制。沒有公開 API host，網站上沒有交易；不得把設計表格當成完整上線驗收。

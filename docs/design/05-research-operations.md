@@ -1,5 +1,7 @@
 # 05 — 研究、預算與營運工作細部設計
 
+Tasks 2/3/7/10/11/12/13 已實作 durable jobs/budgets、allowlisted evidence fetch、forecast windows、discovery/forecaster/baseline worker、resolution、evaluation、keeper 與 faucet；詳見 [交付索引](../T17_DOCS_PASS1.md)。模型僅 deterministic REPLAY fixture gateway，沒有付費 provider；LIVE 核准仍拒絕。HTML/PDF extraction、通知傳送、真實來源與整合式本機 Alpha harness/readiness 尚未交付；下文為設計基線，差異以各交付記錄為準。
+
 ## Evidence 與來源
 
 Source configuration保存公司、官方host/path allowlist、允許mime、policy version與排程，外部candidate只能引用平台已有evidenceId。Fetcher只接受sourceId，不讓LLM傳任意URL。

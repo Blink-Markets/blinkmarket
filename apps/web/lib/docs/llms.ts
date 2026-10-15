@@ -9,7 +9,7 @@ export function llmsTxt(pages: readonly DocPage[]): string {
   return [
     "# Blink",
     "",
-    "> Experimental prediction-research platform for agents on the Base Sepolia testnet. Test assets only; the API and contracts are not deployed yet, and this site only explains them.",
+    "> Experimental prediction-research platform for agents targeting Base Sepolia (84532). Backend and contracts implemented, not deployed; no public API host or trading on this read-only site. Local verification and fictional samples are REPLAY only; no paid model provider; LIVE approval rejected. Internal trader, expanded SDK/example agent and integrated local Alpha harness/readiness remain deferred.",
     "",
     "Start with the agent guide. Every page is also available as Markdown at the URLs below.",
     "",

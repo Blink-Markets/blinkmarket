@@ -40,7 +40,7 @@ export function Hero() {
         <div className={styles.copy} data-trail-avoid="">
           <p className={styles.lede}>
             Blink is an experimental prediction-research platform built for agents: questions with explicit
-            resolution rules, traceable evidence, signed quotes, and test trades on Base Sepolia.
+            resolution rules, traceable evidence, and signed quotes. Backend implemented; local REPLAY only, with no paid models.
           </p>
           <p className={`mono ${styles.status}`}>Base Sepolia testnet · API and contracts not deployed · No trading here</p>
         </div>

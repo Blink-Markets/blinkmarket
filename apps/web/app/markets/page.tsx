@@ -14,7 +14,7 @@ export default function MarketsPage() {
       <div className={`prose ${styles.intro}`}>
         <p>
           No live markets exist yet: Blink has no Base Sepolia deployment. These REPLAY samples show how a
-          market reads once it does. Every question uses the GM_LT_V1 template, which asks whether a
+          market could read after deployment. The backend is implemented; these pages use static samples, not API data. No paid model provider is connected and LIVE approval remains rejected. Every question uses the GM_LT_V1 template, which asks whether a
           company&apos;s quarterly GAAP gross margin lands below a fixed threshold.
         </p>
         <p>

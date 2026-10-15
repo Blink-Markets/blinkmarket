@@ -37,6 +37,12 @@ The goal is to understand not only whether a forecast was right, but also its ev
 > [!IMPORTANT]
 > Blink Market is a research project on the Base Sepolia **testnet**. It uses a test token with no value, the contracts are not audited, and nothing here is financial advice.
 
+## Current status
+
+The API and contracts are **implemented, not yet deployed**. There is no public API host or Base Sepolia deployment, and nothing trades on this read-only site. Its markets are fictional REPLAY samples. Local verification uses REPLAY fixtures and Anvil with chain ID 84532; no paid model provider is connected and LIVE approval remains rejected.
+
+Tasks 1–13 deliver durable jobs and budgets, allowlisted evidence fetching, discovery and fixture forecasters, forecast windows and evaluation, public chain reads and transaction tracking, reorg-aware indexing, restricted signing, RFQ reservations, resolution reports, keeper finalization and the test-asset faucet. Deployment tooling exists for local verification. This does not mark all milestones complete: the internal trader, expanded client SDK/example agent, integrated local Alpha harness and health/metrics readiness remain deferred, alongside wallet/trading/admin UI and public deployment. Public evaluation metrics are implemented separately from runtime readiness.
+
 ## Architecture
 
 ![Hand-drawn Blink Market target architecture: Web and wallets request quotes from the API; the backend coordinates research, storage and a private signer; wallets trade and redeem directly on Base Sepolia; the indexer syncs chain events into PostgreSQL.](docs/assets/architecture-sketch-light.png)
@@ -94,7 +100,7 @@ packages/
   application/ use cases
   adapters/    database, migrations, evidence and specification archive, deployment checks
   runtime/     shared HTTP startup, health and error handling
-  client/      TypeScript client built on the shared contracts
+  client/      Initial private TypeScript client; expanded SDK/example agent deferred
 contracts/     BlinkTestUSD and BlinkMarket, Foundry tests, generated ABI and bytecode
 infra/         local PostgreSQL (Docker Compose) and the API container template
 deployments/   release manifest templates (no real addresses)
@@ -108,6 +114,9 @@ tests/         unit, contract-protocol and browser tests
 - **[Docs site](https://blink-markets.github.io/blinkmarket/docs/)**: concepts, lifecycle, API reference and a guide for agents. Every page is also available as Markdown.
 - [Architecture walkthrough](docs/ARCHITECTURE_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Data model](docs/DATA_MODEL.md) · [Detailed design](docs/design/README.md)
 - [Development](docs/DEVELOPMENT.md) · [Operations](docs/OPERATIONS.md) · [Roadmap](docs/ROADMAP.md) · [Architecture decisions](docs/adr/0001-platform.md) · [Domain terminology](CONTEXT.md)
+- Backend delivery: [Foundation](docs/M2_FOUNDATION_SEAMS.md) · [RFQ](docs/M2_RFQ.md) · [Signer](docs/M2_SIGNER.md) · [Chain indexer](docs/M2_CHAIN_INDEXER.md) · [Public reads](docs/M2_PUBLIC_READS.md)
+- Research and operations: [Jobs/budgets](docs/M3_JOBS_BUDGETS.md) · [Evidence fetcher](docs/M3_EVIDENCE_FETCHER.md) · [Forecasts](docs/M3_FORECASTS.md) · [Research workers](docs/M3_RESEARCH_WORKERS.md) · [Resolution](docs/M3_RESOLUTION.md) · [Evaluation](docs/M3_EVALUATION.md) · [Keeper/faucet](docs/M3_KEEPER_FAUCET.md)
+- [Deployment tooling](docs/M5_DEPLOYMENT_TOOLING.md) · [Documentation pass 1](docs/T17_DOCS_PASS1.md)
 - [Original MVP specification](Blink_MVP_v0.1_Base_Sepolia_Spec.md)
 
 Most documents in `docs/` are written in Traditional Chinese.
