@@ -47,15 +47,18 @@ deliveries; the existing API client tests below do not prove external usability.
 | S06 | `tests/discovery.test.ts`: hostile document; `tests/allowlist-fetcher.test.ts`: SSRF/redirect rules; `tests/signing-policy.test.ts`, `tests/signer.test.ts`: selector/value/destination and trusted request reload | `node --import tsx --test tests/discovery.test.ts tests/allowlist-fetcher.test.ts tests/signing-policy.test.ts tests/signer.test.ts` |
 | S07 | `tests/tx-dispatcher.test.ts`, `tests/signer.test.ts`, `tests/faucet-worker.test.ts`, `tests/keeper.test.ts`: unknown receipt/restart reconciliation, stable intent/sign request/nonce; `tests/anvil/signer-dispatch.test.ts` exercises real RPC | `node --import tsx --test tests/tx-dispatcher.test.ts tests/signer.test.ts tests/faucet-worker.test.ts tests/keeper.test.ts`; `pnpm test:anvil` |
 | S08 | `tests/tx-tracking.test.ts`, `tests/chain-indexer.test.ts`, `tests/quote-reconcile.test.ts`; `tests/anvil/chain-indexer.test.ts`, `tests/anvil/rfq.test.ts`: replacement, duplicate logs, rollback/rebuild and reopened collateral | `node --import tsx --test tests/tx-tracking.test.ts tests/chain-indexer.test.ts tests/quote-reconcile.test.ts`; `pnpm test:anvil` |
-| S09 | `tests/preparation.test.ts`: corrupt source bytes fail approval; `tests/m0.test.ts`, `tests/approval-policy.test.ts`, `tests/file-object-store.test.ts`: spec byte/hash tampering and exact content-addressed bytes; `tests/trading-ops.test.ts`, `tests/rfq.test.ts`: SPEC_INTEGRITY gate stops quotes without rewriting settlement | `node --import tsx --test tests/preparation.test.ts tests/m0.test.ts tests/approval-policy.test.ts tests/file-object-store.test.ts tests/trading-ops.test.ts tests/rfq.test.ts` |
+| S09 | `tests/preparation.test.ts`: corrupt source bytes fail approval; `tests/m0.test.ts`, `tests/approval-policy.test.ts`, `tests/file-object-store.test.ts`: spec byte/hash tampering and exact content-addressed bytes; `tests/market-read.test.ts`: a tampered archived spec is refused on read with `SPEC_UNAVAILABLE` and an audit row; `tests/trading-ops.test.ts`, `a SPEC_INTEGRITY gate stops new quotes...`: an operator-closed SPEC_INTEGRITY gate answers `NO_QUOTE`/`SPEC_INTEGRITY` and leaves markets, positions, quotes, reservations and sign requests unchanged. **Partial:** no automatic detector closes the gate | `node --import tsx --test tests/preparation.test.ts tests/m0.test.ts tests/approval-policy.test.ts tests/file-object-store.test.ts tests/market-read.test.ts tests/trading-ops.test.ts` |
 | S10 | `tests/forecasts.test.ts`, `tests/rfq.test.ts`, `tests/trading-ops.test.ts`: stale snapshot, early-announcement gate, indexer lag and reasons; `tests/health.test.ts`: degraded deployment health | `node --import tsx --test tests/forecasts.test.ts tests/rfq.test.ts tests/trading-ops.test.ts tests/health.test.ts` |
 | S11 | `tests/evaluation.test.ts`, `tests/market-read.test.ts`, `tests/web-sample-markets.test.ts`: mode is preserved, REPLAY excluded from LIVE event scores; harness will assert no LIVE rows | `node --import tsx --test tests/evaluation.test.ts tests/market-read.test.ts tests/web-sample-markets.test.ts`; pending `pnpm alpha:local` |
 | S12 | `tests/identity.test.ts`: invited client binds wallet through HTTP; `tests/discovery.test.ts`, `tests/platform-forecaster.test.ts`: platform agents use public API without DB mutation privileges. Full standalone example flow belongs to Task 15 and the Task 16b harness | `node --import tsx --test tests/identity.test.ts tests/discovery.test.ts tests/platform-forecaster.test.ts`; pending `pnpm alpha:local` |
 
-S09 currently demonstrates separate source/archive integrity checks and an
-operator-applied SPEC_INTEGRITY gate. It does not demonstrate an automatic
-background corruption detector closing that gate. That operational detection
-and response remains a manual drill.
+S09 is partially covered. Tested: separate source/archive integrity checks, the
+read-time refusal of a tampered spec, and the operator response (closing a
+SPEC_INTEGRITY gate stops new quotes without rewriting settlement state). Not
+implemented or tested: an automatic background detector that notices stored-spec
+corruption and closes that gate. Detection and gate closure remain a manual drill.
+The generic gate path is also exercised with OUTCOME_KNOWN and OPERATOR_PAUSE in
+`tests/rfq.test.ts` and `tests/trading-ops.test.ts`.
 
 ## §17.3 Remaining public Alpha work
 

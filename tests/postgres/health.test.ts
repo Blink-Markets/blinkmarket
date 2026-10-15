@@ -34,14 +34,32 @@ test("real PostgreSQL: API observability grants, percentiles and stable receipt 
         [artifact, request.signRequestId, index ? "ab" : "cd"],
       );
       const attempt = randomUUID();
-      await worker.query(
-        `INSERT INTO signing.tx_attempts(id,intent_id,artifact_id,tx_hash,nonce,gas_limit,max_fee_per_gas,max_priority_fee_per_gas,max_cost_wei,status,submitted_at)
-        VALUES($1,$2,$3,decode(repeat($4,32),'hex'),$5,21000,1,0,21000,'SUBMITTED',clock_timestamp()-interval '10 seconds')`,
-        [attempt, request.intentId, artifact, index ? "ab" : "cd", index],
-      );
-      await worker.query(
-        "UPDATE signing.tx_attempts SET status='INCLUDED' WHERE id=$1",
-        [attempt],
+      // The worker stamps submission and inclusion on blink.now(): a positive test-clock offset
+      // moves both, so the observed latency stays real elapsed time.
+      const session = await worker.connect();
+      try {
+        await session.query("SET blink.test_clock_offset_seconds = '3600'");
+        await session.query(
+          `INSERT INTO signing.tx_attempts(id,intent_id,artifact_id,tx_hash,nonce,gas_limit,max_fee_per_gas,max_priority_fee_per_gas,max_cost_wei,status,submitted_at)
+          VALUES($1,$2,$3,decode(repeat($4,32),'hex'),$5,21000,1,0,21000,'SUBMITTED',blink.now()-interval '10 seconds')`,
+          [attempt, request.intentId, artifact, index ? "ab" : "cd", index],
+        );
+        await session.query(
+          "UPDATE signing.tx_attempts SET status='INCLUDED' WHERE id=$1",
+          [attempt],
+        );
+      } finally {
+        session.release();
+      }
+      const naturalMs = (
+        await owner.query(
+          "SELECT EXTRACT(EPOCH FROM (included_at-submitted_at))*1000 AS ms FROM signing.tx_attempts WHERE id=$1",
+          [attempt],
+        )
+      ).rows[0].ms;
+      assert.ok(
+        naturalMs >= 10_000 && naturalMs < 60_000,
+        `inclusion latency ${naturalMs} ms is real elapsed time under a clock offset`,
       );
       const observed = (
         await owner.query(

@@ -44,9 +44,10 @@ current persisted rows, not a history of every HTTP request; errors group
 recorded time. Gas is read from the authoritative role/day ledger.
 
 Migration `0019_observability.sql` adds a stable `included_at` timestamp, set by
-a trigger on receipt observation, preserved on finalization and cleared on reorg.
-Receipt observation measures when the service saw inclusion, not the block's
-timestamp. Old receipts are deliberately not backfilled from mutable
+a trigger on receipt observation on the business clock (`blink.now()`, as for
+`submitted_at`, so latency stays correct under a test-clock offset), preserved on
+finalization and cleared on reorg. Receipt observation measures when the service
+saw inclusion, not the block's timestamp. Old receipts are deliberately not backfilled from mutable
 `updated_at`. The API gains column-only reads of attempt status/timestamps and
 read access to the gas ledger; it still cannot read raw signed transactions or
 attempt transaction hashes. Existing migrations are unchanged. Number 0018 is
@@ -56,15 +57,16 @@ reserved for the parallel internal trader task.
 
 Verified locally on 2026-10-15:
 
-- `pnpm check`: passed, 498 Node tests, both TypeScript checks, contract
+- `pnpm check`: passed, 500 Node tests, both TypeScript checks, contract
   compilation and package boundary checks.
 - `pnpm test:contracts`: passed, 24 tests including fuzz and invariants.
 - `TEST_POSTGRES_ADMIN_URL=<local test URL> pnpm test:postgres`: passed,
   31 tests including real-role observability grants and percentile calculations.
 - `pnpm test:anvil`: passed, 44 tests on local chain ID 84532.
 - `pnpm build:services && pnpm test:service-build`: passed, 5 bundle tests.
-- `pnpm build`: ordinary run blocked by Google Fonts access; full build passed
-  with temporary offline font fixtures as described below.
+- `pnpm build`: the first run was blocked by Google Fonts access and passed with
+  temporary offline font fixtures as described below; the ordinary run passed
+  in the fix round.
 - Acceptance matrix validation: all 27 required cases appear exactly once and
   all referenced existing test files exist; alpha harness explicitly pending.
 - `git diff --check`: passed.

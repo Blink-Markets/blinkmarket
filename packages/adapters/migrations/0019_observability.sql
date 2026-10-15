@@ -1,4 +1,5 @@
 -- A stable receipt observation time: updated_at also changes on finalization and retries.
+-- It uses the business clock (blink.now()), like submitted_at, so the two stay comparable under a test-clock offset.
 -- Existing receipts have no trustworthy observation time and stay out of latency samples.
 ALTER TABLE signing.tx_attempts ADD COLUMN included_at TIMESTAMPTZ;
 CREATE FUNCTION signing.observe_inclusion() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -8,7 +9,7 @@ BEGIN
   ELSIF NEW.status IN ('INCLUDED','FINALIZED','REVERTED') AND
     (TG_OP = 'INSERT' OR OLD.status NOT IN ('INCLUDED','FINALIZED','REVERTED') OR
      OLD.receipt_block_hash IS DISTINCT FROM NEW.receipt_block_hash) THEN
-    NEW.included_at := clock_timestamp();
+    NEW.included_at := blink.now();
   END IF;
   RETURN NEW;
 END $$;

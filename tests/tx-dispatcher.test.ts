@@ -13,6 +13,7 @@ import {
   postgresDispatchStore,
   postgresSignerStore,
 } from "../packages/adapters/src/signing-store.js";
+import { postgresHealthReader } from "../packages/adapters/src/health-reader.js";
 import type {
   DispatchReceipt,
   DispatchRpc,
@@ -239,6 +240,30 @@ test("a dispatched transaction is INCLUDED, then FINALIZED once the provider rep
     // A settled intent is not touched again.
     assert.equal(await h.dispatcher.dispatch(intent.intentId), "FINALIZED");
     assert.equal(h.chain.sent.length, 1);
+  } finally {
+    await h.t.close();
+  }
+});
+
+test("submit-to-inclusion latency is measured on the business clock, also under a positive test-clock offset", async () => {
+  const h = await harness();
+  try {
+    await h.advance(3600);
+    const intent = await h.keeperIntent();
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "SUBMITTED");
+    const [hash] = await h.hashOf();
+    h.mine(hash!, 10n);
+    assert.equal(await h.dispatcher.dispatch(intent.intentId), "INCLUDED");
+    const metrics = await postgresHealthReader(
+      h.t.pool,
+      h.manifest.deploymentId,
+    ).metrics();
+    assert.equal(metrics.txInclusionLatency.samples, "1");
+    assert.ok(
+      metrics.txInclusionLatency.p50Ms! >= 0 &&
+        metrics.txInclusionLatency.p50Ms! < 60_000,
+      "the latency is real elapsed time, not the offset",
+    );
   } finally {
     await h.t.close();
   }

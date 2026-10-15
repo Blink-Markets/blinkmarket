@@ -424,6 +424,14 @@ test("chain-state rejections: pauses, closing, allow-list, caps and operator gat
       "UPDATE trading.quote_gates SET reopened_at=blink.now(), reopened_by='op'",
     );
     assert.equal((await w.post("reopened")).statusCode, 200);
+    await w.query(
+      "INSERT INTO trading.quote_gates(id,deployment_id,market_id,reason,actor,note) VALUES (gen_random_uuid(),$1,1,'ANNOUNCEMENT_EARLY','op','results leaked early')",
+      [DEPLOYMENT],
+    );
+    await reject("early-announcement", 409, "NO_QUOTE", "ANNOUNCEMENT_EARLY");
+    await w.query(
+      "UPDATE trading.quote_gates SET reopened_at=blink.now(), reopened_by='op' WHERE reopened_at IS NULL",
+    );
     // Rejections are stored terminally: the closed gate does not change an answered key.
     assert.equal((await w.post("gate")).json().details.reason, "OUTCOME_KNOWN");
   } finally {
