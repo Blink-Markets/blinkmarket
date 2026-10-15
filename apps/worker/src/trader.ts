@@ -29,7 +29,9 @@ import type {
 
 const EVALUATE_EVERY_MS = 5 * 60_000;
 const RESUME_EVERY_MS = 15_000;
-const RFQ_TIMEOUT_MS = 15_000;
+// The worker runs one job at a time: an RFQ that is not answered in this long is asked again later.
+const RFQ_TIMEOUT_MS = 4000;
+const RESUME_SOON_MS = 2000;
 
 /** The public RFQ API with the trader's own key. Every failure is classified, none is thrown. */
 export function traderQuoteApi(
@@ -132,6 +134,19 @@ export async function buildTrader(deps: {
         payload: { intentId },
         maxAttempts: 10,
       });
+    },
+    // A run that ran out of time leaves its pending buys to a run at most one bucket later.
+    async resume() {
+      const now = new Date(
+        (await pool.query("SELECT blink.now() AS now")).rows[0].now,
+      );
+      await schedulePeriodic(
+        queue,
+        "trader.evaluate",
+        RESUME_SOON_MS,
+        { resume: "soon" },
+        now,
+      );
     },
   });
   return {

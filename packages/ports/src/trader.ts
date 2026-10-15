@@ -119,6 +119,8 @@ export interface PrepareTraderIntent {
   payload: Record<string, unknown>;
   /** The call the signer will check and sign: exactly {to, functionName, args}. */
   unsignedPayload: Record<string, unknown>;
+  /** The reservation this spends; null for a redeem, which pays the wallet and spends nothing. */
+  reservationId: string | null;
 }
 
 export interface TraderStore {
@@ -142,8 +144,18 @@ export interface TraderStore {
   release(reservationId: string, reason: string): Promise<void>;
   /** HELD to ACCOUNTED when `accounted`, ACCOUNTED back to HELD when not (the fill's block was reorged away). */
   setAccounted(reservationId: string, accounted: boolean): Promise<void>;
-  /** Creates the economic intent and its first sign request; the same dedupe key returns the same intent. */
-  prepare(input: PrepareTraderIntent): Promise<{ intentId: string }>;
+  /**
+   * Under the mandate's lock, true only while the reservation is still HELD and the mandate is
+   * enabled. Release takes the same lock, so a buy that was given back is never spent afterwards.
+   */
+  authorize(reservationId: string): Promise<boolean>;
+  /**
+   * Creates the economic intent and its first sign request; the same dedupe key returns the same
+   * intent. A spend (`reservationId` set) is authorized under the lock first: null means it was not.
+   */
+  prepare(input: PrepareTraderIntent): Promise<{ intentId: string } | null>;
+  /** The forecast window a snapshot (and so a quote's price) was made from. */
+  snapshotWindow(snapshotId: string): Promise<string | null>;
   intent(intentId: string): Promise<TraderIntentFact | null>;
   /** FINAL markets where the wallet still holds shares, with its redeem intent if one exists. */
   redeemable(input: {

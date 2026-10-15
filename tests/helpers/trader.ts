@@ -78,17 +78,13 @@ export function fakeDispatcher(w: TradingWorld) {
     REDEEM: "mine",
   };
   const calls: { intentId: string; kind: string }[] = [];
-  return {
-    modes,
-    calls,
-    kinds: () => calls.map((c) => c.kind),
-    async dispatch(intentId: string) {
-      const [row] = await w.query<{ kind: string }>(
-        "SELECT kind FROM signing.economic_intents WHERE id=$1",
-        [intentId],
-      );
-      calls.push({ intentId, kind: row!.kind });
-      const mode = modes[row!.kind]!;
+  /** Runs after a dispatch took effect and before the trader sees its answer: another run's move. */
+  const hooks: {
+    afterDispatch: null | ((kind: string, intentId: string) => Promise<void>);
+  } = { afterDispatch: null };
+  const settle = async (intentId: string, kind: string) => {
+    {
+      const mode = modes[kind]!;
       if (mode === "mine") {
         await markMined(w, intentId, {
           state: "INCLUDED",
@@ -124,6 +120,24 @@ export function fakeDispatcher(w: TradingWorld) {
         throw new TxDispatchError("SIGN_REJECTED:GAS_ESTIMATE_FAILED", false);
       }
       return "SUBMITTED" as const;
+    }
+  };
+  return {
+    modes,
+    calls,
+    hooks,
+    kinds: () => calls.map((c) => c.kind),
+    async dispatch(intentId: string) {
+      const [row] = await w.query<{ kind: string }>(
+        "SELECT kind FROM signing.economic_intents WHERE id=$1",
+        [intentId],
+      );
+      calls.push({ intentId, kind: row!.kind });
+      try {
+        return await settle(intentId, row!.kind);
+      } finally {
+        await hooks.afterDispatch?.(row!.kind, intentId);
+      }
     },
   };
 }
@@ -140,12 +154,17 @@ export type Tamper = (
 export function apiOver(
   w: TradingWorld,
   agent: { apiKey: string },
-  options: { tamper?: Tamper | undefined } = {},
+  options: {
+    tamper?: Tamper | undefined;
+    /** Runs before the request reaches the API: another run's move while this one waits for it. */
+    before?: ((key: string) => Promise<void>) | undefined;
+  } = {},
 ) {
   const calls: { input: Record<string, unknown>; key: string }[] = [];
   const api: TraderQuoteApi = {
     async requestQuote(input, key) {
       calls.push({ input, key });
+      await options.before?.(key);
       const res = await w.post(key, input, agent);
       const body = res.json();
       if (res.statusCode !== 200)
@@ -170,6 +189,7 @@ export function apiOver(
 export async function traderWorld(
   options: {
     tamper?: Tamper;
+    before?: (key: string) => Promise<void>;
     a?: number;
     b?: number;
     window?: boolean;
@@ -231,9 +251,14 @@ export async function traderWorld(
   });
   const store = postgresTraderStore(poolAs(w.t, "blink_worker"));
   const dispatcher = fakeDispatcher(w);
-  const { api, calls } = apiOver(w, agent, { tamper: options.tamper });
+  const { api, calls } = apiOver(w, agent, {
+    tamper: options.tamper,
+    before: options.before,
+  });
   const tracked: string[] = [];
-  let tick = 0;
+  // A clock that moves only when the trader sleeps: its time budget is exact and nothing really waits.
+  const clock = { ms: 0 };
+  const resumes = { count: 0 };
   const build = (overrides: Partial<Parameters<typeof createTrader>[0]> = {}) =>
     createTrader({
       store,
@@ -244,9 +269,13 @@ export async function traderWorld(
       deploymentId: DEPLOYMENT,
       role: "FORECASTER_A",
       track: async (id) => void tracked.push(id),
-      sleep: async () => undefined,
-      // Each look at the clock is five seconds later, so a pending transaction gives up quickly.
-      now: () => (tick += 5000),
+      sleep: async (ms) => {
+        clock.ms += ms;
+      },
+      now: () => clock.ms,
+      resume: async () => {
+        resumes.count += 1;
+      },
       ...overrides,
     });
   const signal = new AbortController().signal;
@@ -262,6 +291,8 @@ export async function traderWorld(
     api,
     apiCalls: calls,
     tracked,
+    clock,
+    resumes,
     build,
     trader: build(),
     run: () => build().evaluate(signal),

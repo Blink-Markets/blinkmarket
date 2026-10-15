@@ -531,7 +531,7 @@ test("a window is bought once, and a retry after a transient RFQ failure reuses 
   }
 });
 
-test("a business rejection releases the risk for good; an RFQ that is never admitted is given back after the patience", async () => {
+test("a terminal rejection releases the risk for good; an RFQ with no answer is never given back for being late", async () => {
   const w = await traderWorld();
   try {
     // The projection says the wallet may take but the contract view says it may not.
@@ -565,15 +565,43 @@ test("a business rejection releases the risk for good; an RFQ that is never admi
   try {
     slow.chain.state.headFails = true;
     await slow.run();
-    // 200 seconds on the business clock, with the indexer still fresh at that time.
+    // 200 seconds on the business clock, with the indexer still fresh at that time: the answer is
+    // late, which is not a definitive failure, so the same RFQ is asked again under the same key.
     await slow.setDbClock(200);
     await slow.setCursor({ number: HEAD_NUMBER, timestamp: slow.ts });
+    const id = intentOf(slow, slow.windowId!);
     const late = await slow.run();
-    assert.deepEqual(Object.values(late.trades), ["RELEASED:RFQ_NOT_ADMITTED"]);
+    assert.deepEqual(late.trades, { [id]: "WAITING:RFQ:CHAIN_UNAVAILABLE" });
     assert.deepEqual(
-      (await slow.reservations()).map((r) => r.release_reason),
-      ["RFQ_NOT_ADMITTED"],
+      (await slow.reservations()).map((r) => r.state),
+      ["HELD"],
     );
+    assert.ok(slow.resumes.count >= 1, "and a resume run is asked for");
+    slow.chain.state.headFails = false;
+    assert.deepEqual((await slow.run()).trades, { [id]: "FILL_INCLUDED" });
+    assert.deepEqual(
+      slow.apiCalls.map((c) => c.key),
+      Array(3).fill("trader-" + id),
+    );
+    assert.deepEqual(slow.dispatcher.kinds(), ["APPROVE", "FILL"]);
+
+    // What is definitive without any answer: the market has closed on block time, so no quote
+    // that could still be filled can exist.
+    const closing = await traderWorld();
+    try {
+      closing.chain.state.headFails = true;
+      await closing.run();
+      await closing.setCursor({
+        number: HEAD_NUMBER,
+        timestamp: closing.ts + 100_000n,
+      });
+      assert.deepEqual(Object.values((await closing.run()).trades), [
+        "RELEASED:MARKET_CLOSED",
+      ]);
+      assert.equal(closing.apiCalls.length, 1, "it was not asked again");
+    } finally {
+      await closing.close();
+    }
   } finally {
     await slow.close();
   }
@@ -1024,6 +1052,245 @@ test("no mandate, an ambiguous mandate and an aborted run", async () => {
   }
 });
 
+const reservationId = async (w: TraderWorld) =>
+  (
+    await w.query<{ id: string }>(
+      "SELECT id FROM trading.risk_reservations ORDER BY created_at DESC LIMIT 1",
+    )
+  )[0]!.id;
+
+test("a slow run and a later run on the same buy end on one buy: never a released reservation with a fill", async () => {
+  // Run A waits for its RFQ answer; meanwhile 200 seconds pass and run B carries the same buy all
+  // the way. A used to find no quote row at that age and give the risk back, after which B (or A)
+  // approved and filled it: a position the mandate no longer counted.
+  let world: TraderWorld | null = null;
+  let nested = false;
+  const w = await traderWorld({
+    before: async () => {
+      if (nested) return;
+      nested = true;
+      await world!.setDbClock(200);
+      await world!.setCursor({ number: HEAD_NUMBER, timestamp: world!.ts });
+      assert.deepEqual(Object.values((await world!.run()).trades), [
+        "FILL_INCLUDED",
+      ]);
+    },
+  });
+  world = w;
+  try {
+    const outcome = Object.values((await w.run()).trades);
+    assert.deepEqual(outcome, ["FILL_INCLUDED"]);
+    assert.deepEqual(await w.reservations(), [
+      {
+        state: "HELD",
+        side: "YES",
+        shares: 10,
+        ask_bps: 6700,
+        release_reason: null,
+        notional_micros: "10000000",
+      },
+    ]);
+    assert.deepEqual(
+      (await w.intents()).map((i) => i.kind),
+      ["APPROVE", "FILL"],
+      "one approve and one fill, however many runs carried the buy",
+    );
+    assert.equal(
+      (await w.query("SELECT id FROM trading.quotes")).length,
+      1,
+      "one quote under the one key",
+    );
+  } finally {
+    await w.close();
+  }
+});
+
+test("a buy given back between two steps is not spent any further", async () => {
+  const w = await traderWorld();
+  try {
+    const q = <R = Record<string, unknown>>(sql: string) => w.query<R>(sql);
+    const fills = async () =>
+      (await w.intents()).filter((i) => i.kind === "FILL").length;
+
+    // Released by another run right after the approve was sent: no fill is prepared or sent.
+    w.dispatcher.hooks.afterDispatch = async (kind) => {
+      if (kind === "APPROVE")
+        await w.store.release(await reservationId(w), "OTHER_RUN");
+    };
+    assert.deepEqual(Object.values((await w.run()).trades), [
+      "WAITING:NOT_AUTHORIZED",
+    ]);
+    assert.deepEqual(w.dispatcher.kinds(), ["APPROVE"]);
+    assert.equal(await fills(), 0);
+    assert.deepEqual(
+      (await w.reservations()).map((r) => r.release_reason),
+      ["OTHER_RUN"],
+    );
+
+    // Released while the approve is still pending: the very next dispatch is not made.
+    await w.seedWindow({ hoursAgo: 0 });
+    await freeMaker(w);
+    w.dispatcher.modes.APPROVE = "pending";
+    w.dispatcher.calls.length = 0;
+    w.dispatcher.hooks.afterDispatch = async () => {
+      await w.store.release(await reservationId(w), "OTHER_RUN");
+    };
+    assert.deepEqual(Object.values((await w.run()).trades).slice(-1), [
+      "WAITING:NOT_AUTHORIZED",
+    ]);
+    assert.equal(w.dispatcher.calls.length, 1, "asked once, not polled");
+    w.dispatcher.hooks.afterDispatch = null;
+    w.dispatcher.modes.APPROVE = "mine";
+
+    // The mandate switched off mid-run stops the fill (and nothing is released by it).
+    await w.seedWindow({ hoursAgo: 0 });
+    await freeMaker(w);
+    w.dispatcher.hooks.afterDispatch = async (kind) => {
+      if (kind === "APPROVE")
+        await q("UPDATE trading.mandates SET enabled=false");
+    };
+    const before = await fills();
+    assert.deepEqual(Object.values((await w.run()).trades).slice(-1), [
+      "WAITING:NOT_AUTHORIZED",
+    ]);
+    assert.equal(await fills(), before);
+    assert.equal((await w.reservations()).at(-1)!.state, "HELD");
+    w.dispatcher.hooks.afterDispatch = null;
+    await q("UPDATE trading.mandates SET enabled=true");
+    assert.deepEqual(Object.values((await w.run()).trades).slice(-1), [
+      "FILL_INCLUDED",
+    ]);
+    assert.equal(
+      w.dispatcher.calls.filter((c) => c.kind === "APPROVE").length,
+      2,
+      "the mined approve is not sent again when the buy resumes",
+    );
+
+    // A quote gate opened mid-run stops the fill too.
+    await w.seedWindow({ hoursAgo: 0 });
+    await freeMaker(w);
+    w.dispatcher.hooks.afterDispatch = async (kind) => {
+      if (kind === "APPROVE")
+        await q(
+          `INSERT INTO trading.quote_gates(id,deployment_id,market_id,reason,actor,note)
+          VALUES(gen_random_uuid(),'${DEPLOYMENT}',1,'OUTCOME_KNOWN','test','outcome is public')`,
+        );
+    };
+    const gated = await fills();
+    assert.deepEqual(Object.values((await w.run()).trades).slice(-1), [
+      "WAITING:OUTCOME_KNOWN",
+    ]);
+    assert.equal(await fills(), gated);
+  } finally {
+    await w.close();
+  }
+});
+
+test("a quote priced from another forecast window than the decision is left unspent", async () => {
+  const w = await traderWorld();
+  try {
+    // The decision is taken on window 1 but the RFQ is not answered yet.
+    w.chain.state.headFails = true;
+    const first = intentOf(w, w.windowId!);
+    assert.deepEqual((await w.run()).trades, {
+      [first]: "WAITING:RFQ:CHAIN_UNAVAILABLE",
+    });
+    // A newer window closes (ensemble 0.60, ask 0.62: cheaper than the 0.67 decided on).
+    w.chain.state.headFails = false;
+    const second = await w.seedWindow({ a: 0.8, b: 0.4, hoursAgo: 0 });
+    const run = await w.run();
+    assert.equal(run.trades[first], "RELEASED:QUOTE_WINDOW_MISMATCH");
+    assert.deepEqual(
+      (await w.reservations()).map((r) => [r.state, r.ask_bps]),
+      [
+        ["RELEASED", 6700],
+        ["HELD", 6200],
+      ],
+    );
+    // Nothing was approved for the first buy; the new window is its own buy.
+    assert.deepEqual(
+      (
+        await w.query<{ dedupe_key: string }>(
+          "SELECT dedupe_key FROM signing.economic_intents WHERE role='trader' ORDER BY created_at",
+        )
+      ).map((i) => i.dedupe_key.split(":").slice(0, 2).join(":")),
+      ["trader:approve", "trader:fill"],
+    );
+    assert.equal(run.trades[intentOf(w, second)], "FILL_INCLUDED");
+    assert.equal(
+      (
+        await w.query(
+          "SELECT id FROM operations.audit_log WHERE action='trader.quote_refused' AND reason='QUOTE_WINDOW_MISMATCH'",
+        )
+      ).length,
+      1,
+    );
+  } finally {
+    await w.close();
+  }
+});
+
+test("a run never waits more than its budget: it returns while the fill is pending and a resume run completes it", async () => {
+  const w = await traderWorld();
+  try {
+    // A second market with its own edge, to show what a spent budget defers.
+    await w.query(
+      `INSERT INTO chain.markets(deployment_id,market_id,spec_hash,spec_uri,mode,close_at,proposal_deadline,hard_deadline,
+        challenge_seconds,max_pairs,max_taker_shares,state,created_block_number,created_tx_hash,as_of_block_hash)
+      SELECT deployment_id,2,decode(repeat('33',32),'hex'),spec_uri,mode,close_at,proposal_deadline,hard_deadline,
+        challenge_seconds,max_pairs,max_taker_shares,'OPEN',created_block_number,created_tx_hash,as_of_block_hash
+      FROM chain.markets WHERE market_id=1`,
+    );
+    await w.seedWindow({ marketId: 2 });
+    const id = intentOf(w, w.windowId!);
+
+    w.dispatcher.modes.APPROVE = "pending";
+    const first = await w.run();
+    assert.equal(first.trades[id], "WAITING:APPROVE");
+    assert.ok(w.clock.ms <= 5000, "slept " + w.clock.ms + " ms in total");
+    assert.equal(
+      first.markets["2"],
+      "DEFERRED",
+      "no new buy once the budget is spent",
+    );
+    assert.equal((await w.reservations()).length, 1);
+    assert.ok(w.resumes.count >= 1, "a resume run is asked for");
+
+    // The resume run: the approve is mined, the fill goes out, and the second market is decided.
+    w.dispatcher.modes.APPROVE = "mine";
+    w.clock.ms = 0;
+    const second = await w.run();
+    assert.equal(second.trades[id], "FILL_INCLUDED");
+    assert.equal(second.markets["2"], "RESERVED");
+    assert.deepEqual(
+      (await w.reservations()).map((r) => r.state),
+      ["HELD", "HELD"],
+    );
+    assert.equal(
+      (await w.intents()).filter((i) => i.kind === "APPROVE").length,
+      2,
+      "one approve per buy: the pending one was resumed, not repeated",
+    );
+
+    // A pending fill: the run returns within the budget as well.
+    await w.seedWindow({ hoursAgo: 0 });
+    await freeMaker(w);
+    w.dispatcher.modes.FILL = "pending";
+    w.clock.ms = 0;
+    const pending = await w.run();
+    assert.ok(Object.values(pending.trades).includes("WAITING:FILL"));
+    assert.ok(w.clock.ms <= 5000, "slept " + w.clock.ms + " ms in total");
+    w.dispatcher.modes.FILL = "mine";
+    w.clock.ms = 0;
+    assert.ok(
+      !Object.values((await w.run()).trades).includes("WAITING:FILL"),
+      "the resume run completed it",
+    );
+  } finally {
+    await w.close();
+  }
+});
+
 test("the database holds the line: the worker cannot widen its mandate, read rationales or retake released risk", async () => {
   const w = await traderWorld();
   try {
@@ -1058,6 +1325,12 @@ test("the database holds the line: the worker cannot widen its mandate, read rat
       "the newest closed window; the open one (" + open + ") is not shown",
     );
     await denied(api, "SELECT * FROM trading.trader_snapshots");
+    // The snapshot-to-window view is all the worker sees of snapshots.
+    await worker.query(
+      "SELECT snapshot_id FROM trading.trader_snapshot_windows",
+    );
+    await denied(worker, "SELECT * FROM forecasts.snapshots");
+    await denied(api, "SELECT * FROM trading.trader_snapshot_windows");
     await denied(worker, "DELETE FROM trading.risk_reservations");
     await denied(
       worker,

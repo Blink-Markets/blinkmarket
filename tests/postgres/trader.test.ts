@@ -335,6 +335,7 @@ test(
       );
 
       const approve = {
+        reservationId,
         deploymentId: DEPLOYMENT,
         kind: "APPROVE" as const,
         dedupeKey: "trader:approve:" + intentId,
@@ -345,9 +346,10 @@ test(
           args: ["0x00000000000000000000000000000000000000a1", "6700000"],
         },
       };
-      const first = await store.prepare(approve);
+      assert.equal(await store.authorize(reservationId), true);
+      const first = (await store.prepare(approve))!;
       assert.equal(
-        (await store.prepare(approve)).intentId,
+        (await store.prepare(approve))!.intentId,
         first.intentId,
         "one intent under one key",
       );
@@ -399,6 +401,100 @@ test(
       assert.deepEqual(await rows(owner), [
         { state: "RELEASED", n: "10000000" },
       ]);
+      // A released buy is not authorized and nothing more can be prepared for it.
+      assert.equal(await store.authorize(reservationId), false);
+      assert.equal(
+        await store.prepare({
+          ...approve,
+          kind: "FILL",
+          dedupeKey: "trader:fill:" + intentId,
+        }),
+        null,
+      );
+      // A snapshot maps to the window it was made from; an unknown one maps to nothing.
+      const snapshotId = randomUUID();
+      await owner.query(
+        `INSERT INTO forecasts.snapshots(id,window_id,forecaster_a_submission,forecaster_b_submission,probability_sum_millionths)
+        SELECT $1,$2,
+          (SELECT s.id FROM forecasts.submissions s JOIN forecasts.platform_agents p ON p.agent_id=s.agent_id WHERE s.window_id=$2 AND p.role='FORECASTER_A'),
+          (SELECT s.id FROM forecasts.submissions s JOIN forecasts.platform_agents p ON p.agent_id=s.agent_id WHERE s.window_id=$2 AND p.role='FORECASTER_B'),
+          1300000`,
+        [snapshotId, window.id],
+      );
+      assert.equal(await store.snapshotWindow(snapshotId), window.id);
+      assert.equal(await store.snapshotWindow(randomUUID()), null);
+      await assert.rejects(
+        pool("blink_worker", 1).query("SELECT 1 FROM forecasts.snapshots"),
+        /permission denied/,
+      );
+    });
+  },
+);
+
+test(
+  "real PostgreSQL: a spend and a release racing on one buy are serialized: an intent exists exactly when the spend won, and nothing is authorized after the release",
+  { timeout: 60_000 },
+  async () => {
+    await withDatabase(async ({ owner, pool }) => {
+      await seed(owner, pool);
+      const stores = Array.from({ length: 4 }, () =>
+        postgresTraderStore(pool("blink_worker", 4)),
+      );
+      const mandate = (await stores[0]!.mandate("FORECASTER_A"))!;
+      const window = (
+        await owner.query("SELECT id FROM forecasts.windows LIMIT 1")
+      ).rows[0]!;
+      for (let round = 0; round < 12; round += 1) {
+        const intentId = randomUUID();
+        const reserved = await stores[0]!.reserve({
+          mandate,
+          intentId,
+          deploymentId: DEPLOYMENT,
+          marketId: "1",
+          windowId: window.id,
+          side: "YES",
+          shares: 1,
+          askBps: 6700,
+          ownProbabilityMillionths: 800_000,
+        });
+        const { reservationId } = reserved as { reservationId: string };
+        const [spent, , released] = await Promise.all([
+          stores[1]!.prepare({
+            reservationId,
+            deploymentId: DEPLOYMENT,
+            kind: "APPROVE",
+            dedupeKey: "trader:approve:" + intentId,
+            payload: { tradeIntentId: intentId },
+            unsignedPayload: {
+              to: "0x00000000000000000000000000000000000000a2",
+              functionName: "approve",
+              args: ["0x00000000000000000000000000000000000000a1", "670000"],
+            },
+          }),
+          stores[2]!.authorize(reservationId),
+          stores[3]!.release(reservationId, "RACE"),
+        ]);
+        void released;
+        const state = (
+          await owner.query(
+            "SELECT state FROM trading.risk_reservations WHERE id=$1",
+            [reservationId],
+          )
+        ).rows[0]!.state;
+        assert.equal(state, "RELEASED");
+        // Whoever lost: after the release committed, nothing is authorized or prepared any more.
+        assert.equal(await stores[1]!.authorize(reservationId), false);
+        assert.equal(
+          (
+            await owner.query(
+              "SELECT id FROM signing.economic_intents WHERE dedupe_key=$1",
+              ["trader:approve:" + intentId],
+            )
+          ).rows.length,
+          spent === null ? 0 : 1,
+          "an intent exists exactly when the spend won the lock",
+        );
+      }
     });
   },
 );

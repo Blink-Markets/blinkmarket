@@ -167,6 +167,23 @@ export function postgresTraderStore(pool: Pool): TraderStore {
       await lockMandate(db, String(rows[0].agent_id));
       await db.query(sql, [id, ...params]);
     });
+  // Takes the mandate's lock, then reads: the reservation is HELD and the mandate is on. Release
+  // takes the same lock, so what this returns is true at the moment it returns and, for every
+  // release that exists, stays true until the caller's next step.
+  const permitted = async (db: PoolClient, reservationId: string) => {
+    const owner = await db.query(
+      "SELECT agent_id FROM trading.risk_reservations WHERE id=$1",
+      [reservationId],
+    );
+    if (!owner.rows[0]) return false;
+    await lockMandate(db, String(owner.rows[0].agent_id));
+    const { rows } = await db.query(
+      `SELECT r.state='HELD' AS held, m.enabled FROM trading.risk_reservations r
+      JOIN trading.mandates m ON m.agent_id=r.agent_id WHERE r.id=$1`,
+      [reservationId],
+    );
+    return rows[0]?.held === true && rows[0]?.enabled === true;
+  };
 
   return {
     async mandate(role) {
@@ -375,9 +392,23 @@ export function postgresTraderStore(pool: Pool): TraderStore {
           : "UPDATE trading.risk_reservations SET state='HELD',updated_at=blink.now() WHERE id=$1 AND state='ACCOUNTED'",
       ),
 
+    authorize: (reservationId) =>
+      uow.run((ctx) => permitted(uow.client(ctx), reservationId)),
+    async snapshotWindow(snapshotId) {
+      const { rows } = await pool.query(
+        "SELECT window_id FROM trading.trader_snapshot_windows WHERE snapshot_id=$1",
+        [snapshotId],
+      );
+      return rows[0] ? String(rows[0].window_id) : null;
+    },
     prepare: (input) =>
       uow.run(async (ctx) => {
         const db = uow.client(ctx);
+        if (
+          input.reservationId !== null &&
+          !(await permitted(db, input.reservationId))
+        )
+          return null;
         const { intentId } = await writer.createIntent(db, {
           deploymentId: input.deploymentId,
           kind: input.kind,

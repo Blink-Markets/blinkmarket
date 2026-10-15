@@ -79,3 +79,10 @@ WHERE w.deadline <= blink.now() AND w.deadline >= blink.now() - interval '24 hou
 ORDER BY w.deployment_id, w.market_id, w.deadline DESC, w.horizon_type, w.id;
 REVOKE ALL ON trading.trader_snapshots FROM PUBLIC;
 GRANT SELECT ON trading.trader_snapshots TO blink_worker;
+
+-- Which forecast window a quote's snapshot was made from, so the trader can refuse a quote priced
+-- from a different window than the one it decided on. Snapshots exist only for closed windows.
+CREATE VIEW trading.trader_snapshot_windows WITH (security_barrier) AS
+SELECT id AS snapshot_id, window_id FROM forecasts.snapshots;
+REVOKE ALL ON trading.trader_snapshot_windows FROM PUBLIC;
+GRANT SELECT ON trading.trader_snapshot_windows TO blink_worker;
