@@ -5,6 +5,7 @@ export * from "./jobs.ts";
 export * from "./costs.ts";
 export * from "./signing-policy.ts";
 export * from "./pricing.ts";
+export * from "./trader-rule.ts";
 export type { MarketRef, ChainCursor, MarketSpec, Quote } from "@blink/schemas";
 
 export type JobType =

@@ -110,3 +110,4 @@ export {
 } from "./trading-store.js";
 export { chainSnapshotReader } from "./chain-snapshot-reader.js";
 export * from "./trading-admin.js";
+export { postgresTraderStore, assertTraderInstalled } from "./trader-store.js";

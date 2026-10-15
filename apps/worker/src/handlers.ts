@@ -71,6 +71,7 @@ export async function scheduleResolution(pool: Pool): Promise<void> {
 export { buildResearch } from "./research.js";
 
 export { buildExecution } from "./execution.js";
+export { buildTrader } from "./trader.js";
 // --- quote.reconcile (RFQ reservations against the canonical chain, Task 9) ---
 export function registerQuoteReconcile(pool: Pool): void {
   handlers["quote.reconcile"] = createQuoteReconcileHandler(

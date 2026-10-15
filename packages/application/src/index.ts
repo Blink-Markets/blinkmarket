@@ -90,3 +90,12 @@ export {
   createQuoteReconcileHandler,
   decideReservation,
 } from "./quote-reconcile.js";
+export {
+  createTrader,
+  createTraderHandler,
+  traderIntentId,
+  traderStopReason,
+  verifyTraderQuote,
+  type TraderDeps,
+  type TraderRun,
+} from "./trader.js";

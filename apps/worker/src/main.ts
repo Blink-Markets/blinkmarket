@@ -9,10 +9,16 @@ import {
 } from "@blink/adapters";
 import { startWorker } from "@blink/application";
 import { createService, startService } from "@blink/runtime";
-import { executionConfig, researchConfig, workerConfig } from "./config.js";
+import {
+  executionConfig,
+  researchConfig,
+  traderConfig,
+  workerConfig,
+} from "./config.js";
 import {
   buildResearch,
   buildExecution,
+  buildTrader,
   handlers,
   outboxMapping,
   registerEvaluationHandler,
@@ -64,19 +70,33 @@ try {
     registerEvaluationHandler(database);
     registerResolutionHandlers(database, process.env.EVIDENCE_OBJECT_DIRECTORY);
     registerQuoteReconcile(database);
+    const researchSettings = researchConfig(process.env);
+    const executionSettings = executionConfig(process.env);
     const research = await buildResearch({
       pool: database,
       queue,
-      config: researchConfig(process.env),
+      config: researchSettings,
     });
     const execution = await buildExecution({
       pool: database,
       queue,
-      config: executionConfig(process.env),
+      config: executionSettings,
+    });
+    const trader = await buildTrader({
+      pool: database,
+      queue,
+      config: traderConfig(process.env),
+      api: researchSettings.api,
+      execution: executionSettings,
     });
     worker = startWorker({
       queue,
-      handlers: { ...handlers, ...research.handlers, ...execution.handlers },
+      handlers: {
+        ...handlers,
+        ...research.handlers,
+        ...execution.handlers,
+        ...trader.handlers,
+      },
       workerId: hostname() + ":" + process.pid + ":" + randomUUID(),
       onError: (code) => console.error("WORKER_JOB_ERROR:" + code),
     });
@@ -98,6 +118,7 @@ try {
       scheduleRun = Promise.allSettled([
         research.tick(),
         execution.tick(),
+        trader.tick(),
         scheduleEvaluation(database),
         scheduleResolution(database),
       ])
