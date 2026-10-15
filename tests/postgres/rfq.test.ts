@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type pg from "pg";
+import { createRfqPool } from "../../apps/api/src/trading.js";
 import { buildApi } from "../../apps/api/src/server.js";
 import { createTokenBucket } from "../../apps/api/src/rate-limit.js";
 import { identityAdmin } from "../../packages/adapters/src/identity-admin.js";
@@ -42,7 +43,7 @@ const adminUrl = process.env.TEST_POSTGRES_ADMIN_URL;
 /** Real roles on real connections: two API instances, one signer and the worker, as deployed. */
 async function stack(
   pools: { owner: pg.Pool; pool: (role: string, max?: number) => pg.Pool },
-  options: { free: bigint },
+  options: { free: bigint; isolatePool?: boolean },
 ) {
   const { owner, pool } = pools;
   const manifest = testManifest({ deploymentId: DEPLOYMENT });
@@ -101,22 +102,29 @@ async function stack(
     }),
   );
   let nonce = 1n;
+  const rfqPools: pg.Pool[] = [];
   const instance = () => {
-    const apiPool = pool("blink_api", 6);
+    const apiPool = pool("blink_api", options.isolatePool ? 2 : 6);
+    const rfqPool = options.isolatePool ? createRfqPool(apiPool) : apiPool;
+    if (rfqPool !== apiPool) rfqPools.push(rfqPool);
     const app = buildApi({
       services: [
         createRfqService({
-          store: postgresTradingStore(apiPool),
+          store: postgresTradingStore(rfqPool),
           crypto: identityCrypto,
           signer: signing.signer,
           chain: chain.reader,
-          snapshots: createSnapshotReader(postgresForecastStore(apiPool)),
+          snapshots: createSnapshotReader(postgresForecastStore(rfqPool)),
           encodeCall: encodeAllowedCall,
           deploymentId: DEPLOYMENT,
           random: () => nonce++,
           limiter: createTokenBucket({ capacity: 1000, refillPerSecond: 1000 }),
         }),
       ],
+    });
+    app.get("/unrelated", async () => {
+      await apiPool.query("SELECT 1");
+      return { ready: true };
     });
     app.log.level = "silent";
     return app;
@@ -148,7 +156,10 @@ async function stack(
     reconciler,
     owner,
     signing,
-    close: () => Promise.all(apps.map((app) => app.close())),
+    close: async () => {
+      await Promise.all(apps.map((app) => app.close()));
+      await Promise.all(rfqPools.map((pool) => pool.end()));
+    },
   };
 }
 
@@ -300,6 +311,109 @@ test(
         );
       } finally {
         await s.close();
+      }
+    });
+  },
+);
+
+for (const quoteStatus of ["SIGN_UNKNOWN", "EXPIRED"]) {
+  test(
+    `real PostgreSQL: a different RFQ payload conflicts while the key lock is busy (${quoteStatus})`,
+    { skip: !adminUrl, timeout: 60_000 },
+    async () => {
+      const { withDatabase } = await import("../helpers/postgres-database.js");
+      await withDatabase(async (pools) => {
+        const s = await stack(pools, { free: 1_000_000_000n });
+        const lock = await pools.owner.connect();
+        try {
+          s.signing.faults.loseRequest = true;
+          assert.equal(
+            (await s.post(s.apps[0]!, s.takers[0]!, "busy")).statusCode,
+            503,
+          );
+          await pools.owner.query("UPDATE trading.quotes SET status=$1", [
+            quoteStatus,
+          ]);
+          await lock.query("BEGIN");
+          await lock.query(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+            [
+              JSON.stringify([
+                "idempotency",
+                s.takers[0]!.operatorId,
+                "POST /v1/rfqs",
+                "busy",
+              ]),
+            ],
+          );
+          s.signing.faults.loseRequest = false;
+          const beforeCalls = s.signing.calls.length;
+          const response = await s.post(s.apps[1]!, s.takers[0]!, "busy", {
+            ...rfqBody,
+            quantity: "11",
+          });
+          assert.equal(response.statusCode, 409, response.body);
+          assert.equal(response.json().code, "IDEMPOTENCY_CONFLICT");
+          assert.equal(s.signing.calls.length, beforeCalls);
+          const record = await lock.query(
+            "SELECT state FROM operations.idempotency_records",
+          );
+          assert.equal(record.rows[0].state, "IN_PROGRESS");
+        } finally {
+          await lock.query("ROLLBACK");
+          lock.release();
+          await s.close();
+        }
+      });
+    },
+  );
+}
+
+test(
+  "real PostgreSQL: slow RFQ RPC calls cannot starve unrelated API routes",
+  { skip: !adminUrl, timeout: 60_000 },
+  async () => {
+    const { withDatabase } = await import("../helpers/postgres-database.js");
+    await withDatabase(async (pools) => {
+      const s = await stack(pools, { free: 1_000_000_000n, isolatePool: true });
+      let release!: () => void;
+      let entered!: () => void;
+      const bothReading = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let reads = 0;
+      s.chain.state.onRead = async () => {
+        if (++reads === 2) entered();
+        await gate;
+      };
+      const requests = ["slow-a", "slow-b"].map((key) =>
+        s.post(s.apps[0]!, s.takers[0]!, key),
+      );
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await bothReading;
+        const probe = await Promise.race([
+          s.apps[0]!.inject({ method: "GET", url: "/unrelated" }),
+          new Promise<null>((resolve) => {
+            timer = setTimeout(() => resolve(null), 1000);
+          }),
+        ]);
+        assert.ok(
+          probe,
+          "unrelated route was starved by RFQ admission connections",
+        );
+        assert.equal(probe.statusCode, 200);
+        assert.deepEqual(probe.json(), { ready: true });
+      } finally {
+        clearTimeout(timer);
+        release();
+        const responses = await Promise.all(requests);
+        await s.close();
+        for (const response of responses)
+          assert.equal(response.statusCode, 200, response.body);
       }
     });
   },

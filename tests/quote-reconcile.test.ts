@@ -658,3 +658,39 @@ test("a fill that a real reorg removes is reopened and accounted again on the ne
     await t.close();
   }
 });
+
+test("finalized settlements need no reorg checks after their block history is pruned", async () => {
+  const w = await tradingWorld();
+  try {
+    const digest = await quoted(w);
+    await fill(w, digest, 100n);
+    const reconciler = reconcilerFor(w);
+    assert.equal((await reconciler.reconcileOnce(DEPLOYMENT)).accounted, 1);
+    await w.query("UPDATE chain.cursors SET finalized_number=100");
+    await w.query("DELETE FROM chain.blocks WHERE number<=100");
+    for (const settled of ["ACCOUNTED", "RELEASED"]) {
+      await w.query("UPDATE trading.collateral_reservations SET state=$1", [
+        settled,
+      ]);
+      const needed = await w.tradingStore.run((tx) =>
+        tx.needsReconcile(DEPLOYMENT),
+      );
+      const { reopened } = await reconciler.reconcileOnce(DEPLOYMENT);
+      assert.deepEqual(
+        { needed, reopened, state: (await state(w)).state },
+        {
+          needed: false,
+          reopened: 0,
+          state: settled,
+        },
+      );
+    }
+    assert.equal(
+      (await events(w)).filter((event) => event.reason === "REORG_REOPENED")
+        .length,
+      0,
+    );
+  } finally {
+    await w.close();
+  }
+});

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type pg from "pg";
+import pg from "pg";
 import { createPublicClient, http, type Hex } from "viem";
 import {
   createRfqService,
@@ -21,10 +21,12 @@ import { createTokenBucket } from "./rate-limit.js";
 // Each RPC call is bounded well below the database's idle-in-transaction timeout (10 s): the RFQ
 // reads the chain while its admission transaction is open.
 const RPC_TIMEOUT_MS = 3000;
+const SIGNER_TIMEOUT_MS = 5000;
 
 /** The `trading` mode's RFQ service and the readiness that makes /v1/config and canTrade truthful. */
 export async function tradingServices(
   pool: pg.Pool,
+  rfqPool: pg.Pool,
   config: {
     deploymentId: string;
     signerUrl: string;
@@ -52,15 +54,17 @@ export async function tradingServices(
   const chainId = await chain.chainId();
   if (chainId === 8453) throw new Error("MAINNET_REFUSED");
   if (chainId !== 84532) throw new Error("RPC_CHAIN_MISMATCH");
-  const store = postgresTradingStore(pool);
-  const snapshots = createSnapshotReader(postgresForecastStore(pool));
+  const store = postgresTradingStore(rfqPool);
+  const snapshots = createSnapshotReader(postgresForecastStore(rfqPool));
   return {
     rfq: createRfqService({
       store,
       crypto: identityCrypto,
+      signerTimeoutMs: SIGNER_TIMEOUT_MS,
       signer: signerClient({
         url: config.signerUrl,
         token: config.signerToken,
+        timeoutMs: SIGNER_TIMEOUT_MS,
       }),
       chain,
       snapshots,
@@ -71,9 +75,23 @@ export async function tradingServices(
       limiter: createTokenBucket({ capacity: 5, refillPerSecond: 2 }),
     }),
     readiness: createTradingReadiness({
-      store,
-      snapshots,
+      store: postgresTradingStore(pool),
+      snapshots: createSnapshotReader(postgresForecastStore(pool)),
       deploymentId: config.deploymentId,
     }),
   };
+}
+
+/** Pool used by RFQ admission while it waits for chain RPC. */
+export function createRfqPool(pool: pg.Pool): pg.Pool {
+  const rfqPool = new pg.Pool({
+    ...pool.options,
+    // pg makes this option non-enumerable; retain it when copying the connection settings.
+    password: pool.options.password,
+    max: 2,
+  });
+  rfqPool.on("error", () => {
+    console.error("RFQ_DATABASE_CONNECTION_ERROR");
+  });
+  return rfqPool;
 }
