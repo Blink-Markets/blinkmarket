@@ -98,6 +98,7 @@ export interface QuoteRecord extends Omit<
   "reservationId" | "message" | "policyVersion"
 > {
   signRequestId: string;
+  updatedAt: Date;
   status: QuoteStatus;
   envelope: Record<string, unknown> | null;
 }
@@ -131,6 +132,12 @@ export interface ReservationSettlement {
  * before they touch reservations; the other lock orders are in docs/M2_RFQ.md.
  */
 export interface TradingTransaction extends IdentityTransaction {
+  /** Committed payload hash, checked before an RFQ resumes a busy idempotency key. */
+  requestPayloadHash(
+    operatorId: string,
+    scope: string,
+    key: string,
+  ): Promise<string | null>;
   deployment(
     deploymentId: string,
   ): Promise<{ manifest: unknown; enabled: boolean } | null>;

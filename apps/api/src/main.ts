@@ -31,7 +31,7 @@ import {
   postgresBudgetLedger,
 } from "@blink/adapters";
 import { apiConfig, modeAtLeast } from "./config.js";
-import { tradingServices } from "./trading.js";
+import { createRfqPool, tradingServices } from "./trading.js";
 
 const config = apiConfig(process.env);
 const pool =
@@ -44,6 +44,7 @@ const pool =
         idle_in_transaction_session_timeout: 10000,
       })
     : null;
+const rfqPool = pool && config.mode === "trading" ? createRfqPool(pool) : null;
 pool?.on("error", () => {
   console.error("API_DATABASE_CONNECTION_ERROR");
 });
@@ -72,7 +73,7 @@ try {
   // Trading mode adds the RFQ service, a truthful /v1/config and the canTrade hook of market reads.
   const trading =
     pool && config.mode === "trading"
-      ? await tradingServices(pool, {
+      ? await tradingServices(pool, rfqPool!, {
           deploymentId: config.deploymentId!,
           signerUrl: config.signerUrl!,
           signerToken: config.signerToken!,
@@ -172,11 +173,11 @@ try {
   );
   if (pool)
     app.addHook("onClose", async () => {
-      await pool.end();
+      await Promise.all([pool.end(), rfqPool?.end()]);
     });
   await startService(app, config.port, config.host);
 } catch {
-  await pool?.end();
+  await Promise.all([pool?.end(), rfqPool?.end()]);
   console.error(
     "API_STARTUP_FAILED: check mode, origin, database permissions and migrations",
   );

@@ -115,6 +115,7 @@ export function inProcessSigner(
 ) {
   const faults = {
     loseRequest: false,
+    crashBeforeSign: false,
     loseAnswer: false,
     /** Resolves before the signer is called, to hold a request in flight. */
     gate: null as null | Promise<void>,
@@ -123,6 +124,7 @@ export function inProcessSigner(
   const signer: RestrictedSigner = {
     async sign(input) {
       calls.push(input);
+      if (faults.crashBeforeSign) throw new Error("SIMULATED_API_CRASH");
       if (faults.gate) await faults.gate;
       if (faults.loseRequest)
         return { state: "UNKNOWN", code: "SIGNER_TIMEOUT" };

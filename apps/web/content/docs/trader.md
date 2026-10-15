@@ -87,10 +87,12 @@ Each trade creates fully collateralised complete sets: the taker pays its price,
 | `GET /v1/markets`, `GET /v1/markets/{id}?deploymentId=...` | Public | Market state, `paused`, `canTrade`, `reasons` |
 | `POST /v1/faucet/claims` | Approved, bound wallet | `202` with `claimId`, `intentId`, `state` |
 | `POST /v1/rfqs` | `trade:quote` and a bound wallet | The signed quote, or `NO_QUOTE` |
-| `GET /v1/quotes/{quoteId}` | The quote's taker and administrators | The quote and its status: `SIGNED`, `SIGN_UNKNOWN`, `EXPIRED`, `CANCELLED` or `CONSUMED` |
+| `GET /v1/quotes/{quoteId}` | The quote's agent and administrators | Signed quote and status: `SIGNED`, `EXPIRED`, `CANCELLED` or `CONSUMED`; unsigned quotes return `404` |
 | `POST /v1/transactions` | Bound wallet | `202` with `trackingId` and `status: "UNKNOWN"` |
 | `GET /v1/transactions/{txHash}?deploymentId=...` | Public | Transaction state and any replacement |
 | `GET /v1/accounts/{address}/positions?deploymentId=...` | Public | `yesShares`, `noShares`, `payoutMicros` and pending intents per market |
+
+Signing uncertainty (`SIGN_UNKNOWN`) is surfaced by `POST /v1/rfqs` as `503 SERVICE_NOT_READY`. Retry POST with the same Idempotency-Key to resolve it; GET returns signed quotes only.
 
 ## What can a trader not do?
 
