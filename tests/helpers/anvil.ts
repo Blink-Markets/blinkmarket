@@ -24,7 +24,9 @@ const mnemonic = "test test test test test test test test test test test junk";
 
 export type Anvil = Awaited<ReturnType<typeof startAnvil>>;
 
-export async function startAnvil(options: { chainId?: number } = {}) {
+export async function startAnvil(
+  options: { chainId?: number; baseFee?: bigint } = {},
+) {
   const chainId = options.chainId ?? 84532;
   // Reserve an OS-selected loopback port; this helper only ever connects to its own Anvil.
   const probe = createServer();
@@ -40,6 +42,9 @@ export async function startAnvil(options: { chainId?: number } = {}) {
       String(port),
       "--chain-id",
       String(chainId),
+      ...(options.baseFee === undefined
+        ? []
+        : ["--base-fee", String(options.baseFee), "--gas-price", "1"]),
       "--silent",
     ],
     { stdio: ["ignore", "ignore", "pipe"] },

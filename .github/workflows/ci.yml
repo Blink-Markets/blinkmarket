@@ -33,6 +33,9 @@ jobs:
       - run: pnpm test:postgres
         env:
           TEST_POSTGRES_ADMIN_URL: postgresql://blink_test:local-ci-only@127.0.0.1:5432/postgres
+      - run: pnpm alpha:local
+        env:
+          TEST_POSTGRES_ADMIN_URL: postgresql://blink_test:local-ci-only@127.0.0.1:5432/postgres
       - run: pnpm test:contracts
       - run: pnpm test:anvil
       - run: pnpm test:contracts:seeds
