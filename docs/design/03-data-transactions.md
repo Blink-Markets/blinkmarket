@@ -1,6 +1,6 @@
 # 03 — 資料與交易細部設計
 
-採明確 SQL migrations + pg adapter。0001–0004 已實作；0004 加入 deployment registry、核准及未簽署建市意圖。以下其餘內容仍是 migration 藍圖，未實作批次號依實作順序決定。完整 table inventory 見 ../DATA_MODEL.md。
+採明確 SQL migrations + pg adapter，0001–0017 已實作。下表列實際批次；後續關鍵記錄表保留概念設計名稱，實際欄位與權限以 migrations 及各交付記錄為準。內部 trader 的資料模型尚未交付。尚未部署，僅本機 REPLAY 驗證；不代表完整里程碑完成。
 
 ## Migration 批次
 
@@ -9,13 +9,20 @@
 | 0001 | schemas、uint256/address/hash domains、migration role/runtime grants、operations基礎 | 全新DB建立、overflow拒絕、runtime無DDL權 |
 | 0002 | operators/agents/keys/challenges/bindings（M2.1 已實作） | secrets不可公開、nonce一次性、FK正確 |
 | 0003 | evidence.sources/records、discovery.candidates/candidate_revisions/candidate_evidence（已實作） | 證據權限、revision不可覆寫、expectedRevision衝突與交易回滾 |
-| 0004 | markets.deployments/deployment_checks/specs/approvals/creation_intents/active_slots（已實作） | 原子化核准；真 PostgreSQL 容量競爭測試已加入、待執行 |
-| 待排：預測 | forecast_windows/submissions/annotations、model_runs、budgets/cost reservations | duplicate/window/多worker預算race tests |
-| 待排：鏈上 | blocks/events/cursors、economic_intents/nonce_allocations/tx_attempts/positions | reorg/replace/unknown可保留歷史 |
-| 待排：交易 | rfqs/quotes/collateral & risk reservations、sign_requests/artifacts | atomic reserve、同intent只產生一份有效artifact |
-| 待排：查詢 | resolution/faucet/evaluation read models、indexes/permissions收尾 | 恢復重建與公開資料過濾 |
+| 0004 | markets.deployments/deployment_checks/specs/approvals/creation_intents/active_slots（已實作） | 原子化核准與容量競爭；歷次結果見 M2_APPROVAL_DELIVERY.md |
+| 0005–0006 | 建市 receipt observations、durable polling schedule | 見 M2_CREATION_TRACKING.md、M2_CREATION_POLLER.md |
+| 0007 | chain blocks/events/cursors 與 projections、DB business clock | 見 M2_CHAIN_INDEXER.md、M2_FOUNDATION_SEAMS.md |
+| 0008 | durable jobs/outbox、budget reservations/cost entries | 見 M3_JOBS_BUDGETS.md |
+| 0009 | forecast windows/submissions/annotations/snapshots、model runs | 見 M3_FORECASTS.md |
+| 0010 | signing intents/requests/artifacts/plans、nonce allocations/tx attempts | 見 M2_SIGNER.md |
+| 0011 | public transaction tracking | 見 M2_PUBLIC_READS.md |
+| 0012 | maker pools、quotes、collateral reservations、quote gates | 見 M2_RFQ.md；trader risk reservations 尚未交付 |
+| 0013 | faucet claims 與 address guards | 見 M3_KEEPER_FAUCET.md |
+| 0014 | resolution reports/events、suggestions、deadline dedupe | 見 M3_RESOLUTION.md |
+| 0015 | analytics score entries 與 scoring view | 見 M3_EVALUATION.md |
+| 0016–0017 | evidence fetch 與 discovery runs | 見 M3_EVIDENCE_FETCHER.md、M3_RESEARCH_WORKERS.md |
 
-Deployment registry 使用既有 DeploymentId 字串作主鍵；後續補 chain artifact/cursor 細節。FK不得指向尚未存在table。Migration按單一版本序列執行，不由五個service各自開機跑DDL；執行器持advisory lock，成功寫migration checksum。失敗回滾該批，非transactional DDL需另批明示。
+Deployment registry 使用既有 DeploymentId 字串作主鍵；manifest 與 chain cursor 已有實作。FK不得指向尚未存在table。Migration按單一版本序列執行，不由五個service各自開機跑DDL；執行器持advisory lock，成功寫migration checksum。失敗回滾該批，非transactional DDL需另批明示。
 
 ## 共用型別與欄位
 
@@ -24,6 +31,8 @@ UUID由application生成；時間TIMESTAMPTZ，created_at預設DB現在時間。
 每個mutable projection有version bigint作CAS；chain projections附as_of_block_hash。append-only row不附last-write-wins updated_at，註記放新事件。
 
 ## 關鍵記錄
+
+下表是概念設計，不是目前 SQL inventory。特別是 signed raw transaction 存於 `signing.artifacts`：signer 寫入，dispatcher（`blink_worker`）可讀以廣播，尚無 app-level encryption；at-rest encryption 屬部署工作，不能因表中的 `encrypted_bytes` 設計名稱聲稱已加密。
 
 | Table | 核心欄位 | Unique / 特殊約束 |
 | --- | --- | --- |

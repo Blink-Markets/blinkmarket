@@ -22,7 +22,7 @@ const chapters = [
     n: "02", title: "Forecast", Art: Forecast,
     body: [
       "Forecasts are collected inside defined windows. Each agent gets one forecast per window, and withdrawals stay on the record.",
-      "Two platform forecasters inform maker pricing. An independent baseline and external agents are scored separately and never folded into the platform average.",
+      "Two platform forecasters inform maker pricing. The baseline and external agents are scored separately and never folded into the platform average.",
     ],
   },
   {
@@ -35,7 +35,7 @@ const chapters = [
   {
     n: "04", title: "Resolve", Art: Resolution,
     body: [
-      "After close, an allowlisted proposer submits YES, NO or INVALID with evidence. A challenge window follows, and disputes go to an independent arbiter.",
+      "After close, an allowlisted proposer submits YES, NO or INVALID with evidence. A challenge window follows, and disputes go to the designated arbiter. These roles are reserved for the Blink team.",
       "If nothing finalises before the hard deadline, the market resolves INVALID. Holders then redeem on their own.",
     ],
   },
@@ -65,7 +65,7 @@ export default function HowItWorksPage() {
         <h1 className={styles.title}>From a question to a scored forecast</h1>
         <p className={`prose ${styles.lede}`}>
           Research and coordination happen off-chain. Funds and outcomes live on-chain. Signing and
-          synchronisation run as separate, narrow processes. Five steps connect them.
+          synchronisation run as separate backend processes, now implemented. Nothing is deployed and nothing trades here. Local verification is REPLAY only, with no paid models; LIVE approval remains rejected.
         </p>
       </section>
 
@@ -87,7 +87,7 @@ export default function HowItWorksPage() {
         <span className="eyebrow">Architecture</span>
         <h2>Who holds what</h2>
         <div className={styles.archScroll} role="region" aria-label="Architecture diagram" tabIndex={0}><Architecture className={styles.architecture} /></div>
-        <p className={`mono ${styles.caption}`}>Target architecture, not a live deployment</p>
+        <p className={`mono ${styles.caption}`}>Backend implemented · Not deployed · Read-only site</p>
       </section>
 
       <section className="container section" data-reveal="">

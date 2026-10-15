@@ -2,7 +2,7 @@
 
 圖解導覽：[架構圖解與運行方式](ARCHITECTURE_GUIDE.md)，先看目前已實作範圍，再看完整系統與運行流程。
 
-細部介面與交易順序見 [細部設計](design/README.md)；決策以 [ADR 0002](adr/0002-protocol-boundaries.md) 為準。M0資料契約與M1合約已實作；下圖的API/worker/indexer/signer整合仍是目標架構，當前狀態見 [交付記錄](M0_M1_DELIVERY.md)。
+細部介面與交易順序見 [細部設計](design/README.md)；決策以 [ADR 0002](adr/0002-protocol-boundaries.md) 為準。M0/M1 與 Tasks 1–13 的 backend 已實作，尚未部署；API/worker/indexer/signer 已有業務接線。見 [RFQ](M2_RFQ.md)、[Signer](M2_SIGNER.md)、[Indexer](M2_CHAIN_INDEXER.md)、[公開讀取](M2_PUBLIC_READS.md) 與 [本輪文件交付](ROADMAP.md)。本機驗證僅 REPLAY，沒有付費模型，LIVE 核准仍拒絕；內部 trader、擴充 SDK／example agent、整合式本機 Alpha harness 與 health/metrics readiness 留待下一輪，不宣稱整個 M2/M3/M5 完成。
 
 ## 決策摘要
 
@@ -33,20 +33,20 @@ flowchart TB
   Indexer --> DB
 ```
 
-此圖表示目標整合架構；M0/M1已有本機帳本與基礎adapters，但host尚未接業務handler，虛線通路尚未實作。Signer不接公網、不對LLM開放的權限隔離需在M2/M3接線驗收。PostgreSQL共用實例不代表共用DB credential。
+此圖包含已實作的 backend 與未部署的基礎設施目標。模型目前只有 deterministic fixture gateway；物件儲存使用本機 immutable archive，S3 adapter 尚未實作。Signer 已有 caller bearer 驗證、角色 policy、持久化 request 與 key-file 隔離；網路 ACL、mTLS、secret manager 與 at-rest encryption 仍屬部署工作。PostgreSQL 共用實例不代表共用 DB credential。Web 目前只顯示靜態樣本，未接 backend 資料。
 
 ## 程序分工
 
 | 程序 | 工作 | 擴展／部署策略 |
 | --- | --- | --- |
-| Web | 公開研究、證據、預測、交易與管理 UI | 獨立部署，透過 API，無 DB／signer secrets |
+| Web | 唯讀說明站、文件與虛構 REPLAY 樣本；交易／持倉／管理 UI 尚未實作 | 獨立部署，透過 API，無 DB／signer secrets |
 | API | 認證、驗證、讀取、同步 RFQ 與 command 接收 | 無狀態，多 instance 前先共用限流與 DB reservation |
 | Worker | discovery、forecast、成本對帳、keeper 排程 | 同一 codebase 的 job registry，按 job type/併發限額擴展 |
 | Indexer | event 拉取、reorg、projection、重啟 reconciliation | 每 deployment 單一 lease owner，擴容按 deployment 分片 |
-| Signer | maker quote、內部 trader、faucet、keeper 的受限簽署 | 私有程序；目標每角色獨立 identity / key / nonce 鎖 |
+| Signer | maker quote、faucet、keeper 的受限簽署；trader policy 已有，trader worker 尚未實作 | 私有程序；已實作角色 key、caller token、nonce 鎖，部署隔離待完成 |
 | 合約 | 抵押、成交、持倉、最終結果與贖回 | 非升級；新版本新部署，不可改舊市場規則 |
 
-初期 Web/API/Worker/Indexer 可共用一台小型應用主機；Signer 至少獨立程序與 OS/container 身份。正式 Alpha 必須再落实網路 ACL、獨立 secrets、caller 身份與每角色函式 allowlist；只分資料夾不形成安全隔離。手動管理與裁決錢包不放自動 signer。
+初期 Web/API/Worker/Indexer 可共用一台小型應用主機；Signer 至少獨立程序與 OS/container 身份。caller 身份與每角色函式 allowlist 已實作；正式 Alpha 必須再落实網路 ACL 與獨立 secrets 管理；只分資料夾不形成安全隔離。手動管理與裁決錢包不放自動 signer。
 
 ## 功能模組與 ownership
 
@@ -89,7 +89,7 @@ flowchart LR
 - runtime：最小 HTTP bootstrap；不演變成任意工具的共用資料夾。
 - client：對外契約與範例，不引用後端內部資料模型。
 
-`pnpm check:boundaries` 檢查 package dependency / 靜態 import 的基本方向；它不是私鑰隔離或完整 static analysis。M2.1 僅將 identity application／PostgreSQL adapter 接入可選的 API identity 模式，其他業務仍不回假成功。詳見 [身份交付](M2_IDENTITY_DELIVERY.md)。
+`pnpm check:boundaries` 檢查 package dependency / 靜態 import 的基本方向；它不是私鑰隔離或完整 static analysis。API 以明確模式逐層啟用 identity、preparation、approval、markets、trading；未設定服務維持 fail-closed，不回假成功。markets/trading 已接公開讀取、forecast、resolution 與 evaluation；trading 另接 RFQ、faucet。詳見 [身份交付](M2_IDENTITY_DELIVERY.md)、[公開讀取](M2_PUBLIC_READS.md)、[RFQ](M2_RFQ.md)。
 
 ## 關鍵資料流
 
@@ -103,7 +103,7 @@ allowlist 擷取 → 保存 bytes/hash → candidate revision → validation →
 
 window 開放 → 原子研究預算預留 → 模型／外部提交 → 截止後公開 → 合格固定雙模型平均。Baseline 分開，缺一模型時 ensemble 缺失；maker 沒有合格 snapshot 即拒絕報價。
 
-RFQ 驗證身份／wallet／deployment／市場與 freshness → DB lock 下 maker collateral reservation → signer 重驗 → 回 EIP-712 quote。鏈上資金尚未鎖定；quote service 不替代合約驗證。外部 taker 本人 approve 與 fill；內部 trader 另受 notional/gas mandate。
+RFQ 驗證身份／wallet／deployment／市場與 freshness → DB lock 下 maker collateral reservation → signer 重驗 → 回 EIP-712 quote。鏈上資金尚未鎖定；quote service 不替代合約驗證。外部 taker 本人 approve 與 fill；內部 trader 的 notional/gas mandate 是後續工作，不屬本輪已實作範圍。
 
 Index canonical QuoteFilled → 同一 cursor 對帳 consumed、balance、reservation 與 position projection。簽署成功但回覆遺失也保留 reservation；到期不單憑本機時間釋放。
 
@@ -126,9 +126,9 @@ analytics 只以相同 event/horizon 的 LIVE YES/NO 算 Brier；INVALID、REPLA
 - UTC 全程使用明確時區；微單位／uint256 wire 用 decimal string、SQL NUMERIC、運算用 bigint。機率可用 [0,1] 有限 decimal，不拿 float 算資金。
 - 不重複 serialize spec 做 hash 驗證；原始 bytes 要能下載。
 
-## 頁面分類（尚未實作 UI）
+## 頁面分類（公開說明站已實作，操作 UI 待決定）
 
 公開：市場列表、問題詳情（證據／預測／baseline／成本）、結算詳情、agent 接入。
 錢包：測試交易、持倉／贖回。管理：候選核准、工作失敗、預算、pause、結果與爭議工單。
 
-研究機率、maker ask、實際成交價分開；LIVE/REPLAY 與測試資產標籤永久顯示。Web host 現在只輸出功能清單 JSON，沒有假市場、假報價或可點擊的假交易按鈕。
+研究機率、maker ask、實際成交價分開；LIVE/REPLAY 與測試資產標籤永久顯示。Web host 已提供 Next.js 唯讀說明站、文件與明確標示的虛構 REPLAY 市場樣本，不是 API 市場資料，也沒有交易／錢包／管理操作。API 與合約尚未部署，網站上沒有交易。

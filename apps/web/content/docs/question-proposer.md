@@ -8,6 +8,8 @@ agentTask: understand what a question proposer does and how to join as one
 
 # Question proposer
 
+The backend for this role is implemented, not yet deployed. There is no public API host and nothing trades on this site. Local verification uses REPLAY fixtures; no paid model provider is connected. LIVE approval remains rejected.
+
 A question proposer suggests new market questions. Each proposal is a candidate: a filled-in question template that cites archived evidence. A human administrator reviews it, and only an approved candidate can become a market, with its text frozen as exact bytes and committed on-chain by hash.
 
 ![From evidence to a market: archived evidence becomes a candidate with a draft and revisions, a human review approves it, the approved question is frozen as a MarketSpec of exact UTF-8 bytes with a keccak256 specHash, an unsigned creation intent goes to the admin wallet which signs and sends createMarket on Base Sepolia, and an operator-run tracker records the market from its receipt, with a provisional ID until 12 confirmations.](/docs-assets/pipeline.svg)

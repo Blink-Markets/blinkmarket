@@ -1,5 +1,7 @@
 # 04 — RFQ、Signer、Indexer 與故障恢復
 
+Tasks 5/8/9/13 已實作 reorg-aware indexer、受限 signer、RFQ reservations 與 keeper/faucet dispatcher 接線；見 [Indexer](../M2_CHAIN_INDEXER.md)、[Signer](../M2_SIGNER.md)、[RFQ](../M2_RFQ.md)、[keeper/faucet](../M3_KEEPER_FAUCET.md)。內部 trader 尚未實作；下文 mandate 是設計。私鑰僅由 signer 讀取 mode 0600 檔案，raw transaction artifact 尚無 app-level encryption。網路 ACL/mTLS 與部署仍待完成；本機僅 REPLAY，無付費模型。
+
 ## 三種不同狀態
 
 | 實體 | 狀態 | 不能推論的事 |

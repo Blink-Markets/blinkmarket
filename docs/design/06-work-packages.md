@@ -1,8 +1,8 @@
 # 06 — 開發工作包與設計檢查
 
-進度更新：A/M0與B/M1已實作並完成本機驗證；差異清單為原始工作分解，現況見 [交付記錄](../M0_M1_DELIVERY.md)。下一工作包是C/M2。
+進度更新（Tasks 1–13）：A/M0、B/M1 與 C/D 的多個 backend 切片已實作，尚未部署；見 [交付索引](../ROADMAP.md)。本機驗證僅 REPLAY，無付費模型，LIVE 核准仍拒絕。
 
-本文件保留原始工作分解；A/B 已完成。C/M2 已進入第一個身份切片，現況见 [M2.1 交付](../M2_IDENTITY_DELIVERY.md)，並不表示整個 C 已完成。
+本文件保留原始工作分解與設計檢查案例，不是逐項驗收記錄。C 已有 identity、候選／核准、公開讀取、indexer、RFQ/signer；D 已有研究、預算、評估、resolution、keeper/faucet。內部 trader、擴充 SDK／example agent、整合式本機 Alpha harness 與 health/metrics readiness 尚未交付，不標記整個 C/D 完成。
 
 ## A：M0 契約收尾
 
@@ -40,7 +40,9 @@ Signer接線以前必须通過caller隔離、錯role/chain/to/selector/gas/amoun
 
 先source allowlist/快照，再budget/model gateway、discovery/forecast/baseline、resolution/keeper/faucet與metrics。Provider/費率選定後鎖model/prompt/tool versions。完成S03/S04/S06及截止時間/污染/缺失檢查。
 
-## 與現有骨架的差異清單
+## 與原始骨架的差異清單（歷史）
+
+以下「下一步」描述設計提出時的待辦，不能當成當前缺失；deploymentId、v0.1.1 spec、合約結果欄位、持久化 signer、chain snapshot、transaction handle、jobs lease 與 OpenAPI 已有實作。實際仍未完成的範圍見上方進度與各交付記錄。
 
 | 現有檔案／行為 | 下一步修改 |
 | --- | --- |
@@ -69,4 +71,4 @@ Signer接線以前必须通過caller隔離、錯role/chain/to/selector/gas/amoun
 11. 同一錢包試圖用不同API key重領faucet：address guard及pending reservation仍拒絕。
 12. 不完整兩模型ensemble：標缺失，不用baseline或外部模型偷偷補位。
 
-這些是預定test scenarios，不是已執行測試結果。正式實作時將它們映射到原規格C/S編號並保存命令結果。
+這些是設計驗收案例，不是本文件宣稱的測試結果。已實作切片的命令、結果及限制記在各交付文件；尚未完成的整合驗收留待後續工作。

@@ -8,6 +8,8 @@ agentTask: understand what a resolution reporter does and how to join as one
 
 # Resolution reporter
 
+The backend for this role is implemented, not yet deployed. There is no public API host and nothing trades on this site. Local verification uses REPLAY fixtures; no paid model provider is connected. LIVE approval remains rejected.
+
 A resolution reporter sends evidence about how a market should resolve. A report never changes the result directly: it goes into the work queue of the Blink team's auditor, and the team's result proposer, challenger and arbiter settle the market on-chain under fixed time limits. Once a challenge period ends unchallenged, or a market times out, anyone may call the permissionless finalize functions.
 
 ## What is a resolution reporter responsible for?
@@ -47,6 +49,8 @@ Success is `202` with `reportId` and `state: "RECEIVED"`. That means the report 
 5. With no challenge, anyone can finalize the proposed outcome once the window ends.
 
 Models hold no keys and no adjudication authority. People holding these explicit roles make every on-chain decision.
+
+The backend records immutable reports and admin triage events, drafts conservative gross-margin suggestions, and provides unsigned role calldata drafts for human operators. The keeper can finalize eligible markets but cannot adjudicate. Deadline alerts are outbox events; notification delivery and the admin web UI remain deferred.
 
 ## What is the timeline?
 
