@@ -1,5 +1,6 @@
 import type {ModuleId} from "@blink/domain";
 export const routes = [
+  { method: "GET", path: "/v1/admin/metrics", module: "analytics", access: "admin", summary: "Execution latency, status counts and gas ledger" },
   { method: "GET", path: "/v1/admin/resolution-reports", module: "resolution", access: "admin", summary: "Review resolution reports" },
   { method: "POST", path: "/v1/admin/resolution-reports/:id/triage", module: "resolution", access: "admin", summary: "Append resolution report triage" },
 

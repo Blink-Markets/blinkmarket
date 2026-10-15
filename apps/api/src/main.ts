@@ -3,6 +3,7 @@ import { startService } from "@blink/runtime";
 import pg from "pg";
 import {
   createIdentityService,
+  createHealthService,
   createFaucetService,
   createPreparationService,
   createApprovalService,
@@ -29,6 +30,7 @@ import {
   postgresMarketReadStore,
   postgresEvaluationStore,
   postgresBudgetLedger,
+  postgresHealthReader,
 } from "@blink/adapters";
 import { apiConfig, modeAtLeast } from "./config.js";
 import { tradingServices } from "./trading.js";
@@ -79,9 +81,39 @@ try {
           rpcUrl: config.rpcUrl!,
         })
       : null;
+  const health =
+    pool && config.mode === "trading"
+      ? createHealthService({
+          reader: postgresHealthReader(pool, config.deploymentId!),
+          authenticateAdmin: (authorization) =>
+            createIdentityService(
+              postgresIdentityStore(pool),
+              identityCrypto,
+              config.walletOrigin!,
+            ).authenticate(authorization, "admin"),
+          signerReachable: async () => {
+            const response = await fetch(
+              new URL("/health/ready", config.signerUrl!),
+              {
+                signal: AbortSignal.timeout(3000),
+              },
+            );
+            const body = (await response.json()) as {
+              service?: string;
+              status?: string;
+            };
+            return (
+              response.ok &&
+              body.service === "signer" &&
+              body.status === "ready"
+            );
+          },
+        })
+      : undefined;
   const app = buildApi(
     pool
       ? {
+          ...(health ? { health } : {}),
           ...(modeAtLeast(config.mode, "approval")
             ? {
                 approval: createApprovalService({
@@ -113,6 +145,7 @@ try {
           ),
           services: modeAtLeast(config.mode, "markets")
             ? [
+                ...(health ? [health] : []),
                 ...(config.mode === "trading"
                   ? [
                       createFaucetService({

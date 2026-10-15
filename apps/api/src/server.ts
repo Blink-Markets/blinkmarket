@@ -18,6 +18,7 @@ import {
   approvalPaths,
   type ApprovalService,
   type RouteService,
+  type HealthService,
 } from "@blink/application";
 import type { ApiScope } from "@blink/schemas";
 
@@ -50,6 +51,7 @@ function sendIdentityError(
 export function buildApi(
   options: {
     identity?: IdentityService;
+    health?: HealthService;
     preparation?: PreparationService;
     approval?: ApprovalService;
     services?: RouteService[];
@@ -95,7 +97,11 @@ export function buildApi(
         : options.identity
           ? "m2-identity"
           : "architecture");
-  const app = createService("api", stage);
+  const app = createService(
+    "api",
+    stage,
+    async () => (await options.health?.read())?.status === "ready",
+  );
   // Reads of public data are unauthenticated; bound them per client IP (HEAD runs the same handlers).
   const publicReads = options.publicReadLimit
     ? createTokenBucket(options.publicReadLimit)
@@ -140,13 +146,29 @@ export function buildApi(
         },
       },
   );
-  app.get("/v1/health", async (_request, reply) =>
-    reply.code(503).send({
-      status: "not-ready",
-      stage,
-      tradingEnabled: false,
-    }),
-  );
+  app.get("/v1/health", async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    try {
+      const body = options.health
+        ? await options.health.read(request.headers.authorization)
+        : {
+            status: "not-ready",
+            tradingEnabled: false,
+            reasons: ["SERVICE_NOT_READY"],
+          };
+      return reply.code(body.status === "ready" ? 200 : 503).send(body);
+    } catch (error) {
+      if (error instanceof IdentityError)
+        return sendIdentityError(request, reply, error);
+      return reply
+        .code(503)
+        .send({
+          status: "not-ready",
+          tradingEnabled: false,
+          reasons: ["SERVICE_NOT_READY"],
+        });
+    }
+  });
   app.get("/architecture", async () => ({ modules, routes }));
   app.get("/openapi.json", async () =>
     generateOpenApi([...builtIn, ...owners.keys()]),
