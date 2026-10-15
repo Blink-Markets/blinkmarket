@@ -24,6 +24,7 @@ import {
 } from "../../packages/client/src/index.ts";
 
 const CHAIN_ID = 84532;
+const MAINNET_CHAIN_ID = 8453;
 const LOOPBACK = ["127.0.0.1", "localhost", "[::1]"];
 const QUANTITY = "10";
 // The most this agent pays for one share, in micro-bUSD: the API refuses a dearer quote.
@@ -106,7 +107,10 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     pollingInterval: pollMs,
     cacheTime: 0,
   });
-  if ((await publicClient.getChainId()) !== CHAIN_ID)
+  const nodeChainId = await publicClient.getChainId();
+  if (nodeChainId === MAINNET_CHAIN_ID)
+    throw new Error("MAINNET_REFUSED: this node is chain ID 8453");
+  if (nodeChainId !== CHAIN_ID)
     throw new Error("RPC_CHAIN_MISMATCH: expected chain ID 84532");
   const account = privateKeyToAccount(config.privateKey);
   const wallet = createWalletClient({
@@ -237,13 +241,18 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     maxCostMicros: String(budget),
   } as const;
   type Quote = Awaited<ReturnType<typeof client.requestQuote>>;
-  /** Throws QuoteVerificationError on the first thing wrong with the quote; EXPIRED by chain time. */
-  const verify = async (quote: Quote) =>
+  /**
+   * Throws QuoteVerificationError on the first thing wrong with the quote, by chain time. By
+   * default the quote must also have room left for an approval and a fill; `minValiditySeconds: 0n`
+   * asks only whether it has really expired.
+   */
+  const verify = async (quote: Quote, minValiditySeconds?: bigint) =>
     verifySignedQuote(quote, {
       config: trusted,
       wallet: address,
       request,
       nowSeconds: await chainSeconds(),
+      minValiditySeconds,
     });
   const isConsumed = (quote: Quote) =>
     publicClient.readContract({
@@ -282,8 +291,8 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
         log(`fill ${sent} included in block ${receipt.blockNumber}`);
         return sent;
       }
-      // Reverted: if the quote ran out meanwhile this throws EXPIRED, otherwise it is a real failure.
-      await verify(quote);
+      // Reverted: if the quote really ran out meanwhile this throws EXPIRED, otherwise it is a real failure.
+      await verify(quote, 0n);
       throw new Error("FILL_REVERTED: " + sent);
     } catch (error) {
       if (error instanceof QuoteVerificationError) throw error;
@@ -295,7 +304,9 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     }
     for (;;) {
       if (await isConsumed(quote)) return sent;
-      await verify(quote); // EXPIRED once chain time passes expiresAt: the caller requotes
+      // Only real expiry ends the wait: until then the fill may still land, and a requote could
+      // buy twice.
+      await verify(quote, 0n);
       await sleep(pollMs);
     }
   }
@@ -315,7 +326,11 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
       functionName: "approve",
       args: [marketAddress, BigInt(quote.takerCostMicros)],
     });
-    await publicClient.waitForTransactionReceipt({ hash: approval });
+    const approved = await publicClient.waitForTransactionReceipt({
+      hash: approval,
+    });
+    if (approved.status !== "success")
+      throw new Error("APPROVE_REVERTED: " + approval);
     await client.trackTransaction({
       deploymentId,
       txHash: approval,
@@ -324,8 +339,11 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     log(`approved ${quote.takerCostMicros} micro-bUSD in ${approval}`);
     return { quote, fillTxHash: await fill(quote) };
   }
+  // A quote that ran out, or that this node's chain view has not reached yet (a lagging node):
+  // either way the answer is a new quote under a new key.
   const isExpiry = (error: unknown) =>
-    (error instanceof QuoteVerificationError && error.code === "EXPIRED") ||
+    (error instanceof QuoteVerificationError &&
+      (error.code === "EXPIRED" || error.code === "NOT_YET_VALID")) ||
     (error instanceof BlinkApiError &&
       (error.body.code === "QUOTE_EXPIRED" ||
         error.body.details["reason"] === "QUOTE_EXPIRED"));
@@ -338,6 +356,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
       log(
         "quote expired before it was filled; asking for a new one under a new key",
       );
+      await sleep(pollMs);
     }
   }
   const { quote, fillTxHash } = bought;

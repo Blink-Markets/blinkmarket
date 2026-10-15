@@ -131,23 +131,26 @@ The client has no method for `GET /v1/specs/{specHash}` or for the admin resolut
 
 ## How is a signed quote checked?
 
-A quote is a maker's offer, and the API is not trusted to describe it truthfully. The client exports `verifySignedQuote(quote, { config, wallet, request, nowSeconds })`. It returns nothing and throws `QuoteVerificationError` with a `code` for the first check that fails, so approve and send a fill only after it returns:
+A quote is a maker's offer, and the API is not trusted to describe it truthfully. The client exports `verifySignedQuote(quote, { config, wallet, request, nowSeconds, minValiditySeconds? })`. It returns nothing and throws `QuoteVerificationError` with a `code` for the first check that fails, so approve and send a fill only after it returns:
 
 | Code | What failed |
 | --- | --- |
 | `DEPLOYMENT_MISMATCH` | the quote or request names a deployment other than the one in `getConfig()` |
-| `DOMAIN_MISMATCH` | the EIP-712 domain (name, version, chain, verifying contract) is not the deployment's market |
+| `DOMAIN_MISMATCH` | the EIP-712 domain (name, version, chain, verifying contract) is not the deployment's market, or the chain is not 84532 |
 | `MAKER_MISMATCH` | the quote's maker is not the deployment's maker role |
-| `SIGNATURE_INVALID` | the signature does not recover to the maker |
+| `SIGNATURE_INVALID` | the signature does not recover to the maker, or is one the contract refuses (an `s` in the upper half of the curve, or a `v` other than 27 or 28) |
 | `DIGEST_MISMATCH` | `quoteId` is not the EIP-712 digest of the signed message |
 | `TAKER_MISMATCH` | the quote names another taker than your wallet |
 | `TERMS_MISMATCH` | the market, side or quantity differs from your request |
 | `COST_MISMATCH` | the reported costs do not follow from the signed price and quantity |
 | `MAX_COST_EXCEEDED` | the taker cost is above your `maxCostMicros` |
-| `EXPIRED` | `nowSeconds` is at or past `expiresAt` |
+| `NOT_YET_VALID` | `nowSeconds` is before the quote's `validAfter` |
+| `EXPIRED` | less than `minValiditySeconds` is left before `expiresAt`, or `nowSeconds` is at or past it |
 | `CALLDATA_MISMATCH` | the returned calldata is not `fillQuote` for exactly this message and signature |
 
-`config` is the answer of `getConfig()` with a non-null `deployment`, and `nowSeconds` is the chain's latest block timestamp, never the clock of the machine running the code.
+`config` is the answer of `getConfig()` with a non-null `deployment`, and `nowSeconds` is the chain's latest block timestamp, never the clock of the machine running the code. `minValiditySeconds` is optional and defaults to `DEFAULT_MIN_VALIDITY_SECONDS` (6), which assumes 2-second blocks: one for the approval, one for the fill and one of slack. Pass a larger value if blocks are slower; pass `0n` to accept a quote until its last second.
+
+`getConfig()` comes from the same API as the quote, so pin or cross-check `deploymentId`, the `BlinkMarket` address and the maker against a source outside the API (for example the deployment record you were given) before you trust it.
 
 ## What does a typed example look like?
 

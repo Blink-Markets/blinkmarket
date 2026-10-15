@@ -12,7 +12,7 @@
 | Idempotency | same | Every POST takes an optional key; without one the client sends `crypto.randomUUID()`. The key is chosen once per call and checked locally (`requestQuote` used to leave this to the server). |
 | Retry policy | same | `createBlinkClient(url, key, { maxAttempts = 3, sleep })`. An answer whose `ApiError.retryable` is `true` is tried again (reads and POSTs alike) after `Retry-After` (capped at 10 s) or 250 ms doubling; a POST repeats the same key and body. A 503 `SERVICE_NOT_READY` while a quote is still being signed (`SIGN_UNKNOWN`) therefore resumes the same quote. Business refusals (`retryable: false`) and network failures are not retried. |
 | Spec check | same | `getMarketSpec(ref, specHash)` reads the raw bytes of `GET /v1/markets/:id/spec`, requires `keccak256(bytes) = specHash` (else `Error("SPEC_HASH_MISMATCH")`) and returns the parsed spec. The caller supplies the hash it already trusts (from `listMarkets` or the signed quote), so a server that serves other bytes is caught. |
-| Quote check | `packages/client/src/verify-quote.ts` | `verifySignedQuote(envelope, { config, wallet, request, nowSeconds })` returns nothing and throws `QuoteVerificationError(code)` on the first failure, in this order: `DEPLOYMENT_MISMATCH`, `DOMAIN_MISMATCH`, `MAKER_MISMATCH`, `SIGNATURE_INVALID`, `DIGEST_MISMATCH`, `TAKER_MISMATCH`, `TERMS_MISMATCH`, `COST_MISMATCH`, `MAX_COST_EXCEEDED`, `EXPIRED`, `CALLDATA_MISMATCH`. It is synchronous so that a caller cannot forget to await it. |
+| Quote check | `packages/client/src/verify-quote.ts` | `verifySignedQuote(envelope, { config, wallet, request, nowSeconds, minValiditySeconds? })` returns nothing and throws `QuoteVerificationError(code)` on the first failure, in this order: `DEPLOYMENT_MISMATCH`, `DOMAIN_MISMATCH`, `MAKER_MISMATCH`, `SIGNATURE_INVALID`, `DIGEST_MISMATCH`, `TAKER_MISMATCH`, `TERMS_MISMATCH`, `COST_MISMATCH`, `MAX_COST_EXCEEDED`, `NOT_YET_VALID`, `EXPIRED`, `CALLDATA_MISMATCH` (`NOT_YET_VALID` was added by the follow-up below). It is synchronous so that a caller cannot forget to await it. |
 | Typed answers | `packages/schemas/src/http.ts` | `operation()` keeps the literal method, path and response schema, and `ApiContract` exports that union as a type; `apiContracts` is still `readonly HttpContract[]`. The client types each method's result from the schema that validated it. Request inputs stay `unknown` and are validated at run time (as before). |
 | Example agent | `examples/agent/run.ts`, `examples/agent/README.md` | See below. `tsconfig.json` now includes `examples/**/*.ts`, so `pnpm typecheck` covers it. |
 | Public docs | `apps/web/content/docs/client.md` | Method tables, the optional key, the retry paragraph and the quote check; `tests/web-docs-content.test.ts` still passes (no `pnpm`, `curl`, loopback hosts or invented hosts). |
@@ -24,22 +24,26 @@
 - `COST_MISMATCH` also covers a signed price outside 1..9999 bps, which the contract would reject.
 - `SIGNATURE_INVALID` includes a signature that cannot be recovered at all (viem's recovery is asynchronous, so the client uses `ox`'s synchronous `Secp256k1.recoverAddress`).
 - `nowSeconds` must be chain time. The quote's validity is the block timestamp, so a host clock never extends it.
+- `SIGNATURE_INVALID` also refuses what the contract's OpenZeppelin `ECDSA.tryRecover` refuses although it recovers the maker: an `s` above half the curve order (the malleable twin) and a `v` other than 27 or 28.
+- The chain is compared with the literal 84532, never with `config.chainId`, so a config and a quote that agree on another chain (8453 included) are `DOMAIN_MISMATCH`.
+- **Validity window.** `NOT_YET_VALID` when `nowSeconds < validAfter`; `EXPIRED` when less than `minValiditySeconds` is left before `expiresAt`, or none at all. The default is `DEFAULT_MIN_VALIDITY_SECONDS = 6`. It assumes a 2-second block interval on Base Sepolia (an assumption, not something this repository measures): the approval needs one block, the fill the next, and one more block covers propagation and receipt polling. Pass a different value if the observed block time differs. The API signs 30 seconds (never fewer than 5), so the margin costs a taker a fifth of a normal quote. `0n` restores "until the last second".
+- **Trust anchor.** `getConfig()` comes from the same API as the quote, so an agent should pin or cross-check `deploymentId`, the `BlinkMarket` address and the maker against a source outside the API (the on-chain maker and spec checks still bound the loss to the exact approval).
 
 ## The example agent
 
 `node --import tsx examples/agent/run.ts` with `BLINK_API_URL`, `BLINK_API_KEY`, `AGENT_PRIVATE_KEY` and `RPC_URL` (it refuses any `RPC_URL` that is not loopback and any chain but 84532). Flow: `getConfig`, bind the wallet, list markets and verify the spec, submit a forecast in the open window, claim the faucet, request a quote, `verifySignedQuote`, approve exactly the taker cost, read `consumed(digest)`, send the verified calldata once, `trackTransaction`, poll `getTransaction` and `getPositions`, wait until the market is FINAL, redeem.
 
-- An expired quote (a verification `EXPIRED`, an API `QUOTE_EXPIRED`, or a fill that ran out) is replaced by a new RFQ under a **new** key, at most three times.
-- A fill whose outcome is unknown (a lost answer, no receipt) is **never sent again**. The agent waits until `consumed(digest)` shows it landed or the quote expires. A fill that would revert is refused by an `eth_call` before it is sent.
+- An expired quote (a verification `EXPIRED` or `NOT_YET_VALID`, an API `QUOTE_EXPIRED`, or a fill that ran out) is replaced by a new RFQ under a **new** key, at most three times. A reverted approval (`APPROVE_REVERTED`) stops the run before the fill, and a node on chain 8453 is `MAINNET_REFUSED`.
+- A fill whose outcome is unknown (a lost answer, no receipt) is **never sent again**. The agent waits until `consumed(digest)` shows it landed or the quote has really expired (margin 0: until then the fill can still land, so a requote could buy twice). A fill that would revert is refused by an `eth_call` before it is sent.
 - `runAgent(config)` is exported, so Task 16's harness can call it in process or run the file as a process.
 
 ## Tests
 
 | File | Covers |
 | --- | --- |
-| `tests/client-verify-quote.test.ts` (13) | Each code with an envelope signed offline by an Anvil development key (the honest envelope uses the production calldata encoder), the order of failures, boundaries (`expiresAt`, `maxCostMicros`). |
+| `tests/client-verify-quote.test.ts` (16) | Each code with an envelope signed offline by an Anvil development key (the honest envelope uses the production calldata encoder), the order of failures, boundaries (`expiresAt`, `maxCostMicros`). |
 | `tests/client.test.ts` (29) | A real loopback HTTP server: every method's method, path, query, body and bearer header and its validated answer; generated and given Idempotency-Keys; local refusal of a bad key or body; retries reuse key and body, wait as asked, stop at the last attempt, skip business refusals; `getMarketSpec` rejects altered bytes, a wrong expectation and non-spec bytes; faucet refusals arrive as `BlinkApiError`; the example's refusals (not local, not chain 84532, missing environment). |
-| `tests/anvil/client-agent.test.ts` (2) | The example, unchanged, against the real API, signer, worker and indexer on Anvil. First: the first quote is made to expire while its approval is pending, so the run requotes under a new key, fills once, waits for FINAL (the test proposes YES and finalizes after the challenge window) and redeems (allowance back to 0, balance = faucet - cost + payout). Second: the answer of the fill is lost; exactly three raw transactions leave the agent (approve, fill, redeem). |
+| `tests/anvil/client-agent.test.ts` (3) | The example, unchanged, against the real API, signer, worker and indexer on Anvil. First: the first quote is made to expire while its approval is pending, so the run requotes under a new key, fills once, waits for FINAL (the test proposes YES and finalizes after the challenge window) and redeems (allowance back to 0, balance = faucet - cost + payout). Second: the answer of the fill is lost; exactly three raw transactions leave the agent (approve, fill, redeem). Third (follow-up): the approval receipt is reported as reverted and the run stops before the fill. |
 
 Mutation checks (temporary, reverted): removing each of nine checks from `verifySignedQuote` (maker, off-by-one on expiry and on the cost limit, digest, taker, calldata, envelope expiry, domain version, signature signer) fails at least one test each; resending the fill after an unknown outcome fails the Anvil test, and ignoring an expired quote fails the other.
 
@@ -62,6 +66,21 @@ Run on 2026-10-15 in the task worktree against a local Anvil with chain ID 84532
 - `pnpm build:services && pnpm test:service-build`: exit 0, 5 bundle tests (the worker bundle includes `@blink/client`, now with `viem` and `ox`).
 - `pnpm test:anvil`: exit 0, 46 tests (2 new in `tests/anvil/client-agent.test.ts`).
 - `pnpm test:postgres`: not run. Nothing here touches a migration, a store or a lock; the example's database-backed paths ran on PGlite with the production roles.
+
+## Follow-up (review Minors 1 to 5 and 7)
+
+| Minor | Change | Test |
+| --- | --- | --- |
+| 1 | `verifySignedQuote` refuses an `s` above half the curve order and a `v` other than 27 or 28 (`SIGNATURE_INVALID`), as the contract does. | `tests/client-verify-quote.test.ts`: the high-s twin and `v` of 0 or 1 of an honest signature, each with matching calldata, passed before. |
+| 2 | `validAfter <= now` (`NOT_YET_VALID`) and a margin of `minValiditySeconds` (default `DEFAULT_MIN_VALIDITY_SECONDS = 6`, see above). The example uses the default before it approves and fills, and `0n` where it decides whether an unknown fill can still land. | Boundary tests of the default, `0n` and a custom margin; `NOT_YET_VALID` at 999 and 1000. |
+| 3 | The domain, the envelope and the config chain are compared with 84532, and the typed data is built with it. | A quote signed for chain 8453 with a config that says 8453 verified before. |
+| 4 | The example maps a node on chain 8453 to `MAINNET_REFUSED`; any other chain stays `RPC_CHAIN_MISMATCH`. | `tests/client.test.ts` with a loopback JSON-RPC node for 8453 and one for chain 1. |
+| 5 | The example throws `APPROVE_REVERTED` when the approval receipt is not `success`, before tracking it or filling. | `tests/anvil/client-agent.test.ts`: a proxy reports the approval receipt as reverted; before the change a second transaction (the fill) was sent. |
+| 7 | One sentence in `apps/web/content/docs/client.md` and above: pin or cross-check the deployment, the market address and the maker outside the API. | `tests/web-docs-content.test.ts` still passes. |
+
+Parked (reviewer's Minors 6, 8 and 9): the cap on `Retry-After` and the worker's abort signal, the unreachable API expiry branch of the example and an exhausted `MAX_QUOTE_ATTEMPTS`, and folding the Anvil stack into Task 16's harness.
+
+Follow-up verification: `pnpm check` exit 0 (548 tests), `pnpm build` exit 0, `pnpm test:anvil` exit 0 (47 tests), `pnpm build:services && pnpm test:service-build` exit 0 (5 tests).
 
 ## Remaining limits and open items
 
