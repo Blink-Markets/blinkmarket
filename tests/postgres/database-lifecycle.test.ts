@@ -7,6 +7,7 @@ import {
   connectionLimits,
   withDatabase,
 } from "../helpers/postgres-database.js";
+import { databaseTraces, leakedTraces } from "../helpers/postgres-traces.js";
 
 const exists = async (sql: string, name: string) => {
   const control = new pg.Client({ connectionString: adminUrl });
@@ -106,4 +107,26 @@ test("real PostgreSQL: the scenario error is preserved when teardown also fails"
     },
   );
   assert.equal(await databaseExists(database), false);
+});
+
+test("real PostgreSQL: nothing can be created once teardown has begun", async () => {
+  const before = await databaseTraces();
+  let handle!: Parameters<Parameters<typeof withDatabase>[0]>[0];
+  await withDatabase(async (db) => {
+    handle = db;
+  });
+  await assert.rejects(handle.login({ max: 1 }), /DATABASE_CLOSED/);
+  assert.throws(() => handle.pool("blink_api"), /DATABASE_CLOSED/);
+  assert.deepEqual(await leakedTraces(before), []);
+});
+
+test("real PostgreSQL: a login still being created when the run ends is dropped, not leaked", async () => {
+  const before = await databaseTraces();
+  let abandoned!: Promise<unknown>;
+  await withDatabase(async (db) => {
+    abandoned = db.login({ max: 1 });
+    abandoned.catch(() => {});
+  });
+  await assert.rejects(abandoned, /DATABASE_CLOSED/);
+  assert.deepEqual(await leakedTraces(before), []);
 });

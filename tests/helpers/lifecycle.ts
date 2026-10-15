@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { once } from "node:events";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
@@ -140,7 +139,8 @@ export async function runWithCleanup<T>(
   return value as T;
 }
 
-// Runs this Node binary with `args`; a stalled child is killed at the timeout or on abort.
+// Runs this Node binary with `args`; a stalled child is killed (SIGKILL, which it cannot
+// ignore) at the timeout or as soon as `signal` aborts.
 export async function runChild(
   label: string,
   args: string[],
@@ -152,27 +152,26 @@ export async function runChild(
 ): Promise<string> {
   const pending = exec(process.execPath, args, {
     ...(options.env ? { env: options.env } : {}),
-    ...(options.signal ? { signal: options.signal } : {}),
     timeout: options.timeoutMs,
     killSignal: "SIGKILL",
   });
+  const kill = () => void pending.child.kill("SIGKILL");
+  if (options.signal?.aborted) kill();
+  else options.signal?.addEventListener("abort", kill, { once: true });
   try {
     return (await pending).stdout;
   } catch (error) {
-    if (options.signal?.aborted) {
-      // An abort rejects before the killed child has exited; wait so nothing outlives the call.
-      const { child } = pending;
-      if (child.exitCode === null && child.signalCode === null)
-        await once(child, "exit");
+    if (options.signal?.aborted)
       throw new Error(`LIFECYCLE_CHILD_ABORTED: ${label} cancelled`, {
         cause: error,
       });
-    }
     if ((error as { killed?: boolean }).killed)
       throw new Error(
         `LIFECYCLE_CHILD_TIMEOUT: ${label} timed out after ${options.timeoutMs} ms`,
         { cause: error },
       );
     throw error;
+  } finally {
+    options.signal?.removeEventListener("abort", kill);
   }
 }

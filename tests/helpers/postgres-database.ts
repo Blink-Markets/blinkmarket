@@ -66,6 +66,12 @@ export async function withDatabase(
   });
   const opened: pg.Pool[] = [];
   const roles: string[] = [];
+  // Set when teardown starts: an abandoned `run` must not create anything the teardown, which
+  // snapshots what exists, would then miss.
+  let closed = false;
+  const assertOpen = () => {
+    if (closed) throw new Error("DATABASE_CLOSED: " + name);
+  };
   let outcome: { error: unknown } | undefined;
   try {
     await control.query(`CREATE DATABASE "${name}"`);
@@ -80,6 +86,7 @@ export async function withDatabase(
       name,
       owner,
       pool(role, max = 8) {
+        assertOpen();
         const pool = new pg.Pool({
           connectionString: url.toString(),
           options: "-c role=" + role,
@@ -90,6 +97,7 @@ export async function withDatabase(
         return pool;
       },
       async login(options = {}) {
+        assertOpen();
         const role = "t8_" + randomUUID().replaceAll("-", "").slice(0, 24);
         const password = randomUUID();
         // Listed first so a teardown that overtakes this statement still drops the role.
@@ -99,6 +107,8 @@ export async function withDatabase(
         );
         if (options.ownsDatabase)
           await control.query(`ALTER DATABASE "${name}" OWNER TO "${role}"`);
+        // Teardown began while the role was being created: it drops the role, so no pool.
+        assertOpen();
         const loginUrl = new URL(url.toString());
         loginUrl.username = role;
         loginUrl.password = password;
@@ -114,6 +124,7 @@ export async function withDatabase(
   } catch (error) {
     outcome = { error };
   }
+  closed = true;
   settle(
     outcome,
     await attemptAll(

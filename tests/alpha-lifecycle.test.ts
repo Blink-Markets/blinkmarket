@@ -213,9 +213,10 @@ test("an already aborted signal never starts the body", async () => {
   assert.equal(started, false);
 });
 
-const stalledChild = async (pidFile: string) => [
+const stalledChild = async (pidFile: string, ignoreTerm = false) => [
   "-e",
-  "require('node:fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000)",
+  (ignoreTerm ? "process.on('SIGTERM', () => {});" : "") +
+    "require('node:fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000)",
   pidFile,
 ];
 const alive = (pid: number) => {
@@ -264,6 +265,42 @@ test("a stalled child process is killed when the run is aborted", async () => {
     assert.ok(pid, "child started");
     controller.abort(new Error("deadline reached"));
     await rejected;
+    assert.equal(alive(Number(pid)), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a child that ignores SIGTERM is still killed at its timeout and on abort", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "blink-lifecycle-"));
+  try {
+    const timedOut = join(directory, "timeout.pid");
+    await assert.rejects(
+      runChild("stubborn import", await stalledChild(timedOut, true), {
+        timeoutMs: 1000,
+      }),
+      /LIFECYCLE_CHILD_TIMEOUT/,
+    );
+    assert.equal(alive(Number(await readFile(timedOut, "utf8"))), false);
+
+    const abortedPid = join(directory, "abort.pid");
+    const controller = new AbortController();
+    const child = runChild(
+      "stubborn import",
+      await stalledChild(abortedPid, true),
+      { timeoutMs: 30_000, signal: controller.signal },
+    );
+    const rejected = assert.rejects(child, /LIFECYCLE_CHILD_ABORTED/);
+    let pid = "";
+    for (let n = 0; n < 200 && !pid; n++) {
+      pid = await readFile(abortedPid, "utf8").catch(() => "");
+      if (!pid) await delay(25);
+    }
+    assert.ok(pid, "child started");
+    controller.abort(new Error("deadline reached"));
+    const aborted = Date.now();
+    await rejected;
+    assert.ok(Date.now() - aborted < 5000, "abort does not wait for SIGTERM");
     assert.equal(alive(Number(pid)), false);
   } finally {
     await rm(directory, { recursive: true, force: true });
