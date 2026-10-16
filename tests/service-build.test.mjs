@@ -140,3 +140,23 @@ test("actual signer entry bundle prints a code only for an invalid configuration
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("actual restore-prepare tool bundle fails closed without configuration", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "blink-restore-prepare-"));
+  try {
+    await copyFile(
+      resolve("dist/tools/restore-prepare.mjs"),
+      join(directory, "restore-prepare.mjs"),
+    );
+    const result = spawnSync(process.execPath, ["restore-prepare.mjs"], {
+      cwd: directory,
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, NODE_ENV: "production" },
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /RESTORE_PREPARE_CONFIGURATION_REQUIRED/);
+    assert.doesNotMatch(result.stderr, /MODULE_NOT_FOUND|Cannot find package/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

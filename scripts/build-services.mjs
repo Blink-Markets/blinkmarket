@@ -36,6 +36,7 @@ await build({
     "register-deployment": "scripts/register-deployment.ts",
     "reconcile-creation": "scripts/reconcile-creation.ts",
     "rebuild-chain-index": "scripts/rebuild-chain-index.ts",
+    "restore-prepare": "scripts/restore-prepare.ts",
   },
   outdir: "dist/tools",
   outExtension: { ".js": ".mjs" },

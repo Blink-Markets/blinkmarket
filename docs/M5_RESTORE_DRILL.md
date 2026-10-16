@@ -52,8 +52,8 @@ them again. `scripts/restore-drill.ts` runs from that hook, several times:
 7. **Compare.** The restored projection, cursor, table digests, privileges and schema must equal
    the pre-dump ones, and the projection must equal the contract's views (maker balance, epoch,
    pause, each market's escrow, pairs, pause and state, positions, takers, consumed digests)
-   read at the dump's block. In the schema comparison the parentheses of `CHECK` lines and
-   pg_dump's random `\restrict` token are ignored: PostgreSQL re-parenthesizes a long CHECK
+   read at the dump's block. In the schema comparison only the nesting of OR chains on `CHECK` lines (flattened by PostgreSQL on restore) and
+   pg_dump's random `\restrict` token are normalized; every other character must match
    after a restore.
 8. **Catch up.** The indexer syncs from the chain to the head, which replays the missed event.
    The projection must again equal the contract's views, now at the head.

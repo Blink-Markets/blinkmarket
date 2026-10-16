@@ -242,6 +242,34 @@ async function fingerprint(db: pg.Pool) {
 
 const SECONDS = (ms: number) => Math.floor(ms / 1000);
 
+// `((A) OR (B)) OR (C)` and `(A) OR (B) OR (C)` are the same condition, and a restore turns the
+// first form into the second. Splices a parenthesized group that is itself an OR chain into the
+// OR chain around it; every other character, parenthesis included, stays exactly as dumped.
+type Part = string | Part[];
+function flattenOr(line: string): string {
+  const stack: Part[][] = [[]];
+  for (const piece of line.split(/([()])/)) {
+    if (piece === "(") stack.push([]);
+    else if (piece === ")") {
+      if (stack.length < 2) return line;
+      const group = stack.pop()!;
+      stack.at(-1)!.push(group);
+    } else if (piece) stack.at(-1)!.push(piece);
+  }
+  if (stack.length !== 1) return line;
+  const isOr = (g: Part[]) =>
+    g.some((p) => typeof p === "string" && p.includes(" OR "));
+  const flatten = (g: Part[]): Part[] => {
+    const parts = g.map((p) => (typeof p === "string" ? p : flatten(p)));
+    return isOr(parts)
+      ? parts.flatMap((p) => (typeof p !== "string" && isOr(p) ? p : [p]))
+      : parts;
+  };
+  const text = (g: Part[]): string =>
+    g.map((p) => (typeof p === "string" ? p : "(" + text(p) + ")")).join("");
+  return text(flatten(stack[0]!));
+}
+
 export async function runRestoreDrill(
   context: AlphaDrillContext,
   options: RestoreDrillOptions = {},
@@ -317,8 +345,8 @@ export async function runRestoreDrill(
       .replaceAll(name, "<database>")
       // Each pg_dump run writes its own random psql \restrict token.
       .replace(/^\\(un)?restrict .*\n/gm, "")
-      // PostgreSQL re-parenthesizes a long CHECK after a restore; the condition is the same.
-      .replace(/^.*\bCHECK\b.*$/gm, (line) => line.replace(/[()]/g, ""));
+      // PostgreSQL flattens a nested OR chain in a CHECK after a restore; nothing else is touched.
+      .replace(/^.*\bCHECK\b.*$/gm, flattenOr);
   const sourceSchema = await schemaOf(sourceName);
 
   // The chain moves on while the database is gone: one event the dump cannot hold, then blocks.
@@ -490,7 +518,17 @@ export async function runRestoreDrill(
 
     // Rule 3: the first act on a restored database is to close quoting (and free the cursor).
     life.stage("restore drill: close quoting");
-    await prepareRestoredDatabase(restored, deploymentId);
+    // The dump carries the dead indexer's lease: prepare must really clear it.
+    const leaseOwner = () =>
+      restored
+        .query("SELECT lease_owner FROM chain.cursors WHERE deployment_id=$1", [
+          deploymentId,
+        ])
+        .then((r) => r.rows[0].lease_owner as string | null);
+    assert.notEqual(await leaseOwner(), null, "RESTORE_DRILL_NO_DUMPED_LEASE");
+    const prepared = await prepareRestoredDatabase(restored, deploymentId);
+    if (!prepared.leaseCleared || (await leaseOwner()) !== null)
+      throw new Error("RESTORE_LEASE_NOT_CLEARED");
     // What quoting would be refused for, mirroring the RFQ's admission (application/src/rfq.ts):
     // the pool gate, settled reservations whose block left the canonical chain, and the lag rule
     // against the live head. The last one is the only reason that is not stored in the database.

@@ -27,7 +27,7 @@ export async function prepareRestoredDatabase(
       [deploymentId],
     );
     const lease = await client.query(
-      "UPDATE chain.cursors SET lease_owner=NULL, lease_until=NULL WHERE deployment_id=$1",
+      "UPDATE chain.cursors SET lease_owner=NULL, lease_until=NULL WHERE deployment_id=$1 AND lease_owner IS NOT NULL",
       [deploymentId],
     );
     await client.query("COMMIT");
@@ -52,7 +52,12 @@ if (
     );
     process.exitCode = 1;
   } else {
-    const pool = new pg.Pool({ connectionString, max: 1 });
+    const pool = new pg.Pool({
+      connectionString,
+      max: 1,
+      connectionTimeoutMillis: 5000,
+      statement_timeout: 30000,
+    });
     try {
       console.log(
         JSON.stringify(await prepareRestoredDatabase(pool, deploymentId)),

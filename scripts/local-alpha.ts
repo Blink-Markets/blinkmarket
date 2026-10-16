@@ -62,8 +62,6 @@ export interface AlphaDrillContext {
   market: Address;
   chainStore: ReturnType<typeof adapters.postgresChainIndexStore>;
   life: Lifecycle;
-  // Re-aligns the services' database clock with the chain after the drill moved chain time.
-  setClock: () => Promise<void>;
   // Asks the API for a quote as the scenario's taker; the quote stays unfilled.
   requestQuote: () => Promise<{ quoteId: string }>;
   send: (
@@ -763,7 +761,8 @@ export async function runLocalAlpha(
           waitMs: {
             faucet: 30_000,
             indexing: 30_000,
-            final: 60_000,
+            // The drill hook runs while the agent waits; its time must not count against it.
+            final: options.whileOpen ? 300_000 : 60_000,
             // Anvil automines: after an abort the agent must not poll a dead node for minutes.
             receipt: RECEIPT_TIMEOUT_MS,
           },
@@ -788,7 +787,6 @@ export async function runLocalAlpha(
             chainStore,
             life,
             send,
-            setClock,
             requestQuote: () =>
               createBlinkClient(url, external.apiKey).requestQuote(
                 {

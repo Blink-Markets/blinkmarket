@@ -61,6 +61,8 @@ test(
             },
           }),
         );
+        // A slow drill (simulated): the external agent's wait for FINAL must not time out.
+        await new Promise((resolve) => setTimeout(resolve, 65_000));
         // A restore that does not hold what the dump held (here a cursor that moved).
         outcomes.diverged = await failure(
           runRestoreDrill(context, {
