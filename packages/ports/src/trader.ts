@@ -122,6 +122,10 @@ export interface PrepareTraderIntent {
   /** The reservation this spends; null for a redeem, which pays the wallet and spends nothing. */
   reservationId: string | null;
 }
+export type PrepareTraderResult =
+  | { state: "PREPARED"; intentId: string }
+  | { state: "NOT_AUTHORIZED" }
+  | { state: "APPROVE_IN_FLIGHT" };
 
 export interface TraderStore {
   /** The mandate that follows this forecaster; null when none exists, throws when several do. */
@@ -162,9 +166,12 @@ export interface TraderStore {
   authorize(reservationId: string): Promise<boolean>;
   /**
    * Creates the economic intent and its first sign request; the same dedupe key returns the same
-   * intent. A spend (`reservationId` set) is authorized under the lock first: null means it was not.
+   * intent. A spend (`reservationId` set) is authorized under the lock first. An APPROVE is also
+   * refused, under the same lock, while another HELD buy of the mandate on the deployment has an
+   * approve intent and no mined fill: an approve sets the allowance, so a second one would
+   * overwrite what the first buy's fill still needs.
    */
-  prepare(input: PrepareTraderIntent): Promise<{ intentId: string } | null>;
+  prepare(input: PrepareTraderIntent): Promise<PrepareTraderResult>;
   /** The forecast window a snapshot (and so a quote's price) was made from. */
   snapshotWindow(snapshotId: string): Promise<string | null>;
   intent(intentId: string): Promise<TraderIntentFact | null>;

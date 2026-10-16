@@ -7,6 +7,7 @@ import {
   SIGNING_POLICY_VERSION,
   type Hex,
   type MandateRefusal,
+  type PrepareTraderResult,
   type QuoteStatus,
   type TraderContext,
   type TraderIntentFact,
@@ -434,13 +435,31 @@ export function postgresTraderStore(pool: Pool): TraderStore {
       return rows[0] ? String(rows[0].window_id) : null;
     },
     prepare: (input) =>
-      uow.run(async (ctx) => {
+      uow.run(async (ctx): Promise<PrepareTraderResult> => {
         const db = uow.client(ctx);
         if (
           input.reservationId !== null &&
           !(await permitted(db, input.reservationId))
         )
-          return null;
+          return { state: "NOT_AUTHORIZED" };
+        // Under the mandate's lock (taken by `permitted`): an approve sets the allowance, so it is
+        // refused while another HELD buy of the mandate has an approve out whose fill is not mined.
+        // A buy's own approve is never refused, so the same key still returns the same intent.
+        if (input.kind === "APPROVE" && input.reservationId !== null) {
+          const { rows } = await db.query(
+            `SELECT EXISTS (SELECT 1 FROM signing.economic_intents WHERE dedupe_key=$3) AS own,
+              EXISTS (SELECT 1 FROM trading.risk_reservations o
+                JOIN trading.risk_reservations me ON me.id=$1 AND me.agent_id=o.agent_id
+                JOIN signing.economic_intents ai ON ai.dedupe_key='trader:approve:'||o.intent_id::text
+                LEFT JOIN signing.economic_intents fi ON fi.dedupe_key='trader:fill:'||o.intent_id::text
+                WHERE o.id<>$1 AND o.state='HELD' AND o.deployment_id=$2 AND ai.state<>'FAILED'
+                  AND (fi.id IS NULL OR (fi.state<>'FAILED' AND NOT COALESCE(
+                    fi.state IN ('INCLUDED','FINALIZED') AND ${minedOf("fi")}='success',false)))) AS held`,
+            [input.reservationId, input.deploymentId, input.dedupeKey],
+          );
+          if (rows[0].own !== true && rows[0].held === true)
+            return { state: "APPROVE_IN_FLIGHT" };
+        }
         const { intentId } = await writer.createIntent(db, {
           deploymentId: input.deploymentId,
           kind: input.kind,
@@ -458,7 +477,7 @@ export function postgresTraderStore(pool: Pool): TraderStore {
           ),
           policyVersion: SIGNING_POLICY_VERSION,
         });
-        return { intentId };
+        return { state: "PREPARED", intentId };
       }),
     intent: (intentId) => fact(pool, intentId),
 
