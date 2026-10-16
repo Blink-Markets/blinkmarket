@@ -189,12 +189,21 @@ A separate plan, written after mockups of the trading area (§13.2 confirmation 
 3. Shared rate limiter and multi-instance API, before horizontal scaling.
 4. Signer key encryption at rest beyond file permissions; hardware or KMS custody.
 5. Smart-account (ERC-1271) wallets (out of v0.1 scope, ADR 0002 §7).
-6. Parked findings from the previous plan, which live in its SDD ledger and are copied here at its close:
-   - T5: idle-poll gate clear; no EIP-1898 fallback; no tooling to clear FINALIZED_CONFLICT.
-   - T8: operator tooling for an abandoned v1 nonce hole.
-   - T9: Minors M6–M12, plus the duplicate signer call on concurrent stale-quote resumes.
-   - T10: no whoami check, and no reaper for pending answers.
-   - T11: archive-absent reporting.
-   - T13: the long Anvil scenario and the lack of a lock-interleaving test.
+6. Parked findings from the previous plan (2026-10-14), copied from its SDD ledger at its close on 2026-10-16:
+   - Before any Sepolia deployment (from the whole-branch review): retention for `operations.jobs` and `operations.outbox` and indexes for the worker's recovery lookups; trusted-proxy configuration for the per-IP limiter behind TLS ingress; unmapped outbox events (`alert.deadline`, `market.creation_requested`, `market.creation_observed`) are stamped dispatched with no consumer — keep them for the alert sink (A4) or list them as unconsumed; declared job types never enqueued or handled (`candidate.validate`, `market.deploy`, `budget.reconcile`, `chain.reconcile`, `tx.track`) — `budget.reconcile` must exist before any paid model gateway; a harness or seam test with per-caller signer tokens (maker-only API, keeper/faucet/trader worker) and distinct logins; the runtime-role refusal should say what to fix (`runtime-role.ts`).
+   - T1/T3: minors in their review files; the rate limiter's trusted proxy (as above).
+   - T4: deployment write errors drop their cause; the deploy-contracts test helper.
+   - T5: idle-poll gate clear; a mismatch detours through reorg handling; maker row recreate; no bound on DROP retries; no EIP-1898 fallback; no tooling to clear FINALIZED_CONFLICT.
+   - T8: operator tooling for an abandoned v1 nonce hole; FINALIZED is reached only through fakes in tests; a non-final revert shows as INCLUDED.
+   - T9: Minors M6–M12 (M11's unused grants need a new migration), plus the duplicate signer call on concurrent stale-quote resumes.
+   - T10: no whoami check; no reaper for pending answers; truncation.
+   - T11: archive-absent reporting; polling cadence; the challenge draft outcome; admin list ordering.
+   - T13: the long Anvil scenario; a clock offset restored without `finally`; no lock-interleaving test; a disabled deployment after the v1 plan abandons a nonce.
+   - T14: no mandate administration tool; wallet binding needs a trader-key signature; one trader per deployment (the job queue cannot route by role); the session-settable clock in the trader view (M4); M6–M8 (caps enforced only in the worker).
+   - T15: `Retry-After` above the client's cap is still retried; untested `QUOTE_EXPIRED` branch and `MAX_QUOTE_ATTEMPTS` exhaustion; the example's Anvil test composes the stack by hand; `consumed(digest)` read from a node behind the one that served chain time.
+   - T16a: no deadline on `/v1/health` database reads; harness clock jumps inflate transaction latency metrics.
+   - T16b: the leak check looks at the whole shared server; on a failing run the stage-keyed abort test's `finally` SIGKILLs the child and can leave its database and Anvil behind; the pump's delay is not tied to the run's signal; ack-level worker errors (`LEASE_LOST`, `JOB_ACK_FAILED`, `JOB_LEASE_FAILED`) are not reported; the window scheduler, creation tracker, quote reconciler and scoring run directly rather than through the worker's ticks.
+   - T17: `FORCE_COLOR`/`NO_COLOR` warnings in the browser run; the `metadataBase` localhost warning.
+   - GitHub repository setting (the user's action): Issues → "Creation allowed by: Collaborators only".
 7. Real Safari and real-device checks for the site; CSP inline styles; site search (from `docs/M4_WEB_SHOWCASE_DELIVERY.md`).
 8. Per-mode (LIVE/REPLAY) budget split.

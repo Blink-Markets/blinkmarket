@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** Complete on 2026-10-16. Tasks 1–17 are merged on `main` and each passed its task review; the whole-branch review's two Important findings (the trader's open cap, unthrottled health endpoints) and six of its Minors were fixed and re-reviewed. Everything is verified locally (`pnpm check`, `pnpm build`, the service bundles, `pnpm alpha:local`, the Anvil and PostgreSQL suites) and in CI; nothing is deployed. Parked findings moved to the Open Items of [`2026-10-15-public-alpha-readiness.md`](2026-10-15-public-alpha-readiness.md).
+
 **Goal:** Finish the Blink v0.1 backend so the spec §2.1 vertical flow (evidence → candidate → approval → market → forecasts → RFQ → fill → index → resolution → redeem → scores) runs end to end on a local Base Sepolia–shaped stack (Anvil with chain ID 84532), with every §17.2 scenario covered by automated tests.
 
 **Architecture:** Keep the existing modular monolith: shared `schemas → domain → ports → application`, `adapters` for PostgreSQL/viem/filesystem, `apps/*` as composition roots. A short Wave 0 lands the seams that every later task shares: an API route-service registry, the chain index schema, a business clock function and test helpers. Later tasks then run in parallel git worktrees, and each one owns its migration number, its application service and its tests. Platform agents (discovery, forecasters, baseline, internal trader) call the public API with invited keys, the same path an external agent uses.
