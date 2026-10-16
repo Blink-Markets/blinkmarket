@@ -19,6 +19,7 @@
     "replay": "node scripts/check-contracts.mjs && node --import tsx scripts/local-replay.ts",
     "db:migrate": "node --import tsx scripts/migrate.ts",
     "identity:admin": "node --import tsx scripts/identity-admin.ts",
+    "ops:status": "node --import tsx scripts/ops-status.ts",
     "resolution:draft": "node --import tsx scripts/resolution-draft.ts",
     "forecast:admin": "node --import tsx scripts/forecast-admin.ts",
     "trading:admin": "node --import tsx scripts/trading-admin.ts",

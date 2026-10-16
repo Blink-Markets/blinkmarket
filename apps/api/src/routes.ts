@@ -1,5 +1,10 @@
 import type {ModuleId} from "@blink/domain";
 export const routes = [
+  { method: "GET", path: "/v1/admin/pause", module: "trading", access: "admin", summary: "Indexed pause state and health diagnostics" },
+  { method: "GET", path: "/v1/admin/resolutions", module: "resolution", access: "admin", summary: "Resolution and dispute queue without evidence" },
+  { method: "GET", path: "/v1/admin/jobs", module: "operations", access: "admin", summary: "Safe job status metadata" },
+  { method: "GET", path: "/v1/admin/budgets", module: "budgets", access: "admin", summary: "Current daily research budget" },
+  { method: "GET", path: "/v1/admin/candidates", module: "discovery", access: "admin", summary: "Operator candidate review and approvals" },
   { method: "GET", path: "/v1/admin/metrics", module: "analytics", access: "admin", summary: "Execution latency, status counts and gas ledger" },
   { method: "GET", path: "/v1/admin/resolution-reports", module: "resolution", access: "admin", summary: "Review resolution reports" },
   { method: "POST", path: "/v1/admin/resolution-reports/:id/triage", module: "resolution", access: "admin", summary: "Append resolution report triage" },

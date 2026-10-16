@@ -4,6 +4,7 @@ import pg from "pg";
 import {
   createIdentityService,
   createHealthService,
+  createOperatorStatusService,
   createFaucetService,
   createPreparationService,
   createApprovalService,
@@ -31,6 +32,7 @@ import {
   postgresEvaluationStore,
   postgresBudgetLedger,
   postgresHealthReader,
+  postgresOperatorStatusStore,
 } from "@blink/adapters";
 import { apiConfig, modeAtLeast } from "./config.js";
 import { createRfqPool, tradingServices } from "./trading.js";
@@ -147,7 +149,21 @@ try {
           ),
           services: modeAtLeast(config.mode, "markets")
             ? [
-                ...(health ? [health] : []),
+                ...(health
+                  ? [
+                      health,
+                      createOperatorStatusService({
+                        store: postgresOperatorStatusStore(pool, config.deploymentId!),
+                        health,
+                        authenticateAdmin: (authorization) =>
+                          createIdentityService(
+                            postgresIdentityStore(pool),
+                            identityCrypto,
+                            config.walletOrigin!,
+                          ).authenticate(authorization, "admin"),
+                      }),
+                    ]
+                  : []),
                 ...(config.mode === "trading"
                   ? [
                       createFaucetService({

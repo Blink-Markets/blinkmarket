@@ -1,3 +1,12 @@
+import {
+  AdminCandidatesResponse,
+  CandidateStatus,
+  AdminPauseResponse,
+  AdminResolutionsResponse,
+  AdminJobsResponse,
+  JobState,
+  AdminBudgetsResponse,
+} from "./operator-status.ts";
 import { z } from "zod";
 import { AdminMetricsResponse, HealthResponse } from "./health.ts";
 import { CreationChainStatus } from "./creation-status.ts";
@@ -208,6 +217,21 @@ function operation<
   } as HttpContract & { method: M; path: P; response: R };
 }
 const contracts = [
+  operation("GET", "/v1/admin/pause", AdminPauseResponse, { access: "admin" }),
+  operation("GET", "/v1/admin/resolutions", AdminResolutionsResponse, {
+    access: "admin",
+  }),
+  operation("GET", "/v1/admin/jobs", AdminJobsResponse, {
+    access: "admin",
+    query: z.strictObject({ state: JobState.default("DEAD") }),
+  }),
+  operation("GET", "/v1/admin/budgets", AdminBudgetsResponse, {
+    access: "admin",
+  }),
+  operation("GET", "/v1/admin/candidates", AdminCandidatesResponse, {
+    access: "admin",
+    query: z.strictObject({ status: CandidateStatus.optional() }),
+  }),
   operation("GET", "/v1/admin/metrics", AdminMetricsResponse, {
     access: "admin",
   }),

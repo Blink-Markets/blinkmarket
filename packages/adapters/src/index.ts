@@ -113,3 +113,5 @@ export * from "./trading-admin.js";
 
 export * from "./health-reader.js";
 export { postgresTraderStore, assertTraderInstalled } from "./trader-store.js";
+
+export * from "./operator-status-store.js";
