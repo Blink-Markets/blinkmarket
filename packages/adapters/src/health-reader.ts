@@ -70,16 +70,17 @@ export function postgresHealthReader(
            (SELECT count(*)::text FROM budgets.questions WHERE gate_closed_reason IS NOT NULL) AS questions_closed`,
           )
         ).rows[0]!;
-        // An alert that has failed at least once and is still undelivered after the threshold.
-        const alertStalled =
-          (
-            await db.query(
-              `SELECT 1 FROM operations.jobs WHERE type='alert.deliver' AND state IN ('QUEUED','LEASED')
+        // Undelivered (counted from creation) after the threshold and failing: informational only.
+        const alerts = (
+          await db.query<{ count: string; oldest: string | null }>(
+            `SELECT count(*)::text AS count,
+                    floor(extract(epoch FROM blink.now()-min(created_at)))::text AS oldest
+             FROM operations.jobs WHERE type='alert.deliver' AND state IN ('QUEUED','LEASED')
                AND last_error_code IN ('ALERT_SINK_FAILED','ALERT_SINK_REJECTED')
-               AND created_at<=blink.now()-$1::bigint*interval '1 millisecond' LIMIT 1`,
-              [alertStallMs],
-            )
-          ).rows.length > 0;
+               AND created_at<=blink.now()-$1::bigint*interval '1 millisecond'`,
+            [alertStallMs],
+          )
+        ).rows[0]!;
         const reasons: Awaited<ReturnType<HealthReader["health"]>>["reasons"] =
           [];
         if (
@@ -93,7 +94,6 @@ export function postgresHealthReader(
         if (reconcile) reasons.push("RECONCILE_REQUIRED");
         // Research budgets are reported, but question-specific gates do not close all trading.
         if (budget.daily_closed) reasons.push("BUDGET_GATE_CLOSED");
-        if (alertStalled) reasons.push("ALERT_DELIVERY_STALLED");
         return {
           reasons,
           details: {
@@ -108,6 +108,11 @@ export function postgresHealthReader(
               questionsClosed: budget.questions_closed,
             },
             poolGate: { closed: poolClosed, reconcileRequired: reconcile },
+            alerts: {
+              stalled: alerts.count !== "0",
+              stalledCount: alerts.count,
+              oldestStalledSeconds: alerts.oldest,
+            },
           },
         };
       });

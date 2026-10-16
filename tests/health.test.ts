@@ -264,6 +264,11 @@ test("health endpoints share a single-flight snapshot, rate limit bursts and ref
             chainIndex: { blockNumber: "1", headNumber: "1", fresh: true },
             budgetGates: { dailyClosed: false, questionsClosed: "0" },
             poolGate: { closed: false, reconcileRequired: false },
+            alerts: {
+              stalled: false,
+              stalledCount: "0",
+              oldestStalledSeconds: null,
+            },
           },
         };
       },

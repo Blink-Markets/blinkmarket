@@ -662,7 +662,7 @@ test("the projection carries a format-checked deploymentId", () => {
     );
 });
 
-test("health reports ALERT_DELIVERY_STALLED once an alert has been failing past the threshold", async () => {
+test("health shows a stalled alert in details only and never as a readiness reason", async () => {
   const t = await createTestDatabase();
   try {
     const queue = postgresJobQueue(t.pool);
@@ -671,33 +671,41 @@ test("health reports ALERT_DELIVERY_STALLED once an alert has been failing past 
       dedupeKey: "stalled",
       payload: {},
     });
-    const reasons = async (options?: { alertStallMs?: number }) =>
-      (await postgresHealthReader(t.pool, "none", options).health()).reasons;
+    const read = async (options?: { alertStallMs?: number }) =>
+      postgresHealthReader(t.pool, "none", options).health();
+    const alerts = async (options?: { alertStallMs?: number }) =>
+      (await read(options)).details.alerts;
+    const none = {
+      stalled: false,
+      stalledCount: "0",
+      oldestStalledSeconds: null,
+    };
     const job = await queue.lease("h", ["alert.deliver"], 60_000);
     assert.ok(job);
     await queue.fail(job, { code: "ALERT_SINK_FAILED", retryable: true });
     // Failing, but younger than the 15 minute default.
-    assert.equal((await reasons()).includes("ALERT_DELIVERY_STALLED"), false);
+    assert.deepEqual(await alerts(), none);
     await t.pool.query(
       "UPDATE operations.jobs SET created_at=blink.now()-interval '16 minutes'",
     );
-    assert.equal((await reasons()).includes("ALERT_DELIVERY_STALLED"), true);
-    // The threshold is configurable.
+    const stalled = await alerts();
+    assert.equal(stalled.stalled, true);
+    assert.equal(stalled.stalledCount, "1");
+    assert.ok(Number(stalled.oldestStalledSeconds) >= 960);
     assert.equal(
-      (await reasons({ alertStallMs: 3_600_000 })).includes(
-        "ALERT_DELIVERY_STALLED",
-      ),
+      (await read()).reasons.some((r) => String(r).includes("ALERT")),
       false,
     );
-    // Permanent rejections count too; a delivered alert clears the reason.
+    // The threshold is configurable.
+    assert.deepEqual(await alerts({ alertStallMs: 3_600_000 }), none);
     await t.pool.query(
       "UPDATE operations.jobs SET last_error_code='ALERT_SINK_REJECTED'",
     );
-    assert.equal((await reasons()).includes("ALERT_DELIVERY_STALLED"), true);
+    assert.equal((await alerts()).stalled, true);
     await t.pool.query(
       "UPDATE operations.jobs SET state='SUCCEEDED',next_run_at=blink.now()",
     );
-    assert.equal((await reasons()).includes("ALERT_DELIVERY_STALLED"), false);
+    assert.deepEqual(await alerts(), none);
   } finally {
     await t.close();
   }

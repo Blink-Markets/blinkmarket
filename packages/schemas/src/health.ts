@@ -18,6 +18,12 @@ export const HealthDetails = z.strictObject({
     closed: z.boolean(),
     reconcileRequired: z.boolean(),
   }),
+  // Informational only: an alert outage does not make quotes unsafe, so it never closes readiness.
+  alerts: z.strictObject({
+    stalled: z.boolean(),
+    stalledCount: Uint256,
+    oldestStalledSeconds: Uint256.nullable(),
+  }),
 });
 export const HealthResponse = z.strictObject({
   status: z.enum(["ready", "not-ready"]),
@@ -30,7 +36,6 @@ export const HealthResponse = z.strictObject({
       "RECONCILE_REQUIRED",
       "SIGNER_UNAVAILABLE",
       "BUDGET_GATE_CLOSED",
-      "ALERT_DELIVERY_STALLED",
       "SERVICE_NOT_READY",
     ]),
   ),

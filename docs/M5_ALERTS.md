@@ -8,7 +8,7 @@ The worker now delivers every `alert.*` outbox event through the `AlertSink` por
 
 Sink errors retain `QUEUED` delivery jobs, with the existing 5-second exponential backoff capped at 300 seconds. Delivery alone bypasses the normal retry ceiling, including recovery of an expired lease; other job families retain their existing ceiling. Malformed internal jobs can still be dead-lettered as `INVALID_ALERT`. Only the fixed `ALERT_SINK_FAILED` code is persisted for destination failures. URLs and response bodies are never included in errors.
 
-`alert.deliver` runs in its own worker loop (`apps/worker/src/loops.ts`), separate from every other job type, so a slow or blackholed sink cannot hold the slot used by `keeper.finalize`, `tx.dispatch` or `quote.reconcile`. HTTP 4xx other than 408 and 429 is recorded as `ALERT_SINK_REJECTED` (a permanent-looking error such as a wrong path or rotated token); it is still retried and never marked delivered or DEAD. `/health` adds `ALERT_DELIVERY_STALLED` when an alert that has failed at least once is still undelivered after 15 minutes (the API reads `ALERT_STALL_SECONDS` to override). Like every health reason it also turns the readiness answer to `not-ready`.
+`alert.deliver` runs in its own worker loop (`apps/worker/src/loops.ts`), separate from every other job type, so a slow or blackholed sink cannot hold the slot used by `keeper.finalize`, `tx.dispatch` or `quote.reconcile`. HTTP 4xx other than 408 and 429 is recorded as `ALERT_SINK_REJECTED` (a permanent-looking error such as a wrong path or rotated token); it is still retried and never marked delivered or DEAD. The admin health details (`GET /v1/health` with an admin key) gain `alerts: { stalled, stalledCount, oldestStalledSeconds }`. An alert counts as stalled when it has failed at least once and is still undelivered 15 minutes after its job was created (age is counted from `created_at`, meaning "not delivered within N minutes", not from the first failure). This is informational only: it is not a readiness reason and never changes `status` or `tradingEnabled`, because an alert outage does not make quotes unsafe. The 15-minute threshold is the reader's default; there is no environment setting for it.
 
 A crash after a destination accepts an alert but before acknowledgement can produce a duplicate. This is at-least-once delivery, not exactly-once delivery; webhook receivers must deduplicate by the key. File and stdout sinks append each accepted attempt. Local write acceptance does not establish remote receipt or disk durability after a machine failure.
 
@@ -36,7 +36,7 @@ Run `pnpm drill:alerts` with `TEST_POSTGRES_ADMIN_URL` set to a dedicated local 
 
 ## Verification
 
-Fix round 1 results (2026-10-17, local PostgreSQL on 127.0.0.1:55414, Anvil chain id 84532):
+Results after fix rounds 1 and 2 (2026-10-17, local PostgreSQL on 127.0.0.1:55414, Anvil chain id 84532):
 
 - `node --import tsx --test tests/alerts.test.ts`: 16/16 pass (routing, retry with stable key, file/stdout/config, retry ceiling, hung-sink isolation, 4xx classification, timeout, abort mid-delivery, URL rules, null payload, explicit mapping, deploymentId, health stall reason).
 - `pnpm check`: 635/635 tests pass, 0 fail, 0 skipped; typecheck, contracts and package boundaries pass.
