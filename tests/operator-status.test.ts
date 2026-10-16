@@ -61,7 +61,10 @@ test("operator candidates: admin only, own operator only, safe review and approv
       assert.equal(response.statusCode, 404);
       assert.equal(response.json().code, "NOT_FOUND");
     }
-    assert.deepEqual((await get(other.apiKey)).json(), { items: [] });
+    assert.deepEqual((await get(other.apiKey)).json(), {
+      items: [],
+      truncated: false,
+    });
     const response = await get(w.agents.admin.apiKey, "?status=DRAFT");
     assert.equal(response.statusCode, 200);
     assert.deepEqual(
@@ -73,7 +76,7 @@ test("operator candidates: admin only, own operator only, safe review and approv
     assert.doesNotMatch(response.body, /secret|evidenceIds|operatorId|keyId/);
     assert.deepEqual(
       (await get(w.agents.admin.apiKey, "?status=APPROVED")).json(),
-      { items: [] },
+      { items: [], truncated: false },
     );
     assert.equal(
       (await get(w.agents.admin.apiKey, "?status=WRONG")).statusCode,
@@ -249,6 +252,174 @@ test("pause and resolution queue reuse authenticated health and hide report cont
       ]),
     );
     assert.equal((await get("pause")).json().globalPaused, null);
+  } finally {
+    await app.close();
+    await w.close();
+  }
+});
+
+async function statusApp(w: Awaited<ReturnType<typeof tradingWorld>>) {
+  const { createHealthService } =
+    await import("../packages/application/src/health.js");
+  const { postgresHealthReader } =
+    await import("../packages/adapters/src/health-reader.js");
+  const identity = createIdentityService(
+    postgresIdentityStore(w.apiPool),
+    identityCrypto,
+    "https://blink.example",
+  );
+  const authenticateAdmin = (a: string | undefined) =>
+    identity.authenticate(a, "admin");
+  const app = buildApi({
+    services: [
+      createOperatorStatusService({
+        store: postgresOperatorStatusStore(w.apiPool, DEPLOYMENT),
+        authenticateAdmin,
+        health: createHealthService({
+          reader: postgresHealthReader(w.apiPool, DEPLOYMENT),
+          authenticateAdmin,
+          signerReachable: async () => true,
+        }),
+      }),
+    ],
+  });
+  app.log.level = "silent";
+  return app;
+}
+const ROUTES = [
+  "candidates",
+  "jobs?state=DEAD",
+  "budgets",
+  "pause",
+  "resolutions",
+];
+
+test("every operator-status route is 404 for another operator's admin key and for a revoked admin key", async () => {
+  const w = await tradingWorld();
+  const otherAdmin = await inviteAgent(w.t, {
+    name: "other-admin-all",
+    scopes: ["admin"],
+  });
+  const revoked = await inviteAgent(w.t, {
+    name: "revoked-admin",
+    scopes: ["admin"],
+  });
+  const app = await statusApp(w);
+  const get = (path: string, key: string) =>
+    app.inject({
+      url: "/v1/admin/" + path,
+      headers: { authorization: "Bearer " + key },
+    });
+  try {
+    await w.setCursor(w.chain.state.head);
+    // Before revocation the key works, so the later 404 is caused by revocation.
+    for (const path of ROUTES)
+      assert.equal((await get(path, revoked.apiKey)).statusCode, 200, path);
+    await w.owner(() =>
+      w.t.db.query(
+        "UPDATE identity.api_keys SET revoked_at=clock_timestamp() WHERE id=$1",
+        [revoked.keyId],
+      ),
+    );
+    for (const path of ROUTES) {
+      const response = await get(path, revoked.apiKey);
+      assert.equal(response.statusCode, 404, "revoked " + path);
+      assert.equal(response.json().code, "NOT_FOUND");
+    }
+    // Another operator's admin is a valid admin: global diagnostics answer,
+    // but operator-scoped candidates and report counts show none of ours.
+    await w.owner(async () => {
+      await w.t.db.query(
+        "UPDATE chain.markets SET state='DISPUTED' WHERE deployment_id=$1",
+        [DEPLOYMENT],
+      );
+      await w.t.db.query(
+        "INSERT INTO resolution.reports(id,deployment_id,market_id,agent_id,operator_id,outcome,evidence_ids,reason) VALUES ($1,$2,1,$3,$4,'YES',$5,'private report content')",
+        [
+          randomUUID(),
+          DEPLOYMENT,
+          w.agents.admin.agentId,
+          w.agents.admin.operatorId,
+          [randomUUID()],
+        ],
+      );
+    });
+    assert.deepEqual((await get("candidates", otherAdmin.apiKey)).json(), {
+      items: [],
+      truncated: false,
+    });
+    assert.equal(
+      (await get("resolutions", w.agents.admin.apiKey)).json().items[0]
+        .openReports,
+      "1",
+    );
+    assert.equal(
+      (await get("resolutions", otherAdmin.apiKey)).json().items[0].openReports,
+      "0",
+    );
+  } finally {
+    await app.close();
+    await w.close();
+  }
+});
+
+test("candidates, jobs and resolutions return the newest 100 rows newest first and flag truncation", async () => {
+  const w = await tradingWorld();
+  const app = await statusApp(w);
+  const get = (path: string) =>
+    app.inject({
+      url: "/v1/admin/" + path,
+      headers: { authorization: "Bearer " + w.agents.admin.apiKey },
+    });
+  try {
+    await w.owner(async () => {
+      await w.t.db.query(
+        `INSERT INTO operations.jobs(id,type,dedupe_key,payload,state,created_at)
+         SELECT gen_random_uuid(),'t','k'||i,'{}','DEAD',timestamptz '2026-01-01 00:00:00+00' + i * interval '1 second'
+         FROM generate_series(1,101) i`,
+      );
+      await w.t.db.exec("BEGIN");
+      await w.t.db.query(
+        `INSERT INTO discovery.candidates(id,operator_id,current_revision,created_at)
+         SELECT gen_random_uuid(),$1,1,timestamptz '2026-01-01 00:00:00+00' + i * interval '1 second'
+         FROM generate_series(1,101) i`,
+        [w.agents.admin.operatorId],
+      );
+      await w.t.db.query(
+        `INSERT INTO discovery.candidate_revisions(candidate_id,revision,snapshot)
+         SELECT id,1,jsonb_build_object('state','DRAFT') FROM discovery.candidates`,
+      );
+      await w.t.db.exec("COMMIT");
+      await w.t.db.query(
+        "UPDATE chain.markets SET state='DISPUTED',market_id=1 WHERE deployment_id=$1",
+        [DEPLOYMENT],
+      );
+      await w.t.db.query(
+        `INSERT INTO chain.markets SELECT (m).* FROM (
+           SELECT jsonb_populate_record(m, jsonb_build_object('market_id',(i)::text,
+             'spec_hash','\\x'||lpad(to_hex(i),64,'0'),'created_tx_hash','\\x'||lpad(to_hex(i),64,'0'))) AS m
+           FROM chain.markets m, generate_series(2,101) i WHERE m.market_id=1) x`,
+      );
+    });
+    const jobs = (await get("jobs?state=DEAD")).json();
+    assert.equal(jobs.items.length, 100);
+    assert.equal(jobs.truncated, true);
+    assert.equal(jobs.items[0].createdAt, "2026-01-01T00:01:41.000Z");
+    assert.equal(jobs.items[99].createdAt, "2026-01-01T00:00:02.000Z");
+    const candidates = (await get("candidates")).json();
+    assert.equal(candidates.items.length, 100);
+    assert.equal(candidates.truncated, true);
+    const queue = (await get("resolutions")).json();
+    assert.equal(queue.items.length, 100);
+    assert.equal(queue.truncated, true);
+    assert.equal(queue.items[0].marketId, "101");
+    assert.equal(queue.items[99].marketId, "2");
+    await w.owner(() =>
+      w.t.db.query("DELETE FROM operations.jobs WHERE dedupe_key='k1'"),
+    );
+    const exact = (await get("jobs?state=DEAD")).json();
+    assert.equal(exact.items.length, 100);
+    assert.equal(exact.truncated, false);
   } finally {
     await app.close();
     await w.close();

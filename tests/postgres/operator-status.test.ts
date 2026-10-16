@@ -123,7 +123,11 @@ test("real PostgreSQL: operator status reads under blink_api grants, approval is
       creationIntentId: intentId,
       state: "AWAITING_ADMIN_SIGNATURE",
     });
-    assert.deepEqual(await store.candidates(randomUUID()), { items: [] });
+    assert.deepEqual(await store.candidates(randomUUID()), {
+      items: [],
+      truncated: false,
+    });
+    assert.equal(candidates.truncated, false);
     assert.equal((await store.jobs()).items.length, 1);
     assert.equal(
       (await store.budgets()).daily.spentUsdMicros,
@@ -133,6 +137,20 @@ test("real PostgreSQL: operator status reads under blink_api grants, approval is
     assert.equal(
       (await store.resolutions(operatorId)).items[0]?.state,
       "DISPUTED",
+    );
+    // 100 DEAD jobs plus the one above: newest 100 returned, truncated, newest first.
+    await owner.query(
+      `INSERT INTO operations.jobs(id,type,dedupe_key,payload,state,created_at)
+       SELECT gen_random_uuid(),'private','k'||i,'{}','DEAD',timestamptz '2026-01-01 00:00:00+00' + i * interval '1 second'
+       FROM generate_series(1,100) i`,
+    );
+    const jobs = await store.jobs();
+    assert.equal(jobs.items.length, 100);
+    assert.equal(jobs.truncated, true);
+    assert.ok(
+      jobs.items.every(
+        (j, i) => i === 0 || jobs.items[i - 1]!.createdAt >= j.createdAt,
+      ),
     );
     assert.doesNotMatch(
       JSON.stringify(candidates),

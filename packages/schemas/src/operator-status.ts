@@ -20,6 +20,7 @@ export const AdminCandidatesResponse = z.strictObject({
         .nullable(),
     }),
   ),
+  truncated: z.boolean(),
 });
 export type AdminCandidatesResponse = z.infer<typeof AdminCandidatesResponse>;
 export const JobState = z.enum(["QUEUED", "LEASED", "SUCCEEDED", "DEAD"]);
@@ -34,6 +35,7 @@ export const AdminJobsResponse = z.strictObject({
       finishedAt: z.iso.datetime().nullable(),
     }),
   ),
+  truncated: z.boolean(),
 });
 export type AdminJobsResponse = z.infer<typeof AdminJobsResponse>;
 export const AdminBudgetsResponse = z.strictObject({
@@ -67,5 +69,6 @@ export const AdminResolutionsResponse = z.strictObject({
       openReports: Uint256,
     }),
   ),
+  truncated: z.boolean(),
 });
 export type AdminResolutionsResponse = z.infer<typeof AdminResolutionsResponse>;

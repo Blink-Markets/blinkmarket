@@ -17,6 +17,8 @@ type Options = {
   adminKey: string;
   request?: (url: string, init: RequestInit) => Promise<Response>;
 };
+const shown = (list: { truncated: boolean }) =>
+  list.truncated ? "showing 100 newest of more" : "all";
 export async function opsStatusCommand(
   args: string[],
   options: Options,
@@ -117,8 +119,8 @@ export async function opsStatusCommand(
     `Operator status — ${pause.deploymentId} (Base Sepolia, indexed)`,
     `Health: ${health.status}; reasons: ${health.reasons.join(", ") || "none"}`,
     `Index: ${health.details?.chainIndex.blockNumber ?? "unknown"} / ${health.details?.chainIndex.headNumber ?? "unknown"}; signer: ${health.details?.signerReachable ?? "unknown"}`,
-    `Candidates (first 100, own operator): ${candidates.items.length}; approvals: ${candidates.items.filter((c) => c.approval).length}`,
-    `Failed jobs (first 100): ${jobs.items.length}; queue: ${health.details?.queue.map((q) => q.name + "=" + q.count).join(", ") ?? "unknown"}`,
+    `Candidates (${shown(candidates)}, own operator): ${candidates.items.length}; approvals: ${candidates.items.filter((c) => c.approval).length}`,
+    `Failed jobs (${shown(jobs)}): ${jobs.items.length}; queue: ${health.details?.queue.map((q) => q.name + "=" + q.count).join(", ") ?? "unknown"}`,
     `Budget ${b.day} (USD micros): cap=${b.capUsdMicros}, spent=${b.spentUsdMicros}, reserved=${b.reservedUsdMicros}, unknown=${b.unknownUsdMicros}`,
     `Budget gates: daily=${health.details?.budgetGates.dailyClosed ?? "unknown"}, questions=${health.details?.budgetGates.questionsClosed ?? "unknown"}`,
     `Pause: global=${pause.globalPaused ?? "unknown"}; paused markets=${
@@ -127,8 +129,9 @@ export async function opsStatusCommand(
         .map((m) => m.marketId)
         .join(",") || "none"
     }`,
-    `Resolution queue (first 100): ${resolutions.items.length}; disputed=${resolutions.items.filter((m) => m.state === "DISPUTED").length}`,
-    ...resolutions.items
+    `Resolution queue (${shown(resolutions)}): ${resolutions.items.length}; disputed=${resolutions.items.filter((m) => m.state === "DISPUTED").length}`,
+    ...[...resolutions.items]
+      .sort((a, b) => Number(BigInt(a.hardDeadline) - BigInt(b.hardDeadline)))
       .slice(0, 5)
       .map(
         (m) =>

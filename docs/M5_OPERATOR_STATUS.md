@@ -6,19 +6,19 @@ This delivery covers the A3 operator-status slice of public Alpha readiness. It 
 
 The API registers these reads in trading mode:
 
-| Read | Contents |
-| --- | --- |
+| Read                               | Contents                                                                                                                                                                                                                                                |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /v1/admin/candidates?status=` | Current candidate revision and status, latest approval ID, deployment, exact approved budget and unsigned creation-intent reference. Restricted to the authenticated operator's candidates. The optional status uses the existing candidate state enum. |
-| `GET /v1/admin/jobs?state=DEAD` | Job IDs, state, attempt limits and timestamps. Defaults to DEAD; accepts existing job states. Payloads, lease owners, dedupe keys and free-text errors are excluded. |
-| `GET /v1/admin/budgets` | Current UTC business day's cap, spent, reserved and unknown research costs as decimal USD-micro strings. Released reservations contribute zero. A day without a ledger row uses the existing 20000000-micro default cap. |
-| `GET /v1/admin/pause` | Indexed global and per-market pause flags plus the existing authenticated health response, including queue, index freshness, signer, budget and pool gates. A missing global projection is `null`, never an assumed unpaused state. |
-| `GET /v1/admin/resolutions` | Closed OPEN markets, PROPOSED markets and DISPUTED markets, ordered by hard deadline. Includes proposal, challenge and hard deadlines and counts of the requesting operator's open advisory reports. No report text or evidence is returned. |
+| `GET /v1/admin/jobs?state=DEAD`    | Job IDs, state, attempt limits and timestamps. Defaults to DEAD; accepts existing job states. Payloads, lease owners, dedupe keys and free-text errors are excluded.                                                                                    |
+| `GET /v1/admin/budgets`            | Current UTC business day's cap, spent, reserved and unknown research costs as decimal USD-micro strings. Released reservations contribute zero. A day without a ledger row uses the existing 20000000-micro default cap.                                |
+| `GET /v1/admin/pause`              | Indexed global and per-market pause flags plus the existing authenticated health response, including queue, index freshness, signer, budget and pool gates. A missing global projection is `null`, never an assumed unpaused state.                     |
+| `GET /v1/admin/resolutions`        | Closed OPEN markets, PROPOSED markets and DISPUTED markets, newest market first. Includes proposal, challenge and hard deadlines and counts of the requesting operator's open advisory reports. No report text or evidence is returned.                 |
 
 Missing, invalid, revoked, expired and non-admin credentials receive the normal 404 NOT_FOUND private-resource envelope on these reads. An admin of a different operator sees only that operator's candidates and report counts. Job metadata and aggregate budgets are system diagnostics, consistent with existing admin health diagnostics. Responses never select raw evidence bytes, object locations, candidate theses, API keys, signing artifacts or arbitrary job/report content. No new grants or migration are needed.
 
 Approval metadata remains visible after approval advances the candidate to a new revision.
 
-Candidate, job and resolution lists return the first 100 rows in deterministic order. These are bounded status views, not exhaustive exports; the CLI explicitly labels their limits. The pause list includes indexed markets in the selected deployment. Health is reused rather than reimplemented and retains its existing two-second snapshot cache. Status queries are separate reads, so the screen is not an atomic snapshot. Indexed flags can lag the chain: inspect health freshness before acting. Existing resolution-report review and triage routes are unchanged.
+Candidate, job and resolution lists return the newest 100 rows, newest first (candidates and jobs by creation time, resolutions by market ID), with a boolean `truncated` that is true when more rows matched. These are bounded status views, not exhaustive exports; when `truncated` is true the CLI prints "showing 100 newest of more" for that list, and lists the five nearest hard deadlines among the rows it received. The pause list includes indexed markets in the selected deployment. Health is reused rather than reimplemented and retains its existing two-second snapshot cache. Status queries are separate reads, so the screen is not an atomic snapshot. Indexed flags can lag the chain: inspect health freshness before acting. Existing resolution-report review and triage routes are unchanged.
 
 ## CLI
 

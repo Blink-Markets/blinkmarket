@@ -7,6 +7,14 @@ import {
   AdminJobsResponse,
   AdminBudgetsResponse,
 } from "@blink/schemas";
+const LIST_LIMIT = 100;
+// Queries fetch one extra row to learn whether more rows matched.
+function page<T>(rows: T[]) {
+  return {
+    items: rows.slice(0, LIST_LIMIT),
+    truncated: rows.length > LIST_LIMIT,
+  };
+}
 export function postgresOperatorStatusStore(
   pool: Pool,
   deploymentId: string,
@@ -32,19 +40,21 @@ export function postgresOperatorStatusStore(
         (SELECT count(*)::text FROM resolution.reports r WHERE r.deployment_id=m.deployment_id AND r.market_id=m.market_id AND r.operator_id=$2
         AND COALESCE((SELECT e.state FROM resolution.report_events e WHERE e.report_id=r.id ORDER BY e.sequence DESC LIMIT 1),'RECEIVED') IN ('RECEIVED','TRIAGED')) AS "openReports"
         FROM chain.markets m WHERE m.deployment_id=$1 AND (m.state IN ('PROPOSED','DISPUTED') OR (m.state='OPEN' AND m.close_at<=extract(epoch FROM blink.now())))
-        ORDER BY m.hard_deadline,m.market_id LIMIT 100`,
+        ORDER BY m.market_id DESC LIMIT ${LIST_LIMIT + 1}`,
         [deploymentId, operatorId],
       );
-      return AdminResolutionsResponse.parse({ items: rows });
+      return AdminResolutionsResponse.parse(page(rows));
     },
     async jobs(state = "DEAD") {
       const { rows } = await pool.query(
         `SELECT id AS "jobId",state,attempt,max_attempts AS "maxAttempts",created_at AS "createdAt",finished_at AS "finishedAt"
-        FROM operations.jobs WHERE state=$1 ORDER BY created_at,id LIMIT 100`,
+        FROM operations.jobs WHERE state=$1 ORDER BY created_at DESC,id DESC LIMIT ${LIST_LIMIT + 1}`,
         [state],
       );
+      const listed = page(rows);
       return AdminJobsResponse.parse({
-        items: rows.map((r) => ({
+        ...listed,
+        items: listed.items.map((r) => ({
           ...r,
           createdAt: new Date(r.createdAt).toISOString(),
           finishedAt: r.finishedAt
@@ -71,10 +81,10 @@ export function postgresOperatorStatusStore(
         FROM discovery.candidates c JOIN discovery.candidate_revisions r ON r.candidate_id=c.id AND r.revision=c.current_revision
         LEFT JOIN LATERAL (SELECT id,deployment_id,budget_micros FROM markets.approvals WHERE candidate_id=c.id ORDER BY revision DESC LIMIT 1) a ON true
         LEFT JOIN markets.creation_intents i ON i.approval_id=a.id
-        WHERE c.operator_id=$1 AND ($2::text IS NULL OR r.snapshot->>'state'=$2) ORDER BY c.created_at,c.id LIMIT 100`,
+        WHERE c.operator_id=$1 AND ($2::text IS NULL OR r.snapshot->>'state'=$2) ORDER BY c.created_at DESC,c.id DESC LIMIT ${LIST_LIMIT + 1}`,
         [operatorId, status ?? null],
       );
-      return AdminCandidatesResponse.parse({ items: rows });
+      return AdminCandidatesResponse.parse(page(rows));
     },
   };
 }
