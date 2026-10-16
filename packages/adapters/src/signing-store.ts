@@ -1,3 +1,4 @@
+import { assertRuntimeRole } from "./runtime-role.js";
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type {
@@ -527,16 +528,9 @@ export function postgresDispatchStore(pool: Pool): DispatchStore {
 export async function assertSignerRuntimeRole(
   client: Pick<PoolClient, "query">,
 ) {
-  const { rows } = await client.query<{ allowed: boolean }>(`SELECT
-    session_user = current_user
-    AND s.rolcanlogin
-    AND NOT s.rolsuper AND NOT s.rolcreaterole AND NOT s.rolcreatedb AND NOT s.rolbypassrls
-    AND pg_has_role(session_user, 'blink_signer', 'MEMBER')
-    AND NOT EXISTS (SELECT 1 FROM pg_roles r WHERE r.oid <> s.oid AND r.rolname <> 'blink_signer'
-      AND pg_has_role(session_user, r.oid, 'MEMBER'))
-    AND NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = current_database() AND datdba = s.oid)
-    AND NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname IN ('signing','markets','chain','operations','identity','blink')
-      AND has_schema_privilege(session_user, oid, 'CREATE')) AS allowed
-    FROM pg_roles s WHERE s.rolname = session_user`);
-  if (rows[0]?.allowed !== true) throw new Error("UNSAFE_SIGNER_DATABASE_ROLE");
+  await assertRuntimeRole(
+    client,
+    "blink_signer",
+    "UNSAFE_SIGNER_DATABASE_ROLE",
+  );
 }

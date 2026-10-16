@@ -1,3 +1,4 @@
+import { assertRuntimeRole } from "./runtime-role.js";
 import type { Pool } from "pg";
 import { CreationChainStatus } from "@blink/schemas";
 import type {
@@ -127,23 +128,18 @@ export function postgresCreationTrackingSchedule(
 }
 
 export async function assertCreationTrackingRuntimeRole(pool: Pool) {
-  const result = await pool.query(
-    `SELECT NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
-       AND pg_has_role(current_user,'blink_indexer','USAGE')
-       AND NOT pg_has_role(current_user,'blink_api','USAGE')
-       AND NOT pg_has_role(current_user,'blink_deployment_admin','USAGE')
-       AND NOT pg_has_role(current_user,'blink_identity_admin','USAGE')
-       AND NOT pg_has_role(current_user,'blink_evidence_admin','USAGE')
-       AND NOT has_schema_privilege(current_user,'chain','CREATE') AS allowed
-     FROM pg_roles WHERE rolname=current_user`,
+  await assertRuntimeRole(
+    pool,
+    "blink_indexer",
+    "UNSAFE_INDEXER_DATABASE_ROLE",
   );
-  if (result.rows[0]?.allowed !== true)
-    throw new Error("UNSAFE_INDEXER_DATABASE_ROLE");
 }
 
 export async function assertCreationTrackingScheduleInstalled(pool: Pool) {
   try {
-    await pool.query("SELECT intent_id FROM chain.creation_tracking_schedule LIMIT 0");
+    await pool.query(
+      "SELECT intent_id FROM chain.creation_tracking_schedule LIMIT 0",
+    );
   } catch (error) {
     if (
       typeof error === "object" &&
@@ -158,7 +154,9 @@ export async function assertCreationTrackingScheduleInstalled(pool: Pool) {
 
 export async function assertCreationTrackingMigrationsInstalled(pool: Pool) {
   try {
-    await pool.query("SELECT intent_id FROM chain.creation_projections LIMIT 0");
+    await pool.query(
+      "SELECT intent_id FROM chain.creation_projections LIMIT 0",
+    );
   } catch (error) {
     if (isMissingRelation(error))
       throw new Error("CREATION_TRACKING_BASE_MIGRATION_REQUIRED");

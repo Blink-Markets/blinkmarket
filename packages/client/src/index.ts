@@ -1,3 +1,4 @@
+import { hasMainnetChain } from "./chain-guard.ts";
 import { keccak256 } from "viem";
 import {
   ApiError,
@@ -91,8 +92,11 @@ export function createBlinkClient(
       await sleep(waitBefore(response.headers.get("retry-after"), attempt));
     }
   }
-  const json = (bytes: Uint8Array): unknown =>
-    JSON.parse(new TextDecoder().decode(bytes));
+  const json = (bytes: Uint8Array): unknown => {
+    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (hasMainnetChain(value)) throw new Error("MAINNET_REFUSED");
+    return value;
+  };
   const queryString = (query: Record<string, unknown>) => {
     const entries = Object.entries(query).filter(([, v]) => v !== undefined);
     return entries.length

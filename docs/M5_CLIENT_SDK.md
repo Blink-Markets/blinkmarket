@@ -100,3 +100,17 @@ Follow-up verification: `pnpm check` exit 0 (548 tests), `pnpm build` exit 0, `p
 - Request inputs are `unknown` at the type level (validated at run time). Typing them would break `tests/platform-forecaster.test.ts`, which passes `unknown` through, so it was left for a later change.
 - A network failure (no answer at all) is not retried by the client; a caller that needs it can repeat the call with the key it chose.
 - `getQuote` has a method and a test but the example does not call it: for a POST the verified envelope is the source of truth, and `consumed(digest)` is read from the chain.
+
+## Final review fix B — 2026-10-16
+
+The SDK inspects successful JSON responses before schema parsing and refuses
+chain 8453 in a config, deployment or quote domain with MAINNET_REFUSED.
+`verifySignedQuote` likewise raises `QuoteVerificationError` with that code
+before checking deployment/domain agreement. Other incorrect chain IDs still
+fail domain validation. Regression tests cover malformed mainnet responses and
+mainnet values combined with deployment mismatches.
+
+Verification: `pnpm check` passed (598 tests); `pnpm test:postgres` passed (50);
+`pnpm test:anvil` passed (50); `pnpm build:services && pnpm test:service-build`
+passed (5). A final `pnpm typecheck` and `git diff --check` also passed. The ordinary web
+build was blocked by Google Fonts downloads.

@@ -22,6 +22,36 @@ test("real PostgreSQL: API observability grants, percentiles and stable receipt 
       p95Ms: null,
     });
     assert.ok((await reader.health()).reasons.includes("INDEXER_LAG"));
+    for (const state of ["QUEUED", "LEASED", "DEAD", "SUCCEEDED"]) {
+      await owner.query(
+        `INSERT INTO operations.jobs(id,type,dedupe_key,payload,state,lease_owner,lease_until)
+        VALUES($1,'health.test',$3,'{}',$2,CASE WHEN $2='LEASED' THEN 'test' END,
+          CASE WHEN $2='LEASED' THEN clock_timestamp()+interval '1 minute' END)`,
+        [randomUUID(), state, randomUUID()],
+      );
+    }
+    assert.deepEqual((await reader.health()).details.queue, [
+      { name: "DEAD", count: "1" },
+      { name: "LEASED", count: "1" },
+      { name: "QUEUED", count: "1" },
+    ]);
+    const session = await api.connect();
+    try {
+      await session.query("SET enable_seqscan=off");
+      for (const [state, index] of [
+        ["QUEUED", "jobs_due"],
+        ["LEASED", "jobs_lease"],
+        ["DEAD", "jobs_dead"],
+      ]) {
+        const plan = await session.query(
+          `EXPLAIN SELECT count(*) FROM operations.jobs WHERE state='${state}'`,
+        );
+        assert.match(JSON.stringify(plan.rows), new RegExp(index!));
+      }
+    } finally {
+      session.release();
+    }
+
     for (const [index, seconds] of [1, 3].entries()) {
       const request = await prepareRequest(owner, manifest, {
         kind: "MINT",

@@ -63,6 +63,7 @@ export function buildApi(
       | "m2-markets"
       | "m2-trading";
     config?: () => Promise<ConfigResponse>;
+    assertReady?: () => Promise<void>;
     publicReadLimit?: {
       capacity: number;
       refillPerSecond: number;
@@ -97,11 +98,10 @@ export function buildApi(
         : options.identity
           ? "m2-identity"
           : "architecture");
-  const app = createService(
-    "api",
-    stage,
-    async () => (await options.health?.read())?.status === "ready",
-  );
+  const app = createService("api", stage, async () => {
+    await options.assertReady?.();
+    return (await options.health?.read())?.status === "ready";
+  });
   // Reads of public data are unauthenticated; bound them per client IP (HEAD runs the same handlers).
   const publicReads = options.publicReadLimit
     ? createTokenBucket(options.publicReadLimit)
@@ -111,6 +111,8 @@ export function buildApi(
       .filter((c) => c.method === "GET" && c.access.startsWith("public"))
       .map((c) => c.path),
   );
+  limitedUrls.add("/v1/health");
+  limitedUrls.add("/health/ready");
   if (publicReads)
     app.addHook("onRequest", async (request, reply) => {
       if (
@@ -149,6 +151,7 @@ export function buildApi(
   app.get("/v1/health", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
     try {
+      await options.assertReady?.();
       const body = options.health
         ? await options.health.read(request.headers.authorization)
         : {
@@ -160,13 +163,11 @@ export function buildApi(
     } catch (error) {
       if (error instanceof IdentityError)
         return sendIdentityError(request, reply, error);
-      return reply
-        .code(503)
-        .send({
-          status: "not-ready",
-          tradingEnabled: false,
-          reasons: ["SERVICE_NOT_READY"],
-        });
+      return reply.code(503).send({
+        status: "not-ready",
+        tradingEnabled: false,
+        reasons: ["SERVICE_NOT_READY"],
+      });
     }
   });
   app.get("/architecture", async () => ({ modules, routes }));

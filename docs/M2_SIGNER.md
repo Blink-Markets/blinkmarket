@@ -112,3 +112,24 @@ Run on 2026-10-14 in the task worktree against a local PostgreSQL 17 and a local
 - A first-version plan that is rejected afterwards (the deployment was switched off between the two phases) leaves its nonce allocated with no transaction; the later nonces of that sender queue behind the hole until an operator fills it. The `signer.plan_abandoned` audit row names the sender and nonce. Nothing fills holes automatically.
 - A reverted receipt on Anvil is covered with the fake-RPC dispatcher tests only: Anvil reports no finality and a transaction whose gas estimate succeeds but whose inclusion reverts needs market state the signer tests do not build.
 - Raw signed transactions are stored unencrypted in a signer/worker-readable table (ruling 7); caller authentication is a bearer token over loopback or private HTTP (ruling 4); mTLS and network ACLs are deployment items.
+
+## Final review fix B — 2026-10-16
+
+Signer readiness now re-checks the production business-clock guard on each
+request, preserving the existing explicit local test opt-in. API, worker,
+signer and indexer runtime checks share the signer's strict login shape: one
+service group, no extra memberships, no privileged role flags, no database
+ownership and no CREATE in application schemas. Migration 0020 revokes PUBLIC
+EXECUTE on application functions and preserves only explicit business-clock
+grants; triggers continue to execute through their installed triggers.
+
+The RFQ and trader snapshot adapter checks the RPC chain before each head or
+contract snapshot read, refusing 8453 with MAINNET_REFUSED and other foreign
+chains with CHAIN_NOT_ALLOWED. This is the same per-call policy as the execution
+reader. No key handling, signing policy, transaction broadcasting or explicit
+local harness clock opt-in changed.
+
+Verification: `pnpm check` passed (598 tests); `pnpm test:postgres` passed (50);
+`pnpm test:anvil` passed (50); `pnpm build:services && pnpm test:service-build`
+passed (5). A final `pnpm typecheck` and `git diff --check` also passed. The web build
+was blocked by Google Fonts access.

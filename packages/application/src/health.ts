@@ -7,9 +7,44 @@ export interface HealthService {
 }
 export function createHealthService(deps: {
   reader: HealthReader;
+  now?: () => number;
   signerReachable(): Promise<boolean>;
   authenticateAdmin(authorization: string | undefined): Promise<unknown>;
 }): HealthService & RouteService {
+  const now = deps.now ?? Date.now;
+  function cached<T>(read: () => Promise<T>, ttl: number) {
+    let pending: Promise<T> | undefined;
+    let expires = 0;
+    return () => {
+      if (!pending || now() >= expires) {
+        expires = Infinity;
+        pending = Promise.resolve()
+          .then(read)
+          .then(
+            (value) => {
+              expires = now() + ttl;
+              return value;
+            },
+            (error: unknown) => {
+              expires = now() + ttl;
+              throw error;
+            },
+          );
+      }
+      return pending;
+    };
+  }
+  const signerReachable = cached(
+    () => deps.signerReachable().catch(() => false),
+    2000,
+  );
+  const snapshotRead = cached(async () => {
+    const [health, signer] = await Promise.all([
+      deps.reader.health(),
+      signerReachable(),
+    ]);
+    return { health, signer };
+  }, 2000);
   return {
     paths: ["/v1/admin/metrics"],
     async read(authorization) {
@@ -17,10 +52,7 @@ export function createHealthService(deps: {
       if (authorization !== undefined)
         await deps.authenticateAdmin(authorization);
       try {
-        const [snapshot, signer] = await Promise.all([
-          deps.reader.health(),
-          deps.signerReachable().catch(() => false),
-        ]);
+        const { health: snapshot, signer } = await snapshotRead();
         const reasons = [
           ...snapshot.reasons,
           ...(!signer ? ["SIGNER_UNAVAILABLE"] : []),

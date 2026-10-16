@@ -54,8 +54,8 @@ try {
   // Deployment runs migrations separately. Startup never creates tables or credentials.
   if (pool) {
     await assertIdentityRuntimeRole(pool);
+    await assertProductionClock(pool, false);
     if (config.mode === "trading") {
-      await assertProductionClock(pool, false);
       await pool.query("SELECT id FROM faucet.claims LIMIT 0");
     }
     if (modeAtLeast(config.mode, "markets"))
@@ -115,6 +115,7 @@ try {
     pool
       ? {
           ...(health ? { health } : {}),
+          assertReady: () => assertProductionClock(pool, false),
           ...(modeAtLeast(config.mode, "approval")
             ? {
                 approval: createApprovalService({

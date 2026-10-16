@@ -153,9 +153,13 @@ test("M2 identity: invite hashes secrets; role grants prevent API credential cha
     );
     assert.ok(!audits.includes(s.invited.apiKey));
     const connection = {
-      query: (sql: string) => s.db.query(sql),
+      query: (sql: string, params?: unknown[]) => s.db.query(sql, params),
     } as unknown as Parameters<typeof assertIdentityRuntimeRole>[0];
-    await assertIdentityRuntimeRole(connection);
+    // The owner with SET ROLE is refused; real login acceptance is tested in PostgreSQL.
+    await assert.rejects(
+      assertIdentityRuntimeRole(connection),
+      /UNSAFE_API_DATABASE_ROLE/,
+    );
     await s.db.exec("RESET ROLE");
     await assert.rejects(
       assertIdentityRuntimeRole(connection),

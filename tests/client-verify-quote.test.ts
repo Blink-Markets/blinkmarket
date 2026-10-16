@@ -187,12 +187,12 @@ test("DOMAIN_MISMATCH: name, version, chain and verifying contract (top level or
   for (const domain of [
     { ...envelope.domain, name: "Other RFQ" },
     { ...envelope.domain, version: "0.2" },
-    { ...envelope.domain, chainId: 8453 },
+    { ...envelope.domain, chainId: 1 },
     { ...envelope.domain, verifyingContract: foreign },
   ])
     rejects("DOMAIN_MISMATCH", tamper(envelope, { domain }));
   rejects("DOMAIN_MISMATCH", tamper(envelope, { verifyingContract: foreign }));
-  rejects("DOMAIN_MISMATCH", tamper(envelope, { chainId: 8453 }));
+  rejects("DOMAIN_MISMATCH", tamper(envelope, { chainId: 1 }));
 });
 
 test("MAKER_MISMATCH: a quote validly signed by someone who is not the deployment's maker", async () => {
@@ -342,7 +342,7 @@ test("SIGNATURE_INVALID: a signature the contract refuses although it recovers t
   rejects("SIGNATURE_INVALID", resigned(envelope, bare));
 });
 
-test("DOMAIN_MISMATCH: chain 8453 is refused even when the config and the quote both say so", async () => {
+test("MAINNET_REFUSED: chain 8453 is refused even when the config and the quote both say so", async () => {
   const data = typed(baseMessage);
   const domain = { ...data.domain, chainId: 8453 };
   const signature = await testAccounts.maker.signTypedData({ ...data, domain });
@@ -355,7 +355,7 @@ test("DOMAIN_MISMATCH: chain 8453 is refused even when the config and the quote 
     signature,
     calldata: encode(baseMessage, signature),
   } as unknown as Envelope;
-  rejects("DOMAIN_MISMATCH", mainnet, { config: { ...config, chainId: 8453 } });
+  rejects("MAINNET_REFUSED", mainnet, { config: { ...config, chainId: 8453 } });
 });
 
 test("CALLDATA_MISMATCH: calldata for other terms, another signature, or not fillQuote", async () => {
@@ -403,5 +403,22 @@ test("the first failure wins, in the documented order", async () => {
   });
   rejects("EXPIRED", tamper(envelope, { calldata: "0x00" }), {
     nowSeconds: 9999n,
+  });
+});
+
+test("MAINNET_REFUSED precedes deployment or domain mismatches", async () => {
+  const envelope = await envelopeFor();
+  rejects(
+    "MAINNET_REFUSED",
+    tamper(envelope, {
+      domain: { ...envelope.domain, chainId: 8453 },
+      deploymentId: "wrong",
+    }),
+  );
+  rejects("MAINNET_REFUSED", envelope, {
+    config: { ...config, chainId: 8453, deployment: null },
+  });
+  rejects("MAINNET_REFUSED", envelope, {
+    config: { ...config, deployment: { ...deployment, chainId: 8453 } },
   });
 });

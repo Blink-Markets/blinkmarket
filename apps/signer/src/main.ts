@@ -91,7 +91,10 @@ try {
     const app = buildSignerServer(service, async () => {
       // Startup checks passed; ready means the dependencies still answer right now: the database,
       // an enabled deployment, and an RPC that is still the 84532 chain.
-      await database.query("SELECT 1");
+      await assertProductionClock(
+        database,
+        process.env.BLINK_ALLOW_TEST_CLOCK === "1",
+      );
       const current = await store.loadDeployment(manifest.data.deploymentId);
       return current?.enabled === true && (await rpc.chainId()) === 84532;
     });

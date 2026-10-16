@@ -157,6 +157,19 @@ test(
           assert.equal(await ready(), 503, "an unreachable RPC is not ready");
           rpc.state.up = true;
           assert.equal(await ready(), 200);
+          const user = new URL(signerPool.options.connectionString!).username;
+          await owner.query(
+            `ALTER ROLE "${user}" SET blink.test_clock_offset_seconds = '3600'`,
+          );
+          await owner.query(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1 AND usename=$2 AND pid<>pg_backend_pid()",
+            [name, user],
+          );
+          assert.equal(
+            await ready(),
+            503,
+            "a replacement session with a shifted clock is not ready",
+          );
           assert.equal(
             signer.stderr().includes("at "),
             false,

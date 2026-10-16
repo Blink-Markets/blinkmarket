@@ -51,7 +51,9 @@ const chainPool = chainConfig.enabled
     })
   : null;
 let chainLoop: ReturnType<typeof startChainIndexer> | null = null;
-chainPool?.on("error", () => console.error("INDEXER_DATABASE_CONNECTION_ERROR"));
+chainPool?.on("error", () =>
+  console.error("INDEXER_DATABASE_CONNECTION_ERROR"),
+);
 const pool = config.enabled
   ? new pg.Pool({
       connectionString: config.databaseUrl!,
@@ -62,7 +64,18 @@ const pool = config.enabled
       idle_in_transaction_session_timeout: 10000,
     })
   : null;
-const app = createService("indexer", "m2-creation-receipt-poller");
+const clockPools = [pool, chainPool].filter((p) => p !== null);
+const checkClocks = async () => {
+  for (const database of clockPools)
+    await assertProductionClock(
+      database,
+      process.env.BLINK_ALLOW_TEST_CLOCK === "1",
+    );
+};
+const app = createService("indexer", "m2-creation-receipt-poller", async () => {
+  await checkClocks();
+  return false;
+});
 let poller: ReturnType<typeof startCreationPoller> | null = null;
 let stopTxTracking: (() => Promise<void>) | null = null;
 
@@ -71,6 +84,10 @@ pool?.on("error", () => console.error("INDEXER_DATABASE_CONNECTION_ERROR"));
 try {
   if (pool) {
     await assertCreationTrackingRuntimeRole(pool);
+    await assertProductionClock(
+      pool,
+      process.env.BLINK_ALLOW_TEST_CLOCK === "1",
+    );
     await assertCreationTrackingMigrationsInstalled(pool);
     const schedule = postgresCreationTrackingSchedule(pool);
     const tracker = createCreationTracker(
@@ -102,20 +119,19 @@ try {
     });
     app.get("/health/creation-observer", async (_request, reply) => {
       try {
+        await checkClocks();
         const processHealth = poller!.health();
         const backlog = await schedule.health();
         const observationReady = creationObservationReady(
           processHealth,
           backlog,
         );
-        return reply
-          .code(observationReady ? 200 : 503)
-          .send({
-            component: "creation-receipt-poller",
-            observationReady,
-            poller: processHealth,
-            backlog,
-          });
+        return reply.code(observationReady ? 200 : 503).send({
+          component: "creation-receipt-poller",
+          observationReady,
+          poller: processHealth,
+          backlog,
+        });
       } catch {
         return reply.code(503).send({
           component: "creation-receipt-poller",
@@ -160,7 +176,12 @@ try {
       await inFlight;
       await txPool.end();
     };
+    clockPools.push(txPool);
     await assertCreationTrackingRuntimeRole(txPool);
+    await assertProductionClock(
+      txPool,
+      process.env.BLINK_ALLOW_TEST_CLOCK === "1",
+    );
     await txPool.query("SELECT id FROM chain.transactions LIMIT 0");
     const tracker = createTxTracker({
       store: postgresTxTrackingStore(txPool),
@@ -236,7 +257,10 @@ try {
       pollIntervalMs: chainConfig.pollIntervalMs,
       onError: (code) => console.error("INDEXER_CHAIN_SYNC_ERROR:" + code),
     });
-    registerChainIndexHealth(app, () => chainLoop!.health());
+    registerChainIndexHealth(app, async () => {
+      await checkClocks();
+      return chainLoop!.health();
+    });
     app.addHook("onClose", async () => {
       await chainLoop?.stop();
       await chainPool.end();
