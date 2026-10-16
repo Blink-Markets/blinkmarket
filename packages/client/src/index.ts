@@ -279,6 +279,7 @@ export function createBlinkClient(
 }
 export type { MarketRef as PublicMarketRef } from "@blink/schemas";
 export {
+  DEFAULT_MIN_VALIDITY_SECONDS,
   QuoteVerificationError,
   verifySignedQuote,
   type QuoteVerificationCode,

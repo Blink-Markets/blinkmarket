@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { hashTypedData, type Hex } from "viem";
 import { encodeAllowedCall } from "../packages/adapters/src/signing-calldata.js";
 import {
+  DEFAULT_MIN_VALIDITY_SECONDS,
   QuoteVerificationError,
   verifySignedQuote,
   type QuoteVerificationCode,
@@ -162,8 +163,11 @@ const tamper = (envelope: Envelope, patch: Record<string, unknown>) =>
 
 test("an honest envelope from the production calldata encoder verifies", async () => {
   assert.equal(verify(await envelopeFor()), undefined);
-  // A quote is still good in its last second.
-  assert.equal(verify(await envelopeFor(), { nowSeconds: 1029n }), undefined);
+  // With no margin a quote is still good in its last second.
+  assert.equal(
+    verify(await envelopeFor(), { nowSeconds: 1029n, minValiditySeconds: 0n }),
+    undefined,
+  );
 });
 
 test("DEPLOYMENT_MISMATCH: another deployment, a request for another deployment, or no deployment", async () => {
@@ -276,10 +280,82 @@ test("MAX_COST_EXCEEDED: the taker cost is above the limit by one micro-bUSD, an
   );
 });
 
-test("EXPIRED: the first second at or after expiresAt, by the supplied chain time", async () => {
+test("EXPIRED: less than the margin left before expiresAt, by the supplied chain time", async () => {
   const envelope = await envelopeFor();
+  // The default leaves room for an approval and a fill: two blocks of 2 s plus one of slack.
+  assert.equal(DEFAULT_MIN_VALIDITY_SECONDS, 6n);
+  assert.equal(verify(envelope, { nowSeconds: 1024n }), undefined);
+  rejects("EXPIRED", envelope, { nowSeconds: 1025n });
   rejects("EXPIRED", envelope, { nowSeconds: 1030n });
   rejects("EXPIRED", envelope, { nowSeconds: 5000n });
+  // No margin: only the first second at or after expiresAt is too late.
+  const exact = { minValiditySeconds: 0n };
+  assert.equal(verify(envelope, { ...exact, nowSeconds: 1029n }), undefined);
+  rejects("EXPIRED", envelope, { ...exact, nowSeconds: 1030n });
+  // A caller that needs longer asks for it.
+  const slow = { minValiditySeconds: 20n };
+  assert.equal(verify(envelope, { ...slow, nowSeconds: 1010n }), undefined);
+  rejects("EXPIRED", envelope, { ...slow, nowSeconds: 1011n });
+});
+
+test("NOT_YET_VALID: before validAfter, which the contract refuses as well", async () => {
+  const envelope = await envelopeFor();
+  rejects("NOT_YET_VALID", envelope, { nowSeconds: 999n });
+  rejects("NOT_YET_VALID", envelope, {
+    nowSeconds: 999n,
+    minValiditySeconds: 0n,
+  });
+  assert.equal(verify(envelope, { nowSeconds: 1000n }), undefined);
+});
+
+// secp256k1's group order: the contract (OpenZeppelin ECDSA) refuses s above half of it.
+const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+/** The same signature with s replaced by N - s and the recovery id flipped: it recovers the same signer. */
+function malleable(signature: Hex): Hex {
+  const s = BigInt("0x" + signature.slice(66, 130));
+  const v = Number.parseInt(signature.slice(130), 16);
+  return ("0x" +
+    signature.slice(2, 66) +
+    (N - s).toString(16).padStart(64, "0") +
+    (v === 27 ? "1c" : "1b")) as Hex;
+}
+/** The envelope carrying another signature, with the calldata that goes with it. */
+const resigned = (envelope: Envelope, signature: Hex) =>
+  tamper(envelope, {
+    signature,
+    calldata: encode(envelope.message as Message, signature),
+  });
+
+test("SIGNATURE_INVALID: a signature the contract refuses although it recovers the maker (high s, recovery id 0 or 1)", async () => {
+  const envelope = await envelopeFor();
+  const s = BigInt("0x" + envelope.signature.slice(66, 130));
+  assert.ok(s <= N / 2n, "viem signs with a low s");
+  assert.equal(verify(envelope), undefined);
+  rejects(
+    "SIGNATURE_INVALID",
+    resigned(envelope, malleable(envelope.signature as Hex)),
+  );
+  // v is 27 or 28 on chain: 0 and 1 recover the maker off chain but make ecrecover return nothing.
+  const v = Number.parseInt(envelope.signature.slice(130), 16);
+  const bare = (envelope.signature.slice(0, 130) +
+    (v - 27).toString(16).padStart(2, "0")) as Hex;
+  rejects("SIGNATURE_INVALID", resigned(envelope, bare));
+});
+
+test("DOMAIN_MISMATCH: chain 8453 is refused even when the config and the quote both say so", async () => {
+  const data = typed(baseMessage);
+  const domain = { ...data.domain, chainId: 8453 };
+  const signature = await testAccounts.maker.signTypedData({ ...data, domain });
+  const honest = await envelopeFor();
+  const mainnet = {
+    ...honest,
+    chainId: 8453,
+    domain,
+    quoteId: hashTypedData({ ...data, domain }),
+    signature,
+    calldata: encode(baseMessage, signature),
+  } as unknown as Envelope;
+  rejects("DOMAIN_MISMATCH", mainnet, { config: { ...config, chainId: 8453 } });
 });
 
 test("CALLDATA_MISMATCH: calldata for other terms, another signature, or not fillQuote", async () => {

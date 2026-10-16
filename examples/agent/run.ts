@@ -24,6 +24,7 @@ import {
 } from "../../packages/client/src/index.ts";
 
 const CHAIN_ID = 84532;
+const MAINNET_CHAIN_ID = 8453;
 const LOOPBACK = ["127.0.0.1", "localhost", "[::1]"];
 const QUANTITY = "10";
 // The most this agent pays for one share, in micro-bUSD: the API refuses a dearer quote.
@@ -112,7 +113,10 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     pollingInterval: pollMs,
     cacheTime: 0,
   });
-  if ((await publicClient.getChainId()) !== CHAIN_ID)
+  const nodeChainId = await publicClient.getChainId();
+  if (nodeChainId === MAINNET_CHAIN_ID)
+    throw new Error("MAINNET_REFUSED: this node is chain ID 8453");
+  if (nodeChainId !== CHAIN_ID)
     throw new Error("RPC_CHAIN_MISMATCH: expected chain ID 84532");
   const account = privateKeyToAccount(config.privateKey);
   const wallet = createWalletClient({
@@ -243,13 +247,18 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     maxCostMicros: String(budget),
   } as const;
   type Quote = Awaited<ReturnType<typeof client.requestQuote>>;
-  /** Throws QuoteVerificationError on the first thing wrong with the quote; EXPIRED by chain time. */
-  const verify = async (quote: Quote) =>
+  /**
+   * Throws QuoteVerificationError on the first thing wrong with the quote, by chain time. By
+   * default the quote must also have room left for an approval and a fill; `minValiditySeconds: 0n`
+   * asks only whether it has really expired.
+   */
+  const verify = async (quote: Quote, minValiditySeconds?: bigint) =>
     verifySignedQuote(quote, {
       config: trusted,
       wallet: address,
       request,
       nowSeconds: await chainSeconds(),
+      minValiditySeconds,
     });
   const isConsumed = (quote: Quote) =>
     publicClient.readContract({
@@ -289,8 +298,8 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
         log(`fill ${sent} included in block ${receipt.blockNumber}`);
         return sent;
       }
-      // Reverted: if the quote ran out meanwhile this throws EXPIRED, otherwise it is a real failure.
-      await verify(quote);
+      // Reverted: if the quote really ran out meanwhile this throws EXPIRED, otherwise it is a real failure.
+      await verify(quote, 0n);
       throw new Error("FILL_REVERTED: " + sent);
     } catch (error) {
       if (error instanceof QuoteVerificationError) throw error;
@@ -300,9 +309,29 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
         (error as { shortMessage?: string }).shortMessage ?? String(error);
       log(`fill outcome unknown (${why}); not sending it again`);
     }
+    // Chain time is read before consumed(digest), so a fill that lands between the two reads is
+    // found by the second one. Only real expiry ends the wait, and only when consumed(digest)
+    // still says no: until then the fill may land, and a requote could buy twice.
+    let behind = false;
     for (;;) {
+      let expired: QuoteVerificationError | undefined;
+      try {
+        await verify(quote, 0n);
+        behind = false;
+      } catch (error) {
+        if (!(error instanceof QuoteVerificationError)) throw error;
+        if (error.code === "EXPIRED") expired = error;
+        else if (error.code === "NOT_YET_VALID") {
+          // Not an expiry: this node's chain time went backwards (a stale replica, a reorg).
+          if (!behind)
+            log(
+              "this node's chain time is before the quote's validAfter; still waiting for the fill",
+            );
+          behind = true;
+        } else throw error;
+      }
       if (await isConsumed(quote)) return sent;
-      await verify(quote); // EXPIRED once chain time passes expiresAt: the caller requotes
+      if (expired) throw expired;
       await sleep(pollMs);
     }
   }
@@ -322,10 +351,12 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
       functionName: "approve",
       args: [marketAddress, BigInt(quote.takerCostMicros)],
     });
-    await publicClient.waitForTransactionReceipt({
+    const approved = await publicClient.waitForTransactionReceipt({
       hash: approval,
       timeout: waits.receipt,
     });
+    if (approved.status !== "success")
+      throw new Error("APPROVE_REVERTED: " + approval);
     await client.trackTransaction({
       deploymentId,
       txHash: approval,
@@ -334,8 +365,11 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     log(`approved ${quote.takerCostMicros} micro-bUSD in ${approval}`);
     return { quote, fillTxHash: await fill(quote) };
   }
+  // A quote that ran out, or that this node's chain view has not reached yet (a lagging node):
+  // either way the answer is a new quote under a new key.
   const isExpiry = (error: unknown) =>
-    (error instanceof QuoteVerificationError && error.code === "EXPIRED") ||
+    (error instanceof QuoteVerificationError &&
+      (error.code === "EXPIRED" || error.code === "NOT_YET_VALID")) ||
     (error instanceof BlinkApiError &&
       (error.body.code === "QUOTE_EXPIRED" ||
         error.body.details["reason"] === "QUOTE_EXPIRED"));
@@ -346,8 +380,9 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     } catch (error) {
       if (!isExpiry(error) || attempt >= MAX_QUOTE_ATTEMPTS) throw error;
       log(
-        "quote expired before it was filled; asking for a new one under a new key",
+        "quote expired or not yet valid on this node; asking for a new one under a new key",
       );
+      await sleep(pollMs);
     }
   }
   const { quote, fillTxHash } = bought;

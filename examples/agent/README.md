@@ -29,17 +29,17 @@ The stack it expects is the one `docs/M2_RFQ.md` (runtime) and `docs/M3_KEEPER_F
 4. Submits one forecast in the open window, if there is one (a fixed probability, to show the call).
 5. Claims the faucet and waits for the bUSD to arrive, unless the balance already covers the purchase.
 6. Requests a quote for 10 YES shares, then runs `verifySignedQuote` against the config, the wallet, the request and the chain's own block time.
-7. Approves exactly the quote's taker cost, then re-reads `consumed(digest)` and re-verifies at the current chain time before it sends the quote's calldata once.
+7. Approves exactly the quote's taker cost and checks that the approval succeeded (`APPROVE_REVERTED` otherwise), then re-reads `consumed(digest)` and re-verifies at the current chain time before it sends the quote's calldata once.
 8. Calls `trackTransaction`, polls `getTransaction` and `getPositions` until the fill is indexed, then waits for the market to be FINAL and redeems.
 
 ## Safety rules it follows
 
-- **Quotes expire by block time.** `verifySignedQuote` gets the latest block's timestamp, not the host clock. An expired quote, however it is noticed (verification, an API refusal, a fill that would revert), is replaced by a new request under a **new** Idempotency-Key, at most three times.
-- **A fill is never retried blindly.** `consumed(digest)` is read before the fill. If the send's outcome is unknown (a lost answer, no receipt), the calldata is not sent again: the agent waits until `consumed(digest)` shows it landed or the quote expires, and only then moves on.
+- **Quotes expire by block time.** `verifySignedQuote` gets the latest block's timestamp, not the host clock, and wants 6 seconds left for the approval and the fill. An expired quote, however it is noticed (verification, an API refusal, a fill that would revert), is replaced by a new request under a **new** Idempotency-Key, at most three times.
+- **A fill is never retried blindly.** `consumed(digest)` is read before the fill. If the send's outcome is unknown (a lost answer, no receipt), the calldata is not sent again: the agent waits until `consumed(digest)` shows it landed or the quote has really expired (no margin: the fill could still land before that), and only then moves on. Each round reads chain time first and `consumed(digest)` second, so a fill that lands in between is found, and it ends in expiry only when `consumed(digest)` still says no. If the node's chain time goes backwards (before the quote's `validAfter`), that is not an expiry: the agent logs it and keeps waiting.
 - **Retries reuse the key.** The client repeats a retryable answer with the same Idempotency-Key and body; a 503 `SERVICE_NOT_READY` while a quote is being signed resumes the same quote.
 - **Exact approvals.** The allowance is the quote's taker cost, not a larger or unlimited amount.
 - **No key leaves the process.** The private key only signs the binding message and the agent's own transactions.
 
 ## Tests
 
-`tests/anvil/client-agent.test.ts` runs this file unchanged against the real API, signer, worker and indexer on a local Anvil: once with a quote that expires before it is filled (the requote), and once with a lost answer to the fill. `tests/client.test.ts` covers its refusals (a non-local node, the wrong chain).
+`tests/anvil/client-agent.test.ts` runs this file unchanged against the real API, signer, worker and indexer on a local Anvil: once with a quote that expires before it is filled (the requote), once with a lost answer to the fill, and twice for the wait that follows an unknown fill (chain time going backwards, a fill landing just before expiry). `tests/client.test.ts` covers its refusals (a non-local node, the wrong chain).

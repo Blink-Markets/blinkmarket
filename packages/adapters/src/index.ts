@@ -112,3 +112,4 @@ export { chainSnapshotReader } from "./chain-snapshot-reader.js";
 export * from "./trading-admin.js";
 
 export * from "./health-reader.js";
+export { postgresTraderStore, assertTraderInstalled } from "./trader-store.js";
