@@ -52,7 +52,8 @@ export function tradeNotionalMicros(shares: number): bigint {
 
 /**
  * Whether a buy of `shares` fits the mandate, given what is already occupied: `dailyMicros` is
- * today's HELD and ACCOUNTED notional, `openMicros` the HELD notional. Null admits it.
+ * today's HELD and ACCOUNTED notional, `openMicros` the HELD and ACCOUNTED notional of every
+ * market that is not FINAL yet (bought and not matured, spec 9.3). Null admits it.
  */
 export function mandateAdmission(input: {
   mandate: TraderMandateLimits;

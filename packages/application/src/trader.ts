@@ -213,6 +213,14 @@ const isMined = (fact: TraderIntentFact | null) =>
   fact !== null &&
   fact.mined === "success" &&
   (fact.state === "INCLUDED" || fact.state === "FINALIZED");
+// An ERC-20 approve sets the allowance, it does not add to it. A buy with an approve out and no
+// mined fill still needs that allowance, so no other buy of the wallet approves in the meantime.
+const holdsAllowance = (trade: TraderTrade) =>
+  trade.reservation.state === "HELD" &&
+  trade.approve !== null &&
+  trade.approve.state !== "FAILED" &&
+  trade.fill?.state !== "FAILED" &&
+  !isMined(trade.fill);
 
 export interface TraderRun {
   /** Why the whole run did nothing (no mandate, mandate disabled). */
@@ -274,6 +282,11 @@ export function createTrader(deps: TraderDeps) {
   const aborted = (signal: AbortSignal) => {
     if (signal.aborted) throw new JobError("OPERATION_ABORTED", true);
   };
+  // Whether a buy other than `intentId` holds the allowance, read now.
+  const allowanceHeldByOther = async (agentId: string, intentId: string) =>
+    (await store.trades({ agentId, deploymentId: deps.deploymentId })).some(
+      (t) => t.reservation.intentId !== intentId && holdsAllowance(t),
+    );
 
   // Sends one intent through the dispatcher until a block holds it, it fails for good, the run's
   // time budget is spent, or `allowed` (asked before every dispatch) says the spend is off. A
@@ -493,6 +506,8 @@ export function createTrader(deps: TraderDeps) {
     const wait = await early();
     if (wait) return wait;
     if (!isMined(trade.approve)) {
+      if (!trade.approve && (await allowanceHeldByOther(r.agentId, r.intentId)))
+        return "WAITING:APPROVE_IN_FLIGHT";
       const prepared = trade.approve
         ? { intentId: trade.approve.intentId }
         : await store.prepare({
@@ -701,6 +716,12 @@ export function createTrader(deps: TraderDeps) {
         marketId: market.marketId,
         windowId: snapshot.windowId,
       });
+      // Not even reserved while another buy's approve awaits its fill: a later run starts it, or
+      // this one, if the buy in flight is mined first.
+      if (await allowanceHeldByOther(mandate.agentId, intentId)) {
+        run.markets[market.marketId] = "WAITING:APPROVE_IN_FLIGHT";
+        continue;
+      }
       const reserved = await store.reserve({
         mandate,
         intentId,

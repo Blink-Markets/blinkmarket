@@ -144,7 +144,7 @@ test(
         { state: "HELD", n: "10000000" },
       ]);
 
-      // The open cap binds on HELD only: three more fit under it, never a fourth.
+      // The open cap binds on HELD buys too (and on ACCOUNTED ones, below): three fit, never a fourth.
       await owner.query("TRUNCATE trading.risk_reservations");
       await setCaps(owner, 1_000_000_000n, 3n * UNIT);
       const open = await reserveAll(12);
@@ -153,6 +153,73 @@ test(
         [
           ...new Set(
             open
+              .filter((r) => r.state === "SKIPPED")
+              .map((r) => (r as { reason: string }).reason),
+          ),
+        ],
+        ["OPEN_CAP_EXCEEDED"],
+      );
+    });
+  },
+);
+
+test(
+  "real PostgreSQL: the open cap counts bought notional until its market is FINAL, under the worker login and a race",
+  { timeout: 60_000 },
+  async () => {
+    await withDatabase(async ({ owner, pool }) => {
+      const { agentId } = await seed(owner, pool);
+      const stores = Array.from({ length: 4 }, () =>
+        postgresTraderStore(pool("blink_worker", 4)),
+      );
+      const mandate = (await stores[0]!.mandate("FORECASTER_A"))!;
+      const windows = (
+        await owner.query(
+          "SELECT id,market_id::text AS market FROM forecasts.windows ORDER BY market_id",
+        )
+      ).rows;
+      // Five days of 100 bUSD fills, one open market each, none today.
+      for (let day = 1; day <= 5; day += 1)
+        await owner.query(
+          `INSERT INTO trading.risk_reservations(id,agent_id,intent_id,day,notional_micros,state,deployment_id,market_id,
+            window_id,side,shares,ask_bps,own_probability_millionths)
+          VALUES (gen_random_uuid(),$1,gen_random_uuid(),(blink.now() AT TIME ZONE 'UTC')::date - $2::int,100000000,
+            'ACCOUNTED',$3,$4,$5,'YES',100,6700,800000)`,
+          [agentId, day, DEPLOYMENT, day, windows[day - 1]!.id],
+        );
+      await setCaps(owner, 10_000_000_000n, 500_000_000n);
+      const buyAt = (
+        store: ReturnType<typeof postgresTraderStore>,
+        i: number,
+      ) =>
+        store.reserve({
+          mandate,
+          intentId: randomUUID(),
+          deploymentId: DEPLOYMENT,
+          marketId: windows[5]!.market,
+          windowId: windows[5]!.id,
+          side: "YES",
+          shares: 10,
+          askBps: 6700,
+          ownProbabilityMillionths: 800_000,
+        });
+      assert.deepEqual(await buyAt(stores[0]!, 0), {
+        state: "SKIPPED",
+        reason: "OPEN_CAP_EXCEEDED",
+      });
+
+      // Two markets are FINAL: 300 bUSD stay open, so room for exactly twenty buys of ten shares.
+      await owner.query(
+        "UPDATE chain.markets SET state='FINAL' WHERE market_id IN (4,5)",
+      );
+      const race = await Promise.all(
+        Array.from({ length: 24 }, (_, i) => buyAt(stores[i % 4]!, i)),
+      );
+      assert.equal(race.filter((r) => r.state === "RESERVED").length, 20);
+      assert.deepEqual(
+        [
+          ...new Set(
+            race
               .filter((r) => r.state === "SKIPPED")
               .map((r) => (r as { reason: string }).reason),
           ),

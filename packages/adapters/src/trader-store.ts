@@ -324,11 +324,16 @@ export function postgresTraderStore(pool: Pool): TraderStore {
           return { state: "SKIPPED", reason } as const;
         };
         if (!mandate?.enabled) return refuse("MANDATE_DISABLED");
+        // Open is every bought notional that has not matured (spec 9.3): HELD and ACCOUNTED buys
+        // whose market is not FINAL, at maximum payout (spec 12.3). Daily is today's, FINAL or not.
         const { rows } = await db.query(
-          `SELECT COALESCE(sum(notional_micros) FILTER (WHERE state IN ('HELD','ACCOUNTED')
-              AND day=(blink.now() AT TIME ZONE 'UTC')::date),0)::text AS daily,
-            COALESCE(sum(notional_micros) FILTER (WHERE state='HELD'),0)::text AS open
-          FROM trading.risk_reservations WHERE agent_id=$1`,
+          `SELECT COALESCE(sum(r.notional_micros) FILTER (WHERE r.state IN ('HELD','ACCOUNTED')
+              AND r.day=(blink.now() AT TIME ZONE 'UTC')::date),0)::text AS daily,
+            COALESCE(sum(r.notional_micros) FILTER (WHERE r.state IN ('HELD','ACCOUNTED')
+              AND m.state IS DISTINCT FROM 'FINAL'),0)::text AS open
+          FROM trading.risk_reservations r
+          LEFT JOIN chain.markets m ON m.deployment_id=r.deployment_id AND m.market_id=r.market_id
+          WHERE r.agent_id=$1`,
           [mandate.agentId],
         );
         const refusal = mandateAdmission({
