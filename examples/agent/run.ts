@@ -48,8 +48,13 @@ export type AgentConfig = {
   log?: (line: string) => void;
   /** Delay between polls of the API and the chain. */
   pollMs?: number;
-  /** How long to wait for the faucet credit, for the API to index a transaction, and for FINAL. */
-  waitMs?: { faucet?: number; indexing?: number; final?: number };
+  /** How long to wait for the faucet credit, for the API to index a transaction, for FINAL, and for a receipt. */
+  waitMs?: {
+    faucet?: number;
+    indexing?: number;
+    final?: number;
+    receipt?: number;
+  };
 };
 export type AgentResult = {
   marketId: string;
@@ -87,6 +92,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     faucet: config.waitMs?.faucet ?? 120_000,
     indexing: config.waitMs?.indexing ?? 120_000,
     final: config.waitMs?.final ?? 600_000,
+    receipt: config.waitMs?.receipt ?? 180_000,
   };
   // The key signs transactions: refuse any node that is not on this machine.
   if (!LOOPBACK.includes(new URL(config.rpcUrl).hostname))
@@ -277,6 +283,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
       });
       const receipt = await publicClient.waitForTransactionReceipt({
         hash: sent,
+        timeout: waits.receipt,
       });
       if (receipt.status === "success") {
         log(`fill ${sent} included in block ${receipt.blockNumber}`);
@@ -315,7 +322,10 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
       functionName: "approve",
       args: [marketAddress, BigInt(quote.takerCostMicros)],
     });
-    await publicClient.waitForTransactionReceipt({ hash: approval });
+    await publicClient.waitForTransactionReceipt({
+      hash: approval,
+      timeout: waits.receipt,
+    });
     await client.trackTransaction({
       deploymentId,
       txHash: approval,
@@ -394,7 +404,10 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     functionName: "redeem",
     args: [BigInt(market.marketId)],
   });
-  await publicClient.waitForTransactionReceipt({ hash: redeemTxHash });
+  await publicClient.waitForTransactionReceipt({
+    hash: redeemTxHash,
+    timeout: waits.receipt,
+  });
   await client.trackTransaction({
     deploymentId,
     txHash: redeemTxHash,

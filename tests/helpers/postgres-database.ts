@@ -11,6 +11,9 @@ if (!adminUrl)
   );
 
 const TEARDOWN_STEP_TIMEOUT_MS = 30_000;
+// Creating and dropping the database is not the code under test: a tight statement bound
+// applies to the connections handed to `run`, and the control connection keeps this much room.
+const CONTROL_STATEMENT_TIMEOUT_MS = 30_000;
 
 export interface DatabaseLimits {
   connectTimeoutMs?: number;
@@ -52,9 +55,23 @@ export async function withDatabase(
   limits: DatabaseLimits = {},
 ) {
   const bounds = connectionLimits(limits);
+  const controlBounds = connectionLimits(
+    limits.statementTimeoutMs === undefined
+      ? limits
+      : {
+          ...limits,
+          statementTimeoutMs: Math.max(
+            limits.statementTimeoutMs,
+            CONTROL_STATEMENT_TIMEOUT_MS,
+          ),
+        },
+  );
   const name = "blink_t8_" + randomUUID().replaceAll("-", "");
   assert.match(name, /^blink_t8_[a-f0-9]{32}$/);
-  const control = new pg.Client({ connectionString: adminUrl, ...bounds });
+  const control = new pg.Client({
+    connectionString: adminUrl,
+    ...controlBounds,
+  });
   await control.connect();
   let created = false;
   const url = new URL(adminUrl!);

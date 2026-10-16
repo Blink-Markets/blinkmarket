@@ -175,3 +175,14 @@ export async function runChild(
     options.signal?.removeEventListener("abort", kill);
   }
 }
+
+// A shutdown, not a drain: close() alone waits for connections that a request left open, and
+// Fastify keeps those for 72 s. Dropping them also ends requests an aborted run left in flight.
+export function shutDownServer(server: {
+  close(): Promise<unknown>;
+  server: { closeAllConnections(): void };
+}): Promise<unknown> {
+  const closing = server.close();
+  server.server.closeAllConnections();
+  return closing;
+}

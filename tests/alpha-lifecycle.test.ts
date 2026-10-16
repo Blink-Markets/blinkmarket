@@ -3,8 +3,15 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer, Agent, request } from "node:http";
+import type { AddressInfo } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
-import { attemptAll, runChild, runWithCleanup } from "./helpers/lifecycle.js";
+import {
+  attemptAll,
+  runChild,
+  runWithCleanup,
+  shutDownServer,
+} from "./helpers/lifecycle.js";
 
 const never = () => new Promise<never>(() => {});
 const aggregateFailure = async (run: Promise<unknown>) => {
@@ -304,5 +311,41 @@ test("a child that ignores SIGTERM is still killed at its timeout and on abort",
     assert.equal(alive(Number(pid)), false);
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("shutting a server down does not wait for open connections or requests in flight", async () => {
+  const keepAlive = new Agent({ keepAlive: true });
+  const server = createServer((req, res) => {
+    // /hang never answers, as a request an aborted run left in flight.
+    if (req.url !== "/hang") res.end("ok");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const get = (path: string) =>
+    new Promise<string>((resolve, reject) => {
+      request({ port, host: "127.0.0.1", path, agent: keepAlive }, (res) => {
+        let body = "";
+        res.on("data", (chunk) => (body += chunk));
+        res.on("end", () => resolve(body));
+      })
+        .on("error", reject)
+        .end();
+    });
+  try {
+    assert.equal(await get("/"), "ok"); // leaves a keep-alive connection open
+    const hanging = get("/hang");
+    const rejected = assert.rejects(hanging);
+    await delay(50);
+    const started = Date.now();
+    await shutDownServer({
+      close: () => new Promise((resolve) => server.close(resolve)),
+      server,
+    });
+    assert.ok(Date.now() - started < 2000);
+    await rejected;
+  } finally {
+    keepAlive.destroy();
+    server.closeAllConnections();
   }
 });

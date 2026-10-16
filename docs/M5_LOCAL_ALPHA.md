@@ -1,13 +1,12 @@
-# M5 local Alpha harness — Task 16b staged delivery
+# M5 local Alpha harness — Task 16b delivery
 
-中文摘要：本地 Alpha 以真实 PostgreSQL、Anvil 和服务组件验证三种 REPLAY 结算及投影恢复；示例代理接入仍待 Task 15。
+中文摘要：本地 Alpha 以真实 PostgreSQL、Anvil 和服务组件验证三种 REPLAY 结算及投影恢复；外部代理步骤使用 Task 15 的示例代理，终局化走 worker 的 keeper 任务。
 
-This slice implements Task 16 Rules 1–3. **Agent step pending Task 15.**
-The external-agent flow is isolated in `runExternalAgent` in
-`scripts/local-alpha.ts`; it currently uses the existing client, public API and
-viem. The controller must integrate `examples/agent/run.ts` and its typed client
-when Task 15 lands. This does not complete all of Task 16 or M5. Health, readiness
-and the acceptance matrix remain Task 16a's separate scope.
+This slice implements Task 16 Rules 1–3. The external-agent step runs Task 15's
+`examples/agent/run.ts` with one added bound on receipt waits (see below), and the normal
+and timeout scenarios are finalized by the worker's real `keeper.finalize` job, not
+by a direct contract call. Health, readiness and the acceptance matrix are Task 16a's
+separate scope, and this harness alone does not complete M5.
 
 ## Run
 
@@ -41,16 +40,21 @@ on that deadline, Ctrl-C or SIGTERM. On abort the stalled work is abandoned, eve
 shutdown runs, and the run rejects with `LIFECYCLE_ABORTED during <stage>: <reason>`.
 Further limits: child processes (evidence import, chain rebuild) have a 60 s
 timeout and are killed on abort; PostgreSQL logins have a 10 s connect and a 30 s
-statement timeout; Anvil receipt waits end after 10 s.
+statement timeout; Anvil receipt waits, including the example agent's (its
+`waitMs.receipt`, default unchanged at viem's 180 s), end after 10 s.
 
 Shutdown never skips a resource. Worker, API, signer, Anvil and the temporary
-directory are each attempted independently (10 s per step), then the pools, the
-random database and its logins (30 s per step). Failures are collected and reported
+directory are each attempted independently (10 s per step; the HTTP servers drop
+their connections instead of draining them), then the pools, the random database and
+its logins (30 s per step). Once teardown starts, the database helper refuses new
+logins and pools, so an abandoned run cannot create what teardown has already listed. Failures are collected and reported
 together as an `AggregateError` that lists the scenario error first. Covered without
 the full scenario by `tests/alpha-lifecycle.test.ts` (rejecting, throwing and
 hanging stoppers, abort mid-run, stalled child), `tests/postgres/database-lifecycle.test.ts`
 (statement and connect timeouts, database teardown with a failing pool) and the
-aborted-run test in `tests/alpha/local-alpha.test.ts` (real services, no Anvil left).
+aborted-run tests in `tests/alpha/local-alpha.test.ts`, which abort a real run at
+five points (before Anvil exists, then 0 to 600 ms after it starts) and require that
+no Anvil, random database or login role remains.
 
 ## Exercised flow
 
@@ -58,10 +62,13 @@ The harness starts an ephemeral loopback Anvil using the project's Foundry
 resolver, chain ID 84532, the public development mnemonic and base fee/gas price
 of 1 wei. It uses Task 4's verified deployer with a distinct deployer account,
 registers the deployment, funds the maker pool, reads signer keys from temporary
-0600 files, and starts the signer and trading API on ephemeral loopback ports.
-The chain indexer uses bounded synchronous ticks. Forecasts and evaluation run
-through the real PostgreSQL queue and worker loop; faucet/keeper/dispatch and
-reservation reconciliation use the real handlers with deterministic ticks.
+0600 files, and starts the signer and trading API (RFQ on its own login, as
+`apps/api` composes it) on ephemeral loopback ports. The worker runs the real job
+loop with `buildExecution` from `apps/worker` (faucet mint, keeper finalization and
+transaction dispatch, with the business clock allowed to shift) plus the forecast and
+evaluation handlers. The chain indexer and transaction tracker follow the chain from a
+background loop, as `apps/indexer` does. Forecasts and evaluation run through the real
+PostgreSQL queue; reservation reconciliation uses the real reconciler on demand.
 
 Each scenario imports reviewed offline evidence with `evidence-admin.ts`, submits
 a direct candidate through the invited discovery client, approves it through the
@@ -71,11 +78,19 @@ scheduler creates windows. The harness opens the last window, runs both platform
 forecasters and baseline with the deterministic fixture gateway through their
 own invited API clients, closes the window, and reads the ensemble snapshot.
 
-After the admin allows the taker, the external-agent seam proves wallet signature
-binding (once), a 1,000 bUSD faucet claim, RFQ, maker signature and on-chain digest
-verification, exact collateral approval, fill, transaction tracking and canonical
-inclusion. The same verified taker is reused; scenarios advance at least 24h so
-later faucet claims respect the real rolling wallet limit.
+For every scenario a new taker wallet and a new invited agent are created, the admin
+allows the wallet and the example agent runs against the API: it binds the wallet,
+claims the faucet, requests and verifies a quote, approves exactly the cost, fills,
+tracks the transaction and waits for the indexed position. Blocks are mined every
+200 ms while it works so a quote's head block is never old. Scenarios still advance
+at least 24h of business time, which the forecast budget days need.
+
+After the agent holds its position, the harness closes the market and drives the
+resolution path below. The agent then sees FINAL through the API and redeems itself;
+its reported outcome and payout are asserted against the contract. The keeper
+scenarios call the worker's periodic scheduler (`execution.tick`) until the
+`keeper.finalize` job has signed and `tx.dispatch` has included the finalization, and
+require exactly one finalization signing intent for the market.
 
 | Scenario | Resolution path                                      | Outcome | Taker payout      | Maker payout      |
 | -------- | ---------------------------------------------------- | ------- | ----------------- | ----------------- |
@@ -83,7 +98,7 @@ later faucet claims respect the real rolling wallet limit.
 | dispute  | Propose YES; challenge; arbiter decides NO           | NO      | 0                 | 10,000,000 micros |
 | timeout  | No proposal; keeper finalizes at hard deadline       | INVALID | 5,000,000 micros  | 5,000,000 micros  |
 
-Both participants redeem. Assertions compare indexed state, market parameters,
+The maker redeems in the harness. Assertions compare indexed state, market parameters,
 positions, escrow, maker free collateral/epoch/pause, taker permissions and consumed
 quote digests with contract reads. No reservation remains HELD or
 RECONCILE_REQUIRED. Evaluation runs and public REPLAY metrics count YES/NO events;
@@ -96,7 +111,9 @@ Every jump advances Anvil and sets `blink.test_clock_offset_seconds` on all
 logins using `ALTER ROLE ... IN DATABASE ... SET` and on existing pool sessions.
 The owner clock setting is restricted to the random database too. Only harness
 subprocesses receive `BLINK_ALLOW_TEST_CLOCK=1`; in-process clock checks receive an
-explicit allowance. Production startup checks and gas caps remain unchanged.
+explicit allowance (`buildExecution` takes `allowTestClock`, false unless a caller
+passes it; the worker never does). Production startup checks and gas caps remain
+unchanged.
 
 Approval/identity currently use the existing host-clock store; the harness leaves
 that behavior intact and refreshes the real deployment verification before each

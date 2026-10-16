@@ -6,13 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AddressInfo } from "node:net";
-import {
-  keccak256,
-  recoverTypedDataAddress,
-  type Address,
-  type Hex,
-  type Abi,
-} from "viem";
+import { keccak256, type Address, type Hex, type Abi } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import * as adapters from "../packages/adapters/src/index.js";
 import * as application from "../packages/application/src/index.js";
@@ -21,7 +15,6 @@ import {
   blinkMarketAbi,
   blinkTestUsdAbi,
 } from "../packages/adapters/src/blink-abi.js";
-import { parseQuoteMessage } from "../packages/domain/src/signing-policy.js";
 import {
   FORECAST_PROMPTS,
   signingLimits,
@@ -29,15 +22,18 @@ import {
   type JobType,
 } from "../packages/domain/src/index.js";
 import { createBlinkClient } from "../packages/client/src/index.js";
-import {
-  type ApiScope,
-  SignedQuoteResponse,
-} from "../packages/schemas/src/index.js";
+import type { ApiScope } from "../packages/schemas/src/index.js";
 import { buildApi } from "../apps/api/src/server.js";
 import { tradingServices } from "../apps/api/src/trading.js";
 import { buildSignerServer } from "../apps/signer/src/server.js";
-import { startAnvil, type Anvil } from "../tests/helpers/anvil.js";
-import { runChild, runWithCleanup } from "../tests/helpers/lifecycle.js";
+import { buildExecution } from "../apps/worker/src/execution.js";
+import { runAgent, type AgentConfig } from "../examples/agent/run.js";
+import { startAnvil } from "../tests/helpers/anvil.js";
+import {
+  runChild,
+  runWithCleanup,
+  shutDownServer,
+} from "../tests/helpers/lifecycle.js";
 
 // The whole run, its child processes and its database connections are bounded: a stall fails
 // the run with the stage it was in instead of hanging CI. The test's own timeout is larger,
@@ -52,10 +48,6 @@ const DATABASE_LIMITS = {
 const DEPLOYMENT = "local-alpha";
 const TOKEN = "local-alpha-public-fixture-token";
 const hash = (text: string) => keccak256(new TextEncoder().encode(text));
-const job = (payload: Record<string, unknown> = {}) => ({
-  job: { id: randomUUID(), payload, attempt: 1, maxAttempts: 3 } as never,
-  signal: new AbortController().signal,
-});
 export interface AlphaReport {
   scenarios: {
     scenario: string;
@@ -69,130 +61,36 @@ export interface AlphaReport {
   wallTimeMs: number;
 }
 
-// Deliberate seam: the controller replaces this implementation with Task 15's example agent.
-async function runExternalAgent(ctx: {
-  api: ReturnType<typeof buildApi>;
-  url: string;
-  apiKey: string;
-  anvil: Anvil;
-  market: Address;
-  token: Address;
-  marketId: string;
-  bindWallet: boolean;
-  manifest: Awaited<ReturnType<typeof deployContracts>>;
-  mint(claimId: string, intentId: string): Promise<void>;
-  sync(): Promise<void>;
-  track(): Promise<void>;
-}) {
-  const { anvil, api, marketId, market, token } = ctx;
-  const client = createBlinkClient(ctx.url, ctx.apiKey);
-  if (ctx.bindWallet) {
-    const challenge = await client.createWalletChallenge(
-      { address: anvil.accounts.taker.address },
-      randomUUID(),
-    );
-    await client.verifyWallet(
-      {
-        challengeId: challenge.challengeId,
-        signature: await anvil.accounts.taker.signMessage({
-          message: challenge.message,
-        }),
-      },
-      randomUUID(),
-    );
-  }
-  const post = async (path: string, body: unknown, expected = 200) => {
-    const result = await api.inject({
-      method: "POST",
-      url: path,
-      headers: {
-        authorization: "Bearer " + ctx.apiKey,
-        "idempotency-key": randomUUID(),
-      },
-      payload: body as object,
-    });
-    assert.equal(result.statusCode, expected, result.body);
-    return result.json();
-  };
-  const claim = await post(
-    "/v1/faucet/claims",
-    { deploymentId: DEPLOYMENT },
-    202,
-  );
-  await ctx.mint(claim.claimId, claim.intentId);
-  await ctx.sync();
-  const quote = SignedQuoteResponse.parse(
-    await client.requestQuote(
-      {
-        deploymentId: DEPLOYMENT,
-        marketId,
-        side: "YES",
-        quantity: "10",
-        maxCostMicros: "10000000",
-      },
-      randomUUID(),
+// The external agent is Task 15's example (plus its receipt-wait bound): it binds its wallet,
+// claims the faucet, takes a verified quote, approves, fills, tracks the fill, and redeems once
+// the market is FINAL. `bought` settles when its position is indexed; `result` when it redeemed.
+function startExternalAgent(config: AgentConfig) {
+  const lines: string[] = [];
+  let reached!: () => void;
+  let failed!: (error: unknown) => void;
+  const bought = new Promise<void>((resolve, reject) => {
+    reached = resolve;
+    failed = reject;
+  });
+  const result = runAgent({
+    ...config,
+    log(line) {
+      lines.push(line);
+      if (line.startsWith("position:")) reached();
+    },
+  });
+  result.catch((error) =>
+    failed(
+      new Error(
+        "ALPHA_AGENT_FAILED: " +
+          (error instanceof Error ? error.message : String(error)) +
+          "\n" +
+          lines.join("\n"),
+        { cause: error },
+      ),
     ),
   );
-  const message = parseQuoteMessage(quote.message)!;
-  assert.equal(
-    (
-      await recoverTypedDataAddress({
-        ...application.quoteTypedData(ctx.manifest, message),
-        signature: quote.signature as Hex,
-      })
-    ).toLowerCase(),
-    anvil.accounts.maker.address.toLowerCase(),
-  );
-  assert.equal(
-    await anvil.publicClient.readContract({
-      address: market,
-      abi: blinkMarketAbi,
-      functionName: "hashQuote",
-      args: [{ ...message, priceBps: Number(message.priceBps) }],
-    } as never),
-    quote.quoteId,
-  );
-  assert.equal(
-    BigInt(quote.takerCostMicros) + BigInt(quote.makerCostMicros),
-    10_000_000n,
-  );
-  const approveHash = await anvil.wallet(anvil.accounts.taker).writeContract({
-    address: token,
-    abi: blinkTestUsdAbi,
-    functionName: "approve",
-    args: [market, BigInt(quote.takerCostMicros)],
-  } as never);
-  assert.equal(
-    (await anvil.publicClient.waitForTransactionReceipt({ hash: approveHash }))
-      .status,
-    "success",
-  );
-  const fillHash = await anvil
-    .wallet(anvil.accounts.taker)
-    .sendTransaction({ to: market, data: quote.calldata as Hex });
-  assert.equal(
-    (await anvil.publicClient.waitForTransactionReceipt({ hash: fillHash }))
-      .status,
-    "success",
-  );
-  await post(
-    "/v1/transactions",
-    {
-      deploymentId: DEPLOYMENT,
-      action: "FILL",
-      txHash: fillHash,
-      quoteId: quote.quoteId,
-    },
-    202,
-  );
-  await ctx.track();
-  const status = await api.inject({
-    url: "/v1/transactions/" + fillHash + "?deploymentId=" + DEPLOYMENT,
-    headers: { authorization: "Bearer " + ctx.apiKey },
-  });
-  assert.equal(status.statusCode, 200, status.body);
-  assert.equal(status.json().status, "INCLUDED");
-  await ctx.sync();
+  return { bought, result };
 }
 
 export async function runLocalAlpha(
@@ -230,6 +128,8 @@ export async function runLocalAlpha(
       );
       const pools = {
         api: await login({ memberOf: ["blink_api"], max: 1 }),
+        // RFQ admission waits on the chain RPC inside its transaction, so it has its own login.
+        rfq: await login({ memberOf: ["blink_api"], max: 1 }),
         indexer: await login({ memberOf: ["blink_indexer"], max: 1 }),
         worker: await login({ memberOf: ["blink_worker"], max: 1 }),
         signer: await login({ memberOf: ["blink_signer"], max: 1 }),
@@ -270,7 +170,6 @@ export async function runLocalAlpha(
         challenger,
         arbiter,
         minter,
-        taker,
         keeper,
         trader: deployer,
       } = anvil.accounts;
@@ -395,16 +294,15 @@ export async function runLocalAlpha(
       });
       const signerServer = buildSignerServer(signerService);
       signerServer.log.level = "silent";
-      life.add("signer server", () => signerServer.close());
+      life.add("signer server", () => shutDownServer(signerServer));
       await signerServer.listen({ port: 0, host: "127.0.0.1" });
       const signerUrl =
         "http://127.0.0.1:" +
         (signerServer.server.address() as AddressInfo).port;
-      const signer = adapters.signerClient({ url: signerUrl, token: TOKEN });
       const objects = adapters.fileObjectStore(directory);
       const archive = adapters.createSpecArchive(objects);
       const identityStore = adapters.postgresIdentityStore(pools.api);
-      const trading = await tradingServices(pools.api, {
+      const trading = await tradingServices(pools.api, pools.rfq, {
         deploymentId: DEPLOYMENT,
         signerUrl,
         signerToken: TOKEN,
@@ -464,7 +362,7 @@ export async function runLocalAlpha(
         ],
       });
       app.log.level = "silent";
-      life.add("api server", () => app.close());
+      life.add("api server", () => shutDownServer(app));
       await app.listen({ port: 0, host: "127.0.0.1" });
       const url =
         "http://127.0.0.1:" + (app.server.address() as AddressInfo).port;
@@ -504,55 +402,48 @@ export async function runLocalAlpha(
           rangeSize: 100,
         });
       let indexer = makeIndexer();
-      const sync = async () => {
-        for (let n = 0; n < 100; n++) {
-          life.signal.throwIfAborted();
-          const r = await indexer.syncOnce();
-          if (r.advancedTo === null && r.reorgedTo === null) return;
-        }
-        throw new Error("ALPHA_INDEXER_DID_NOT_CONVERGE");
+      // One caller at a time: the background pump and the scenario both advance the indexer.
+      let queued: Promise<unknown> = Promise.resolve();
+      const serially = <T>(work: () => Promise<T>): Promise<T> => {
+        const run = queued.then(work);
+        queued = run.catch(() => undefined);
+        return run;
       };
+      const sync = () =>
+        serially(async () => {
+          for (let n = 0; n < 100; n++) {
+            life.signal.throwIfAborted();
+            const r = await indexer.syncOnce();
+            if (r.advancedTo === null && r.reorgedTo === null) return;
+          }
+          throw new Error("ALPHA_INDEXER_DID_NOT_CONVERGE");
+        });
       const tracker = application.createTxTracker({
         store: adapters.postgresTxTrackingStore(pools.indexer),
         reader: adapters.txReceiptReader(anvil.publicClient),
         manifest: (id) => adapters.txTrackingManifest(pools.indexer, id),
       });
-      const executionReader = adapters.executionChainReader({
-        url: anvil.url,
-        marketAddress: market,
-      });
-      const dispatchStore = adapters.postgresDispatchStore(pools.worker);
-      const dispatcher = application.createExecutionDispatcher({
-        dispatcher: application.createTxDispatcher({
-          store: dispatchStore,
-          rpc: executionReader.guardDispatch(
-            adapters.viemDispatchRpc({ url: anvil.url }),
-          ),
-          signer,
-        }),
-        store: dispatchStore,
-        faucet: adapters.postgresFaucetStore(pools.worker),
-        reader: executionReader,
-      });
-      const dispatchIncluded = async (intentId: string) => {
-        for (let n = 0; n < 10; n++) {
-          life.signal.throwIfAborted();
-          const state = await dispatcher.dispatch(intentId);
-          if (state === "INCLUDED") return;
-          assert.notEqual(state, "REVERTED");
-        }
-        throw new Error("ALPHA_TX_NOT_INCLUDED");
+      const track = () => serially(() => tracker.trackOnce(50));
+      // Repeats `step` until stopped, as the indexer and the block producer run beside the agent.
+      const every = (intervalMs: number, step: () => Promise<unknown>) => {
+        let running = true;
+        const loop = (async () => {
+          while (running && !life.signal.aborted) {
+            await step();
+            await delay(intervalMs);
+          }
+        })();
+        // A step that fails because the run was aborted is not a failure of stopping it.
+        const ended = loop.then(
+          () => undefined,
+          (error: unknown) => ({ error }),
+        );
+        return async () => {
+          running = false;
+          const failure = await ended;
+          if (failure && !life.signal.aborted) throw failure.error;
+        };
       };
-      const mint = application.createFaucetMintHandler({
-        store: adapters.postgresFaucetStore(pools.worker),
-        signer,
-      });
-      const finalize = application.createKeeperHandler({
-        store: adapters.postgresKeeperStore(pools.worker),
-        deploymentId: DEPLOYMENT,
-        reader: executionReader,
-        signer,
-      });
       const reconcile = application.createQuoteReconciler(
         adapters.postgresTradingStore(pools.worker),
       );
@@ -592,12 +483,27 @@ export async function runLocalAlpha(
         newId: randomUUID,
       });
       const queue = adapters.postgresJobQueue(pools.worker);
-      const workerErrors: string[] = [];
+      // The worker's own execution wiring: faucet mint, keeper finalization and tx dispatch.
+      const execution = await buildExecution({
+        pool: pools.worker,
+        queue,
+        config: {
+          deploymentId: DEPLOYMENT,
+          signerUrl,
+          signerToken: TOKEN,
+          rpcUrl: anvil.url,
+        },
+        allowTestClock: true,
+      });
+      // Anvil's finalized block stays 0: a dispatched transaction is INCLUDED and never FINALIZED,
+      // so its tx.dispatch job retries until its attempts run out. Expected here; each job this
+      // harness waits on is checked for its own errors instead.
       const worker = application.startWorker({
         queue,
         workerId: "local-alpha",
         pollIntervalMs: 10,
         handlers: {
+          ...execution.handlers,
           "forecast.run": forecaster,
           "baseline.run": forecaster,
           "evaluation.score": application.createEvaluationHandler(
@@ -605,7 +511,6 @@ export async function runLocalAlpha(
           ),
         },
         signal: life.signal,
-        onError: (code) => workerErrors.push(code),
       });
       life.add("worker", () => worker.stop());
       const runJob = async (
@@ -628,7 +533,7 @@ export async function runLocalAlpha(
           ).rows[0];
           assert.notEqual(row.state, "DEAD", JSON.stringify(row));
           if (row.state === "SUCCEEDED") {
-            assert.deepEqual(workerErrors, []);
+            assert.equal(row.last_error_code, null);
             return;
           }
           await delay(10);
@@ -637,10 +542,9 @@ export async function runLocalAlpha(
       };
       const discoveryClient = createBlinkClient(url, discovery.apiKey),
         adminClient = createBlinkClient(url, administrator.apiKey);
-      const externalAgent = await invite("external", [
-        "trade:quote",
-        "faucet:claim",
-      ]);
+      // Indexer and transaction tracker follow the chain as `apps/indexer` does, for every scenario.
+      const stopPump = every(100, () => sync().then(track));
+      life.add("indexer pump", stopPump);
       for (const [i, scenario] of ["normal", "dispute", "timeout"].entries()) {
         console.log("ALPHA scenario " + scenario);
         life.stage("scenario " + scenario);
@@ -805,38 +709,58 @@ export async function runLocalAlpha(
             .createSnapshotReader(adapters.postgresForecastStore(pools.api))
             .latest(DEPLOYMENT, marketId),
         );
+        // Each scenario's taker is a new wallet and a new invited agent, so every run starts with
+        // the wallet binding and the faucet claim. The test key only ever exists on this Anvil.
+        const takerKey = keccak256(
+          new TextEncoder().encode("local alpha taker " + scenario),
+        );
+        const taker = privateKeyToAccount(takerKey);
+        const external = await invite("external-" + scenario, [
+          "forecast:write",
+          "trade:quote",
+          "faucet:claim",
+        ]);
+        await anvil.publicClient.waitForTransactionReceipt({
+          hash: await anvil
+            .wallet(admin)
+            .sendTransaction({ to: taker.address, value: 10n ** 18n }),
+        });
         await send(admin, market, blinkMarketAbi, "setTakerAllowed", [
           taker.address,
           true,
         ]);
         await sync();
-        // The same verified wallet claims again only after the 24h advance below.
 
         manifest.tradingEnabled = true;
         await owner.query(
           "UPDATE markets.deployments SET manifest=$2 WHERE id=$1",
           [DEPLOYMENT, manifest],
         );
-        await runExternalAgent({
-          api: app,
-          url,
-          apiKey: externalAgent.apiKey,
-          bindWallet: i === 0,
-          anvil,
-          market,
-          token,
-          marketId,
-          manifest,
-          mint: async (claimId, intentId) => {
-            await mint(job({ claimId }));
-            await dispatchIncluded(intentId);
-          },
-          sync,
-          track: async () => {
-            await tracker.trackOnce(50);
+        life.stage("scenario " + scenario + ": external agent");
+        const agent = startExternalAgent({
+          apiUrl: url,
+          apiKey: external.apiKey,
+          privateKey: takerKey,
+          rpcUrl: anvil.url,
+          pollMs: 100,
+          waitMs: {
+            faucet: 30_000,
+            indexing: 30_000,
+            final: 60_000,
+            // Anvil automines: after an abort the agent must not poll a dead node for minutes.
+            receipt: RECEIPT_TIMEOUT_MS,
           },
         });
+        // Blocks keep coming while the agent works, so a quote's head block is never old.
+        const stopBlocks = every(200, () => anvil.mine(1));
+        try {
+          await agent.bought;
+        } finally {
+          await stopBlocks();
+        }
+        await sync();
         await reconcile.reconcileOnce(DEPLOYMENT);
+        life.stage("scenario " + scenario + ": settlement");
         const position = (
           await owner.query(
             "SELECT yes_shares::text,no_shares::text FROM chain.positions WHERE market_id=$1 AND account=decode($2,'hex')",
@@ -852,6 +776,14 @@ export async function runLocalAlpha(
           no_shares: String(chainPosition[1]),
         });
         assert.equal(chainPosition[0], 10n);
+        const balance = (account: Address) =>
+          anvil.publicClient.readContract({
+            address: token,
+            abi: blinkTestUsdAbi,
+            functionName: "balanceOf",
+            args: [account],
+          }) as Promise<bigint>;
+        const boughtBalance = await balance(taker.address);
         await jump(scenario === "timeout" ? hardDeadline : closeAt + 1n);
         if (scenario !== "timeout") {
           await send(proposer, market, blinkMarketAbi, "proposeOutcome", [
@@ -876,27 +808,29 @@ export async function runLocalAlpha(
         }
         await sync();
         if (scenario !== "dispute") {
-          await finalize(job());
+          // The worker's keeper job finalizes it: no direct contract call.
+          const state = async () =>
+            ["OPEN", "PROPOSED", "DISPUTED", "FINAL"][
+              (await read("getMarket", [BigInt(marketId)])).state
+            ];
+          for (let n = 0; (await state()) !== "FINAL"; n++) {
+            life.signal.throwIfAborted();
+            if (n >= 300) throw new Error("ALPHA_KEEPER_DID_NOT_FINALIZE");
+            await execution.tick();
+            await delay(100);
+          }
           const rows = await owner.query(
             "SELECT id FROM signing.economic_intents WHERE kind IN ('FINALIZE_UNCHALLENGED','FINALIZE_TIMEOUT') AND payload->>'marketId'=$1",
             [marketId],
           );
           assert.equal(rows.rowCount, 1);
-          await dispatchIncluded(rows.rows[0].id);
           await sync();
         }
-        const balance = (account: Address) =>
-          anvil.publicClient.readContract({
-            address: token,
-            abi: blinkTestUsdAbi,
-            functionName: "balanceOf",
-            args: [account],
-          }) as Promise<bigint>;
-        const beforeT = await balance(taker.address),
-          beforeM = await balance(maker.address);
-        await send(taker, market, blinkMarketAbi, "redeem", [BigInt(marketId)]);
+        // The agent sees FINAL through the API and redeems itself; the maker redeems here.
+        const result = await agent.result;
+        const beforeM = await balance(maker.address);
         await send(maker, market, blinkMarketAbi, "redeem", [BigInt(marketId)]);
-        const paidT = (await balance(taker.address)) - beforeT,
+        const paidT = (await balance(taker.address)) - boughtBalance,
           paidM = (await balance(maker.address)) - beforeM;
         const expected =
           scenario === "normal"
@@ -906,6 +840,7 @@ export async function runLocalAlpha(
               : 5_000_000n;
         assert.equal(paidT, expected);
         assert.equal(paidM, 10_000_000n - expected);
+        assert.equal(result.payoutMicros, String(expected));
         await sync();
         await reconcile.reconcileOnce(DEPLOYMENT);
         const settled = await read("getMarket", [BigInt(marketId)]);
@@ -917,6 +852,7 @@ export async function runLocalAlpha(
           )
         ).rows[0];
         const outcome = ["YES", "NO", "INVALID"][settled.finalOutcome]!;
+        assert.equal(result.finalOutcome, outcome);
         assert.deepEqual(projected, {
           state: "FINAL",
           final_outcome: outcome,
@@ -1024,6 +960,7 @@ export async function runLocalAlpha(
       );
       const live = await app.inject("/v1/metrics?mode=LIVE");
       assert.equal(live.json().eventCount, "0");
+      await stopPump();
       life.stage("restore drill: rebuild");
       const snapshot = async () =>
         (await chainStore.loadSnapshot(DEPLOYMENT)).projection;

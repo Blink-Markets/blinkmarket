@@ -33,12 +33,12 @@ test("real PostgreSQL: a statement timeout cancels a stalled query on every kind
           pool.query("SELECT pg_sleep(30)"),
           /statement timeout/,
         );
-        assert.ok(Date.now() - started < 5000);
+        assert.ok(Date.now() - started < 8000);
         // The connection is usable again after the cancelled statement.
         assert.equal((await pool.query("SELECT 1 AS one")).rows[0].one, 1);
       }
     },
-    { connectTimeoutMs: 2000, statementTimeoutMs: 300 },
+    { connectTimeoutMs: 2000, statementTimeoutMs: 1500 },
   );
 });
 

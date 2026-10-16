@@ -25,13 +25,15 @@ export async function buildExecution(deps: {
   pool: Pool;
   queue: JobQueue;
   config: ExecutionConfig | null;
+  /** Only the local Alpha harness shifts the business clock; the worker never passes this. */
+  allowTestClock?: boolean;
 }): Promise<{
   handlers: Partial<Record<JobType, JobHandler>>;
   tick(): Promise<void>;
 }> {
   if (!deps.config) return { handlers: {}, tick: async () => {} };
   const { pool, queue, config } = deps;
-  await assertProductionClock(pool, false);
+  await assertProductionClock(pool, deps.allowTestClock ?? false);
   const deployment = await loadChainDeployment(pool, config.deploymentId);
   await pool.query("SELECT id FROM faucet.claims LIMIT 0");
   const reader = executionChainReader({
