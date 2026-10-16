@@ -1,17 +1,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { ALPHA_DEADLINE_MS, runLocalAlpha } from "../../scripts/local-alpha.ts";
 import { databaseTraces, leakedTraces } from "../helpers/postgres-traces.js";
 
-// Anvil processes started by this process (tsx may keep an esbuild child of its own).
-const anvils = () =>
-  spawnSync("pgrep", ["-P", String(process.pid), "-f", "/bin/anvil"], {
+// Anvil processes started by a process (tsx may keep an esbuild child of its own).
+const anvils = (parent = process.pid) =>
+  spawnSync("pgrep", ["-P", String(parent), "-f", "/bin/anvil"], {
     encoding: "utf8",
   })
     .stdout.split("\n")
     .filter(Boolean);
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 test("local Alpha refuses to start without an explicit PostgreSQL administrator", () => {
   const env = { ...process.env };
@@ -66,6 +74,56 @@ for (const point of [undefined, 0, 150, 300, 600]) {
     },
   );
 }
+
+// The delay points above abort before the example agent exists. This one waits for the run to
+// report that the agent is working, signals the real entrypoint as Ctrl-C would, and requires
+// that it ends in that stage, leaves nothing behind and exits on its own: an agent still
+// polling a dead node would keep the process alive.
+test(
+  "a run signalled while the example agent works fails with that stage, leaves nothing behind and exits",
+  { timeout: 120_000 },
+  async () => {
+    const before = await databaseTraces();
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", "scripts/local-alpha.ts"],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    const exited = new Promise<number | null>((resolve) =>
+      child.once("exit", resolve),
+    );
+    try {
+      const agentStage = /^ALPHA stage: scenario \w+: external agent$/m;
+      for (let n = 0; n < 2400 && !agentStage.test(stdout); n++) {
+        assert.equal(child.exitCode, null, `the run ended early:\n${stderr}`);
+        await delay(25);
+      }
+      assert.match(stdout, agentStage, "the run reached the agent stage");
+      const [anvil] = anvils(child.pid);
+      assert.ok(anvil, "Anvil is running");
+      child.kill("SIGTERM");
+      const code = await Promise.race([
+        exited,
+        delay(30_000, "lingering", { ref: false }),
+      ]);
+      assert.notEqual(code, "lingering", "the process exits after SIGTERM");
+      assert.equal(code, 1);
+      assert.match(
+        stderr,
+        /LIFECYCLE_ABORTED during scenario \w+: external agent: SIGTERM received/,
+      );
+      assert.equal(alive(Number(anvil)), false, "Anvil is gone");
+      assert.deepEqual(await leakedTraces(before), []);
+    } finally {
+      child.kill("SIGKILL");
+      await exited;
+    }
+  },
+);
 
 // The test's own timeout leaves the harness deadline room to tear down and report the stage.
 test(
