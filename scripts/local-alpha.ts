@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AddressInfo } from "node:net";
+import type pg from "pg";
 import { keccak256, type Address, type Hex, type Abi } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import * as adapters from "../packages/adapters/src/index.js";
@@ -28,9 +29,10 @@ import { tradingServices } from "../apps/api/src/trading.js";
 import { buildSignerServer } from "../apps/signer/src/server.js";
 import { buildExecution } from "../apps/worker/src/execution.js";
 import { runAgent, type AgentConfig } from "../examples/agent/run.js";
-import { startAnvil } from "../tests/helpers/anvil.js";
+import { startAnvil, type Anvil } from "../tests/helpers/anvil.js";
 import { reportJobFailures } from "../tests/helpers/job-failures.js";
 import {
+  type Lifecycle,
   runChild,
   runWithCleanup,
   shutDownServer,
@@ -50,6 +52,26 @@ const DATABASE_LIMITS = {
 const DEPLOYMENT = "local-alpha";
 const TOKEN = "local-alpha-public-fixture-token";
 const hash = (text: string) => keccak256(new TextEncoder().encode(text));
+// What a drill that runs on the finished Alpha (the backup and restore drill) may use: the source
+// database, the chain, and the lifecycle that cleans up whatever the drill creates.
+export interface AlphaDrillContext {
+  deploymentId: string;
+  owner: pg.Pool;
+  anvil: Anvil;
+  manifest: Awaited<ReturnType<typeof deployContracts>>;
+  market: Address;
+  chainStore: ReturnType<typeof adapters.postgresChainIndexStore>;
+  life: Lifecycle;
+  read: (functionName: string, args?: readonly unknown[]) => Promise<any>;
+  send: (
+    account: Anvil["accounts"]["admin"],
+    address: Address,
+    abi: Abi,
+    functionName: string,
+    args: readonly unknown[],
+  ) => Promise<unknown>;
+}
+
 export interface AlphaReport {
   scenarios: {
     scenario: string;
@@ -100,6 +122,8 @@ export async function runLocalAlpha(
     signal?: AbortSignal;
     // Hears each stage the run enters, such as "scenario normal: external agent".
     onStage?: (stage: string) => void;
+    // Runs once every scenario and the harness's own restore drills have passed.
+    afterScenarios?: (context: AlphaDrillContext) => Promise<void>;
   } = {},
 ): Promise<AlphaReport> {
   const signal = options.signal ?? AbortSignal.timeout(ALPHA_DEADLINE_MS);
@@ -1022,6 +1046,17 @@ export async function runLocalAlpha(
       );
       assert.ok(notificationsAfter.count > notificationsBefore.count);
       report.reindexIdentical = true;
+      await options.afterScenarios?.({
+        deploymentId: DEPLOYMENT,
+        owner,
+        anvil,
+        manifest,
+        market,
+        chainStore,
+        life,
+        read,
+        send,
+      });
     });
   }, DATABASE_LIMITS);
   report.wallTimeMs = Math.round(performance.now() - started);
