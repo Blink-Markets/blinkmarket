@@ -180,6 +180,29 @@ Each step lists its prerequisites. The agent prepares commands and checks. The u
 - [ ] **B6 External acceptance** (D10): one non-team operator submits forecasts and completes an invited test trade using only the docs and the Task 15 example. A separate usability check. The two sets of metrics are kept apart.
 - [ ] **B7 Publish** (D6, D10): README and site updated to "deployed on Base Sepolia (testnet)" with the true caveats, OpenAPI, client example, feedback entry and demo video.
 
+## Free-first candidates for D3, D4, D6 and D9 (researched 2026-10-17)
+
+The user asked for free or the cheapest options while the project is experimental. Figures below are quoted from each provider's own page as fetched on 2026-10-17 unless marked otherwise; none is a commitment, and nothing is signed up for or provisioned without the user's go-ahead. Pages carry no "last updated" date, so re-check before choosing.
+
+| Need | Free candidate | What the provider's page says | What it gives up |
+| --- | --- | --- | --- |
+| App host (api, worker, indexer) | Oracle Cloud Always Free, Ampere A1 (arm64) | "first 1,500 OCPU hours and 9,000 GB hours per month for free", "equivalent to 2 OCPUs and 12 GB of memory"; 200 GB block storage | Oracle may reclaim instances idle over 7 days (95th-percentile CPU, network and, on A1, memory all under 20%). Secondary reports say the A1 allowance was halved in June 2026 without announcement. No SLA |
+| Signer host (separate) | A second Always Free instance: an A1 slice or an AMD micro ("1/8 OCPU", "1 GB memory", up to two) | as above | Same account as the app host; separation is per instance and per OS user, not per provider |
+| PostgreSQL | Self-hosted PostgreSQL 17 on the app host (A1 image, A5 drill for dump/restore) | — | Not managed: backups, upgrades and disk are ours |
+| PostgreSQL (managed, alternative) | Neon Free: 100 CU-hours per project, 1 GB storage, scale-to-zero after 5 minutes "cannot be turned off", 6-hour history | — | The worker and indexer poll continuously, so the compute never sleeps; at the smallest size a full month needs more than 100 CU-hours. Neon Launch is $0.106 per CU-hour and $0.35 per GB-month (pay as you go) |
+| PostgreSQL (managed, alternative) | Supabase Free: 500 MB, "paused after 1 week of inactivity", automatic backups "Not included" | — | No backups; Pro is $25 per month |
+| Private bucket | Oracle Object Storage (Always Free 20 GB), Backblaze B2 ("First 10GB storage is always free", then $6.95/TB/month) or Cloudflare R2 (10 GB-month free, then $0.015/GB-month) | — | None of the three pricing pages confirms versioning plus retention on the free allowance; verify before choosing (plan requires versioning/retention) |
+| RPC primary | Alchemy Free: "30M CU per month", "15 requests per second", "All mainnets & testnets" | — | Archive access on Free is not stated clearly; verify `eth_call` at `deploymentBlock − 1` and the `finalized` tag before relying on it |
+| RPC backup | Base's public endpoint `https://sepolia.base.org` (chain 84532) | page states no rate limit and no production guidance | Unknown limits and archive depth; a second free provider account is the alternative |
+| Site | GitHub Pages (today) | — | — |
+| API URL | needs a hostname with TLS | — | Open: a domain the user owns, or a free hostname service; the user picks |
+| Alerts (D9) | a chat webhook the user owns | — | Payload shape must match what A4's webhook sink sends |
+| Feedback (D6) | a free form tool with the §19 fields and an optional, consented contact field | — | The user picks the tool |
+
+Cheapest paid fallback if a free tier fails: a small VPS per host. Secondary sources (not the provider's page) put Hetzner's smallest shared plans at about €5.49–5.99 per month after a June 2026 increase; confirm on the provider's page before choosing.
+
+Consequence for Track A: Oracle's free A1 is arm64, so the A1 images must build and run on linux/arm64 (the build machine is arm64 today).
+
 ## Track C — functional web UI (only if D1 = b)
 
 A separate plan, written after mockups of the trading area (§13.2 confirmation fields, approve exactly the needed amount, re-quote on expiry, probability vs ask vs fill price shown apart), positions and redeem, settlement detail, and the admin console. It depends on D2. Not planned further here.
