@@ -97,6 +97,10 @@ export interface Lifecycle {
   // and the run rejects with LIFECYCLE_ABORTED during <stage>: <error>. For failures of work
   // that runs beside the body, which the body would otherwise learn of only when stopping it.
   fail(error: unknown): void;
+  // Records something that went wrong without failing the run (a retried job). If the run fails
+  // for any reason, its error lists every note, repeated ones once with a count; a run that
+  // succeeds drops them.
+  note(text: string): void;
   // Repeats `step` every `intervalMs`, first at once, until the returned stop is called or the
   // run ends (stopping early is optional; the shutdown is registered). A step that fails while
   // it should be running ends the run through `fail`. One that fails while `stop` waits for
@@ -124,6 +128,7 @@ export async function runWithCleanup<T>(
     ? AbortSignal.any([options.signal, failure.signal])
     : failure.signal;
   const stepTimeoutMs = options.stepTimeoutMs ?? STEP_TIMEOUT_MS;
+  const notes = new Map<string, number>();
   let stage = "start";
   const abortError = () =>
     new Error(`LIFECYCLE_ABORTED during ${stage}: ${describe(signal.reason)}`, {
@@ -160,6 +165,9 @@ export async function runWithCleanup<T>(
     },
     fail(error) {
       failure.abort(error);
+    },
+    note(text) {
+      notes.set(text, (notes.get(text) ?? 0) + 1);
     },
     every(name, intervalMs, step) {
       if (closed) throw new Error("LIFECYCLE_CLOSED: " + name);
@@ -204,6 +212,19 @@ export async function runWithCleanup<T>(
     value = await Promise.race([work, aborted]);
   } catch (error) {
     outcome = { error };
+    if (notes.size > 0) {
+      // A message that ends in log lines gets the notes on a line of their own.
+      const message = describe(error);
+      const listed = [...notes]
+        .map(([text, n]) => (n > 1 ? `${text} x${n}` : text))
+        .join(", ");
+      outcome = {
+        error: new Error(
+          `${message}${message.includes("\n") ? "\n" : "; "}recorded: ${listed}`,
+          { cause: error },
+        ),
+      };
+    }
   }
   signal.removeEventListener("abort", onAbort);
   // An abandoned body rejects once its resources are gone; that is expected.

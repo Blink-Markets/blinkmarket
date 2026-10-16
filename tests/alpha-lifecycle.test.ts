@@ -467,3 +467,76 @@ test("work followed by a stopper returns its value, rethrows its lone failure an
     ["block miner: rpc down"],
   );
 });
+
+test("notes are dropped by a run that succeeds and listed, counted, by one that fails or is aborted", async () => {
+  assert.equal(
+    await runWithCleanup({}, async (life) => {
+      life.note("keeper.finalize SIGN_UNKNOWN");
+      return "done";
+    }),
+    "done",
+  );
+
+  const failure = new Error("ALPHA_AGENT_FAILED");
+  const notes = (life: { note(text: string): void }) => {
+    life.note("faucet.mint SIGN_UNKNOWN");
+    life.note("tx.dispatch INTERNAL_ERROR: rpc down");
+    life.note("faucet.mint SIGN_UNKNOWN");
+  };
+  const listed =
+    "; recorded: faucet.mint SIGN_UNKNOWN x2, tx.dispatch INTERNAL_ERROR: rpc down";
+  const error = await runWithCleanup({}, async (life) => {
+    notes(life);
+    throw failure;
+  }).then(
+    () => assert.fail("expected the run to reject"),
+    (rejection: unknown) => rejection as Error,
+  );
+  assert.equal(error.message, "ALPHA_AGENT_FAILED" + listed);
+  assert.equal(error.cause, failure);
+
+  // A message that ends in the agent's log lines keeps the notes on a line of their own.
+  const logged = await runWithCleanup({}, async (life) => {
+    notes(life);
+    throw new Error("ALPHA_AGENT_FAILED: TIMEOUT\nfaucet claim queued");
+  }).then(
+    () => assert.fail("expected the run to reject"),
+    (rejection: unknown) => rejection as Error,
+  );
+  assert.equal(
+    logged.message,
+    "ALPHA_AGENT_FAILED: TIMEOUT\nfaucet claim queued\n" +
+      listed.slice("; ".length),
+  );
+
+  const controller = new AbortController();
+  const aborted = runWithCleanup(
+    { signal: controller.signal },
+    async (life) => {
+      life.stage("scenario normal: external agent");
+      notes(life);
+      await never();
+    },
+  );
+  setTimeout(() => controller.abort(new Error("deadline reached")), 20);
+  await assert.rejects(
+    aborted,
+    (rejection) =>
+      (rejection as Error).message ===
+      "LIFECYCLE_ABORTED during scenario normal: external agent: deadline reached" +
+        listed,
+  );
+
+  // With a failing shutdown too, the notes stay with the run's own failure.
+  const both = await aggregateFailure(
+    runWithCleanup({}, async (life) => {
+      life.add("worker", () => {
+        throw new Error("worker stuck");
+      });
+      notes(life);
+      throw failure;
+    }),
+  );
+  assert.equal(both.errors[0].message, "ALPHA_AGENT_FAILED" + listed);
+  assert.equal(both.errors[1].message, "worker: worker stuck");
+});

@@ -45,14 +45,19 @@ statement timeout; Anvil receipt waits, including the example agent's (its
 `waitMs.receipt`, default unchanged at viem's 180 s), end after 10 s.
 
 Work that runs beside the scenario fails the run at once, with its own name, instead of
-surfacing when the scenario stops it. A worker job that throws (faucet mint, keeper
-finalization, transaction dispatch, forecasts, evaluation) ends the run as
-`LIFECYCLE_ABORTED during <stage>: ALPHA_JOB_FAILED: <job type> <error code>`; the one
-expected error, `tx.dispatch` answering `TX_PENDING` because Anvil never finalizes, is
-ignored. The indexer pump and the block miner end it as `<name>: <error>` the moment one
-of their steps fails. Each failure is reported once. If the example agent fails, a miner
-that also fails while being stopped is listed after the agent's failure, never in place
-of it.
+surfacing when the scenario stops it. A worker job (faucet mint, keeper finalization,
+transaction dispatch, forecasts, evaluation) that fails for good ends the run as
+`LIFECYCLE_ABORTED during <stage>: ALPHA_JOB_FAILED: <job type> <error code>`: its error
+says it will not be retried (`JobError` or `TxDispatchError` with `retryable` false), or
+it was the job's last attempt, which the queue dead-letters. A retryable failure may
+still succeed, so it is only recorded; if the run fails later, whatever the reason (the
+agent, a keeper timeout, a deadline, an abort), its error ends with
+`recorded: <job type> <error code> (retryable) x<count>` for each kind. The one expected
+error, `tx.dispatch` answering `TX_PENDING` because Anvil never finalizes, is neither a
+failure nor recorded. The indexer pump and the block miner end the run as
+`<name>: <error>` the moment one of their steps fails. Each failure is reported once. If
+the example agent fails, a miner that also fails while being stopped is listed after the
+agent's failure, never in place of it.
 
 Shutdown never skips a resource. Worker, API, signer, Anvil and the temporary
 directory are each attempted independently (10 s per step; the HTTP servers drop
@@ -172,8 +177,8 @@ helpers and tests, not `apps/*` or `packages/*`.
 
 | Command                                          | Result                                                                                                                                                                                                            |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm alpha:local`                               | PASS: 8 tests (the refusal without an administrator URL, five delay abort points, the stage-keyed abort, the three scenarios with both restore drills); the scenario test took 6.1 s and the whole command 14.7 s |
-| `pnpm check`                                     | PASS: 604 tests, no skips; typechecks, contract compilation and boundaries                                                                                                                                        |
+| `pnpm alpha:local`                               | PASS: 8 tests (the refusal without an administrator URL, five delay abort points, the stage-keyed abort, the three scenarios with both restore drills); the scenario test took 6.0 s and the whole command 14.7 s |
+| `pnpm check`                                     | PASS: 608 tests, no skips; typechecks, contract compilation and boundaries                                                                                                                                        |
 | `pnpm build`                                     | PASS: full web build                                                                                                                                                                                              |
 | `pnpm build:services && pnpm test:service-build` | PASS: 5 tests                                                                                                                                                                                                     |
 | `pnpm test:postgres`                             | PASS: 45 tests, no skips                                                                                                                                                                                          |
