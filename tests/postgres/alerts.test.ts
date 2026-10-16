@@ -126,7 +126,19 @@ test(
     } finally {
       await worker.end();
       await owner.end();
-      if (created) await control.query(`DROP DATABASE "${name}" WITH (FORCE)`);
+      if (created) {
+        // pool.end() resolves before the sockets close; let the sessions leave first so
+        // DROP ... FORCE never kills a client that is still shutting down.
+        for (let i = 0; i < 100; i += 1) {
+          const { rows } = await control.query(
+            "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = $1",
+            [name],
+          );
+          if (rows[0].n === 0) break;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        await control.query(`DROP DATABASE "${name}" WITH (FORCE)`);
+      }
       await control.end();
       await rm(directory, { recursive: true, force: true });
     }
