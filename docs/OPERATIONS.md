@@ -1,12 +1,19 @@
 # 運行與部署設計
 
-M0/M1更新：已有本機合約、基礎DB migration、spec file archive及manifest validator，見 [交付記錄](M0_M1_DELIVERY.md)。以下公開服務拓樸仍待M2/M3接線；尚未部署Sepolia。
+目前 backend 已有 API／Worker／Indexer／Signer 業務接線與 migrations 0001–0019；交付範圍見 [整體架構](ARCHITECTURE.md)、[本機 Alpha](M5_LOCAL_ALPHA.md) 及 [驗收矩陣](ACCEPTANCE_MATRIX.md)。以下公開服務拓樸是部署目標，並非未實作的 backend：尚無公開 API 主機或 Base Sepolia 部署，沒有付費模型，LIVE 核准仍拒絕；託管服務與外部使用者驗收仍未完成。
 
 ## 現在可執行
 
-README 的 pnpm dev 啟動五個 loopback HTTP host。API config、route inventory、health 可讀；Worker 不消費 queue；Indexer 不連 RPC；Signer 預設只有 health，設 `SIGNER_ENABLED=true` 並提供 key 檔、DB 登入、RPC 與 caller 白名單後才提供 `POST /internal/sign`（見 [Signer 交付](M2_SIGNER.md)，尚未接上 API 與 worker）。沒有後端 production artifact/container 或對外部署。
+`pnpm dev` 啟動五個 loopback host；Web 是唯讀說明、文件與虛構 REPLAY 樣本。API 預設 scaffold，Worker／Indexer 業務功能與 Signer 預設停用，避免未設定就連 DB／RPC 或簽章；啟用方式見 [本機開發](DEVELOPMENT.md)。設定完整後，已實作的接線包括：
 
-pnpm check：TS typecheck、M0 tests、package boundaries、完整Solidity合約編譯。pnpm test:contracts / pnpm replay驗證本機帳本；pnpm build建置Next Web host。這些不等於Alpha或安全審計。
+- API 依模式逐層啟用身份、候選、核准與公開讀取；trading 模式另接 RFQ、faucet、health/admin metrics，並經 caller token 呼叫受限 signer。
+- Worker 在 `WORKER_ENABLED=true` 與專用 DB 登入下消費持久 queue、dispatch outbox 與排程；research、execution、trader 依各自設定組合，涵蓋 fixture 預測、評估、resolution jobs、reservation 對帳、keeper、faucet 與受限交易提交。未設定的可選功能不會自動啟用；通知仍只有 outbox，沒有告警傳送渠道。
+- Indexer 在 `CHAIN_INDEXER_ENABLED=true` 與專用 DB／RPC／deployment 設定下持續同步 canonical 區塊、事件與投影並處理 reorg；creation receipt polling 與交易追蹤另有各自開關。
+- Signer 在 `SIGNER_ENABLED=true`、key 檔、DB 登入、RPC 與 caller 白名單完整時提供 `POST /internal/sign`，已接 trading API 與 execution/trader Worker；私鑰只在 signer，caller 驗證不等於正式網路隔離已完成，見 [Signer](M2_SIGNER.md)。
+
+`pnpm build:services` 產生 `dist/services/{api,worker,indexer,signer}.mjs`、管理工具 bundles 與 migrations，`pnpm test:service-build` 驗證獨立 bundle。`infra/Dockerfile.api` 已有 API 多階段容器範本，以非 root 使用者執行 API bundle，healthcheck 只測 liveness；尚未驗收公開部署、完整服務容器拓樸或供應鏈發布流程。
+
+`pnpm check` 執行兩個 TS typecheck、Node 單元／整合測試、package boundaries 與 Solidity 合約編譯。`pnpm test:contracts`／`pnpm replay` 驗證本機帳本；`pnpm build` 建置 Next.js Web；`pnpm alpha:local` 使用專用本機 PostgreSQL 與 Anvil 驗證三種 REPLAY 結算及投影恢復。這些不等於公開 Alpha、公開網路 finality、完整營運 restore drill 或安全審計。
 
 ## 目標 Alpha 拓樸
 
@@ -20,12 +27,12 @@ pnpm check：TS typecheck、M0 tests、package boundaries、完整Solidity合約
 
 | Identity | DB/網路 | Key |
 | --- | --- | --- |
-| Web | 只 API | 無 |
+| Web | 目前靜態網站不接 backend；未來操作 UI 僅經 API | 無 |
 | API | 業務 DB 權限、RFQ signer 受驗證通道 | 無 |
 | Worker research | job/model/evidence/budget tables、allowlist fetch/model | 無鏈上私鑰 |
 | Worker execution | 受限 intent submission；不接受 LLM 任意 calldata | 無私鑰 |
 | Indexer | RPC、chain/projection tables | 無 |
-| Signer maker/trader/faucet/keeper | 各自 policy/intent/nonce 讀取與鎖、限定 RPC/secret store | 各自角色 key |
+| Signer maker/trader/faucet/keeper | 各自 policy/intent/nonce 讀取與鎖、限定 RPC／key-file；secret store 為部署目標 | 各自角色 key |
 | ADMIN/proposer/challenger/arbiter | 手動錢包、受保護 admin API | 不在 worker/signer 的自動流程 |
 
 Worker 初期一個 codebase，但研究與執行在 Alpha 部署時要使用不同 job allowlist / credentials。maker EOA 是固定 signer；管理四角色互異且不同 maker，不可成 taker。
@@ -40,12 +47,14 @@ deployments/base-sepolia/manifest.template.json 是未部署範本，不能作 r
 
 ## Health 與觀測
 
-- live：程序可回應；ready：DB/queue/RPC、signer policy、manifest 等必要依賴就緒，且 startup reconcile 已完成。
+- live 只表示程序可回應。API scaffold 至 markets 的 `/v1/health` 與 `/health/ready` 仍為 503；trading 模式才注入部署 health reader 與 signer probe，兩條路徑採相同公開 readiness 決策，ready 為 200、否則 503。
+- `/v1/health` 公開回 status／tradingEnabled／reasons；有效 admin key 另加 queue／cursor／budget／maker pool 等診斷，無效／非 admin key 回 401／403。`/v1/admin/metrics` 提供 admin-only 執行延遲、持久化狀態／錯誤計數及 role/day gas，與公開 forecast evaluation metrics 分開。Readiness 不保證個別市場或 taker 可成交，見 [健康與指標](M5_HEALTH_METRICS.md)。
+- Worker readiness 只看工作迴圈是否運行；Indexer 全域 `/health/ready` 仍為 503，鏈索引狀態另由 `/health/chain-index` 回報；Signer 啟用後依 DB／部署／RPC 即時回報。不能將不同程序的 readiness 當成同一份完整營運驗收。
 - trace：requestId → jobId → intentId → quote digest → tx hash / replacement → block hash。
-- metrics：RFQ latency、queue age/attempt、indexer lag、未知 tx、reservation age、spent/unknown cost、keeper deadlines。
+- 目標監控項目還包括 queue age／attempt、indexer lag、未知 tx、reservation age、spent／unknown cost 與 keeper deadlines；不代表 admin metrics 已逐項輸出，實際欄位以 [健康與指標](M5_HEALTH_METRICS.md) 為準。
 - log 不記 API key、私鑰、完整 provider secrets；audit 記 actor/reason/hashes。
 - indexer lag >3 blocks OR 更新停滯 >10 秒停止新報價；期限告警不依賴 keeper 單一 process。
-- graceful shutdown 停新 lease、保留未決 intent、釋放已確認可釋放的工作 lease；重啟先 reconcile。
+- Worker shutdown 停止排程與工作迴圈、等待既有工作並關閉 pool；Indexer 停各觀測迴圈。未決交易與 reservations 由持久記錄恢復／對帳，不能因程序重啟就假設失敗或釋放風險；完整營運 shutdown／recovery 仍需部署演練。
 
 ## 事故與備份
 

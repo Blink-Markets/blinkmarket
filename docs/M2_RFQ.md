@@ -93,7 +93,7 @@ Run on 2026-10-15 in the task worktree against local PostgreSQL 17 and a local A
 - **RFQ admission still holds its own connection and idempotency advisory lock across bounded RPC reads.** A separate pool capped at 2 connections isolates this wait from the general API pool (10 connections); readiness and market reads use the general pool. The signer call holds no database connection. Both pools close on normal shutdown or startup failure. This adds at most two database connections per trading API instance.
 - **Single-instance limiter** (ruling 6): the per-key limiter is in process; a shared limiter is needed before a second API instance.
 - **`GET /v1/quotes/:id` for unsigned quotes** is 404; `SIGN_UNKNOWN` is never returned because the response contract needs a signature.
-- **`/v1/health`** is unchanged and still reports not ready; only `/v1/config` and market `canTrade` are truthful.
+- **Historical health checkpoint:** at this RFQ slice, `/v1/health` still reported not ready; `/v1/config` and market `canTrade` carried the trading decision. Task 16a subsequently added real trading-mode health/readiness and admin execution metrics; see [M5_HEALTH_METRICS.md](M5_HEALTH_METRICS.md). Earlier API modes still report not-ready.
 - **Market read `forecastSnapshotId`/`costMicros` hooks** are not wired (not requested).
 - **Provider support** (from Task 5): EIP-1898 `eth_call` with `requireCanonical` is assumed for the RFQ's chain reads too; no real Base Sepolia endpoint was contacted.
 - **Snapshot read per request**: the ensemble is read before admission, also for replays, because it needs its own connection.

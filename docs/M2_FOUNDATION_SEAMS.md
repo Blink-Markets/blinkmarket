@@ -39,5 +39,5 @@ Run on 2026-10-14 in the task worktree.
 - Nothing writes the 0007 tables yet; the indexer (Task 5) and later projections own that. The migration grants are tested on PGlite, with real-PostgreSQL coverage limited to the migration applying and the clock function.
 - `assertProductionClock` is exported but not yet called by any service entry point. Wiring it needs a decision on the explicit local test-mode flag.
 - The public read limit is in-process (one API instance) and keyed by `request.ip`; behind a proxy every client shares the proxy's address until trusted-proxy handling is configured. Many distinct addresses can evict an active client's bucket, which bounds memory at the cost of strictness. A shared limiter is an open item before horizontal scaling.
-- `/v1/health` is unchanged and still reports not-ready with `tradingEnabled: false` in every stage.
+- At this foundation checkpoint, `/v1/health` still reported not-ready with `tradingEnabled: false` in every stage. Task 16a subsequently wired real health/readiness in trading mode; scaffold through markets still report not-ready. See [M5_HEALTH_METRICS.md](M5_HEALTH_METRICS.md).
 - The Fastify request logger stays enabled, so route tests print request log lines.
