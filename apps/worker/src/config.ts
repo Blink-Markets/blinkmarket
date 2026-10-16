@@ -114,3 +114,19 @@ export function executionConfig(
   }
   return { deploymentId, signerUrl, signerToken, rpcUrl };
 }
+
+/** The internal trader: its own API key and the platform forecaster whose probability it follows. */
+export interface TraderConfig {
+  apiKey: string;
+  forecasterRole: "FORECASTER_A" | "FORECASTER_B";
+}
+export function traderConfig(env: NodeJS.ProcessEnv): TraderConfig | null {
+  const apiKey = env.WORKER_TRADER_API_KEY?.trim() || null;
+  const role = env.WORKER_TRADER_FORECASTER_ROLE?.trim() || null;
+  if (apiKey === null && role === null) return null;
+  if (apiKey === null || role === null)
+    throw new Error("WORKER_TRADER_CONFIGURATION_INCOMPLETE");
+  if (role !== "FORECASTER_A" && role !== "FORECASTER_B")
+    throw new Error("INVALID_WORKER_TRADER_FORECASTER_ROLE");
+  return { apiKey, forecasterRole: role };
+}

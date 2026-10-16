@@ -945,7 +945,7 @@ export function createQuoteReconciler(store: TradingStore): { reconcileOnce(depl
 
 ### Task 14: Internal trader under a mandate
 
-**Goal:** Spec §9.3 and §12.3: a deterministic internal trader with its own small EOA that buys only when its own probability beats the ask by ≥ 500 bps, within mandate limits, through the restricted signer.
+**Goal:** Spec §9.3 and §12.3: a deterministic internal trader with its own small EOA that buys only when its own probability beats the ask by more than 500 bps (spec §12.3 「超過」; strictly greater), within mandate limits, through the restricted signer.
 
 **Depends on:** Tasks 9 and 13 merged.
 

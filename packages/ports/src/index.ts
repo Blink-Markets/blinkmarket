@@ -10,6 +10,7 @@ export type * from "./chain-index.js";
 export * from "./research.js";
 export type * from "./signing.js";
 export type * from "./trading.js";
+export * from "./trader.js";
 
 // 邊界合約：實作留到後續 milestone；不公開 ORM 或私鑰。
 export interface ImmutableObjectStore {

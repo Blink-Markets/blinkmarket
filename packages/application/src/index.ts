@@ -24,10 +24,7 @@ export {
 export { createCreationTracker } from "./creation-tracker.js";
 export { startCreationPoller } from "./creation-poller.js";
 export { startWorker, schedulePeriodic } from "./worker-runtime.js";
-export {
-  createBudgetedModelCaller,
-  ModelCallError,
-} from "./budgeted-model.js";
+export { createBudgetedModelCaller, ModelCallError } from "./budgeted-model.js";
 export { createEvidenceFetchHandler } from "./evidence-fetch.js";
 export * from "./forecasts.js";
 export {
@@ -92,3 +89,12 @@ export {
 } from "./quote-reconcile.js";
 
 export * from "./health.js";
+export {
+  createTrader,
+  createTraderHandler,
+  traderIntentId,
+  traderStopReason,
+  verifyTraderQuote,
+  type TraderDeps,
+  type TraderRun,
+} from "./trader.js";
