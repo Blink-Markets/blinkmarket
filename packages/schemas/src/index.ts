@@ -7,3 +7,5 @@ export * from "./creation-status.ts";
 export * from "./research.ts";
 
 export * from "./health.ts";
+
+export * from "./operator-status.ts";

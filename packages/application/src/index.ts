@@ -98,3 +98,5 @@ export {
   type TraderDeps,
   type TraderRun,
 } from "./trader.js";
+
+export * from "./operator-status.js";
