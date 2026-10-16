@@ -1,8 +1,8 @@
 # 06 — 開發工作包與設計檢查
 
-進度更新（Tasks 1–13）：A/M0、B/M1 與 C/D 的多個 backend 切片已實作，尚未部署；見 [交付索引](../ROADMAP.md)。本機驗證僅 REPLAY，無付費模型，LIVE 核准仍拒絕。
+進度更新（Tasks 1–16）：A/M0、B/M1 與 C/D 的多個 backend 切片已實作，尚未部署；見 [交付索引](../ROADMAP.md)。本機驗證僅 REPLAY，無付費模型，LIVE 核准仍拒絕。
 
-本文件保留原始工作分解與設計檢查案例，不是逐項驗收記錄。C 已有 identity、候選／核准、公開讀取、indexer、RFQ/signer；D 已有研究、預算、評估、resolution、keeper/faucet。內部 trader、擴充 SDK／example agent、整合式本機 Alpha harness 與 health/metrics readiness 尚未交付，不標記整個 C/D 完成。
+本文件保留原始工作分解與設計檢查案例，不是逐項驗收記錄。C 已有 identity、候選／核准、公開讀取、indexer、RFQ/signer；D 已有研究、預算、評估、resolution、keeper/faucet。[內部 trader](../M3_INTERNAL_TRADER.md)、[SDK／example agent](../M5_CLIENT_SDK.md)、[本機 Alpha harness](../M5_LOCAL_ALPHA.md) 與 [health/metrics readiness](../M5_HEALTH_METRICS.md) 已交付，驗收對照見 [矩陣](../ACCEPTANCE_MATRIX.md)。公開部署、操作 UI、付費模型與外部驗收仍未完成，不標記整個 C/D 完成。
 
 ## A：M0 契約收尾
 
@@ -71,4 +71,4 @@ Signer接線以前必须通過caller隔離、錯role/chain/to/selector/gas/amoun
 11. 同一錢包試圖用不同API key重領faucet：address guard及pending reservation仍拒絕。
 12. 不完整兩模型ensemble：標缺失，不用baseline或外部模型偷偷補位。
 
-這些是設計驗收案例，不是本文件宣稱的測試結果。已實作切片的命令、結果及限制記在各交付文件；尚未完成的整合驗收留待後續工作。
+這些是設計驗收案例，不是本文件宣稱的測試結果。已實作切片的命令、結果及限制記在各交付文件；本機整合已有 [Alpha harness](../M5_LOCAL_ALPHA.md)，其餘缺口與公開驗收見 [驗收矩陣](../ACCEPTANCE_MATRIX.md)。

@@ -6,22 +6,22 @@
 
 ## 1. 現在已經做到哪裡？
 
-M2 最新範圍見 [人工核准](M2_APPROVAL_DELIVERY.md#flow) 與 [建市觀測](M2_CREATION_TRACKING.md#flow-and-states)：證據與候選 → 核准／容量鎖 → 未簽署意圖 → 管理員自行送出 → 操作員觸發 receipt 驗證與確認數／reorg 觀測。錢包 UI 與持續 Indexer 尚未接線。
+Backend 已實作證據／候選／人工核准、研究與預測、RFQ／受限簽署、持久工作、持續鏈索引與交易追蹤、結算與評估；見 [RFQ](M2_RFQ.md)、[研究 worker](M3_RESEARCH_WORKERS.md)、[Indexer](M2_CHAIN_INDEXER.md)、[keeper／faucet](M3_KEEPER_FAUCET.md) 與 [內部 trader](M3_INTERNAL_TRADER.md)。[本機 Alpha](M5_LOCAL_ALPHA.md) 串起三種 REPLAY 結算與投影恢復，使用真實服務元件與本機 PostgreSQL／Anvil（chain ID 84532）；不是公開部署或完整營運驗收。沒有公開 API 主機或 Base Sepolia 部署；網站仍是唯讀說明與虛構樣本，錢包／交易／管理 UI 尚未實作。沒有付費模型，LIVE 核准仍拒絕。
 
-這張圖只畫**目前真的存在的能力**。實線代表已存在的呼叫或驗證路徑，不代表已對外部署。
+這張簡圖只畫**目前已實作的能力**，省略各程序間的完整資料流。實線代表已存在的呼叫或驗證路徑，不代表已啟用或對外部署；API 依模式、其他程序依個別設定啟用。
 
 ```mermaid
 flowchart TB
     User["開發者／本機使用者"]
-    subgraph Hosts["程序骨架：身份可選啟用，其餘業務尚未接線"]
-        Web["Web :3000<br/>目前回傳功能清單 JSON"]
-        API["API :3001<br/>config／OpenAPI／請求格式驗證<br/>identity 模式啟用 wallet auth"]
-        Other["Worker :3002／Indexer :3003／Signer :3004<br/>活性與工作分類，沒有業務執行"]
+    subgraph Hosts["已實作的程序：依模式與設定啟用，尚未公開部署"]
+        Web["Web :3000<br/>唯讀網站、文件與虛構 REPLAY 樣本"]
+        API["API :3001<br/>身份／候選／核准／公開讀取<br/>trading 模式接 RFQ、faucet、health"]
+        Other["Worker :3002／Indexer :3003／Signer :3004<br/>持久 jobs／持續鏈索引／受限簽署<br/>各功能需完整設定才啟用"]
     end
     subgraph M0["M0：已實作，可獨立測試的基礎元件"]
         Schemas["schemas／client<br/>資料格式、部署清單、API 契約"]
         Adapters["adapters<br/>交易封裝、migration、規格封存、部署驗證"]
-        Storage["測試用 PGlite／本機暫存物件目錄<br/>不連使用者的業務資料庫"]
+        Storage["測試用 PGlite／本機 immutable archive<br/>執行中的服務另用專用 PostgreSQL 登入"]
     end
     subgraph M1["M1：已實作，僅本機驗證"]
         Tests["Foundry<br/>單元／fuzz／多使用者 invariant"]
@@ -32,7 +32,7 @@ flowchart TB
     User --> API
     User --> Other
     API --> Schemas
-    API --> Identity["M2.1 identity application<br/>key／wallet／idempotency／audit"]
+    API --> Identity["已接線的 application use cases<br/>key／wallet／RFQ／forecast／audit"]
     Identity --> PG[("明確設定的 PostgreSQL<br/>runtime role 無 DDL／發 key 權限")]
     NodeTests["Node 測試"] --> Adapters
     NodeTests --> Schemas
@@ -41,13 +41,13 @@ flowchart TB
     Replay --> Contracts
 ```
 
-Web 現在還不會呼叫 API 完成交易。API、Worker、Indexer、Signer 的 readiness 都不代表業務就緒；沒有正式部署地址、持續同步或自動簽章。M0 元件可用，但尚未串成線上產品。
+Web 不呼叫 API 完成交易，也不顯示即時 API 市場資料。設定完整的 trading API 已接 signer，Worker 已組合 research／execution／trader 與 queue／outbox 排程，Indexer 已有持續同步與 reorg 處理。API 的 `/v1/health` 與 `/health/ready` 在 trading 模式使用同一部署 readiness 決策；較早模式仍為 503，且 readiness 不是單一市場／taker 的成交保證，見 [健康與指標](M5_HEALTH_METRICS.md)。沒有正式部署地址；本機驗證不代表託管服務、外部驗收或安全審計已完成。
 
 身份流程與啟用方式見 [M2.1 交付](M2_IDENTITY_DELIVERY.md)。預設仍是 scaffold，不會因存在共用 DATABASE_URL 就自行連接業務資料庫。
 
 ## 2. 完整系統將如何分工？
 
-以下是**目標架構**。所有虛線都是後續 M2/M3 要接的業務路徑；實線僅表示兩份已實作合約之間的 token 呼叫。Signer 私有隔離是部署要求，尚未落實為可用服務。
+以下是**責任分工與部署目標圖**。虛線表示跨程序／外部系統的互動，不表示業務尚未實作：API、Worker、Indexer 與 Signer 已接線，本機 Alpha 已驗證主要流程。Web → API 的操作畫面、正式 S3 與付費模型仍是未交付目標。Signer 已有 bearer caller 驗證與 key-file 隔離；正式私有網路 ACL／mTLS、secret manager 與 at-rest encryption 仍是部署要求。
 
 ```mermaid
 flowchart TB
@@ -55,9 +55,9 @@ flowchart TB
     Wallet["使用者錢包<br/>私鑰由本人持有"]
     Manual["人工管理錢包<br/>ADMIN／提案者／挑戰者／裁決者"]
     subgraph App["TypeScript／Node.js：共用程式碼，按責任拆程序"]
-        Web["Web／Next.js<br/>瀏覽、研究、交易、管理畫面"]
+        Web["Web／Next.js<br/>目前唯讀說明與樣本<br/>交易、管理畫面未實作"]
         API["API／Fastify<br/>身份、查詢、RFQ、命令入口"]
-        Worker["Worker<br/>研究、預測、背景工作、keeper 排程"]
+        Worker["Worker<br/>研究、預測、持久工作<br/>keeper／faucet／trader 排程"]
         Indexer["Indexer<br/>事件同步、重組處理、帳本投影"]
         UseCases["Application 業務用例<br/>透過 ports 協調領域與外部系統"]
     end
@@ -69,7 +69,7 @@ flowchart TB
         DB[("PostgreSQL<br/>業務資料、audit、outbox、jobs、鏈上投影")]
         Objects[("物件儲存<br/>目前本機 adapter；正式目標 S3<br/>保存原始規格與證據 bytes")]
     end
-    External["外部資料來源與模型 API<br/>allowlist、成本預算、輸出驗證"]
+    External["allowlist 證據擷取／fixture 模型<br/>付費 provider 與真實 LIVE 來源未設定"]
     subgraph Chain["Base Sepolia：目標部署，目前只有本機驗證"]
         Market["BlinkMarket<br/>free balance／escrow／持倉／結果"]
         Token["BlinkTestUSD<br/>6 位小數測試資產"]
@@ -114,7 +114,7 @@ flowchart TB
 
 ## 3. 從題目到成交：錢何時真正移動？
 
-以下是**目標端到端流程**；規格封存元件與合約已實作，其餘協調路徑尚未接線。
+以下是**已實作流程的概念順序**，不是逐項 transport 或 DB transaction 清單。平台 discovery／forecaster 透過邀請 key 呼叫公開 API；鏈索引與 RFQ reservation 對帳分由 Indexer 與 Worker 完成，並非同一個 transaction。具體接線與限制見 [研究 worker](M3_RESEARCH_WORKERS.md)、[RFQ](M2_RFQ.md)、[Indexer](M2_CHAIN_INDEXER.md) 及 [本機 Alpha](M5_LOCAL_ALPHA.md)；沒有公開交易服務。
 
 ```mermaid
 sequenceDiagram
@@ -146,7 +146,7 @@ sequenceDiagram
     T->>C: 對 token approve，並呼叫 Market.fillQuote
     Note over T,C: 合約驗簽、期限、cap、餘額；收取 taker 成本並扣除 maker free，建立完整抵押
     C-->>I: QuoteFilled 事件
-    I->>D: 同一交易更新雙方持倉／資金投影／reservation／cursor
+    I->>D: 同一交易更新鏈上投影／cursor；Worker 另對帳 reservation
 ```
 
 例：買入 **100 YES、價格 6000 bps**，taker 付 60 bUSD，maker 的 free balance 扣 40 bUSD，市場 escrow 增加 100 bUSD；taker 取得 100 YES，maker 取得 100 NO。這些份數是 `BlinkMarket` 內部帳本，不是可轉讓的 YES/NO ERC-20。
@@ -180,7 +180,7 @@ LIVE 挑戰期為 86400 秒，REPLAY 為 120 秒。`closeAt` 到後不能再成�
 
 ## 5. 為什麼需要 Indexer？故障後如何恢復？
 
-以下是**後續要實作的同步流程**。鏈是資金與結果的真相來源；DB 的投影讓 API 快速查詢，也可在事故後重建。
+以下是**已實作同步與恢復責任的概念圖**，不表示所有步驟都在 Indexer 或同一次交易完成：Indexer 保存 canonical events／projections／cursor 並處理 reorg；Worker 另對帳 quote reservations，RFQ 檢查 freshness 與 gates。細節見 [Indexer](M2_CHAIN_INDEXER.md) 與 [RFQ](M2_RFQ.md)，投影 rebuild／drop-and-reindex 的本機演練見 [Alpha](M5_LOCAL_ALPHA.md)。鏈是資金與結果的真相來源；這不取代正式 DB backup／restore 驗收。
 
 ```mermaid
 flowchart TD
@@ -202,7 +202,7 @@ flowchart TD
 
 最新 head 落後超過 3 blocks，**或**超過 10 秒未成功更新，任一成立就停止新報價。簽署或送交易逾時不等於失敗；到期也不能只看本機時鐘就釋放 reservation。跨越已 finalized checkpoint 的矛盾要停下來人工調查。
 
-此次修正保護了三個基礎環節：
+早期 M0/M1 交付已保護以下基礎環節（歷史背景，並非目前全部能力）：
 
 - DB 的 `COMMIT` 若實際回覆 `ROLLBACK`，用例必須失敗，不能回報成功。
 - 本機物件先寫完整暫存檔，再原子發布 hash 路徑；並行操作不會讀到發布中的半份內容。
@@ -210,4 +210,4 @@ flowchart TD
 
 ## 建議閱讀順序
 
-先看本頁第 1、2 圖掌握現況與目標，再看第 3、4 圖理解交易與結算；要實作下一階段時，再讀 [工作包](design/06-work-packages.md) 與 [恢復細節](design/04-execution-recovery.md)。
+先看本頁第 1、2 圖掌握現況與目標，再看第 3、4 圖理解交易與結算；需要核對驗收與剩餘部署工作時，先讀 [驗收矩陣](ACCEPTANCE_MATRIX.md) 與 [本機 Alpha](M5_LOCAL_ALPHA.md)，再讀 [工作包](design/06-work-packages.md) 與 [恢復細節](design/04-execution-recovery.md)。

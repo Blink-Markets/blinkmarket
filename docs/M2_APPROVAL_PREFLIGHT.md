@@ -31,4 +31,4 @@ Cached completed responses must be returned only after current authentication an
 
 ## Verification
 
-`pnpm check` passes with 28 Node tests, type checks, package-boundary checks and Solidity compilation. New tests cover 23 rejection cases, capacity-key behavior across thresholds/deployments, exact-byte filesystem archive round trips, repeatable hashes and no archive write for rejected input. These tests do not claim approval-transaction or real PostgreSQL concurrency coverage; those parts are not yet implemented.
+`pnpm check` passes with 28 Node tests, type checks, package-boundary checks and Solidity compilation. New tests cover 23 rejection cases, capacity-key behavior across thresholds/deployments, exact-byte filesystem archive round trips, repeatable hashes and no archive write for rejected input. These tests do not claim approval-transaction or real PostgreSQL concurrency coverage; those parts were not yet implemented at this checkpoint. Subsequent [approval](M2_APPROVAL_DELIVERY.md) and [local Alpha](M5_LOCAL_ALPHA.md) deliveries cover the later integrated flow; the results above remain historical.

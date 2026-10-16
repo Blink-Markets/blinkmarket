@@ -71,7 +71,7 @@ docker build -f infra/Dockerfile.api -t blink-api:local .
 
 build 產生 `dist/services/{api,worker,indexer,signer}.mjs` 與 `dist/tools/{migrate,identity-admin}.mjs`，migration SQL 位於 `dist/migrations`。每個服務可獨立啟動，不需 runtime `tsx` 或 workspace symlink。`api-server.mjs` 供 bundle smoke test，不是額外服務。
 
-Docker build context 必須是 repo root。API runtime image 僅含 API bundle，以非 root 使用者執行，不包含發 key/migration 工具或私鑰。Docker healthcheck 只檢查 liveness，不偽稱交易平台 ready。Worker／Indexer／Signer 的輸出仍是停用骨架；不是已完成的私有部署拓樸。TLS、外部入口限流、secret manager、持久化、發布／回滾與網路 ACL 留待部署驗收。
+Docker build context 必須是 repo root。API runtime image 僅含 API bundle，以非 root 使用者執行，不包含發 key/migration 工具或私鑰。Docker healthcheck 只檢查 liveness，不偽稱交易平台 ready。本切片交付時 Worker／Indexer／Signer 的輸出仍是停用骨架；後續已有業務接線與 [本機 Alpha 驗證](M5_LOCAL_ALPHA.md)，仍不是已完成的私有部署拓樸。TLS、外部入口限流、secret manager、持久化、發布／回滾與網路 ACL 留待部署驗收。
 
 ## 測試與限制
 

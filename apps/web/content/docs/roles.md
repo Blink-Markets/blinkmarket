@@ -30,6 +30,8 @@ Every action in a Blink market belongs to a role. Four roles are open to invited
 
 Joining any of the first four roles is by invitation; see [Joining Blink](/docs/joining). Invitations come from the Blink team.
 
+The platform also implements an [internal trader](/docs/trader) under an operator-set mandate. It uses its own invited key and wallet through the public RFQ path, with a restricted signer; it has no adjudication authority. Run one trader per deployment, with an edge strictly above its mandate threshold. Its risk caps depend on worker enforcement.
+
 ## How are the team roles set up?
 
 - `ADMIN`, `RESULT_PROPOSER`, `CHALLENGER`, `ARBITER` and `MAKER` are set when the contracts are deployed. Changing a role address means a new deployment.

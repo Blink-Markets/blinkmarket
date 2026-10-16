@@ -41,7 +41,21 @@ The goal is to understand not only whether a forecast was right, but also its ev
 
 The API and contracts are **implemented, not yet deployed**. There is no public API host or Base Sepolia deployment, and nothing trades on this read-only site. Its markets are fictional REPLAY samples. Local verification uses REPLAY fixtures and Anvil with chain ID 84532; no paid model provider is connected and LIVE approval remains rejected.
 
-Tasks 1–13 deliver durable jobs and budgets, allowlisted evidence fetching, discovery and fixture forecasters, forecast windows and evaluation, public chain reads and transaction tracking, reorg-aware indexing, restricted signing, RFQ reservations, resolution reports, keeper finalization and the test-asset faucet. Deployment tooling exists for local verification. This does not mark all milestones complete: the internal trader, expanded client SDK/example agent, integrated local Alpha harness and health/metrics readiness remain deferred, alongside wallet/trading/admin UI and public deployment. Public evaluation metrics are implemented separately from runtime readiness.
+Tasks 1–13 deliver durable jobs and budgets, allowlisted evidence fetching, discovery and fixture forecasters, forecast windows and evaluation, public chain reads and transaction tracking, reorg-aware indexing, restricted signing, RFQ reservations, resolution reports, keeper finalization and the test-asset faucet. Tasks 14–16 add the internal trader under a mandate, the typed client SDK and external example agent, health/readiness and admin execution metrics, and a one-command local Alpha harness. The trader is limited to one trader per deployment and buys only when its linked forecaster’s edge strictly exceeds the mandate threshold (default 500 bps). Wallet/trading/admin UI, public deployment, paid providers, alert delivery and external acceptance remain open; local verification does not complete public Alpha.
+
+## Local Alpha and agent tooling
+
+With dependencies installed and a dedicated local PostgreSQL administrator URL, run:
+
+```sh
+TEST_POSTGRES_ADMIN_URL='<dedicated local PostgreSQL administrator URL>' pnpm alpha:local
+```
+
+The administrator needs CREATEDB/CREATEROLE privileges. The harness refuses non-loopback PostgreSQL hosts, creates and removes its own database and service logins, and starts local Anvil on chain ID 84532. It exercises normal YES, disputed NO and timeout INVALID REPLAY lifecycles, the example agent, worker keeper finalization, and canonical rebuild/drop-and-reindex drills. This verifies local flows; it does not establish public-network finality or hosted readiness. See [Local Alpha](docs/M5_LOCAL_ALPHA.md) for prerequisites and limits.
+
+`@blink/client` is a private workspace package, not published on npm. It provides typed endpoint responses, runtime validation, same-key retries for server-marked retryable errors, spec-hash checking and `verifySignedQuote`. [The example agent](examples/agent/README.md) binds its wallet, forecasts, claims test assets, verifies a quote, approves exactly its cost, fills and redeems. Its RPC is loopback-only; the client can target a local API or a future operator-configured testnet API. No public API host exists.
+
+`GET /v1/health` exposes public readiness; an admin key adds diagnostics. The API’s `/health/ready` uses the same decision, and `GET /v1/admin/metrics` exposes admin-only execution latency, persisted status/error counts and role/day gas accounting. Public forecast evaluation metrics remain separate. Readiness is deployment-level availability, not a guarantee that any market or taker can trade.
 
 ## Architecture
 
@@ -100,7 +114,8 @@ packages/
   application/ use cases
   adapters/    database, migrations, evidence and specification archive, deployment checks
   runtime/     shared HTTP startup, health and error handling
-  client/      Initial private TypeScript client; expanded SDK/example agent deferred
+  client/      Private typed SDK, spec/quote verification and same-key retries
+examples/      External agent for the local stack
 contracts/     BlinkTestUSD and BlinkMarket, Foundry tests, generated ABI and bytecode
 infra/         local PostgreSQL (Docker Compose) and the API container template
 deployments/   release manifest templates (no real addresses)
@@ -116,6 +131,8 @@ tests/         unit, contract-protocol and browser tests
 - [Development](docs/DEVELOPMENT.md) · [Operations](docs/OPERATIONS.md) · [Roadmap](docs/ROADMAP.md) · [Architecture decisions](docs/adr/0001-platform.md) · [Domain terminology](CONTEXT.md)
 - Backend delivery: [Foundation](docs/M2_FOUNDATION_SEAMS.md) · [RFQ](docs/M2_RFQ.md) · [Signer](docs/M2_SIGNER.md) · [Chain indexer](docs/M2_CHAIN_INDEXER.md) · [Public reads](docs/M2_PUBLIC_READS.md)
 - Research and operations: [Jobs/budgets](docs/M3_JOBS_BUDGETS.md) · [Evidence fetcher](docs/M3_EVIDENCE_FETCHER.md) · [Forecasts](docs/M3_FORECASTS.md) · [Research workers](docs/M3_RESEARCH_WORKERS.md) · [Resolution](docs/M3_RESOLUTION.md) · [Evaluation](docs/M3_EVALUATION.md) · [Keeper/faucet](docs/M3_KEEPER_FAUCET.md)
+- [Internal trader](docs/M3_INTERNAL_TRADER.md) · [Client SDK](docs/M5_CLIENT_SDK.md) · [Example agent](examples/agent/README.md)
+- [Health and metrics](docs/M5_HEALTH_METRICS.md) · [Local Alpha](docs/M5_LOCAL_ALPHA.md) · [Acceptance matrix](docs/ACCEPTANCE_MATRIX.md)
 - [Deployment tooling](docs/M5_DEPLOYMENT_TOOLING.md)
 - [Original MVP specification](Blink_MVP_v0.1_Base_Sepolia_Spec.md)
 
