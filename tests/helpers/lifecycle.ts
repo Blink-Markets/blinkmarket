@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
@@ -59,7 +60,26 @@ export function settle(
   );
 }
 
+// Awaits `work`, then attempts to stop what ran beside it. A stopper that fails never replaces
+// the work's own failure: both are reported, the work's first.
+export async function stopAfter<T>(
+  work: Promise<T>,
+  name: string,
+  stop: () => unknown,
+): Promise<T> {
+  let outcome: { error: unknown } | undefined;
+  let value: T | undefined;
+  try {
+    value = await work;
+  } catch (error) {
+    outcome = { error };
+  }
+  settle(outcome, await attemptAll([{ name, run: stop }]));
+  return value as T;
+}
+
 export interface Lifecycle {
+  // Aborts when the caller's signal does and when `fail` is called.
   readonly signal: AbortSignal;
   // Registers a shutdown for something that already exists. Shutdowns run in reverse
   // registration order. Throws once teardown has begun: an abandoned body starts nothing new.
@@ -73,16 +93,36 @@ export interface Lifecycle {
   ): Promise<R>;
   // Names what the run is doing, for the abort message.
   stage(name: string): void;
+  // Ends the run now with `error`, as an abort does: the body is abandoned, the shutdowns run
+  // and the run rejects with LIFECYCLE_ABORTED during <stage>: <error>. For failures of work
+  // that runs beside the body, which the body would otherwise learn of only when stopping it.
+  fail(error: unknown): void;
+  // Repeats `step` every `intervalMs`, first at once, until the returned stop is called or the
+  // run ends (stopping early is optional; the shutdown is registered). A step that fails while
+  // it should be running ends the run through `fail`. One that fails while `stop` waits for
+  // it is thrown by that `stop`. Each failure is reported once.
+  every(
+    name: string,
+    intervalMs: number,
+    step: () => Promise<unknown>,
+  ): () => Promise<void>;
 }
 
 // Runs `body`, then every registered shutdown, whatever happened. When `signal` aborts the
 // body is abandoned (it may be stalled on an await no one can cancel), the shutdowns run, and
-// the run rejects with the stage it was in.
+// the run rejects with the stage it was in. `onStage` hears each stage as the body names it.
 export async function runWithCleanup<T>(
-  options: { signal?: AbortSignal; stepTimeoutMs?: number },
+  options: {
+    signal?: AbortSignal;
+    stepTimeoutMs?: number;
+    onStage?: ((stage: string) => void) | undefined;
+  },
   body: (life: Lifecycle) => Promise<T>,
 ): Promise<T> {
-  const signal = options.signal ?? new AbortController().signal;
+  const failure = new AbortController();
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, failure.signal])
+    : failure.signal;
   const stepTimeoutMs = options.stepTimeoutMs ?? STEP_TIMEOUT_MS;
   let stage = "start";
   const abortError = () =>
@@ -116,6 +156,40 @@ export async function runWithCleanup<T>(
     },
     stage(name) {
       stage = name;
+      options.onStage?.(name);
+    },
+    fail(error) {
+      failure.abort(error);
+    },
+    every(name, intervalMs, step) {
+      if (closed) throw new Error("LIFECYCLE_CLOSED: " + name);
+      let running = true;
+      let late: { error: unknown } | undefined;
+      const loop = (async () => {
+        try {
+          while (running && !signal.aborted) {
+            await step();
+            await delay(intervalMs);
+          }
+        } catch (error) {
+          // A step that fails because the run was aborted is not a failure of its own.
+          if (signal.aborted) return;
+          if (running && !closed)
+            life.fail(
+              new Error(`${name}: ${describe(error)}`, { cause: error }),
+            );
+          else late = { error };
+        }
+      })();
+      const stop = async () => {
+        running = false;
+        await loop;
+        const reported = late;
+        late = undefined;
+        if (reported) throw reported.error;
+      };
+      steps.push({ name, run: stop });
+      return stop;
     },
   };
   let onAbort = () => {};

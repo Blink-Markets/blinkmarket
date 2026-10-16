@@ -27,8 +27,9 @@ identity, evidence and deployment administrative logins perform offline setup.
 `alpha:local` generates the contract artifacts and runs
 `tests/alpha/local-alpha.test.ts`. CI runs it in the `check` job against the existing
 PostgreSQL service on port 5432. The entrypoint can also be run directly with
-`node --import tsx scripts/local-alpha.ts` after `pnpm check:contracts`; it prints a
-JSON report including wall time. The test runner prints wall time and scenario
+`node --import tsx scripts/local-alpha.ts` after `pnpm check:contracts`; it prints each
+stage it enters (`ALPHA stage: ...`) and a JSON report including wall time. The test
+runner prints wall time and scenario
 outcomes. No external data or model provider is contacted.
 
 ## Bounds and failure cleanup
@@ -43,6 +44,16 @@ timeout and are killed on abort; PostgreSQL logins have a 10 s connect and a 30 
 statement timeout; Anvil receipt waits, including the example agent's (its
 `waitMs.receipt`, default unchanged at viem's 180 s), end after 10 s.
 
+Work that runs beside the scenario fails the run at once, with its own name, instead of
+surfacing when the scenario stops it. A worker job that throws (faucet mint, keeper
+finalization, transaction dispatch, forecasts, evaluation) ends the run as
+`LIFECYCLE_ABORTED during <stage>: ALPHA_JOB_FAILED: <job type> <error code>`; the one
+expected error, `tx.dispatch` answering `TX_PENDING` because Anvil never finalizes, is
+ignored. The indexer pump and the block miner end it as `<name>: <error>` the moment one
+of their steps fails. Each failure is reported once. If the example agent fails, a miner
+that also fails while being stopped is listed after the agent's failure, never in place
+of it.
+
 Shutdown never skips a resource. Worker, API, signer, Anvil and the temporary
 directory are each attempted independently (10 s per step; the HTTP servers drop
 their connections instead of draining them), then the pools, the random database and
@@ -50,11 +61,17 @@ its logins (30 s per step). Once teardown starts, the database helper refuses ne
 logins and pools, so an abandoned run cannot create what teardown has already listed. Failures are collected and reported
 together as an `AggregateError` that lists the scenario error first. Covered without
 the full scenario by `tests/alpha-lifecycle.test.ts` (rejecting, throwing and
-hanging stoppers, abort mid-run, stalled child), `tests/postgres/database-lifecycle.test.ts`
+hanging stoppers, abort mid-run, stalled child, failing background steps),
+`tests/job-failures.test.ts` (job failures named by type and code),
+`tests/postgres/database-lifecycle.test.ts`
 (statement and connect timeouts, database teardown with a failing pool) and the
 aborted-run tests in `tests/alpha/local-alpha.test.ts`, which abort a real run at
 five points (before Anvil exists, then 0 to 600 ms after it starts) and require that
-no Anvil, random database or login role remains.
+no Anvil, random database or login role remains. A sixth test runs the real
+entrypoint, waits until it reports a `scenario ...: external agent` stage, sends
+SIGTERM and requires the same: it ends with `LIFECYCLE_ABORTED during
+scenario ...: external agent`, leaves no Anvil, database or login role, and the
+process exits on its own within 30 s.
 
 ## Exercised flow
 
@@ -112,8 +129,9 @@ logins using `ALTER ROLE ... IN DATABASE ... SET` and on existing pool sessions.
 The owner clock setting is restricted to the random database too. Only harness
 subprocesses receive `BLINK_ALLOW_TEST_CLOCK=1`; in-process clock checks receive an
 explicit allowance (`buildExecution` takes `allowTestClock`, false unless a caller
-passes it; the worker never does). Production startup checks and gas caps remain
-unchanged.
+passes it; the worker never does, and a source test in
+`tests/worker-execution-clock.test.ts` fails if `apps/worker` ever does). Production
+startup checks and gas caps remain unchanged.
 
 Approval/identity currently use the existing host-clock store; the harness leaves
 that behavior intact and refreshes the real deployment verification before each
@@ -146,17 +164,20 @@ silencing conflicts.
 
 ## Verification
 
-Run on the merged main tree on 2026-10-16, with the local PostgreSQL URL for
-the PostgreSQL-backed commands.
+Run with the local PostgreSQL URL for the PostgreSQL-backed commands. The first, second
+and fifth rows were rerun on 2026-10-16 on the `ws/t16b-polish` branch (failure
+diagnostics, the stage-keyed abort test and the worker clock guard). The rest come from
+the earlier run on the merged main tree; that branch changes only the harness, its test
+helpers and tests, not `apps/*` or `packages/*`.
 
-| Command                                          | Result                                                                                                                                                                               |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm alpha:local`                               | PASS: 7 tests (the refusal without an administrator URL, five abort points, the three scenarios with both restore drills); the scenario test took 6.4 s and the whole command 12.9 s |
-| `pnpm check`                                     | PASS: 594 tests, no skips; typechecks, contract compilation and boundaries                                                                                                           |
-| `pnpm build`                                     | PASS: full web build                                                                                                                                                                 |
-| `pnpm build:services && pnpm test:service-build` | PASS: 5 tests                                                                                                                                                                        |
-| `pnpm test:postgres`                             | PASS: 45 tests, no skips                                                                                                                                                             |
-| `pnpm test:anvil`                                | PASS: 50 tests, no skips                                                                                                                                                             |
+| Command                                          | Result                                                                                                                                                                                                            |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm alpha:local`                               | PASS: 8 tests (the refusal without an administrator URL, five delay abort points, the stage-keyed abort, the three scenarios with both restore drills); the scenario test took 6.1 s and the whole command 14.7 s |
+| `pnpm check`                                     | PASS: 604 tests, no skips; typechecks, contract compilation and boundaries                                                                                                                                        |
+| `pnpm build`                                     | PASS: full web build                                                                                                                                                                                              |
+| `pnpm build:services && pnpm test:service-build` | PASS: 5 tests                                                                                                                                                                                                     |
+| `pnpm test:postgres`                             | PASS: 45 tests, no skips                                                                                                                                                                                          |
+| `pnpm test:anvil`                                | PASS: 50 tests, no skips                                                                                                                                                                                          |
 
 The controller's untracked Task 16b report contains RED/GREEN evidence and
 command results. Local-only verification does not cover hosted services, public

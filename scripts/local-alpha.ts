@@ -29,10 +29,12 @@ import { buildSignerServer } from "../apps/signer/src/server.js";
 import { buildExecution } from "../apps/worker/src/execution.js";
 import { runAgent, type AgentConfig } from "../examples/agent/run.js";
 import { startAnvil } from "../tests/helpers/anvil.js";
+import { reportJobFailures } from "../tests/helpers/job-failures.js";
 import {
   runChild,
   runWithCleanup,
   shutDownServer,
+  stopAfter,
 } from "../tests/helpers/lifecycle.js";
 
 // The whole run, its child processes and its database connections are bounded: a stall fails
@@ -94,7 +96,11 @@ function startExternalAgent(config: AgentConfig) {
 }
 
 export async function runLocalAlpha(
-  options: { signal?: AbortSignal } = {},
+  options: {
+    signal?: AbortSignal;
+    // Hears each stage the run enters, such as "scenario normal: external agent".
+    onStage?: (stage: string) => void;
+  } = {},
 ): Promise<AlphaReport> {
   const signal = options.signal ?? AbortSignal.timeout(ALPHA_DEADLINE_MS);
   if (!process.env.TEST_POSTGRES_ADMIN_URL)
@@ -114,7 +120,7 @@ export async function runLocalAlpha(
   const { withDatabase } =
     await import("../tests/helpers/postgres-database.js");
   await withDatabase(async ({ owner, login }) => {
-    await runWithCleanup({ signal }, async (life) => {
+    await runWithCleanup({ signal, onStage: options.onStage }, async (life) => {
       life.stage("setup");
       const directory = await life.acquire(
         "temporary directory",
@@ -424,26 +430,6 @@ export async function runLocalAlpha(
         manifest: (id) => adapters.txTrackingManifest(pools.indexer, id),
       });
       const track = () => serially(() => tracker.trackOnce(50));
-      // Repeats `step` until stopped, as the indexer and the block producer run beside the agent.
-      const every = (intervalMs: number, step: () => Promise<unknown>) => {
-        let running = true;
-        const loop = (async () => {
-          while (running && !life.signal.aborted) {
-            await step();
-            await delay(intervalMs);
-          }
-        })();
-        // A step that fails because the run was aborted is not a failure of stopping it.
-        const ended = loop.then(
-          () => undefined,
-          (error: unknown) => ({ error }),
-        );
-        return async () => {
-          running = false;
-          const failure = await ended;
-          if (failure && !life.signal.aborted) throw failure.error;
-        };
-      };
       const reconcile = application.createQuoteReconciler(
         adapters.postgresTradingStore(pools.worker),
       );
@@ -496,20 +482,21 @@ export async function runLocalAlpha(
         allowTestClock: true,
       });
       // Anvil's finalized block stays 0: a dispatched transaction is INCLUDED and never FINALIZED,
-      // so its tx.dispatch job retries until its attempts run out. Expected here; each job this
-      // harness waits on is checked for its own errors instead.
+      // so its tx.dispatch job answers TX_PENDING and retries until its attempts run out. That is
+      // expected here; any other job failure ends the run, naming the job's type and error code,
+      // instead of surfacing later as a timeout of whatever was waiting on it.
       const worker = application.startWorker({
         queue,
         workerId: "local-alpha",
         pollIntervalMs: 10,
-        handlers: {
+        handlers: reportJobFailures(life, {
           ...execution.handlers,
           "forecast.run": forecaster,
           "baseline.run": forecaster,
           "evaluation.score": application.createEvaluationHandler(
             adapters.postgresEvaluationStore(pools.worker),
           ),
-        },
+        }),
         signal: life.signal,
       });
       life.add("worker", () => worker.stop());
@@ -543,8 +530,9 @@ export async function runLocalAlpha(
       const discoveryClient = createBlinkClient(url, discovery.apiKey),
         adminClient = createBlinkClient(url, administrator.apiKey);
       // Indexer and transaction tracker follow the chain as `apps/indexer` does, for every scenario.
-      const stopPump = every(100, () => sync().then(track));
-      life.add("indexer pump", stopPump);
+      const stopPump = life.every("indexer pump", 100, () =>
+        sync().then(track),
+      );
       for (const [i, scenario] of ["normal", "dispute", "timeout"].entries()) {
         console.log("ALPHA scenario " + scenario);
         life.stage("scenario " + scenario);
@@ -752,12 +740,8 @@ export async function runLocalAlpha(
           },
         });
         // Blocks keep coming while the agent works, so a quote's head block is never old.
-        const stopBlocks = every(200, () => anvil.mine(1));
-        try {
-          await agent.bought;
-        } finally {
-          await stopBlocks();
-        }
+        const stopBlocks = life.every("block miner", 200, () => anvil.mine(1));
+        await stopAfter(agent.bought, "block miner", stopBlocks);
         await sync();
         await reconcile.reconcileOnce(DEPLOYMENT);
         life.stage("scenario " + scenario + ": settlement");
@@ -1057,7 +1041,11 @@ if (
       interrupted.signal,
       AbortSignal.timeout(ALPHA_DEADLINE_MS),
     ]);
-    console.log(JSON.stringify(await runLocalAlpha({ signal }), null, 2));
+    const report = await runLocalAlpha({
+      signal,
+      onStage: (stage) => console.log("ALPHA stage: " + stage),
+    });
+    console.log(JSON.stringify(report, null, 2));
   } catch (error) {
     console.error(error);
     process.exitCode = 1;

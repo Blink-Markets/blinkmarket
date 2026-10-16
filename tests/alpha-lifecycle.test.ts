@@ -11,6 +11,7 @@ import {
   runChild,
   runWithCleanup,
   shutDownServer,
+  stopAfter,
 } from "./helpers/lifecycle.js";
 
 const never = () => new Promise<never>(() => {});
@@ -348,4 +349,121 @@ test("shutting a server down does not wait for open connections or requests in f
     keepAlive.destroy();
     server.closeAllConnections();
   }
+});
+
+test("the run reports each stage it enters", async () => {
+  const stages: string[] = [];
+  await runWithCleanup(
+    { onStage: (stage) => stages.push(stage) },
+    async (life) => {
+      life.stage("setup");
+      life.stage("scenario normal: external agent");
+    },
+  );
+  assert.deepEqual(stages, ["setup", "scenario normal: external agent"]);
+});
+
+test("a repeating step that fails ends the run at once, once, naming its stage and step", async () => {
+  let signal!: AbortSignal;
+  let stops = 0;
+  const started = Date.now();
+  const error = await runWithCleanup({}, async (life) => {
+    signal = life.signal;
+    life.add("later resource", () => void stops++);
+    life.stage("scenario normal: external agent");
+    let calls = 0;
+    life.every("indexer pump", 5, async () => {
+      if (++calls === 3) throw new Error("rpc down");
+    });
+    await never(); // the body waits on something that does not notice the pump
+  }).then(
+    () => assert.fail("expected the run to reject"),
+    (rejection: unknown) => rejection,
+  );
+  // One report: not an AggregateError that repeats the failure from the shutdown of the pump.
+  assert.ok(!(error instanceof AggregateError), String(error));
+  assert.equal(
+    (error as Error).message,
+    "LIFECYCLE_ABORTED during scenario normal: external agent: indexer pump: rpc down",
+  );
+  assert.equal(signal.aborted, true, "work waiting on the run's signal stops");
+  assert.equal(stops, 1);
+  assert.ok(Date.now() - started < 2000);
+});
+
+test("a repeating step that fails while it is being stopped is thrown by that stop only", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let calls = 0;
+  const result = await runWithCleanup({}, async (life) => {
+    const stop = life.every("block miner", 5, async () => {
+      if (++calls === 2) {
+        await gate;
+        throw new Error("rpc down");
+      }
+    });
+    while (calls < 2) await delay(5);
+    const stopping = stop();
+    release();
+    await assert.rejects(stopping, /^Error: rpc down$/);
+    await stop(); // already reported: neither this nor the run's own shutdown repeats it
+    return "done";
+  });
+  assert.equal(result, "done");
+});
+
+test("a repeating step is stopped with the run and again when stopped early", async () => {
+  let calls = 0;
+  let stop!: () => Promise<void>;
+  await runWithCleanup({}, async (life) => {
+    stop = life.every("indexer pump", 5, async () => void calls++);
+    while (calls < 3) await delay(5);
+    await stop();
+  });
+  const stopped = calls;
+  await delay(30);
+  assert.equal(calls, stopped, "no step runs after the stop");
+  await stop();
+});
+
+test("a stopper that fails does not replace the failure of the work it follows", async () => {
+  const stopped: string[] = [];
+  const agentFailure = new Error("ALPHA_AGENT_FAILED: no faucet credit");
+  const error = await aggregateFailure(
+    stopAfter(Promise.reject(agentFailure), "block miner", async () => {
+      stopped.push("block miner");
+      throw new Error("rpc down");
+    }),
+  );
+  assert.deepEqual(stopped, ["block miner"]);
+  assert.deepEqual(
+    error.errors.map((e: Error) => e.message),
+    ["ALPHA_AGENT_FAILED: no faucet credit", "block miner: rpc down"],
+  );
+  assert.equal(error.errors[0], agentFailure);
+  assert.match(
+    error.message,
+    /^ALPHA_AGENT_FAILED: no faucet credit; LIFECYCLE_CLEANUP_FAILED: /,
+  );
+});
+
+test("work followed by a stopper returns its value, rethrows its lone failure and reports a failing stopper", async () => {
+  let stopped = 0;
+  const stop = async () => void stopped++;
+  assert.equal(await stopAfter(Promise.resolve(7), "block miner", stop), 7);
+  const failure = new Error("work failed");
+  await assert.rejects(
+    stopAfter(Promise.reject(failure), "block miner", stop),
+    (error) => error === failure,
+  );
+  assert.equal(stopped, 2);
+  const only = await aggregateFailure(
+    stopAfter(Promise.resolve(7), "block miner", async () => {
+      throw new Error("rpc down");
+    }),
+  );
+  assert.deepEqual(
+    only.errors.map((e: Error) => e.message),
+    ["block miner: rpc down"],
+  );
 });
