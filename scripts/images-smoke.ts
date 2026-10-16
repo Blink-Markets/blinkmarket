@@ -16,6 +16,8 @@ import { mnemonicToAccount } from "viem/accounts";
 import { migratePostgres } from "../packages/adapters/src/migrations.js";
 import { deployContracts } from "../packages/adapters/src/contract-deployer.js";
 import { registerVerifiedDeployment } from "../packages/adapters/src/deployment-registry.js";
+import { identityAdmin } from "../packages/adapters/src/identity-admin.js";
+import { createBlinkClient } from "../packages/client/src/index.js";
 import {
   blinkMarketAbi,
   blinkTestUsdAbi,
@@ -27,10 +29,20 @@ import {
 // starts with real least-privilege logins, reads its key files, reaches its peers and reports ready.
 // It does not run a market: the worker refuses a shifted business clock, so the settlement
 // scenarios stay in `pnpm alpha:local` (see docs/M5_SERVICE_IMAGES.md).
-const COMPOSE = ["compose", "-f", "infra/compose.alpha.yaml"];
-const PROJECT_VOLUME = (name: string) => "blink-alpha_" + name;
+// The project name and the host ports can be overridden, so two runs (or another stack on a shared
+// machine) never share containers, volumes or ports; the defaults avoid the test PostgreSQL ports.
+const PROJECT = process.env.ALPHA_PROJECT ?? "blink-alpha";
+const COMPOSE = ["compose", "-p", PROJECT, "-f", "infra/compose.alpha.yaml"];
+const PROJECT_VOLUME = (name: string) => PROJECT + "_" + name;
 const DEPLOYMENT = "image-smoke";
-const ports = { postgres: 55420, anvil: 58545, api: 3001, indexer: 3003 };
+const port = (name: string, fallback: number) =>
+  Number(process.env[name] ?? fallback);
+const ports = {
+  postgres: port("ALPHA_POSTGRES_PORT", 55420),
+  anvil: port("ALPHA_ANVIL_PORT", 58545),
+  api: port("ALPHA_API_PORT", 3001),
+  indexer: port("ALPHA_INDEXER_PORT", 3003),
+};
 
 const secret = () => randomBytes(18).toString("hex");
 const sha256 = (text: string) =>
@@ -42,6 +54,7 @@ const passwords = {
   indexer: secret(),
   signer: secret(),
   deployment: secret(),
+  identity: secret(),
 };
 const tokens = { api: secret(), worker: secret() };
 const login = (role: keyof typeof passwords) =>
@@ -112,6 +125,7 @@ async function waitFor<T>(
   }
 }
 
+let chain!: Awaited<ReturnType<typeof deploy>>;
 async function provision() {
   const admin = new pg.Pool({
     connectionString: `postgresql://blink:${passwords.postgres}@127.0.0.1:${ports.postgres}/blink`,
@@ -129,6 +143,7 @@ async function provision() {
       ["indexer", "blink_indexer"],
       ["signer", "blink_signer"],
       ["deployment", "blink_deployment_admin"],
+      ["identity", "blink_identity_admin"],
     ] as const)
       await admin.query(
         `CREATE ROLE "smoke_${role}" LOGIN PASSWORD '${passwords[role]}' IN ROLE ${group}`,
@@ -138,7 +153,7 @@ async function provision() {
       max: 1,
     });
     try {
-      await deploy(registrar);
+      chain = await deploy(registrar);
     } finally {
       await registrar.end();
     }
@@ -177,6 +192,15 @@ async function deploy(registrar: pg.Pool) {
   const [admin, maker, proposer, challenger, arbiter, minter] = [
     0, 1, 2, 3, 4, 5,
   ].map(account);
+  // Anvil has no OP-stack GasPriceOracle predeploy. The smoke installs a stub that answers every
+  // call with an L1 fee of 1 wei, so the signer runs in its real oracle fee mode and really signs.
+  await client.request({
+    method: "anvil_setCode" as never,
+    params: [
+      "0x420000000000000000000000000000000000000F",
+      "0x600160005260206000f3",
+    ] as never,
+  });
   const manifest = await deployContracts({
     client,
     wallet: wallet(account(9)),
@@ -246,6 +270,12 @@ async function deploy(registrar: pg.Pool) {
     1_000_000_000n,
   ]);
   await send(maker!, market, blinkMarketAbi, "depositMaker", [1_000_000_000n]);
+  // The taker used for the faucet step must be allow-listed on the market contract.
+  await send(admin!, market, blinkMarketAbi, "setTakerAllowed", [
+    account(6).address,
+    true,
+  ]);
+  return { client, token };
 }
 
 // Key files and object directories live in named volumes owned by the container's user, mode 0600:
@@ -333,6 +363,57 @@ async function main() {
     ).json()) as { chainId: number };
     assert.equal(config.chainId, 84532);
 
+    // The money path through the containers: an invited agent binds its wallet and claims the
+    // faucet; the API queues it, the worker asks the signer, the signer signs (oracle fee mode)
+    // and the dispatched mint lands on chain.
+    const identity = new pg.Pool({
+      connectionString: `postgresql://smoke_identity:${passwords.identity}@127.0.0.1:${ports.postgres}/blink`,
+      max: 1,
+    });
+    let invited;
+    try {
+      invited = await identityAdmin(identity).invite({
+        operatorName: "smoke",
+        agentName: "smoke",
+        scopes: ["faucet:claim"],
+        reason: "image smoke fixture",
+      });
+    } finally {
+      await identity.end();
+    }
+    const taker = account(6);
+    const agent = createBlinkClient(
+      `http://127.0.0.1:${ports.api}`,
+      invited.apiKey,
+    );
+    const challenge = await agent.createWalletChallenge({
+      address: taker.address.toLowerCase(),
+    });
+    await agent.verifyWallet({
+      challengeId: challenge.challengeId,
+      signature: await taker.signMessage({ message: challenge.message }),
+    });
+    const balance = () =>
+      chain.client.readContract({
+        address: chain.token,
+        abi: blinkTestUsdAbi,
+        functionName: "balanceOf",
+        args: [taker.address],
+      }) as Promise<bigint>;
+    assert.equal(await balance(), 0n);
+    // The claim is accepted once the indexer has ingested the allow-list event.
+    await waitFor("faucet claim accepted", async () => {
+      try {
+        await agent.claimFaucet({ deploymentId: DEPLOYMENT });
+        return true;
+      } catch {
+        return null;
+      }
+    });
+    await waitFor("faucet credit on chain", async () =>
+      (await balance()) > 0n ? true : null,
+    );
+
     // No container log may carry a credential or a key.
     const logs = compose("logs", "--no-color").stdout;
     for (const value of [
@@ -348,7 +429,7 @@ async function main() {
       );
 
     console.log(
-      "IMAGES SMOKE ok: signer, api, indexer and worker healthy, non-root and ready (chain index lag " +
+      "IMAGES SMOKE ok: signer, api, indexer and worker healthy, non-root and ready, faucet mint signed and landed (chain index lag " +
         (chainIndex as { lagBlocks: string }).lagBlocks +
         ")",
     );

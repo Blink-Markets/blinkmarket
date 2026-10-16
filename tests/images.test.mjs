@@ -115,7 +115,20 @@ for (const name of Object.keys(services)) {
         "/repo*",
         "-o",
         "-path",
-        "/app/node_modules*",
+        "*/node_modules*",
+        // No package manager at runtime: npm, corepack and yarn are removed from the filesystem.
+        "-o",
+        "-name",
+        "npm",
+        "-o",
+        "-name",
+        "npx",
+        "-o",
+        "-name",
+        "corepack",
+        "-o",
+        "-name",
+        "yarn*",
         ")",
       ]);
       // find exits 1 for the directories the node user cannot read; any other status is a failed scan.

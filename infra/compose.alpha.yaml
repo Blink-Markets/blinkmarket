@@ -73,9 +73,9 @@ services:
     environment:
       BLINK_API_MODE: trading
       API_DATABASE_URL: ${ALPHA_API_DATABASE_URL:?set by images:smoke}
-      WALLET_BINDING_ORIGIN: http://127.0.0.1:3001
+      WALLET_BINDING_ORIGIN: http://127.0.0.1:${ALPHA_API_PORT:-3001}
       SPEC_OBJECT_DIRECTORY: /data/specs
-      SPEC_PUBLIC_ORIGIN: http://127.0.0.1:3001
+      SPEC_PUBLIC_ORIGIN: http://127.0.0.1:${ALPHA_API_PORT:-3001}
       EVIDENCE_OBJECT_DIRECTORY: /data/evidence
       BLINK_DEPLOYMENT_ID: ${ALPHA_DEPLOYMENT_ID:?set by images:smoke}
       SIGNER_URL: http://signer:3004
