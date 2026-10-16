@@ -855,3 +855,20 @@ test("the example agent refuses a node that is not local or not chain 84532 befo
     },
   );
 });
+
+test("SDK refuses mainnet config and quote domains before response parsing", async () => {
+  for (const body of [
+    { chainId: 8453 },
+    { deployment: { chainId: 8453 } },
+    { domain: { chainId: 8453 } },
+  ]) {
+    const server = await scripted(() => ({ body }));
+    try {
+      const client = createBlinkClient(server.origin);
+      await assert.rejects(client.getConfig(), /MAINNET_REFUSED/);
+      await assert.rejects(client.getQuote(HASH), /MAINNET_REFUSED/);
+    } finally {
+      await server.close();
+    }
+  }
+});

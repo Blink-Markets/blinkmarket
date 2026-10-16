@@ -1,3 +1,4 @@
+import { hasMainnetChain } from "./chain-guard.ts";
 import { Secp256k1, Signature } from "ox";
 import { encodeFunctionData, hashTypedData, parseAbi, type Hex } from "viem";
 import {
@@ -12,6 +13,7 @@ type RfqRequest = (typeof RfqRequestSchema)["_output"];
 type SignedQuote = (typeof SignedQuoteSchema)["_output"];
 
 export type QuoteVerificationCode =
+  | "MAINNET_REFUSED"
   | "DEPLOYMENT_MISMATCH"
   | "DOMAIN_MISMATCH"
   | "MAKER_MISMATCH"
@@ -78,6 +80,8 @@ export function verifySignedQuote(
     throw new QuoteVerificationError(code);
   };
   const { config, request, wallet } = ctx;
+  if (hasMainnetChain(config) || hasMainnetChain(envelope))
+    return fail("MAINNET_REFUSED");
   const deployment = config.deployment as PublicDeployment | null;
   if (
     !deployment ||

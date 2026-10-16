@@ -32,12 +32,14 @@ import {
 test("real API role: public readiness, admin diagnostics and persisted RFQ metrics", async () => {
   const w = await tradingWorld();
   let signer = true;
+  let healthTime = 0;
   const identity = createIdentityService(
     postgresIdentityStore(w.apiPool),
     identityCrypto,
     "https://blink.example",
   );
   const health = createHealthService({
+    now: () => healthTime,
     reader: postgresHealthReader(w.apiPool, DEPLOYMENT),
     signerReachable: async () => signer,
     authenticateAdmin: (authorization) =>
@@ -45,11 +47,13 @@ test("real API role: public readiness, admin diagnostics and persisted RFQ metri
   });
   const app = buildApi({ health, services: [health] });
   app.log.level = "silent";
-  const get = (url: string, apiKey?: string) =>
-    app.inject({
+  const get = (url: string, apiKey?: string) => {
+    healthTime += 2000;
+    return app.inject({
       url,
       headers: apiKey ? { authorization: "Bearer " + apiKey } : {},
     });
+  };
   try {
     await w.setCursor(w.chain.state.head);
     assert.equal((await get("/v1/health")).statusCode, 200);
@@ -239,4 +243,60 @@ test("dependency failures cannot disclose exception secrets", async () => {
     tradingEnabled: false,
     reasons: ["SERVICE_NOT_READY"],
   });
+});
+
+test("health endpoints share a single-flight snapshot, rate limit bursts and refresh failures", async () => {
+  let now = 0;
+  let reads = 0;
+  let signerReads = 0;
+  let failed = false;
+  const health = createHealthService({
+    now: () => now,
+    reader: {
+      async health() {
+        reads++;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        if (failed) throw new Error("dependency down");
+        return {
+          reasons: [],
+          details: {
+            queue: [],
+            chainIndex: { blockNumber: "1", headNumber: "1", fresh: true },
+            budgetGates: { dailyClosed: false, questionsClosed: "0" },
+            poolGate: { closed: false, reconcileRequired: false },
+          },
+        };
+      },
+      async metrics() {
+        throw new Error("unused");
+      },
+    },
+    signerReachable: async () => {
+      signerReads++;
+      return true;
+    },
+    authenticateAdmin: async () => {},
+  });
+  const app = buildApi({
+    health,
+    publicReadLimit: { capacity: 60, refillPerSecond: 1, now: () => now },
+  });
+  app.log.level = "silent";
+  try {
+    const responses = await Promise.all(
+      Array.from({ length: 250 }, (_, i) =>
+        app.inject(i % 2 ? "/v1/health" : "/health/ready"),
+      ),
+    );
+    assert.equal(responses.filter((r) => r.statusCode === 429).length, 190);
+    assert.equal(reads, 1);
+    assert.equal(signerReads, 1);
+    failed = true;
+    now = 2000;
+    assert.equal((await app.inject("/health/ready")).statusCode, 503);
+    assert.equal(reads, 2);
+    assert.equal((await app.inject("/v1/health")).json().details, undefined);
+  } finally {
+    await app.close();
+  }
 });

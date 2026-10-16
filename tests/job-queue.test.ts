@@ -44,7 +44,11 @@ test("retryDelayMs doubles from the base and is capped", () => {
 
 test("the worker accepts only a plain blink_worker login and an installed migration", () =>
   withQueue(async (s) => {
-    await assertWorkerRuntimeRole(s.pool);
+    // SET ROLE under the owner is impersonation, not a service login.
+    await assert.rejects(
+      assertWorkerRuntimeRole(s.pool),
+      /UNSAFE_WORKER_DATABASE_ROLE/,
+    );
     await assertJobsMigrationInstalled(s.pool);
     for (const role of ["blink_api", "blink_indexer", "blink_signer"]) {
       await s.db.exec(`SET ROLE ${role}`);

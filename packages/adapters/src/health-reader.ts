@@ -50,7 +50,9 @@ export function postgresHealthReader(
           ).rows.length > 0;
         const queue = (
           await db.query<Count>(
-            "SELECT state AS name,count(*)::text AS count FROM operations.jobs GROUP BY state ORDER BY state",
+            `SELECT 'DEAD' AS name,count(*)::text AS count FROM operations.jobs WHERE state='DEAD'
+             UNION ALL SELECT 'LEASED',count(*)::text FROM operations.jobs WHERE state='LEASED'
+             UNION ALL SELECT 'QUEUED',count(*)::text FROM operations.jobs WHERE state='QUEUED'`,
           )
         ).rows;
         const budget = (

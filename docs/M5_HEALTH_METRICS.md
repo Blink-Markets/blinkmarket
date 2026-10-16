@@ -84,3 +84,37 @@ it does not verify production font downloads or appearance.
 Task 16b owns `scripts/local-alpha.ts`, `tests/alpha`, `pnpm alpha:local`, CI
 integration and `docs/M5_LOCAL_ALPHA.md`; those are now delivered separately. This health/metrics slice did not verify the harness; see its delivery record for results and limits. Real deployment, LIVE events, external-user acceptance, alert operations,
 backups and demo publication remain the manual work in the acceptance matrix.
+
+## Final review fix B — 2026-10-16
+
+Both `/v1/health` and `/health/ready` now consume the same per-IP public-read
+bucket as other public reads. The health service shares one single-flight
+snapshot across both routes for two seconds, including failed reads; signer
+reachability has its own two-second single-flight cache. Diagnostics still
+require an authenticated admin, and authorization is checked on every supplied
+key before accessing the snapshot. Readiness can lag dependency failure by the
+cache interval (plus dependency response time); responses retain `no-store`.
+
+Health queue counts cover only QUEUED, LEASED and DEAD, including zero counts.
+Each count has its own literal state predicate so PostgreSQL can use the
+`jobs_due`, `jobs_lease` and new `jobs_dead` partial indexes. Migration
+`0020_runtime_health_hardening.sql` adds the missing DEAD index and removes
+PUBLIC EXECUTE from every function in the application schemas. Explicit
+`blink.now()` grants remain for the four runtime groups and trading admin;
+existing trigger execution needs no direct function grant. Admin metrics retain
+their historical status counts.
+
+The API (including markets mode), research-only worker, creation poller and
+transaction tracker now check the production business clock at startup. API,
+worker, signer and indexer readiness paths re-check it on each request. Existing
+explicit local test-clock opt-ins remain unchanged. All four runtime guards use
+one predicate requiring a plain authenticated login with only its service group,
+no extra memberships, no database ownership and no CREATE on application
+schemas; owner sessions using SET ROLE are refused.
+
+Verification: `pnpm check` passed (598 tests); `pnpm test:postgres` passed (50);
+`pnpm test:anvil` passed (50); `pnpm build:services && pnpm test:service-build`
+passed (5). A final `pnpm typecheck` and `git diff --check` also passed.
+The ordinary web build could not fetch Geist, Geist Mono and Kalam from Google
+Fonts. This slice does not claim deployment or completion of the remaining
+milestone work.

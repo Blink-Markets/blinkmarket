@@ -4,6 +4,7 @@ import pg from "pg";
 import {
   assertJobsMigrationInstalled,
   assertWorkerRuntimeRole,
+  assertProductionClock,
   dispatchOutbox,
   postgresJobQueue,
 } from "@blink/adapters";
@@ -46,11 +47,11 @@ let quoteRun: Promise<unknown> = Promise.resolve();
 try {
   const config = workerConfig(process.env);
   // Not ready until the job loop is actually running; disabled means liveness only.
-  const app = createService(
-    "worker",
-    "m3-jobs",
-    () => worker?.running() === true,
-  );
+  const app = createService("worker", "m3-jobs", async () => {
+    if (!pool) return false;
+    await assertProductionClock(pool, false);
+    return worker?.running() === true;
+  });
   app.get("/jobs", async () => ({ enabled: config.enabled, planned: jobs }));
   if (config.enabled) {
     pool = new pg.Pool({
@@ -65,6 +66,7 @@ try {
       console.error("WORKER_DATABASE_CONNECTION_ERROR"),
     );
     await assertWorkerRuntimeRole(database);
+    await assertProductionClock(database, false);
     await assertJobsMigrationInstalled(database);
     const queue = postgresJobQueue(database);
     registerEvaluationHandler(database);
@@ -144,6 +146,7 @@ try {
     }, QUOTE_RECONCILE_INTERVAL_MS);
     app.get("/health/jobs", async (_request, reply) => {
       try {
+        await assertProductionClock(database, false);
         return await queue.stats();
       } catch {
         return reply.code(503).send({ status: "health-query-failed" });

@@ -1,3 +1,4 @@
+import { assertRuntimeRole } from "./runtime-role.js";
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { retryDelayMs, type JobQueue, type JobSpec } from "@blink/ports";
@@ -180,17 +181,11 @@ export function postgresJobQueue(pool: Pool): JobQueue {
 
 /** The worker may only be a plain blink_worker login: no owner, admin or other runtime role. */
 export async function assertWorkerRuntimeRole(client: Db) {
-  const { rows } = await client.query<{ allowed: boolean }>(`SELECT
-    NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
-    AND pg_has_role(current_user, 'blink_worker', 'USAGE')
-    AND NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname IN
-      ('blink_api','blink_indexer','blink_signer','blink_identity_admin',
-       'blink_evidence_admin','blink_deployment_admin')
-      AND pg_has_role(current_user, oid, 'USAGE'))
-    AND NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname IN ('blink','operations','budgets')
-      AND has_schema_privilege(current_user, oid, 'CREATE')) AS allowed
-    FROM pg_roles WHERE rolname=current_user`);
-  if (rows[0]?.allowed !== true) throw new Error("UNSAFE_WORKER_DATABASE_ROLE");
+  await assertRuntimeRole(
+    client,
+    "blink_worker",
+    "UNSAFE_WORKER_DATABASE_ROLE",
+  );
 }
 
 export async function assertJobsMigrationInstalled(client: Db) {

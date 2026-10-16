@@ -19,9 +19,15 @@ export function chainSnapshotReader(options: {
   market: Hex;
 }): ChainSnapshotReader {
   const { client } = options;
+  const assertChain = async () => {
+    const chainId = await client.getChainId();
+    if (chainId === 8453) throw new Error("MAINNET_REFUSED");
+    if (chainId !== 84532) throw new Error("CHAIN_NOT_ALLOWED");
+  };
   return {
     chainId: () => client.getChainId(),
     async head() {
+      await assertChain();
       const block = await client.getBlock({ blockTag: "latest" });
       if (block.number === null || block.hash === null)
         throw new Error("CHAIN_BLOCK_PENDING");
@@ -32,6 +38,7 @@ export function chainSnapshotReader(options: {
       };
     },
     async read({ blockHash, marketId, taker }) {
+      await assertChain();
       const call = async (functionName: string, args: readonly unknown[]) => {
         const data = encodeFunctionData({
           abi: blinkMarketAbi,

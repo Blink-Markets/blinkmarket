@@ -1,3 +1,4 @@
+import { assertRuntimeRole } from "./runtime-role.js";
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type {
@@ -168,21 +169,5 @@ export function postgresIdentityStore(pool: Pool): IdentityStore {
 export async function assertIdentityRuntimeRole(
   client: Pick<PoolClient, "query">,
 ) {
-  const { rows } = await client.query<{ allowed: boolean }>(`SELECT
-    NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
-    AND pg_has_role(current_user, 'blink_api', 'USAGE')
-    AND NOT pg_has_role(current_user, 'blink_identity_admin', 'USAGE')
-    AND NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='blink_evidence_admin'
-      AND pg_has_role(current_user, oid, 'USAGE'))
-    AND NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='blink_deployment_admin'
-      AND pg_has_role(current_user, oid, 'USAGE'))
-    AND NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='blink_forecast_admin'
-      AND pg_has_role(current_user, oid, 'USAGE'))
-    AND NOT pg_has_role(current_user, 'blink_indexer', 'USAGE')
-    AND NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname IN ('markets','evidence','discovery','chain','forecasts')
-      AND has_schema_privilege(current_user,oid,'CREATE'))
-    AND NOT has_schema_privilege(current_user, 'identity', 'CREATE')
-    AND NOT has_schema_privilege(current_user, 'operations', 'CREATE') AS allowed
-    FROM pg_roles WHERE rolname=current_user`);
-  if (rows[0]?.allowed !== true) throw new Error("UNSAFE_API_DATABASE_ROLE");
+  await assertRuntimeRole(client, "blink_api", "UNSAFE_API_DATABASE_ROLE");
 }
