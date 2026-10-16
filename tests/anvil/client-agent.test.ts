@@ -4,7 +4,14 @@ import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
-import { keccak256, toBytes, type Address, type Hex } from "viem";
+import {
+  keccak256,
+  toBytes,
+  toFunctionSelector,
+  toHex,
+  type Address,
+  type Hex,
+} from "viem";
 import { buildApi } from "../../apps/api/src/server.js";
 import { tradingServices } from "../../apps/api/src/trading.js";
 import { buildSignerServer } from "../../apps/signer/src/server.js";
@@ -440,7 +447,11 @@ async function withStack(work: (s: Stack) => Promise<void>) {
 /** Runs the example and keeps what it says; a failure of the run surfaces in the waits. */
 function startAgent(
   s: Stack,
-  options: { rpcUrl?: string; holdBlocksAtBalance?: boolean } = {},
+  options: {
+    rpcUrl?: string;
+    holdBlocksAtBalance?: boolean;
+    holdBlocksAfterApproval?: boolean;
+  } = {},
 ) {
   const lines: string[] = [];
   const seen = (pattern: RegExp) => lines.filter((l) => pattern.test(l));
@@ -456,6 +467,9 @@ function startAgent(
       // From here to the first quote the example sends nothing on chain: freeze the blocks so
       // its approval stays pending.
       if (line.startsWith("balance ") && options.holdBlocksAtBalance)
+        s.blocks.held = true;
+      // The fill is sent next: with no block it stays pending until the test lets one through.
+      if (line.startsWith("approved ") && options.holdBlocksAfterApproval)
         s.blocks.held = true;
     },
   });
@@ -555,9 +569,14 @@ test(
   },
 );
 
+const consumedSelector = toFunctionSelector("function consumed(bytes32)");
+
 /**
  * A JSON-RPC proxy to `target` that can lose the answer of one raw transaction (the Nth) after
- * forwarding it, and report the first receipt it hands out as reverted.
+ * forwarding it, and report the first receipt it hands out as reverted. `control` can be changed
+ * while it runs: `chainTimeBehind` makes every answer about the latest block this many seconds
+ * old (a stale replica, a reorg), and `afterConsumedRead` runs once after the next read of
+ * `consumed(digest)` has been forwarded and before its answer goes back.
  */
 async function lossyRpc(
   target: string,
@@ -565,12 +584,19 @@ async function lossyRpc(
 ) {
   let receiptsReverted = false;
   const sent: string[] = [];
+  const control = {
+    chainTimeBehind: 0n,
+    afterConsumedRead: undefined as (() => Promise<void>) | undefined,
+  };
   const server: Server = createServer((request, response) => {
     const chunks: Buffer[] = [];
     request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", async () => {
       const body = Buffer.concat(chunks);
-      const call = JSON.parse(body.toString("utf8")) as { method: string };
+      const call = JSON.parse(body.toString("utf8")) as {
+        method: string;
+        params?: unknown[];
+      };
       const answer = await fetch(target, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -583,6 +609,32 @@ async function lossyRpc(
           response.writeHead(502);
           return void response.end("answer lost");
         }
+      }
+      if (
+        call.method === "eth_getBlockByNumber" &&
+        call.params?.[0] === "latest" &&
+        control.chainTimeBehind > 0n
+      ) {
+        const reply = JSON.parse(payload.toString("utf8")) as {
+          result: { timestamp: Hex } | null;
+        };
+        if (reply.result) {
+          reply.result.timestamp = toHex(
+            BigInt(reply.result.timestamp) - control.chainTimeBehind,
+          );
+          payload = Buffer.from(JSON.stringify(reply));
+        }
+      }
+      if (
+        call.method === "eth_call" &&
+        control.afterConsumedRead &&
+        (call.params?.[0] as { data?: string } | undefined)?.data?.startsWith(
+          consumedSelector,
+        )
+      ) {
+        const after = control.afterConsumedRead;
+        control.afterConsumedRead = undefined;
+        await after();
       }
       if (
         call.method === "eth_getTransactionReceipt" &&
@@ -609,6 +661,7 @@ async function lossyRpc(
   return {
     url: "http://127.0.0.1:" + (server.address() as AddressInfo).port,
     sent,
+    control,
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections();
@@ -681,6 +734,122 @@ test(
         // Only the approval left the agent, and its log never says it was approved.
         assert.equal(rpc.sent.length, 1);
         assert.equal(agent.seen(/^approved /).length, 0);
+      } finally {
+        await rpc.close();
+      }
+    });
+  },
+);
+
+test(
+  "Anvil: when chain time goes backwards while an unknown fill is awaited the example keeps waiting, and neither requotes nor sends again",
+  { timeout: 240_000 },
+  async () => {
+    await withStack(async (s) => {
+      const rpc = await lossyRpc(s.anvil.url, { loseSendNumber: 2 });
+      try {
+        const agent = startAgent(s, {
+          rpcUrl: rpc.url,
+          holdBlocksAfterApproval: true,
+        });
+        await agent.until(
+          "the lost answer",
+          () => agent.seen(/fill outcome unknown/).length === 1,
+        );
+        // The fill is pending, and the node now answers with a latest block from long before the
+        // quote's validAfter.
+        rpc.control.chainTimeBehind = 1000n;
+        await agent.until(
+          "the wait to notice, or a requote",
+          () =>
+            agent.seen(/still waiting/).length === 1 ||
+            agent.seen(/asking for a new one/).length > 0,
+        );
+        await delay(1000);
+        assert.equal(agent.seen(/asking for a new one/).length, 0);
+        assert.equal(agent.seen(/^quote 0x/).length, 1);
+        assert.equal(rpc.sent.length, 2);
+
+        // The node catches up and the pending fill is mined.
+        rpc.control.chainTimeBehind = 0n;
+        s.blocks.held = false;
+        await agent.until(
+          "the indexed position",
+          () => agent.seen(/^position:/).length === 1,
+        );
+        await s.settle();
+
+        const result = await agent.run;
+        assert.equal(result.fillTxHash, "");
+        assert.equal(result.finalOutcome, "YES");
+        // approve, fill, redeem: the fill was never sent again.
+        assert.equal(rpc.sent.length, 3);
+        assert.equal(
+          await s.read<boolean>(s.market, blinkMarketAbi, "consumed", [
+            result.quoteId,
+          ]),
+          true,
+        );
+        assert.equal(agent.seen(/asking for a new one/).length, 0);
+        assert.equal((await s.quotes()).length, 1);
+      } finally {
+        await rpc.close();
+      }
+    });
+  },
+);
+
+test(
+  "Anvil: a fill that lands in the last block before expiry is found, not taken for an expired quote",
+  { timeout: 240_000 },
+  async () => {
+    await withStack(async (s) => {
+      const rpc = await lossyRpc(s.anvil.url, { loseSendNumber: 2 });
+      try {
+        const agent = startAgent(s, {
+          rpcUrl: rpc.url,
+          holdBlocksAfterApproval: true,
+        });
+        await agent.until(
+          "the lost answer",
+          () => agent.seen(/fill outcome unknown/).length === 1,
+        );
+        const expiresAt = BigInt(
+          /expires (\d+)/.exec(agent.seen(/^quote 0x/)[0]!)![1]!,
+        );
+        // Between the agent's reads of consumed(digest) and of chain time: the pending fill is
+        // mined one second before expiry, and the next block is the first to reach it.
+        let mined = false;
+        rpc.control.afterConsumedRead = async () => {
+          await s.anvil.setNextTimestamp(expiresAt - 1n);
+          await s.anvil.mine(1);
+          await s.anvil.setNextTimestamp(expiresAt);
+          await s.anvil.mine(1);
+          mined = true;
+        };
+        await agent.until("the two blocks", () => mined);
+        s.blocks.held = false;
+        await agent.until(
+          "the agent's verdict",
+          () =>
+            agent.seen(/asking for a new one/).length > 0 ||
+            agent.seen(/^position:/).length === 1,
+        );
+        assert.equal(agent.seen(/asking for a new one/).length, 0);
+        await s.settle();
+
+        const result = await agent.run;
+        assert.equal(result.fillTxHash, "");
+        assert.equal(result.finalOutcome, "YES");
+        assert.equal(rpc.sent.length, 3);
+        assert.equal(
+          await s.read<boolean>(s.market, blinkMarketAbi, "consumed", [
+            result.quoteId,
+          ]),
+          true,
+        );
+        assert.equal(agent.seen(/^quote 0x/).length, 1);
+        assert.equal((await s.quotes()).length, 1);
       } finally {
         await rpc.close();
       }

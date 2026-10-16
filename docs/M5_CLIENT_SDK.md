@@ -34,7 +34,7 @@
 `node --import tsx examples/agent/run.ts` with `BLINK_API_URL`, `BLINK_API_KEY`, `AGENT_PRIVATE_KEY` and `RPC_URL` (it refuses any `RPC_URL` that is not loopback and any chain but 84532). Flow: `getConfig`, bind the wallet, list markets and verify the spec, submit a forecast in the open window, claim the faucet, request a quote, `verifySignedQuote`, approve exactly the taker cost, read `consumed(digest)`, send the verified calldata once, `trackTransaction`, poll `getTransaction` and `getPositions`, wait until the market is FINAL, redeem.
 
 - An expired quote (a verification `EXPIRED` or `NOT_YET_VALID`, an API `QUOTE_EXPIRED`, or a fill that ran out) is replaced by a new RFQ under a **new** key, at most three times. A reverted approval (`APPROVE_REVERTED`) stops the run before the fill, and a node on chain 8453 is `MAINNET_REFUSED`.
-- A fill whose outcome is unknown (a lost answer, no receipt) is **never sent again**. The agent waits until `consumed(digest)` shows it landed or the quote has really expired (margin 0: until then the fill can still land, so a requote could buy twice). A fill that would revert is refused by an `eth_call` before it is sent.
+- A fill whose outcome is unknown (a lost answer, no receipt) is **never sent again**. The agent waits until `consumed(digest)` shows it landed or the quote has really expired (margin 0: until then the fill can still land, so a requote could buy twice). Each round reads chain time first and `consumed(digest)` second; an `EXPIRED` read ends the wait only if `consumed(digest)` is still false, and `NOT_YET_VALID` there (the node's chain time went backwards) is logged and waited out, never a requote. A fill that would revert is refused by an `eth_call` before it is sent.
 - `runAgent(config)` is exported, so Task 16's harness can call it in process or run the file as a process.
 
 ## Tests
@@ -43,7 +43,7 @@
 | --- | --- |
 | `tests/client-verify-quote.test.ts` (16) | Each code with an envelope signed offline by an Anvil development key (the honest envelope uses the production calldata encoder), the order of failures, boundaries (`expiresAt`, `maxCostMicros`). |
 | `tests/client.test.ts` (29) | A real loopback HTTP server: every method's method, path, query, body and bearer header and its validated answer; generated and given Idempotency-Keys; local refusal of a bad key or body; retries reuse key and body, wait as asked, stop at the last attempt, skip business refusals; `getMarketSpec` rejects altered bytes, a wrong expectation and non-spec bytes; faucet refusals arrive as `BlinkApiError`; the example's refusals (not local, not chain 84532, missing environment). |
-| `tests/anvil/client-agent.test.ts` (3) | The example, unchanged, against the real API, signer, worker and indexer on Anvil. First: the first quote is made to expire while its approval is pending, so the run requotes under a new key, fills once, waits for FINAL (the test proposes YES and finalizes after the challenge window) and redeems (allowance back to 0, balance = faucet - cost + payout). Second: the answer of the fill is lost; exactly three raw transactions leave the agent (approve, fill, redeem). Third (follow-up): the approval receipt is reported as reverted and the run stops before the fill. |
+| `tests/anvil/client-agent.test.ts` (5) | The example, unchanged, against the real API, signer, worker and indexer on Anvil. First: the first quote is made to expire while its approval is pending, so the run requotes under a new key, fills once, waits for FINAL (the test proposes YES and finalizes after the challenge window) and redeems (allowance back to 0, balance = faucet - cost + payout). Second: the answer of the fill is lost; exactly three raw transactions leave the agent (approve, fill, redeem). Third (follow-up): the approval receipt is reported as reverted and the run stops before the fill. Fourth and fifth (wait-loop fix): see below. |
 
 Mutation checks (temporary, reverted): removing each of nine checks from `verifySignedQuote` (maker, off-by-one on expiry and on the cost limit, digest, taker, calldata, envelope expiry, domain version, signature signer) fails at least one test each; resending the fill after an unknown outcome fails the Anvil test, and ignoring an expired quote fails the other.
 
@@ -77,6 +77,17 @@ Run on 2026-10-15 in the task worktree against a local Anvil with chain ID 84532
 | 4 | The example maps a node on chain 8453 to `MAINNET_REFUSED`; any other chain stays `RPC_CHAIN_MISMATCH`. | `tests/client.test.ts` with a loopback JSON-RPC node for 8453 and one for chain 1. |
 | 5 | The example throws `APPROVE_REVERTED` when the approval receipt is not `success`, before tracking it or filling. | `tests/anvil/client-agent.test.ts`: a proxy reports the approval receipt as reverted; before the change a second transaction (the fill) was sent. |
 | 7 | One sentence in `apps/web/content/docs/client.md` and above: pin or cross-check the deployment, the market address and the maker outside the API. | `tests/web-docs-content.test.ts` still passes. |
+
+### Wait-loop fix (re-review Minor)
+
+Branch `ws/t15-waitloop`. In the unknown-fill wait of `examples/agent/run.ts`, `NOT_YET_VALID` (the RPC's chain time went backwards: a stale replica, a reorg) escaped as an "expiry" and the agent could requote and buy twice while the first fill could still land. The loop now reads chain time first (margin 0): `EXPIRED` is remembered, `NOT_YET_VALID` is logged and waited out, any other verification error is rethrown; then it reads `consumed(digest)`, returning if true and rethrowing the remembered `EXPIRED` only if it is false. That order also stops a fill that lands just before expiry from being missed. The requote log line now says "expired or not yet valid on this node".
+
+| Test (`tests/anvil/client-agent.test.ts`) | Before the fix |
+| --- | --- |
+| A JSON-RPC proxy reports the latest block 1000 s old while the fill is pending: no requote, no second quote, no second fill, and the run still ends with the fill found and redeemed. | The agent requoted. |
+| The proxy mines the pending fill one second before expiry, and the block that first reaches expiry, between the agent's reads: the run reports the fill, not an expiry. | The agent requoted. |
+
+Residual: both reads go to one node. If `consumed(digest)` were served by a node behind the one serving chain time, the answer could still be stale; reading `consumed` at the block number just read would close that and was not done.
 
 Parked (reviewer's Minors 6, 8 and 9): the cap on `Retry-After` and the worker's abort signal, the unreachable API expiry branch of the example and an exhausted `MAX_QUOTE_ATTEMPTS`, and folding the Anvil stack into Task 16's harness.
 

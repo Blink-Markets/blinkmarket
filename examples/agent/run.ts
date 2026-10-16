@@ -302,11 +302,29 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
         (error as { shortMessage?: string }).shortMessage ?? String(error);
       log(`fill outcome unknown (${why}); not sending it again`);
     }
+    // Chain time is read before consumed(digest), so a fill that lands between the two reads is
+    // found by the second one. Only real expiry ends the wait, and only when consumed(digest)
+    // still says no: until then the fill may land, and a requote could buy twice.
+    let behind = false;
     for (;;) {
+      let expired: QuoteVerificationError | undefined;
+      try {
+        await verify(quote, 0n);
+        behind = false;
+      } catch (error) {
+        if (!(error instanceof QuoteVerificationError)) throw error;
+        if (error.code === "EXPIRED") expired = error;
+        else if (error.code === "NOT_YET_VALID") {
+          // Not an expiry: this node's chain time went backwards (a stale replica, a reorg).
+          if (!behind)
+            log(
+              "this node's chain time is before the quote's validAfter; still waiting for the fill",
+            );
+          behind = true;
+        } else throw error;
+      }
       if (await isConsumed(quote)) return sent;
-      // Only real expiry ends the wait: until then the fill may still land, and a requote could
-      // buy twice.
-      await verify(quote, 0n);
+      if (expired) throw expired;
       await sleep(pollMs);
     }
   }
@@ -354,7 +372,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     } catch (error) {
       if (!isExpiry(error) || attempt >= MAX_QUOTE_ATTEMPTS) throw error;
       log(
-        "quote expired before it was filled; asking for a new one under a new key",
+        "quote expired or not yet valid on this node; asking for a new one under a new key",
       );
       await sleep(pollMs);
     }

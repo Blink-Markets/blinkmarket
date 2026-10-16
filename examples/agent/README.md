@@ -35,11 +35,11 @@ The stack it expects is the one `docs/M2_RFQ.md` (runtime) and `docs/M3_KEEPER_F
 ## Safety rules it follows
 
 - **Quotes expire by block time.** `verifySignedQuote` gets the latest block's timestamp, not the host clock, and wants 6 seconds left for the approval and the fill. An expired quote, however it is noticed (verification, an API refusal, a fill that would revert), is replaced by a new request under a **new** Idempotency-Key, at most three times.
-- **A fill is never retried blindly.** `consumed(digest)` is read before the fill. If the send's outcome is unknown (a lost answer, no receipt), the calldata is not sent again: the agent waits until `consumed(digest)` shows it landed or the quote has really expired (no margin: the fill could still land before that), and only then moves on.
+- **A fill is never retried blindly.** `consumed(digest)` is read before the fill. If the send's outcome is unknown (a lost answer, no receipt), the calldata is not sent again: the agent waits until `consumed(digest)` shows it landed or the quote has really expired (no margin: the fill could still land before that), and only then moves on. Each round reads chain time first and `consumed(digest)` second, so a fill that lands in between is found, and it ends in expiry only when `consumed(digest)` still says no. If the node's chain time goes backwards (before the quote's `validAfter`), that is not an expiry: the agent logs it and keeps waiting.
 - **Retries reuse the key.** The client repeats a retryable answer with the same Idempotency-Key and body; a 503 `SERVICE_NOT_READY` while a quote is being signed resumes the same quote.
 - **Exact approvals.** The allowance is the quote's taker cost, not a larger or unlimited amount.
 - **No key leaves the process.** The private key only signs the binding message and the agent's own transactions.
 
 ## Tests
 
-`tests/anvil/client-agent.test.ts` runs this file unchanged against the real API, signer, worker and indexer on a local Anvil: once with a quote that expires before it is filled (the requote), and once with a lost answer to the fill. `tests/client.test.ts` covers its refusals (a non-local node, the wrong chain).
+`tests/anvil/client-agent.test.ts` runs this file unchanged against the real API, signer, worker and indexer on a local Anvil: once with a quote that expires before it is filled (the requote), once with a lost answer to the fill, and twice for the wait that follows an unknown fill (chain time going backwards, a fill landing just before expiry). `tests/client.test.ts` covers its refusals (a non-local node, the wrong chain).
