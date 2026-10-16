@@ -9,6 +9,7 @@ import {
 import { modules } from "@blink/domain";
 import { routes } from "./routes.js";
 import { createTokenBucket } from "./rate-limit.js";
+import { isDatabaseUnavailable } from "./database-errors.js";
 import {
   IdentityError,
   identityPaths,
@@ -47,6 +48,14 @@ function sendIdentityError(
     details: error.details,
   });
 }
+
+// The database could not be reached: not a fault of the request, and the same request may be repeated.
+const databaseUnavailable = () =>
+  new IdentityError(503, "SERVICE_NOT_READY", {
+    retryable: true,
+    retryAfterSeconds: 1,
+    details: { reason: "DATABASE_UNAVAILABLE" },
+  });
 
 export function buildApi(
   options: {
@@ -224,6 +233,8 @@ export function buildApi(
             if (error instanceof IdentityError)
               return sendIdentityError(request, reply, error);
             request.log.error({ err: error }, "ROUTE_SERVICE_FAILED");
+            if (isDatabaseUnavailable(error))
+              return sendIdentityError(request, reply, databaseUnavailable());
             reply.header("Cache-Control", "no-store");
             return reply.code(500).send({
               code: "INTERNAL_ERROR",
@@ -372,8 +383,11 @@ export function buildApi(
               );
             }
           } catch (error) {
-            if (!(error instanceof IdentityError)) throw error;
-            return sendIdentityError(request, reply, error);
+            if (error instanceof IdentityError)
+              return sendIdentityError(request, reply, error);
+            if (!isDatabaseUnavailable(error)) throw error;
+            request.log.error({ err: error }, "DATABASE_UNAVAILABLE");
+            return sendIdentityError(request, reply, databaseUnavailable());
           }
         }
         const valid =

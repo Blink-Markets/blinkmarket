@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { traderConfig } from "../apps/worker/src/config.js";
 import { traderQuoteApi } from "../apps/worker/src/trader.js";
 import { BlinkApiError } from "../packages/client/src/index.js";
@@ -425,7 +426,8 @@ test("the mandate's limits admit exactly the cap and skip the rest with one audi
     assert.equal((await w.reservations()).length, 1);
     assert.equal(w.apiCalls.length, 1, "a skipped buy never reaches the RFQ");
 
-    // Open cap: HELD counts, ACCOUNTED does not (it is a position now), the daily cap still does.
+    // Open cap: the buy counts while HELD and after its fill is ACCOUNTED (the position is still
+    // unmatured); the daily cap counts both too.
     await q(
       "UPDATE trading.mandates SET daily_notional_cap_micros=100000000, open_notional_cap_micros=15000000",
     );
@@ -435,11 +437,17 @@ test("the mandate's limits admit exactly the cap and skip the rest with one audi
     assert.equal(
       (await w.run()).markets["1"],
       "SKIPPED:DAILY_CAP_EXCEEDED",
-      "the accounted fill is out of the open cap but still in the day's",
+      "the accounted fill is in the day's cap",
     );
     await q("UPDATE trading.mandates SET daily_notional_cap_micros=100000000");
+    assert.equal(
+      (await w.run()).markets["1"],
+      "SKIPPED:OPEN_CAP_EXCEEDED",
+      "and the accounted fill still occupies the open cap: its market has not finished",
+    );
+    await q("UPDATE trading.mandates SET open_notional_cap_micros=500000000");
     const freed = await w.run();
-    assert.equal(freed.markets["1"], "RESERVED", "the fill freed the open cap");
+    assert.equal(freed.markets["1"], "RESERVED", "room under the open cap");
     assert.deepEqual(
       (await w.reservations()).map((r) => r.state),
       ["ACCOUNTED", "HELD"],
@@ -493,6 +501,77 @@ test("only today's buys count against the daily cap, and the limits are read und
       ownProbabilityMillionths: 800_000,
     });
     assert.deepEqual(stale, { state: "SKIPPED", reason: "MANDATE_DISABLED" });
+  } finally {
+    await w.close();
+  }
+});
+
+// A second OPEN market in the same deployment, with its own spec hash.
+const addMarket = (w: TraderWorld, id: number) =>
+  w.query(
+    `INSERT INTO chain.markets(deployment_id,market_id,spec_hash,spec_uri,mode,close_at,proposal_deadline,hard_deadline,
+      challenge_seconds,max_pairs,max_taker_shares,state,created_block_number,created_tx_hash,as_of_block_hash)
+    SELECT deployment_id,$1::int,decode(repeat(lpad(to_hex($1::int),2,'0'),32),'hex'),spec_uri,mode,close_at,proposal_deadline,
+      hard_deadline,challenge_seconds,max_pairs,max_taker_shares,'OPEN',created_block_number,created_tx_hash,as_of_block_hash
+    FROM chain.markets WHERE market_id=1`,
+    [id],
+  );
+
+test("the open cap counts every HELD and ACCOUNTED buy until its market is FINAL", async () => {
+  const w = await traderWorld();
+  try {
+    const q = <R = Record<string, unknown>>(sql: string, params?: unknown[]) =>
+      w.query<R>(sql, params);
+    await addMarket(w, 2);
+    // Five days of 100 bUSD fills, none today (so the daily cap is not what binds), in markets
+    // that are still open: 500 bUSD of bought notional that has not matured.
+    for (const [daysAgo, market] of [
+      [5, 1],
+      [4, 1],
+      [3, 1],
+      [2, 2],
+      [1, 2],
+    ] as const)
+      await q(
+        `INSERT INTO trading.risk_reservations(id,agent_id,intent_id,day,notional_micros,state,deployment_id,market_id,
+          window_id,side,shares,ask_bps,own_probability_millionths)
+        VALUES (gen_random_uuid(),$1,gen_random_uuid(),(blink.now() AT TIME ZONE 'UTC')::date - $2::int,100000000,
+          'ACCOUNTED',$3,$4,$5,'YES',100,6700,800000)`,
+        [w.agent.agentId, daysAgo, DEPLOYMENT, market, w.windowId],
+      );
+    const buy = async () =>
+      w.store.reserve({
+        mandate: (await w.store.mandate("FORECASTER_A"))!,
+        intentId: randomUUID(),
+        deploymentId: DEPLOYMENT,
+        marketId: "1",
+        windowId: w.windowId!,
+        side: "YES",
+        shares: 10,
+        askBps: 6700,
+        ownProbabilityMillionths: 800_000,
+      });
+    assert.deepEqual(await buy(), {
+      state: "SKIPPED",
+      reason: "OPEN_CAP_EXCEEDED",
+    });
+
+    // Market 2 is FINAL: its 200 bUSD stop counting, the 300 in market 1 still do.
+    await q(
+      "UPDATE chain.markets SET state='FINAL',final_outcome='YES',final_reason='UNCHALLENGED' WHERE market_id=2",
+    );
+    await q("UPDATE trading.mandates SET open_notional_cap_micros=310000000");
+    assert.equal((await buy()).state, "RESERVED", "300 + 10 fits 310 exactly");
+    assert.deepEqual(await buy(), {
+      state: "SKIPPED",
+      reason: "OPEN_CAP_EXCEEDED",
+    });
+
+    // Market 1 finishing frees the rest: only the HELD buy on it is left, and that is final too.
+    await q(
+      "UPDATE chain.markets SET state='FINAL',final_outcome='YES',final_reason='UNCHALLENGED' WHERE market_id=1",
+    );
+    assert.equal((await buy()).state, "RESERVED");
   } finally {
     await w.close();
   }
@@ -802,6 +881,108 @@ test("an approve or a fill that fails for good gives the risk back; one that is 
     );
     // One approve intent per buy, however many times it was carried on.
     assert.equal(w.apiCalls.length, 7);
+  } finally {
+    await w.close();
+  }
+});
+
+// The ERC-20 approve sets the allowance, it does not add to it: a second buy's approve would
+// overwrite the one the first buy's fill still needs.
+test("no approve is sent for one buy while another buy's approve has no mined fill", async () => {
+  const w = await traderWorld();
+  try {
+    await addMarket(w, 2);
+    await w.seedWindow({ marketId: 2, hoursAgo: 0 });
+    const idA = intentOf(w, w.windowId!);
+    const modes = w.dispatcher.modes;
+
+    // Buy A's approve meets a retryable dispatch error. The run does not wait for it and goes on to
+    // market 2, which must not start a buy: B would approve over A's allowance.
+    modes.APPROVE = "retryable-error";
+    const first = await w.run();
+    assert.deepEqual(first.trades, { [idA]: "WAITING:APPROVE" });
+    assert.deepEqual(first.markets, {
+      "1": "RESERVED",
+      "2": "WAITING:APPROVE_IN_FLIGHT",
+    });
+    assert.deepEqual(w.dispatcher.kinds(), ["APPROVE"]);
+    assert.equal((await w.reservations()).length, 1, "B reserved nothing");
+    assert.equal(w.apiCalls.length, 1, "B asked for no quote");
+
+    // A's approve is mined and its fill is not yet: still no second buy.
+    modes.APPROVE = "mine";
+    modes.FILL = "retryable-error";
+    const second = await w.run();
+    assert.deepEqual(second.trades, { [idA]: "WAITING:FILL" });
+    assert.equal(second.markets["2"], "WAITING:APPROVE_IN_FLIGHT");
+    assert.deepEqual(w.dispatcher.kinds(), ["APPROVE", "APPROVE", "FILL"]);
+    assert.equal((await w.reservations()).length, 1);
+
+    // A's fill is mined: B proceeds in the same run, with its own approve.
+    modes.FILL = "mine";
+    const third = await w.run();
+    assert.deepEqual(third.trades[idA], "FILL_INCLUDED");
+    assert.equal(third.markets["2"], "RESERVED");
+    assert.deepEqual(Object.values(third.trades), [
+      "FILL_INCLUDED",
+      "FILL_INCLUDED",
+    ]);
+    assert.deepEqual(w.dispatcher.kinds(), [
+      "APPROVE",
+      "APPROVE",
+      "FILL",
+      "FILL",
+      "APPROVE",
+      "FILL",
+    ]);
+    assert.equal((await w.reservations()).length, 2);
+  } finally {
+    await w.close();
+  }
+});
+
+test("a buy that was started earlier waits for its approve until the other buy's fill is mined", async () => {
+  const w = await traderWorld();
+  try {
+    await addMarket(w, 2);
+    await w.seedWindow({ marketId: 2, hoursAgo: 0 });
+    const modes = w.dispatcher.modes;
+
+    // Neither buy has an approve yet (the RFQ is down), so both start.
+    w.chain.state.headFails = true;
+    const down = await w.run();
+    assert.deepEqual(down.markets, { "1": "RESERVED", "2": "RESERVED" });
+    assert.deepEqual(w.dispatcher.calls, []);
+
+    // The RFQ is back: A approves, and its fill meets a dispatch error. B has its quote but its
+    // approve would overwrite A's allowance, so it waits.
+    w.chain.state.headFails = false;
+    modes.FILL = "retryable-error";
+    const [idA, idB] = Object.keys(down.trades);
+    const second = await w.run();
+    assert.equal(second.trades[idA!], "WAITING:FILL");
+    assert.equal(second.trades[idB!], "WAITING:APPROVE_IN_FLIGHT");
+    assert.deepEqual(w.dispatcher.kinds(), ["APPROVE", "FILL"]);
+    assert.deepEqual(
+      (await w.intents()).map((i) => i.kind),
+      ["APPROVE", "FILL"],
+      "B has no approve intent",
+    );
+
+    // A's fill is mined: B approves and fills.
+    modes.FILL = "mine";
+    const third = await w.run();
+    assert.deepEqual(third.trades, {
+      [idA!]: "FILL_INCLUDED",
+      [idB!]: "FILL_INCLUDED",
+    });
+    assert.deepEqual(w.dispatcher.kinds(), [
+      "APPROVE",
+      "FILL",
+      "FILL",
+      "APPROVE",
+      "FILL",
+    ]);
   } finally {
     await w.close();
   }

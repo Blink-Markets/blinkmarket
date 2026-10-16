@@ -7,6 +7,7 @@ import { identityAdmin } from "../../packages/adapters/src/identity-admin.js";
 import { postgresTraderStore } from "../../packages/adapters/src/trader-store.js";
 import { encodeAllowedCall } from "../../packages/adapters/src/signing-calldata.js";
 import { createTrader } from "../../packages/application/src/trader.js";
+import type { PrepareTraderResult } from "../../packages/ports/src/index.js";
 import {
   seedDeployment,
   testAccounts,
@@ -21,6 +22,11 @@ import {
 } from "../helpers/trading.js";
 
 const MARKETS = 6;
+const preparedId = (result: PrepareTraderResult) => {
+  assert.equal(result.state, "PREPARED");
+  return (result as Extract<PrepareTraderResult, { state: "PREPARED" }>)
+    .intentId;
+};
 const UNIT = 10_000_000n; // ten shares
 
 // Six OPEN markets that each carry a closed window with an edge for FORECASTER_A, a fresh indexer
@@ -144,7 +150,7 @@ test(
         { state: "HELD", n: "10000000" },
       ]);
 
-      // The open cap binds on HELD only: three more fit under it, never a fourth.
+      // The open cap binds on HELD buys too (and on ACCOUNTED ones, below): three fit, never a fourth.
       await owner.query("TRUNCATE trading.risk_reservations");
       await setCaps(owner, 1_000_000_000n, 3n * UNIT);
       const open = await reserveAll(12);
@@ -153,6 +159,73 @@ test(
         [
           ...new Set(
             open
+              .filter((r) => r.state === "SKIPPED")
+              .map((r) => (r as { reason: string }).reason),
+          ),
+        ],
+        ["OPEN_CAP_EXCEEDED"],
+      );
+    });
+  },
+);
+
+test(
+  "real PostgreSQL: the open cap counts bought notional until its market is FINAL, under the worker login and a race",
+  { timeout: 60_000 },
+  async () => {
+    await withDatabase(async ({ owner, pool }) => {
+      const { agentId } = await seed(owner, pool);
+      const stores = Array.from({ length: 4 }, () =>
+        postgresTraderStore(pool("blink_worker", 4)),
+      );
+      const mandate = (await stores[0]!.mandate("FORECASTER_A"))!;
+      const windows = (
+        await owner.query(
+          "SELECT id,market_id::text AS market FROM forecasts.windows ORDER BY market_id",
+        )
+      ).rows;
+      // Five days of 100 bUSD fills, one open market each, none today.
+      for (let day = 1; day <= 5; day += 1)
+        await owner.query(
+          `INSERT INTO trading.risk_reservations(id,agent_id,intent_id,day,notional_micros,state,deployment_id,market_id,
+            window_id,side,shares,ask_bps,own_probability_millionths)
+          VALUES (gen_random_uuid(),$1,gen_random_uuid(),(blink.now() AT TIME ZONE 'UTC')::date - $2::int,100000000,
+            'ACCOUNTED',$3,$4,$5,'YES',100,6700,800000)`,
+          [agentId, day, DEPLOYMENT, day, windows[day - 1]!.id],
+        );
+      await setCaps(owner, 10_000_000_000n, 500_000_000n);
+      const buyAt = (
+        store: ReturnType<typeof postgresTraderStore>,
+        i: number,
+      ) =>
+        store.reserve({
+          mandate,
+          intentId: randomUUID(),
+          deploymentId: DEPLOYMENT,
+          marketId: windows[5]!.market,
+          windowId: windows[5]!.id,
+          side: "YES",
+          shares: 10,
+          askBps: 6700,
+          ownProbabilityMillionths: 800_000,
+        });
+      assert.deepEqual(await buyAt(stores[0]!, 0), {
+        state: "SKIPPED",
+        reason: "OPEN_CAP_EXCEEDED",
+      });
+
+      // Two markets are FINAL: 300 bUSD stay open, so room for exactly twenty buys of ten shares.
+      await owner.query(
+        "UPDATE chain.markets SET state='FINAL' WHERE market_id IN (4,5)",
+      );
+      const race = await Promise.all(
+        Array.from({ length: 24 }, (_, i) => buyAt(stores[i % 4]!, i)),
+      );
+      assert.equal(race.filter((r) => r.state === "RESERVED").length, 20);
+      assert.deepEqual(
+        [
+          ...new Set(
+            race
               .filter((r) => r.state === "SKIPPED")
               .map((r) => (r as { reason: string }).reason),
           ),
@@ -347,21 +420,18 @@ test(
         },
       };
       assert.equal(await store.authorize(reservationId), true);
-      const first = (await store.prepare(approve))!;
+      const first = preparedId(await store.prepare(approve));
       assert.equal(
-        (await store.prepare(approve))!.intentId,
-        first.intentId,
+        preparedId(await store.prepare(approve)),
+        first,
         "one intent under one key",
       );
-      assert.deepEqual(await store.intent(first.intentId), {
-        intentId: first.intentId,
+      assert.deepEqual(await store.intent(first), {
+        intentId: first,
         state: "PREPARED",
         mined: null,
       });
-      assert.equal(
-        (await store.trade(intentId))!.approve?.intentId,
-        first.intentId,
-      );
+      assert.equal((await store.trade(intentId))!.approve?.intentId, first);
 
       const wallet = testAccounts.trader.address;
       assert.deepEqual(
@@ -403,13 +473,13 @@ test(
       ]);
       // A released buy is not authorized and nothing more can be prepared for it.
       assert.equal(await store.authorize(reservationId), false);
-      assert.equal(
+      assert.deepEqual(
         await store.prepare({
           ...approve,
           kind: "FILL",
           dedupeKey: "trader:fill:" + intentId,
         }),
-        null,
+        { state: "NOT_AUTHORIZED" },
       );
       // A snapshot maps to the window it was made from; an unknown one maps to nothing.
       const snapshotId = randomUUID();
@@ -536,9 +606,85 @@ test(
               ["trader:approve:" + intentId],
             )
           ).rows.length,
-          spent === null ? 0 : 1,
+          spent.state === "PREPARED" ? 1 : 0,
           "an intent exists exactly when the spend won the lock",
         );
+      }
+    });
+  },
+);
+
+test(
+  "real PostgreSQL: two buys of one mandate racing to prepare an approve end with exactly one approve intent",
+  { timeout: 60_000 },
+  async () => {
+    await withDatabase(async ({ owner, pool }) => {
+      await seed(owner, pool);
+      const stores = [
+        postgresTraderStore(pool("blink_worker", 4)),
+        postgresTraderStore(pool("blink_worker", 4)),
+      ];
+      const mandate = (await stores[0]!.mandate("FORECASTER_A"))!;
+      const window = (
+        await owner.query("SELECT id FROM forecasts.windows LIMIT 1")
+      ).rows[0]!;
+      const buy = async () => {
+        const intentId = randomUUID();
+        const reserved = await stores[0]!.reserve({
+          mandate,
+          intentId,
+          deploymentId: DEPLOYMENT,
+          marketId: "1",
+          windowId: window.id,
+          side: "YES",
+          shares: 1,
+          askBps: 6700,
+          ownProbabilityMillionths: 800_000,
+        });
+        const { reservationId } = reserved as { reservationId: string };
+        return {
+          reservationId,
+          approve: {
+            reservationId,
+            deploymentId: DEPLOYMENT,
+            kind: "APPROVE" as const,
+            dedupeKey: "trader:approve:" + intentId,
+            payload: { tradeIntentId: intentId },
+            unsignedPayload: {
+              to: "0x00000000000000000000000000000000000000a2",
+              functionName: "approve",
+              args: ["0x00000000000000000000000000000000000000a1", "670000"],
+            },
+          },
+        };
+      };
+      const approves = async () =>
+        (
+          await owner.query(
+            "SELECT id FROM signing.economic_intents WHERE kind='APPROVE'",
+          )
+        ).rows.length;
+      for (let round = 1; round <= 8; round += 1) {
+        const [a, b] = [await buy(), await buy()];
+        const results = await Promise.all([
+          stores[0]!.prepare(a.approve),
+          stores[1]!.prepare(b.approve),
+        ]);
+        // The allowance is set, not added to: only one of the two approves may exist.
+        assert.equal(await approves(), round, "round " + round);
+        assert.deepEqual(results.map((r) => r.state).sort(), [
+          "APPROVE_IN_FLIGHT",
+          "PREPARED",
+        ]);
+        // The winner is not refused for holding the allowance: its own key returns its own intent.
+        const [winner, key] =
+          results[0]!.state === "PREPARED"
+            ? [results[0]!, a]
+            : [results[1]!, b];
+        assert.deepEqual(await stores[0]!.prepare(key.approve), winner);
+        // Giving both buys back lets the next round start clean.
+        await stores[0]!.release(a.reservationId, "ROUND");
+        await stores[0]!.release(b.reservationId, "ROUND");
       }
     });
   },

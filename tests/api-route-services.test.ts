@@ -306,6 +306,143 @@ test("a thrown plain Error is a 500 INTERNAL_ERROR that leaks nothing", async ()
   }
 });
 
+const withCode = (message: string, code: string) =>
+  Object.assign(new Error(message), { code });
+
+test("a database that cannot be reached is a retryable 503, not a permanent 500", async () => {
+  let thrown: unknown;
+  const app = buildApi({
+    services: [
+      {
+        paths: ["/v1/markets"],
+        async handle() {
+          throw thrown;
+        },
+      },
+    ],
+  });
+  app.log.level = "silent";
+  try {
+    const unreachable = [
+      new Error("timeout exceeded when trying to connect"),
+      new Error("Connection terminated unexpectedly"),
+      new Error("Connection terminated due to connection timeout"),
+      new Error(
+        "Client has encountered a connection error and is not queryable",
+      ),
+      withCode("terminating connection due to administrator command", "57P01"),
+      withCode("the database system is starting up", "57P03"),
+      withCode("connection failure", "08006"),
+      withCode("unable to establish connection", "08001"),
+      withCode("connection does not exist", "08003"),
+      withCode("connect ECONNREFUSED 127.0.0.1:5432", "ECONNREFUSED"),
+      withCode("read ECONNRESET", "ECONNRESET"),
+      withCode("connect ETIMEDOUT 10.0.0.1:5432", "ETIMEDOUT"),
+    ];
+    for (const error of unreachable) {
+      thrown = error;
+      const res = await app.inject("/v1/markets");
+      const label = String((error as Error).message);
+      assert.equal(res.statusCode, 503, label);
+      assert.deepEqual(
+        { ...(res.json() as object), requestId: "x" },
+        {
+          code: "SERVICE_NOT_READY",
+          message: "SERVICE_NOT_READY",
+          requestId: "x",
+          retryable: true,
+          details: { reason: "DATABASE_UNAVAILABLE" },
+        },
+        label,
+      );
+      assert.equal(res.headers["retry-after"], "1", label);
+      assert.equal(res.headers["cache-control"], "no-store", label);
+      assert.doesNotMatch(res.body, /ECONN|127\.0\.0\.1|10\.0\.0\.1/, label);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("every other unexpected error stays a non-retryable 500", async () => {
+  let thrown: unknown;
+  const app = buildApi({
+    services: [
+      {
+        paths: ["/v1/markets"],
+        async handle() {
+          throw thrown;
+        },
+      },
+    ],
+  });
+  app.log.level = "silent";
+  try {
+    const others = [
+      new Error("password=hunter2"),
+      new Error("connection string is invalid"),
+      new TypeError("fetch failed"),
+      withCode("duplicate key value violates unique constraint", "23505"),
+      withCode("canceling statement due to statement timeout", "57014"),
+      withCode("relation does not exist", "42P01"),
+      withCode("division by zero", "22012"),
+      withCode("deadlock detected", "40P01"),
+      withCode("too many connections", "53300"),
+      withCode("connection refused by the signer", "SIGNER_ERROR"),
+      "timeout exceeded when trying to connect",
+      null,
+    ];
+    for (const error of others) {
+      thrown = error;
+      const res = await app.inject("/v1/markets");
+      const label = String((error as Error | null)?.message ?? error);
+      assert.equal(res.statusCode, 500, label);
+      assert.equal(res.json().code, "INTERNAL_ERROR", label);
+      assert.equal(res.json().retryable, false, label);
+      assert.deepEqual(res.json().details, {}, label);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("the identity routes map an unreachable database the same way, and keep an IdentityError as it is", async () => {
+  let thrown: unknown;
+  const app = buildApi({
+    identity: {
+      async mutate() {
+        throw thrown;
+      },
+    } as unknown as IdentityService,
+  });
+  app.log.level = "silent";
+  const post = () =>
+    app.inject({
+      method: "POST",
+      url: "/v1/auth/wallet-challenges",
+      headers: key,
+      payload: {},
+    });
+  try {
+    thrown = new Error("timeout exceeded when trying to connect");
+    const down = await post();
+    assert.equal(down.statusCode, 503);
+    assert.equal(down.json().code, "SERVICE_NOT_READY");
+    assert.equal(down.json().retryable, true);
+    assert.equal(down.headers["retry-after"], "1");
+
+    // A business error keeps its own status, and any other failure stays a 500.
+    thrown = new IdentityError(409, "REQUEST_IN_PROGRESS");
+    assert.equal((await post()).statusCode, 409);
+    thrown = new Error("password=hunter2");
+    const other = await post();
+    assert.equal(other.statusCode, 500);
+    assert.equal(other.json().retryable, false);
+  } finally {
+    await app.close();
+  }
+});
+
 test("Address and Hash params reach the service lowercased", async () => {
   const { service, calls } = fakeService([
     "/v1/accounts/:address/positions",

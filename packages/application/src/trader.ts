@@ -213,6 +213,14 @@ const isMined = (fact: TraderIntentFact | null) =>
   fact !== null &&
   fact.mined === "success" &&
   (fact.state === "INCLUDED" || fact.state === "FINALIZED");
+// An ERC-20 approve sets the allowance, it does not add to it. A buy with an approve out and no
+// mined fill still needs that allowance, so no other buy of the wallet approves in the meantime.
+const holdsAllowance = (trade: TraderTrade) =>
+  trade.reservation.state === "HELD" &&
+  trade.approve !== null &&
+  trade.approve.state !== "FAILED" &&
+  trade.fill?.state !== "FAILED" &&
+  !isMined(trade.fill);
 
 export interface TraderRun {
   /** Why the whole run did nothing (no mandate, mandate disabled). */
@@ -274,6 +282,11 @@ export function createTrader(deps: TraderDeps) {
   const aborted = (signal: AbortSignal) => {
     if (signal.aborted) throw new JobError("OPERATION_ABORTED", true);
   };
+  // Whether a buy other than `intentId` holds the allowance, read now.
+  const allowanceHeldByOther = async (agentId: string, intentId: string) =>
+    (await store.trades({ agentId, deploymentId: deps.deploymentId })).some(
+      (t) => t.reservation.intentId !== intentId && holdsAllowance(t),
+    );
 
   // Sends one intent through the dispatcher until a block holds it, it fails for good, the run's
   // time budget is spent, or `allowed` (asked before every dispatch) says the spend is off. A
@@ -494,7 +507,7 @@ export function createTrader(deps: TraderDeps) {
     if (wait) return wait;
     if (!isMined(trade.approve)) {
       const prepared = trade.approve
-        ? { intentId: trade.approve.intentId }
+        ? { state: "PREPARED" as const, intentId: trade.approve.intentId }
         : await store.prepare({
             reservationId: r.id,
             deploymentId: r.deploymentId,
@@ -514,7 +527,10 @@ export function createTrader(deps: TraderDeps) {
               ],
             },
           });
-      if (!prepared) return "WAITING:NOT_AUTHORIZED";
+      // Refused under the mandate's lock while another buy's approve awaits its fill.
+      if (prepared.state === "APPROVE_IN_FLIGHT")
+        return "WAITING:APPROVE_IN_FLIGHT";
+      if (prepared.state !== "PREPARED") return "WAITING:NOT_AUTHORIZED";
       const outcome = await drive(prepared.intentId, deadline, signal, allowed);
       if (outcome === "FAILED") return release("APPROVE_FAILED");
       if (outcome === "STOPPED") return "WAITING:NOT_AUTHORIZED";
@@ -524,7 +540,7 @@ export function createTrader(deps: TraderDeps) {
       if (next) return next;
     }
     const prepared = trade.fill
-      ? { intentId: trade.fill.intentId }
+      ? { state: "PREPARED" as const, intentId: trade.fill.intentId }
       : await store.prepare({
           reservationId: r.id,
           deploymentId: r.deploymentId,
@@ -541,7 +557,7 @@ export function createTrader(deps: TraderDeps) {
             args: [wire(verified.message), verified.signature],
           },
         });
-    if (!prepared) return "WAITING:NOT_AUTHORIZED";
+    if (prepared.state !== "PREPARED") return "WAITING:NOT_AUTHORIZED";
     const outcome = await drive(prepared.intentId, deadline, signal, allowed);
     if (outcome === "FAILED") return release("FILL_FAILED");
     if (outcome === "STOPPED") return "WAITING:NOT_AUTHORIZED";
@@ -590,7 +606,7 @@ export function createTrader(deps: TraderDeps) {
         continue;
       }
       const prepared = intent
-        ? { intentId: intent.intentId }
+        ? { state: "PREPARED" as const, intentId: intent.intentId }
         : await store.prepare({
             reservationId: null,
             deploymentId: deps.deploymentId,
@@ -603,8 +619,10 @@ export function createTrader(deps: TraderDeps) {
               args: [marketId],
             },
           });
-      // A redeem pays the wallet and spends nothing: the kill switch does not stop it.
-      const intentId = prepared!.intentId;
+      // A redeem pays the wallet and spends nothing: the kill switch does not stop it, and with no
+      // reservation there is nothing to authorize, so it is always prepared.
+      if (prepared.state !== "PREPARED") continue;
+      const intentId = prepared.intentId;
       const outcome = await drive(intentId, deadline, signal, null);
       if (outcome === "MINED") await deps.track(intentId);
       run.redeemed[marketId] =
@@ -701,6 +719,12 @@ export function createTrader(deps: TraderDeps) {
         marketId: market.marketId,
         windowId: snapshot.windowId,
       });
+      // Not even reserved while another buy's approve awaits its fill: a later run starts it, or
+      // this one, if the buy in flight is mined first.
+      if (await allowanceHeldByOther(mandate.agentId, intentId)) {
+        run.markets[market.marketId] = "WAITING:APPROVE_IN_FLIGHT";
+        continue;
+      }
       const reserved = await store.reserve({
         mandate,
         intentId,

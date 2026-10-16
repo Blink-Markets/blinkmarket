@@ -23,7 +23,12 @@ import {
 
 export const TRADER_WALLET = testAccounts.trader.address;
 export type Mode =
-  "mine" | "pending" | "revert" | "reject" | "reverted-receipt";
+  | "mine"
+  | "pending"
+  | "revert"
+  | "reject"
+  | "reverted-receipt"
+  | "retryable-error";
 
 /** Marks an intent as a block holds it: a signed artifact and an attempt with a receipt. */
 export async function markMined(
@@ -110,6 +115,8 @@ export function fakeDispatcher(w: TradingWorld) {
         });
         return "REVERTED" as const;
       }
+      if (mode === "retryable-error")
+        throw new TxDispatchError("RPC_UNAVAILABLE", true);
       if (mode === "reject") {
         await w.owner(() =>
           w.t.db.query(
