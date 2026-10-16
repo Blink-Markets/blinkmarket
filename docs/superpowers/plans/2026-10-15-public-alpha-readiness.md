@@ -119,6 +119,52 @@ These run after the previous plan's final review. They can run in parallel: A1 �
 
 **Drill:** the local harness triggers each alert once.
 
+### Task A4b: Alert producers (added 2026-10-17 after the A4 review)
+
+**Why:** the A4 review found that only `alert.deadline` has a producer. Spec §17.3 requires 「budget、pause、RPC 故障、keeper 超時告警可演練」. Delivery of injected events does not meet that. Each family must fire from its real condition.
+
+**Goal:** a periodic worker job `alert.evaluate` that detects each condition, opens an alert episode, re-alerts while it stays open, and sends a CLEARED alert when it ends. All of these go through the A4 outbox → `alert.deliver` path.
+
+**Files:**
+- Create: migration `0022_alert_episodes.sql`, `packages/application/src/alert-evaluate.ts`, `packages/adapters/src/alert-evaluate-store.ts`.
+- Modify: the worker registry, handlers and scheduler (scheduled like `scheduleResolution`), worker config, `packages/adapters/src/alert-payload.ts` (allow-list), `tests/postgres/alerts.test.ts`, the `drill:alerts` script, `docs/M5_ALERTS.md`, `docs/OPERATIONS.md`.
+
+**Rules:**
+1. **Episodes.** `operations.alert_episodes(deployment_id, family, subject, active, reason, opened_at, last_alert_at, consecutive_failures)`, keyed by `(deployment_id, family, subject)`. Grants follow 0019/0020: worker only, no PUBLIC.
+   - Inactive → active: emit `alert.<family>` with `state: "OPEN"`.
+   - Active for longer than the re-alert interval (default 60 min): emit `state: "STILL_OPEN"`.
+   - Active → inactive: emit `state: "CLEARED"`.
+   - The episode row and its outbox row are written in one transaction.
+2. **Families and conditions.** Reuse existing queries and predicates; do not write a second version of them.
+   - `alert.budget`:
+     - the daily research gate, using the same SQL as health-reader `BUDGET_GATE_CLOSED`, with the reason taken from `gate_closed_reason`;
+     - any closed question gate;
+     - signer gas-cap refusals: `signing.sign_requests` rows with `state = 'REJECTED'` and `reject_code` in (`GAS_CAP_EXCEEDED`, `GAS_DAILY_CAP_EXCEEDED`) in the last 24 hours, with role as the subject (spec: 「超過即停止並告警」).
+   - `alert.pause`:
+     - the indexed global and per-market pause projection, with the same query as the A3 operator-status `pause()`; subject `global` or `market:<id>`;
+     - a closed maker-pool gate; subject `pool`, reason `gate_reason`.
+   - `alert.indexer_lag`: the health reader's `INDEXER_LAG` freshness predicate, with block and head numbers.
+   - `alert.rpc`: when the worker has an RPC configured, probe it with `eth_chainId` and `eth_blockNumber` (5 s timeout, chain 84532 expected).
+     - Open after 3 consecutive failures (configurable).
+     - Clear on the first success.
+     - Without an RPC configured, this family is not evaluated, and the docs say so.
+   - `alert.keeper_overdue`: a non-FINAL market whose finalize is due (the keeper's own due predicate) and has stayed due for more than 600 chain-seconds (configurable). Subject `market:<id>`. This is separate from `alert.deadline`, which warns before a deadline.
+   - `alert.jobs_dead`: the DEAD job count is above 0. The payload carries the count and job types only.
+3. **Keeper independence.** `alert.evaluate` runs whenever the worker runs, including when execution and the keeper are not configured (`docs/OPERATIONS.md`: 「期限告警不依賴 keeper 單一 process」).
+4. **Payload hygiene.**
+   - The payload allow-list carries `deploymentId`, `family`, `state`, `subject`, `reason`, `since`, and numeric/block fields only.
+   - `reason` and codes must match `^[A-Z0-9_]{1,64}$`.
+   - No free-text errors, URLs, evidence, keys or job payloads.
+5. **Drill.** `pnpm drill:alerts` creates each real condition in its test database (closed budget gate, gas-cap refusal row, pause projection, stale cursor, RPC probe against a closed local port, overdue market, DEAD job). It asserts OPEN delivered through the file sink, then clears the condition and asserts CLEARED. No injected `alert.*` rows remain in the drill.
+
+**Tests:**
+- Episode transitions, including no duplicate OPEN across ticks.
+- The re-alert interval.
+- CLEARED.
+- One test per family from its real condition.
+- Keeper not configured.
+- Payload allow-list.
+
 ### Task A5: Backup and restore drill
 
 **Goal:** The §17.3 "備份恢復成功" evidence, runnable locally and in CI: dump a deployment database, restore into a fresh one, replay canonical chain events, reconcile reservations, and reopen quoting only after reconciliation.
