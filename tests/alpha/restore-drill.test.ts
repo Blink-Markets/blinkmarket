@@ -8,14 +8,15 @@ import {
 import { databaseTraces, leakedTraces } from "../helpers/postgres-traces.js";
 
 // One real Alpha run supplies the source database and the chain; the drill then runs on it
-// four times: once as intended and three times with a deliberate fault the drill must catch.
+// five times: twice as intended (the second with a worker already reconciling) and three times with a deliberate fault the drill must catch.
 test(
   "a restored database replays, stays gated until reconciled, and the drill catches a restore that does not",
-  { timeout: 400_000 },
+  { timeout: 480_000 },
   async (t) => {
     const before = await databaseTraces();
     const outcomes = {} as {
       ok: RestoreDrillReport;
+      withWorker: RestoreDrillReport;
       early: unknown;
       tampered: unknown;
       diverged: unknown;
@@ -30,8 +31,12 @@ test(
         t.signal,
         AbortSignal.timeout(ALPHA_DEADLINE_MS * 2),
       ]),
-      afterScenarios: async (context) => {
+      whileOpen: async (context) => {
         outcomes.ok = await runRestoreDrill(context);
+        // A worker that is already running reconciles from the moment the database is back.
+        outcomes.withWorker = await runRestoreDrill(context, {
+          reconcileLoop: true,
+        });
         // A restore that reopens quoting before the reconciler has run.
         outcomes.early = await failure(
           runRestoreDrill(context, {
@@ -95,6 +100,22 @@ test(
     assert.ok(report.gates[2]!.reasons.includes("OVERCOMMITTED"));
     assert.deepEqual(report.gates[3]!.reasons, []);
     assert.equal(report.openReservations, 0);
+    assert.equal(report.schemaIdentical, true);
+    // The dump held an unfilled quote; the reconciler judged it against the chain.
+    assert.ok(report.heldInDump >= 1);
+    assert.ok(report.reconciled.accounted + report.reconciled.released >= 1);
+
+    // With a worker reconciling all along, quoting still stays closed until the cursor is fresh:
+    // its passes before the catch-up refused to judge, and the quote was settled afterwards.
+    const worker = outcomes.withWorker;
+    assert.ok(
+      worker.reconcileSkips >= 1,
+      "the worker's early passes were refused",
+    );
+    assert.ok(worker.gates[0]!.reasons.includes("OVERCOMMITTED"));
+    assert.ok(worker.gates[1]!.reasons.includes("OVERCOMMITTED"));
+    assert.ok(worker.reconciled.accounted + worker.reconciled.released >= 1);
+    assert.deepEqual(worker.gates.at(-1)!.reasons, []);
 
     assert.match(String(outcomes.early), /RESTORE_QUOTING_REOPENED_EARLY/);
     assert.match(String(outcomes.tampered), /RESTORE_REPLAY_DIFFERS/);

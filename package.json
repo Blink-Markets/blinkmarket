@@ -40,6 +40,7 @@
     "infra:up": "docker compose -f infra/compose.yaml up -d",
     "infra:down": "docker compose -f infra/compose.yaml down",
     "alpha:local": "node scripts/check-contracts.mjs && node --import tsx --test tests/alpha/local-alpha.test.ts",
+    "restore:prepare": "node --import tsx scripts/restore-prepare.ts",
     "drill:restore": "node scripts/check-contracts.mjs && node --import tsx scripts/restore-drill.ts",
     "drill:restore:test": "node scripts/check-contracts.mjs && node --import tsx --test tests/alpha/restore-drill.test.ts"
   },

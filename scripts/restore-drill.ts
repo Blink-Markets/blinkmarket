@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
+import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
@@ -15,11 +17,14 @@ import {
   type AlphaDrillContext,
 } from "./local-alpha.js";
 import { attemptAll, runChild, settle } from "../tests/helpers/lifecycle.js";
+import { prepareRestoredDatabase } from "./restore-prepare.js";
 
-// The backup and restore drill (spec 17.3, "backup restore succeeds"). It dumps the finished
-// local Alpha's database with the PostgreSQL 17 client tools from the pinned image, restores the
-// dump into a fresh database, and brings that database back the way a real recovery must:
-//   1. the pool's quote gate is closed before anything else looks at the restored data;
+// The backup and restore drill (spec 17.3, "backup restore succeeds"). It runs inside the local
+// Alpha while the last market is open and the taker holds an unfilled quote. It dumps that
+// database with the PostgreSQL 17 client tools from the pinned image, restores the dump into a
+// fresh database, and brings that database back the way a real recovery must:
+//   1. `prepareRestoredDatabase` (scripts/restore-prepare.ts) closes the pool's quote gate before
+//      anything else looks at the restored data;
 //   2. the restored projections are compared with the pre-dump ones, with the contract's views at
 //      the dump's block, and replayed from the canonical events (`chain:rebuild --verify`);
 //   3. the indexer catches up with the chain (the chain moved on while the "disaster" lasted);
@@ -27,12 +32,25 @@ import { attemptAll, runChild, settle } from "../tests/helpers/lifecycle.js";
 // A step that finds a difference, or finds quoting open before step 4, fails the drill.
 export const POSTGRES_IMAGE = "postgres:17.6";
 const TOOL_TIMEOUT_MS = 60_000;
+const PULL_TIMEOUT_MS = 300_000;
+// The restore happens this long after the dump: the restored cursor is stale on the database
+// clock, as a real one is, so only the reconciler's own freshness rule keeps the gate shut.
+const RESTORE_DELAY_SECONDS = 3600n;
+// The chain's clock moves past the unfilled quote's 30 s validity while the database is gone.
+const OUTAGE_SECONDS = 300n;
 const CHILD_TIMEOUT_MS = 60_000;
 // Control-plane statements (CREATE DATABASE and the like) get the same room withDatabase gives.
 const CONNECT_TIMEOUT_MS = 10_000;
 const STATEMENT_TIMEOUT_MS = 30_000;
 // Blocks mined while the database is "lost": more than the RFQ lag rule tolerates (3).
 const GAP_BLOCKS = 6;
+
+export interface RestoreDrillOptions {
+  interfere?: RestoreDrillInterference;
+  // Runs the reservation reconciler continuously from the restore on, as a worker that was
+  // already running would. Quoting must still stay closed until the cursor is fresh.
+  reconcileLoop?: boolean;
+}
 
 export interface RestoreDrillInterference {
   // Run on the restored database (as its owner) right after pg_restore: a faulty restore.
@@ -51,9 +69,15 @@ export interface RestoreDrillReport {
   rebuildDifferences: number;
   matchesContractAtDump: boolean;
   matchesContractAtHead: boolean;
+  schemaIdentical: boolean;
+  // Reservations still HELD in the dump.
+  heldInDump: number;
   // Why quoting was closed at each checkpoint; the last one is the first with quoting open.
   gates: { checkpoint: string; reasons: string[] }[];
+  // What the reconciler settled after the restore (every pass added up).
   reconciled: { accounted: number; released: number; reopened: number };
+  // Passes that refused to judge a cursor that was not fresh.
+  reconcileSkips: number;
   openReservations: number;
 }
 
@@ -80,6 +104,20 @@ function toolFor(adminUrl: URL): Tool {
   };
 }
 
+// A first run on a fresh machine pulls the image: give that its own bound, outside the tool timeout.
+let imageReady: Promise<void> | undefined;
+function ensureImage(): Promise<void> {
+  const exec = promisify(execFile);
+  imageReady ??= exec("docker", ["image", "inspect", POSTGRES_IMAGE]).then(
+    () => undefined,
+    () =>
+      exec("docker", ["pull", POSTGRES_IMAGE], {
+        timeout: PULL_TIMEOUT_MS,
+      }).then(() => undefined),
+  );
+  return imageReady;
+}
+
 // Runs one PostgreSQL client tool inside the pinned image; the password travels in the
 // container's environment, never in an argument.
 function runTool(
@@ -89,6 +127,17 @@ function runTool(
   options: { input?: Buffer; signal: AbortSignal },
 ): Promise<Buffer> {
   const name = "blink-drill-" + randomUUID().slice(0, 8);
+  return ensureImage().then(() =>
+    runContainer(tool, name, label, args, options),
+  );
+}
+function runContainer(
+  tool: Tool,
+  name: string,
+  label: string,
+  args: string[],
+  options: { input?: Buffer; signal: AbortSignal },
+): Promise<Buffer> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(
       "docker",
@@ -150,15 +199,21 @@ function runTool(
   });
 }
 
-// Every table's row count and content digest, every table and column privilege, and the maker
-// pool's gate (the one thing the restore procedure itself changes, so it is kept apart).
+// Every table's row count and content digest, and every table and column privilege. Two tables
+// are left out because the restore procedure itself changes them: the maker pool (its gate) and the
+// chain cursor (its lease); the cursor is compared field by field instead.
 async function fingerprint(db: pg.Pool) {
   const tables = (
     await db.query<{ schema: string; name: string }>(
       `SELECT schemaname AS schema, tablename AS name FROM pg_tables
       WHERE schemaname NOT IN ('pg_catalog','information_schema') ORDER BY 1,2`,
     )
-  ).rows.filter((t) => `${t.schema}.${t.name}` !== "trading.maker_pools");
+  ).rows.filter(
+    (t) =>
+      !["trading.maker_pools", "chain.cursors"].includes(
+        `${t.schema}.${t.name}`,
+      ),
+  );
   const rows: Record<string, string> = {};
   for (const { schema, name } of tables) {
     const { rows: result } = await db.query(
@@ -189,7 +244,7 @@ const SECONDS = (ms: number) => Math.floor(ms / 1000);
 
 export async function runRestoreDrill(
   context: AlphaDrillContext,
-  options: { interfere?: RestoreDrillInterference } = {},
+  options: RestoreDrillOptions = {},
 ): Promise<RestoreDrillReport> {
   const { deploymentId, owner, anvil, manifest, life, chainStore } = context;
   const adminUrl = new URL(process.env.TEST_POSTGRES_ADMIN_URL ?? "");
@@ -212,7 +267,24 @@ export async function runRestoreDrill(
 
   // What the database and the chain say before the disaster.
   life.stage("restore drill: capture");
+  const held = () =>
+    owner
+      .query(
+        "SELECT count(*)::int AS n FROM trading.collateral_reservations WHERE state IN ('HELD','RECONCILE_REQUIRED')",
+      )
+      .then((r) => r.rows[0].n as number);
+  // One quote through the normal RFQ path, left unfilled: its reservation is HELD in the dump.
+  if ((await held()) === 0) await context.requestQuote();
+  const heldInDump = await held();
+  assert.ok(heldInDump >= 1, "RESTORE_DRILL_NO_HELD_RESERVATION");
   const before = await chainStore.loadSnapshot(deploymentId);
+  // A drill that compares nothing proves nothing.
+  assert.ok(
+    before.events.length > 0 &&
+      before.projection.markets.size > 0 &&
+      before.projection.positions.size > 0,
+    "RESTORE_DRILL_EMPTY_SOURCE",
+  );
   const sourcePrint = await fingerprint(owner);
   const dumpBlock = before.cursor.blockNumber;
 
@@ -231,10 +303,30 @@ export async function runRestoreDrill(
     { signal: life.signal },
   );
   assert.ok(archive.length > 0, "RESTORE_DRILL_EMPTY_DUMP");
+  // The structure too: constraints, indexes, triggers (the append-only guards) and every ACL.
+  const schemaOf = async (name: string) =>
+    (
+      await runTool(
+        tool,
+        "pg_dump --schema-only",
+        ["pg_dump", "--schema-only", "--no-owner", ...dbArgs(name)],
+        { signal: life.signal },
+      )
+    )
+      .toString()
+      .replaceAll(name, "<database>")
+      // Each pg_dump run writes its own random psql \restrict token.
+      .replace(/^\\(un)?restrict .*\n/gm, "")
+      // PostgreSQL re-parenthesizes a long CHECK after a restore; the condition is the same.
+      .replace(/^.*\bCHECK\b.*$/gm, (line) => line.replace(/[()]/g, ""));
+  const sourceSchema = await schemaOf(sourceName);
 
   // The chain moves on while the database is gone: one event the dump cannot hold, then blocks.
   life.stage("restore drill: chain moves on");
   const newcomer = privateKeyToAccount(generatePrivateKey()).address;
+  await anvil.setNextTimestamp(
+    (await anvil.publicClient.getBlock()).timestamp + OUTAGE_SECONDS,
+  );
   await context.send(
     anvil.accounts.admin,
     context.market,
@@ -334,6 +426,7 @@ export async function runRestoreDrill(
   life.add("restore drill database", stop);
   let outcome: { error: unknown } | undefined;
   let report: RestoreDrillReport | undefined;
+  let stopLoopOnExit: (() => Promise<void>) | undefined;
   try {
     roleNames = Object.values(roles);
     await control.query(`CREATE DATABASE "${restoredName}"`);
@@ -351,7 +444,8 @@ export async function runRestoreDrill(
     // The restored database follows the chain's clock like the source did. This is set before
     // any pool connects, because a session reads it when it starts.
     const offset =
-      (await anvil.publicClient.getBlock()).timestamp -
+      (await anvil.publicClient.getBlock()).timestamp +
+      RESTORE_DELAY_SECONDS -
       BigInt(SECONDS(Date.now()));
     for (const role of [tool.user, ...roleNames])
       await control.query(
@@ -360,16 +454,46 @@ export async function runRestoreDrill(
     const restored = pool(urlFor());
     const indexerPool = pool(urlFor(roles.indexer, passwords.indexer));
     const workerPool = pool(urlFor(roles.worker, passwords.worker));
+    const tradingStore = adapters.postgresTradingStore(workerPool);
+    // Every pass of the reconciler, whoever runs it, is added up here.
+    const reconciled = { accounted: 0, released: 0, reopened: 0 };
+    let reconcileSkips = 0;
+    const reconciler = application.createQuoteReconciler(tradingStore);
+    const reconcile = async () => {
+      const { skipped, ...counts } =
+        await reconciler.reconcileOnce(deploymentId);
+      if (skipped) reconcileSkips += 1;
+      for (const key of ["accounted", "released", "reopened"] as const)
+        reconciled[key] += counts[key];
+      return skipped;
+    };
+    // A worker that was already running when the database came back.
+    let loopFailure: unknown;
+    let looping = !!options.reconcileLoop;
+    const loop = options.reconcileLoop
+      ? (async () => {
+          while (looping) {
+            await reconcile().catch((error) => {
+              loopFailure ??= error;
+            });
+            await delay(25);
+          }
+        })()
+      : undefined;
+    const stopLoop = async () => {
+      looping = false;
+      await loop;
+      if (loopFailure) throw loopFailure;
+    };
+    stopLoopOnExit = stopLoop;
     await options.interfere?.afterRestore?.(restored);
 
-    // Rule 3: the first act on a restored database is to close quoting.
+    // Rule 3: the first act on a restored database is to close quoting (and free the cursor).
     life.stage("restore drill: close quoting");
-    await restored.query(
-      `INSERT INTO trading.maker_pools(deployment_id, gate_reason) VALUES($1,'OVERCOMMITTED')
-      ON CONFLICT (deployment_id) DO UPDATE SET gate_reason='OVERCOMMITTED', version=trading.maker_pools.version+1`,
-      [deploymentId],
-    );
-    const tradingStore = adapters.postgresTradingStore(workerPool);
+    await prepareRestoredDatabase(restored, deploymentId);
+    // What quoting would be refused for, mirroring the RFQ's admission (application/src/rfq.ts):
+    // the pool gate, settled reservations whose block left the canonical chain, and the lag rule
+    // against the live head. The last one is the only reason that is not stored in the database.
     const reasons = () =>
       tradingStore.run(async (tx) => {
         const found: string[] = [];
@@ -385,6 +509,8 @@ export async function runRestoreDrill(
         if (status !== "FRESH") found.push(status);
         return found;
       });
+    // With a worker running, quoting may legitimately open once the cursor is fresh and a
+    // reconcile has judged it, so only the checkpoints before the catch-up are strict then.
     const checkpoint = async (name: string, closed: boolean) => {
       const found = await reasons();
       gates.push({ checkpoint: name, reasons: found });
@@ -446,13 +572,15 @@ export async function runRestoreDrill(
       );
     }
     await compareWithContract(context, afterRestore.projection, dumpBlock);
-
-    // The indexer that held the cursor's lease died with the old database; its lease is only a
-    // lapse of up to 30 s, and no indexer runs against the restored copy yet.
-    await restored.query(
-      "UPDATE chain.cursors SET lease_owner=NULL, lease_until=NULL WHERE deployment_id=$1",
-      [deploymentId],
-    );
+    const restoredSchema = await schemaOf(restoredName);
+    if (restoredSchema !== sourceSchema) {
+      const a = sourceSchema.split("\n"),
+        b = restoredSchema.split("\n");
+      const at = a.findIndex((line, i) => line !== b[i]);
+      throw new Error(
+        `RESTORE_NOT_EQUAL_TO_DUMP: the restored schema differs from the source schema at line ${at + 1}: ${JSON.stringify(a[at])} vs ${JSON.stringify(b[at])}`,
+      );
+    }
     life.stage("restore drill: catch up with the chain");
     const indexer = application.createChainIndexer({
       store: restoredChain,
@@ -479,19 +607,29 @@ export async function runRestoreDrill(
       replayed.projection,
       replayed.cursor.blockNumber,
     );
-    await checkpoint("replayed to head", true);
+    await checkpoint("replayed to head", !options.reconcileLoop);
 
     // Rule 3: nothing but the reconciler opens quoting.
     await options.interfere?.beforeReconcile?.(restored);
     life.stage("restore drill: reconcile reservations");
-    if ((await reasons()).length === 0)
+    if (!options.reconcileLoop && (await reasons()).length === 0)
       throw new Error(
         "RESTORE_QUOTING_REOPENED_EARLY: quoting is open before the reconciler ran",
       );
-    const reconciled = await application
-      .createQuoteReconciler(tradingStore)
-      .reconcileOnce(deploymentId);
+    assert.equal(
+      await reconcile(),
+      undefined,
+      "RESTORE_RECONCILER_SKIPPED_A_FRESH_CURSOR",
+    );
+    await stopLoop();
     await checkpoint("reconciled", false);
+    // A reservation that was HELD in the dump must have been judged against the chain.
+    if (reconciled.accounted + reconciled.released < 1)
+      throw new Error(
+        "RESTORE_RECONCILE_SETTLED_NOTHING: the dump held " +
+          heldInDump +
+          " reservation(s) and the reconciler concluded none",
+      );
     assert.deepEqual(
       gates.at(-1)!.reasons,
       [],
@@ -511,12 +649,20 @@ export async function runRestoreDrill(
       rebuildDifferences: rebuilt.differences.length,
       matchesContractAtDump: true,
       matchesContractAtHead: true,
+      schemaIdentical: true,
+      heldInDump,
       gates,
       reconciled,
+      reconcileSkips,
       openReservations,
     };
   } catch (error) {
     outcome = { error };
+  }
+  try {
+    await stopLoopOnExit?.();
+  } catch (error) {
+    outcome ??= { error };
   }
   try {
     await stop();
@@ -600,7 +746,7 @@ if (
         AbortSignal.timeout(ALPHA_DEADLINE_MS * 2),
       ]),
       onStage: (stage) => console.log("DRILL stage: " + stage),
-      afterScenarios: async (context) => {
+      whileOpen: async (context) => {
         report = await runRestoreDrill(context);
       },
     });

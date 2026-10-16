@@ -1,4 +1,5 @@
 import { JobError } from "@blink/domain";
+import { indexerStatus } from "./rfq.js";
 import type {
   JobHandler,
   OpenReservation,
@@ -63,15 +64,28 @@ export function decideReservation(input: {
  */
 export function createQuoteReconciler(store: TradingStore) {
   return {
-    reconcileOnce(
-      deploymentId: string,
-    ): Promise<{ accounted: number; released: number; reopened: number }> {
+    reconcileOnce(deploymentId: string): Promise<{
+      accounted: number;
+      released: number;
+      reopened: number;
+      /** Set only when nothing was judged: the cursor was not fresh (the RFQ's INDEXER_LAG rule). */
+      skipped?: "INDEXER_LAG";
+    }> {
       return store.run(async (tx) => {
-        const result = { accounted: 0, released: 0, reopened: 0 };
+        const result: {
+          accounted: number;
+          released: number;
+          reopened: number;
+          skipped?: "INDEXER_LAG";
+        } = { accounted: 0, released: 0, reopened: 0 };
         await tx.lockPool(deploymentId);
         const cursor = await tx.cursor(deploymentId);
-        // A gated projection is not evidence: keep every reservation as it is.
-        if (!cursor || cursor.gateReason) return result;
+        // A gated, stale or lagging projection is not evidence: keep every reservation and the
+        // pool gate as they are. Clearing OVERCOMMITTED on a view that trails the chain could
+        // reopen quoting against a balance the chain has already changed (after a restore, too).
+        if (!cursor) return result;
+        if (indexerStatus(cursor, cursor.headNumber) !== "FRESH")
+          return { ...result, skipped: "INDEXER_LAG" };
         result.reopened = await tx.reopenOrphaned(deploymentId);
         const maker = await tx.makerState(deploymentId);
         for (const reservation of await tx.openReservations(deploymentId)) {
