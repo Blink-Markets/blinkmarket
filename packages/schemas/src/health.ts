@@ -30,6 +30,7 @@ export const HealthResponse = z.strictObject({
       "RECONCILE_REQUIRED",
       "SIGNER_UNAVAILABLE",
       "BUDGET_GATE_CLOSED",
+      "ALERT_DELIVERY_STALLED",
       "SERVICE_NOT_READY",
     ]),
   ),

@@ -85,7 +85,11 @@ try {
   const health =
     pool && config.mode === "trading"
       ? createHealthService({
-          reader: postgresHealthReader(pool, config.deploymentId!),
+          reader: postgresHealthReader(pool, config.deploymentId!, {
+            ...(process.env.ALERT_STALL_SECONDS
+              ? { alertStallMs: Number(process.env.ALERT_STALL_SECONDS) * 1000 }
+              : {}),
+          }),
           authenticateAdmin: (authorization) =>
             createIdentityService(
               postgresIdentityStore(pool),

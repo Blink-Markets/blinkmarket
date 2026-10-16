@@ -19,8 +19,13 @@ export function createAlertDeliveryHandler(sink: AlertSink): JobHandler {
     try {
       await sink.deliver({ ...job.payload, dedupeKey, type } as Alert, signal);
       signal.throwIfAborted();
-    } catch {
-      throw new JobError("ALERT_SINK_FAILED", true);
+    } catch (error) {
+      throw new JobError(
+        error instanceof JobError && error.code === "ALERT_SINK_REJECTED"
+          ? "ALERT_SINK_REJECTED"
+          : "ALERT_SINK_FAILED",
+        true,
+      );
     }
   };
 }

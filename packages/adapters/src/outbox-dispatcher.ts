@@ -54,20 +54,26 @@ export async function dispatchOutbox(
       const map = Object.hasOwn(mapping, row.event_type)
         ? mapping[row.event_type]
         : undefined;
-      const specs = row.event_type.startsWith("alert.")
-        ? [
-            {
-              type: "alert.deliver" as const,
-              dedupeKey: `alert:${row.id}`,
-              payload: { ...alertPayload(row.id, row.event_type, row.payload) },
-            },
-          ]
-        : (map?.({
-            id: row.id,
-            type: row.event_type,
-            aggregateId: row.aggregate_id,
-            payload: row.payload,
-          }) ?? []);
+      const specs: OutboxJobSpec[] = [
+        // Every alert.* event is delivered; an explicit mapping adds to that, never replaces it.
+        ...(row.event_type.startsWith("alert.")
+          ? [
+              {
+                type: "alert.deliver" as const,
+                dedupeKey: `outbox:${row.id}:alert.deliver`,
+                payload: {
+                  ...alertPayload(row.id, row.event_type, row.payload),
+                },
+              },
+            ]
+          : []),
+        ...(map?.({
+          id: row.id,
+          type: row.event_type,
+          aggregateId: row.aggregate_id,
+          payload: row.payload,
+        }) ?? []),
+      ];
       for (const { coalesce, ...spec } of specs)
         await insertJob(
           db,

@@ -4,6 +4,10 @@ import { randomUUID } from "node:crypto";
 import { createTestDatabase } from "./helpers/database.js";
 import { dispatchOutbox } from "../packages/adapters/src/outbox-dispatcher.js";
 import { postgresJobQueue } from "../packages/adapters/src/job-queue.js";
+import { startJobLoops } from "../apps/worker/src/loops.js";
+import { isAllowedAlertWebhookUrl } from "../packages/adapters/src/alert-url.js";
+import { alertPayload } from "../packages/adapters/src/alert-payload.js";
+import { postgresHealthReader } from "../packages/adapters/src/health-reader.js";
 
 test("every alert.* event becomes a durable delivery job, including unknown alert types", async () => {
   const t = await createTestDatabase();
@@ -266,4 +270,435 @@ test("stdout sink emits one safe JSON line", () => {
     dedupeKey: `alert:${id}`,
     type: "alert.pause",
   });
+});
+
+const outboxRow = (
+  db: { query: (s: string, p: unknown[]) => Promise<unknown> },
+  type: string,
+  payload: unknown,
+) =>
+  db.query(
+    "INSERT INTO operations.outbox(id,event_type,aggregate_id,event_version,payload) VALUES($1,$2,'agg',1,$3::jsonb)",
+    [randomUUID(), type, JSON.stringify(payload)],
+  );
+
+async function until(check: () => Promise<boolean>) {
+  for (let n = 0; n < 300; n++) {
+    if (await check()) return true;
+    await delay(10);
+  }
+  return false;
+}
+
+test("a hung alert sink never holds the slot of tx.dispatch or keeper.finalize", async () => {
+  const t = await createTestDatabase();
+  let release!: () => void;
+  const hung = new Promise<void>((resolve) => (release = resolve));
+  let sinkCalls = 0;
+  let loops: ReturnType<typeof startJobLoops> | undefined;
+  try {
+    const queue = postgresJobQueue(t.pool);
+    // The alert is due first, so a shared single-slot loop would lease it before the others.
+    await queue.enqueue({
+      type: "alert.deliver",
+      dedupeKey: "hang",
+      payload: { dedupeKey: `alert:${randomUUID()}`, type: "alert.budget" },
+    });
+    await delay(5);
+    for (const type of ["tx.dispatch", "keeper.finalize"] as const)
+      await queue.enqueue({ type, dedupeKey: type, payload: {} });
+    const done: string[] = [];
+    loops = startJobLoops({
+      queue,
+      handlers: {
+        "tx.dispatch": async () => void done.push("tx.dispatch"),
+        "keeper.finalize": async () => void done.push("keeper.finalize"),
+      },
+      alertHandler: createAlertDeliveryHandler({
+        async deliver() {
+          sinkCalls++;
+          await hung;
+        },
+      }),
+      workerId: "loops",
+      pollIntervalMs: 10,
+    });
+    assert.ok(
+      await until(async () => done.length === 2),
+      "other jobs ran while the sink hung",
+    );
+    assert.equal(sinkCalls, 1);
+    const states = (
+      await t.pool.query("SELECT type,state FROM operations.jobs ORDER BY type")
+    ).rows;
+    assert.deepEqual(states, [
+      { type: "alert.deliver", state: "LEASED" },
+      { type: "keeper.finalize", state: "SUCCEEDED" },
+      { type: "tx.dispatch", state: "SUCCEEDED" },
+    ]);
+    release();
+    await loops.stop();
+    loops = undefined;
+  } finally {
+    release();
+    await loops?.stop();
+    await t.close();
+  }
+});
+
+test("the alert loop leases only alert.deliver and the main loop never leases it", async () => {
+  const t = await createTestDatabase();
+  let loops: ReturnType<typeof startJobLoops> | undefined;
+  try {
+    const queue = postgresJobQueue(t.pool);
+    await queue.enqueue({
+      type: "alert.deliver",
+      dedupeKey: "a",
+      payload: { dedupeKey: `alert:${randomUUID()}`, type: "alert.budget" },
+    });
+    const seen: string[] = [];
+    loops = startJobLoops({
+      queue,
+      handlers: {
+        "tx.dispatch": async ({ job }) => void seen.push(job.type),
+        // Even if a caller registers it, the main loop must not take alert.deliver.
+        "alert.deliver": async ({ job }) => void seen.push("main:" + job.type),
+      },
+      alertHandler: async ({ job }) => void seen.push("alert:" + job.type),
+      workerId: "split",
+      pollIntervalMs: 10,
+    });
+    assert.ok(await until(async () => seen.length === 1));
+    await delay(60);
+    assert.deepEqual(seen, ["alert:alert.deliver"]);
+  } finally {
+    await loops?.stop();
+    await t.close();
+  }
+});
+
+async function sinkServer(handler: (status: number) => number | "hang") {
+  let calls = 0;
+  const sockets = new Set<import("node:net").Socket>();
+  const server = createServer((req, res) => {
+    req.resume();
+    const out = handler(++calls);
+    if (out !== "hang") res.writeHead(out).end();
+  });
+  server.on("connection", (s) => sockets.add(s));
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    calls: () => calls,
+    async close() {
+      for (const s of sockets) s.destroy();
+      server.close();
+      await once(server, "close");
+    },
+  };
+}
+
+const deliverJob = (id = randomUUID()) => ({
+  id: "j",
+  type: "alert.deliver" as const,
+  payload: { dedupeKey: `alert:${id}`, type: "alert.budget" },
+  attempt: 1,
+  maxAttempts: 3,
+  leaseToken: "1",
+  workerId: "w",
+});
+
+test("HTTP 4xx is a distinct permanent sink error except 408 and 429; every failure is retryable", async () => {
+  for (const [status, code] of [
+    [400, "ALERT_SINK_REJECTED"],
+    [401, "ALERT_SINK_REJECTED"],
+    [404, "ALERT_SINK_REJECTED"],
+    [408, "ALERT_SINK_FAILED"],
+    [429, "ALERT_SINK_FAILED"],
+    [500, "ALERT_SINK_FAILED"],
+    [503, "ALERT_SINK_FAILED"],
+  ] as const) {
+    const server = await sinkServer(() => status);
+    try {
+      const handler = createAlertDeliveryHandler(webhookAlertSink(server.url));
+      await assert.rejects(
+        handler({ job: deliverJob(), signal: new AbortController().signal }),
+        (error: { code?: string; retryable?: boolean }) =>
+          error.code === code && error.retryable === true,
+        String(status),
+      );
+    } finally {
+      await server.close();
+    }
+  }
+});
+
+test("a rejected alert stays queued with its distinct code and is never DEAD or delivered", async () => {
+  const t = await createTestDatabase();
+  const server = await sinkServer(() => 404);
+  let worker: ReturnType<typeof startWorker> | undefined;
+  try {
+    const queue = postgresJobQueue(t.pool);
+    await queue.enqueue({
+      type: "alert.deliver",
+      dedupeKey: "rejected",
+      payload: { dedupeKey: `alert:${randomUUID()}`, type: "alert.budget" },
+      maxAttempts: 1,
+    });
+    worker = startWorker({
+      queue,
+      handlers: {
+        "alert.deliver": createAlertDeliveryHandler(
+          webhookAlertSink(server.url),
+        ),
+      },
+      workerId: "rejected",
+      pollIntervalMs: 10,
+    });
+    assert.ok(await until(async () => server.calls() >= 1));
+    await worker.stop();
+    worker = undefined;
+    const row = (
+      await t.pool.query("SELECT state,last_error_code FROM operations.jobs")
+    ).rows[0]!;
+    assert.deepEqual(row, {
+      state: "QUEUED",
+      last_error_code: "ALERT_SINK_REJECTED",
+    });
+  } finally {
+    await worker?.stop();
+    await server.close();
+    await t.close();
+  }
+});
+
+test("the webhook timeout is injectable and a timed-out alert is re-queued, not delivered", async () => {
+  const t = await createTestDatabase();
+  const server = await sinkServer(() => "hang");
+  let worker: ReturnType<typeof startWorker> | undefined;
+  try {
+    const queue = postgresJobQueue(t.pool);
+    await queue.enqueue({
+      type: "alert.deliver",
+      dedupeKey: "timeout",
+      payload: { dedupeKey: `alert:${randomUUID()}`, type: "alert.budget" },
+    });
+    worker = startWorker({
+      queue,
+      handlers: {
+        "alert.deliver": createAlertDeliveryHandler(
+          webhookAlertSink(server.url, { timeoutMs: 50 }),
+        ),
+      },
+      workerId: "timeout",
+      pollIntervalMs: 10,
+    });
+    assert.ok(
+      await until(
+        async () =>
+          (await t.pool.query("SELECT last_error_code FROM operations.jobs"))
+            .rows[0]?.last_error_code === "ALERT_SINK_FAILED",
+      ),
+    );
+    await worker.stop();
+    worker = undefined;
+    assert.equal(
+      (await t.pool.query("SELECT state FROM operations.jobs")).rows[0]?.state,
+      "QUEUED",
+    );
+  } finally {
+    await worker?.stop();
+    await server.close();
+    await t.close();
+  }
+});
+
+test("an abort mid-delivery re-queues the alert instead of acknowledging it", async () => {
+  const t = await createTestDatabase();
+  const server = await sinkServer(() => "hang");
+  const stop = new AbortController();
+  let worker: ReturnType<typeof startWorker> | undefined;
+  try {
+    const queue = postgresJobQueue(t.pool);
+    await queue.enqueue({
+      type: "alert.deliver",
+      dedupeKey: "abort",
+      payload: { dedupeKey: `alert:${randomUUID()}`, type: "alert.budget" },
+    });
+    worker = startWorker({
+      queue,
+      handlers: {
+        "alert.deliver": createAlertDeliveryHandler(
+          webhookAlertSink(server.url),
+        ),
+      },
+      workerId: "abort",
+      pollIntervalMs: 10,
+      signal: stop.signal,
+    });
+    assert.ok(await until(async () => server.calls() === 1));
+    stop.abort();
+    await worker.stop();
+    worker = undefined;
+    const row = (
+      await t.pool.query("SELECT state,last_error_code FROM operations.jobs")
+    ).rows[0]!;
+    assert.deepEqual(row, {
+      state: "QUEUED",
+      last_error_code: "ALERT_SINK_FAILED",
+    });
+  } finally {
+    await worker?.stop();
+    await server.close();
+    await t.close();
+  }
+});
+
+test("webhook URLs must be https except for loopback, with no credentials or fragment", () => {
+  for (const ok of [
+    "https://alerts.example/hook",
+    "http://127.0.0.1:8080/x",
+    "http://localhost:9/x",
+    "http://[::1]:9/x",
+  ])
+    assert.equal(isAllowedAlertWebhookUrl(ok), true, ok);
+  for (const bad of [
+    "http://alerts.example/hook",
+    "http://10.0.0.5/hook",
+    "ftp://127.0.0.1/x",
+    "https://user:pass@alerts.example/x",
+    "https://alerts.example/x#frag",
+    "<TO BE PROVIDED: alert destination URL>",
+    "not a url",
+    "",
+  ])
+    assert.equal(isAllowedAlertWebhookUrl(bad), false, bad);
+  assert.throws(
+    () => webhookAlertSink("http://alerts.example/hook"),
+    /INVALID_ALERT_WEBHOOK_URL/,
+  );
+  assert.throws(
+    () =>
+      alertConfig({
+        ALERT_SINK: "webhook",
+        ALERT_WEBHOOK_URL: "http://alerts.example/hook",
+      }),
+    /INVALID_ALERT_CONFIGURATION/,
+  );
+});
+
+test("a non-object alert payload is delivered as a marked minimal alert and never stalls the outbox", async () => {
+  for (const bad of [null, [1], "text", 7]) {
+    assert.deepEqual(
+      alertPayload(
+        "11111111-1111-1111-1111-111111111111",
+        "alert.budget",
+        bad as never,
+      ),
+      {
+        dedupeKey: "alert:11111111-1111-1111-1111-111111111111",
+        type: "alert.budget",
+        marker: "PAYLOAD_INVALID",
+      },
+    );
+  }
+  const t = await createTestDatabase();
+  try {
+    await outboxRow(t.pool, "alert.budget", null);
+    await outboxRow(t.pool, "market.indexed", { marketId: "1" });
+    await outboxRow(t.pool, "alert.pause", { marketId: "2" });
+    await t.setRole("blink_worker");
+    assert.equal(await dispatchOutbox(t.pool, {}), 3);
+    const queue = postgresJobQueue(t.pool);
+    const payloads = [];
+    for (let n = 0; n < 2; n++) {
+      const job = await queue.lease("nulls", ["alert.deliver"], 60_000);
+      assert.ok(job);
+      payloads.push(job.payload);
+      await queue.complete(job);
+    }
+    assert.deepEqual(payloads.map((p) => [p.type, p.marker ?? null]).sort(), [
+      ["alert.budget", "PAYLOAD_INVALID"],
+      ["alert.pause", null],
+    ]);
+  } finally {
+    await t.close();
+  }
+});
+
+test("an explicit alert.* mapping adds jobs beside delivery instead of being overridden", async () => {
+  const t = await createTestDatabase();
+  try {
+    await outboxRow(t.pool, "alert.custom", { marketId: "9" });
+    await t.setRole("blink_worker");
+    await dispatchOutbox(t.pool, {
+      "alert.custom": () => [
+        { type: "quote.reconcile", dedupeKey: "extra", payload: {} },
+      ],
+    });
+    const types = (
+      await t.pool.query("SELECT type FROM operations.jobs ORDER BY type")
+    ).rows.map((r) => r.type);
+    assert.deepEqual(types, ["alert.deliver", "quote.reconcile"]);
+  } finally {
+    await t.close();
+  }
+});
+
+test("the projection carries a format-checked deploymentId", () => {
+  const id = "11111111-1111-1111-1111-111111111111";
+  assert.equal(
+    alertPayload(id, "alert.deadline", { deploymentId: "base-sepolia_1" })
+      .deploymentId,
+    "base-sepolia_1",
+  );
+  for (const bad of ["", "-x", "a b", "x".repeat(129), "../x", 5])
+    assert.equal(
+      alertPayload(id, "alert.deadline", { deploymentId: bad }).deploymentId,
+      undefined,
+    );
+});
+
+test("health reports ALERT_DELIVERY_STALLED once an alert has been failing past the threshold", async () => {
+  const t = await createTestDatabase();
+  try {
+    const queue = postgresJobQueue(t.pool);
+    await queue.enqueue({
+      type: "alert.deliver",
+      dedupeKey: "stalled",
+      payload: {},
+    });
+    const reasons = async (options?: { alertStallMs?: number }) =>
+      (await postgresHealthReader(t.pool, "none", options).health()).reasons;
+    const job = await queue.lease("h", ["alert.deliver"], 60_000);
+    assert.ok(job);
+    await queue.fail(job, { code: "ALERT_SINK_FAILED", retryable: true });
+    // Failing, but younger than the 15 minute default.
+    assert.equal((await reasons()).includes("ALERT_DELIVERY_STALLED"), false);
+    await t.pool.query(
+      "UPDATE operations.jobs SET created_at=blink.now()-interval '16 minutes'",
+    );
+    assert.equal((await reasons()).includes("ALERT_DELIVERY_STALLED"), true);
+    // The threshold is configurable.
+    assert.equal(
+      (await reasons({ alertStallMs: 3_600_000 })).includes(
+        "ALERT_DELIVERY_STALLED",
+      ),
+      false,
+    );
+    // Permanent rejections count too; a delivered alert clears the reason.
+    await t.pool.query(
+      "UPDATE operations.jobs SET last_error_code='ALERT_SINK_REJECTED'",
+    );
+    assert.equal((await reasons()).includes("ALERT_DELIVERY_STALLED"), true);
+    await t.pool.query(
+      "UPDATE operations.jobs SET state='SUCCEEDED',next_run_at=blink.now()",
+    );
+    assert.equal((await reasons()).includes("ALERT_DELIVERY_STALLED"), false);
+  } finally {
+    await t.close();
+  }
 });

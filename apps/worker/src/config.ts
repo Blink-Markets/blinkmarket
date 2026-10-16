@@ -1,3 +1,4 @@
+import { isAllowedAlertWebhookUrl } from "@blink/adapters";
 import type { PlatformRole } from "@blink/domain";
 
 export interface WorkerConfig {
@@ -143,19 +144,7 @@ export function alertConfig(env: NodeJS.ProcessEnv): AlertConfig {
   if (sink === "stdout" && !path && !url) return { sink };
   if (sink === "file" && path && !url && !path.includes("<TO BE PROVIDED:"))
     return { sink, path };
-  if (sink === "webhook" && url && !path && !url.includes("<TO BE PROVIDED:")) {
-    try {
-      const parsed = new URL(url);
-      if (
-        ["http:", "https:"].includes(parsed.protocol) &&
-        !parsed.username &&
-        !parsed.password &&
-        !parsed.hash
-      )
-        return { sink, url };
-    } catch {
-      /* Do not echo destination configuration. */
-    }
-  }
+  if (sink === "webhook" && url && !path && isAllowedAlertWebhookUrl(url))
+    return { sink, url };
   throw new Error("INVALID_ALERT_CONFIGURATION");
 }
