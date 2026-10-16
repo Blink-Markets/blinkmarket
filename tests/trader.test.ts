@@ -1349,12 +1349,9 @@ test("only a stored business refusal releases the risk: every other RFQ answer k
         );
         continue;
       }
-      assert.deepEqual(first.trades, { [id]: "WAITING:RFQ:" + code }, label);
-      assert.deepEqual(
-        (await w.run()).trades,
-        { [id]: "WAITING:RFQ:" + code },
-        label,
-      );
+      const waiting = `WAITING:${retryable ? "RFQ" : "RFQ_NONRETRYABLE"}:${code}`;
+      assert.deepEqual(first.trades, { [id]: waiting }, label);
+      assert.deepEqual((await w.run()).trades, { [id]: waiting }, label);
       assert.deepEqual(
         (await w.reservations()).map((r) => r.state),
         ["HELD"],
@@ -1362,6 +1359,9 @@ test("only a stored business refusal releases the risk: every other RFQ answer k
       );
       // An odd answer is audited once per buy and code; a routine retryable one is not audited.
       assert.equal(await audits(), retryable ? 0 : 1, label);
+      // Only an answer that may clear soon asks for a resume run (one per run); a key that is not
+      // usable or a 500 is left to the periodic tick instead of being asked again every 2 seconds.
+      assert.equal(w.resumes.count, retryable ? 2 : 0, label);
       // The API answers again: the same key carries the buy through.
       canned = null;
       assert.deepEqual(
@@ -1408,7 +1408,7 @@ test("a run with a stale view gets a refusal or an error on the same-key replay 
       assert.equal(
         outer.trades[id],
         replay.status === 500
-          ? "WAITING:RFQ:INTERNAL_ERROR"
+          ? "WAITING:RFQ_NONRETRYABLE:INTERNAL_ERROR"
           : "WAITING:HANDED_OVER",
         replay.code,
       );

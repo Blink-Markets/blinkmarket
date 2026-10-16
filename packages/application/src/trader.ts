@@ -425,12 +425,16 @@ export function createTrader(deps: TraderDeps) {
           return releaseUnspent("RFQ_REJECTED:" + answer.code, false);
         // Anything else (a 500, a 401, an idempotency answer, no answer) proves nothing about the
         // quote: the buy stays HELD and the same key is asked again. Odd answers are audited once.
-        if (!answer.retryable)
+        if (!answer.retryable) {
           await store.audit({
             action: "trader.rfq_unanswered",
             resource: r.intentId,
             reason: answer.code,
           });
+          // Nothing here clears soon (and a 401 never reaches the API's rate limiter): the periodic
+          // tick asks again, not a resume run every 2 seconds.
+          return "WAITING:RFQ_NONRETRYABLE:" + answer.code;
+        }
         return "WAITING:RFQ:" + answer.code;
       }
       envelope = answer.quote;
@@ -730,9 +734,10 @@ export function createTrader(deps: TraderDeps) {
   }
 
   // Work that only needs more time (not a different state of the world) is picked up soon by a
-  // resume run rather than waited for here.
+  // resume run rather than waited for here. The match ends on a boundary, so a longer name such as
+  // WAITING:RFQ_NONRETRYABLE is not mistaken for WAITING:RFQ.
   const unfinished = (outcome: string) =>
-    /^(WAITING:(APPROVE|FILL|RFQ|BUDGET|CHAIN_UNAVAILABLE)|DEFERRED)/.test(
+    /^(WAITING:(APPROVE|FILL|RFQ|BUDGET|CHAIN_UNAVAILABLE)|DEFERRED)(:|$)/.test(
       outcome,
     );
   async function evaluate(signal: AbortSignal): Promise<TraderRun> {
