@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Draft for the user's review. Nothing in this plan runs until the user approves it. Track B steps also need the user's answers to the decisions below and an explicit go-ahead for each outward-facing action.
+**Status:** Track A approved by the user on 2026-10-17, with D1 = (a), D7 = (a) and D8 = (b) as recommended. A2 is deferred until an API is deployed (it is optional and needs a mockup); A7 waits for D6. Track B is not approved: it still needs the user's answers to D3–D6, D9 and D10 and an explicit go-ahead for each outward-facing action. For those choices the user prefers free or the cheapest options while the project is experimental.
 
 **Goal:** Take the locally verified v0.1 backend (plan `2026-10-14-remaining-milestones.md`, Tasks 1–17) to the spec §17.3 Public Alpha Definition of Done on Base Sepolia. Track A does everything that can be built and proven locally. Track B lists the deployment steps that need the user's resources and authorization. The functional web UI (spec §13 trading, positions, admin) is decision D1, not an assumption.
 
@@ -36,6 +36,8 @@ Each decision names the tasks it blocks. Recommendations are mine. None of the v
 | D8 | LIVE markets | (a) 1–3 companies with verified official IR sources and schedules; (b) "restricted preview" without forward-looking claims (§17.3 bullet 4) | (b) unless the user names companies | B5 |
 | D9 | Alert channel for budget, pause, RPC failure and keeper timeout | e-mail, chat webhook, pager | a webhook the user owns | A4 adapter config, B4 |
 | D10 | External acceptance: a non-team operator, a usability tester, the demo video | people and recording are the user's | — | B6, B7 |
+
+Recorded 2026-10-17: D1 = (a) read-only site, agent-only trading; D7 = (a) REPLAY/fixture; D8 = (b) restricted preview. D2 does not apply. Open: D3, D4, D5, D6, D9, D10 (preference: free or cheapest first).
 
 ## Global Constraints
 
