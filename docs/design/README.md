@@ -1,6 +1,6 @@
 # v0.1 細部設計
 
-進度更新（Tasks 1–13）：A/M0、B/M1 與 backend 的公開讀取、indexer、signer、RFQ、研究及營運切片已實作，尚未部署。見 [文件交付與狀態索引](../ROADMAP.md)、[RFQ](../M2_RFQ.md) 與 [研究 worker](../M3_RESEARCH_WORKERS.md)。僅本機 REPLAY，沒有付費模型；LIVE 核准仍拒絕。內部 trader、擴充 SDK／example agent、整合式本機 Alpha harness 與 readiness 留待後續工作。
+進度更新（Tasks 1–16）：A/M0、B/M1 與 backend 的公開讀取、indexer、signer、RFQ、研究及營運切片已實作，尚未部署。見 [文件交付與狀態索引](../ROADMAP.md)、[RFQ](../M2_RFQ.md) 與 [研究 worker](../M3_RESEARCH_WORKERS.md)。僅本機 REPLAY，沒有付費模型；LIVE 核准仍拒絕。[內部 trader](../M3_INTERNAL_TRADER.md)、[SDK／example agent](../M5_CLIENT_SDK.md)、[本機 Alpha harness](../M5_LOCAL_ALPHA.md) 與 [health/metrics readiness](../M5_HEALTH_METRICS.md) 已交付；驗收範圍與剩餘限制見 [矩陣](../ACCEPTANCE_MATRIX.md)，不代表公開 Alpha 完成。
 
 狀態：設計基線，2026-09-22。依第一版產品規格與既有架構拆解，可作後續實作與 code review 的依據；**下文是設計基線，實作範圍與差異以各交付記錄及程式為準，不代表已部署或所有工作包已完成**。
 

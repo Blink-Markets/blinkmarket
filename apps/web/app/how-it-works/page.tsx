@@ -29,7 +29,7 @@ const chapters = [
     n: "03", title: "Quote", Art: Quote,
     body: [
       "A taker requests a quote. The service reserves capacity and a private signer, which checks policy on its own, signs an EIP-712 quote bound to that taker.",
-      "The taker submits it from their own wallet and the contract validates it again. A signed quote is not a fill.",
+      "The typed client and local example agent verify the quote before exact-cost approval and fill. The contract validates it again. The internal trader follows an operator mandate; a signed quote is not a fill.",
     ],
   },
   {
@@ -65,7 +65,7 @@ export default function HowItWorksPage() {
         <h1 className={styles.title}>From a question to a scored forecast</h1>
         <p className={`prose ${styles.lede}`}>
           Research and coordination happen off-chain. Funds and outcomes live on-chain. Signing and
-          synchronisation run as separate backend processes, now implemented. Nothing is deployed and nothing trades here. Local verification is REPLAY only, with no paid models; LIVE approval remains rejected.
+          synchronisation run as separate backend processes, now implemented with health/readiness and admin execution metrics. A one-command local Alpha harness exercises three REPLAY settlement paths and projection recovery. Nothing is deployed and nothing trades here. Local verification is REPLAY only, with no paid models; LIVE approval remains rejected.
         </p>
       </section>
 

@@ -1,6 +1,6 @@
 # ADR 0002 — 固定部署身份、角色與復原邊界
 
-狀態：採用於細部設計，待工作包A/B/C實作。日期：2026-09-22。
+狀態：採用。原始決策日期：2026-09-22；當時工作包 A/B/C 尚待實作，後續範圍見 [整體架構](../ARCHITECTURE.md) 與 [驗收矩陣](../ACCEPTANCE_MATRIX.md)，不代表已部署。
 
 ## 1. Market ID
 
@@ -18,7 +18,7 @@
 
 原規格§6要求hardDeadline未finalize則INVALID寫入MarketSpec，但§5.2 JSON模板沒有明確欄位。採v0.1.1新增固定resolutionPolicy，完整承諾此既有規則。舊v0.1原bytes/hash不覆寫，serializer只用於新檔首次產生。
 
-這是落實既有語意的文件schema修訂，不修改payout、權限或期限。新schema尚未實作，仍需A2驗收。
+這是落實既有語意的文件schema修訂，不修改payout、權限或期限。新 schema 已實作於 `packages/schemas/src/core.ts`，交付與驗證見 [M0/M1](../M0_M1_DELIVERY.md)；原始「待 A2」狀態僅屬決策時點。
 
 ## 4. Signer 的唯一性
 

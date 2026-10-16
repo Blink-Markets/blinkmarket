@@ -98,4 +98,4 @@ Run on 2026-10-15 in the task worktree against local PostgreSQL 17 and a local A
 - **Provider support** (from Task 5): EIP-1898 `eth_call` with `requireCanonical` is assumed for the RFQ's chain reads too; no real Base Sepolia endpoint was contacted.
 - **Snapshot read per request**: the ensemble is read before admission, also for replays, because it needs its own connection.
 - **Worker mapping merge**: `chain.synced`/`chain.reorged` mappings are added next to any existing ones; another task assigning those keys after this block would replace them.
-- **Not covered**: maker withdrawal handling (stop quoting, drain outstanding quotes) beyond the `OVERCOMMITTED` gate, and the internal trader (Task 14).
+- **Outside this slice**: maker withdrawal handling (stop quoting, drain outstanding quotes) beyond the `OVERCOMMITTED` gate. The internal trader is now delivered separately in [M3_INTERNAL_TRADER.md](M3_INTERNAL_TRADER.md), including public RFQ integration and its remaining mandate/runtime limits.

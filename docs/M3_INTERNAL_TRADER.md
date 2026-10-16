@@ -88,7 +88,7 @@ Before it can trade, an operator must arrange, all outside this code:
 ## Differences from the brief
 
 - `risk_reservations` carries extra columns beyond the brief's list (`deployment_id`, `market_id`, `window_id`, `side`, `shares`, `ask_bps`, `own_probability_millionths`, `release_reason`) and range checks. Without them a restarted worker could not continue a buy whose decision had been taken, and the brief's own columns are all present unchanged.
-- The envelope checks are implemented locally in `verifyTraderQuote` because Task 15 (the client SDK) is not merged; they can be replaced by the SDK's verifier later.
+- The envelope checks are implemented locally in `verifyTraderQuote` because Task 15 was not merged when this slice was written. The [SDK verifier](M5_CLIENT_SDK.md) is now available; the trader still uses its own verifier, so consolidation remains an open refactor.
 - "Lock the mandate" is a transaction advisory lock, not a row lock (see above).
 - `ACCOUNTED` follows the canonical projection, and reverts to `HELD` on a reorg. `RELEASED` also covers a refused first signature, a terminal RFQ rejection, a refused envelope, a quote of another forecast window and a market that closed with no quote: in each, nothing was or will be sent for the buy. An RFQ that is merely unanswered is never released for being late (an earlier version gave it back after 120 seconds; review showed that could return risk for a position, and it was removed).
 - One buy per (mandate, market, window). A window whose buy was released is not retried; the next window may trade.

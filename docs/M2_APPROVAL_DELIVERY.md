@@ -25,7 +25,7 @@ sequenceDiagram
   A->>D: Atomic approval + spec reference + slot + intent + audit + outbox
   D-->>A: 202 DEPLOY_PENDING, approvalId, specHash, creationIntentId
   Note over A: Read unsigned calldata; inspect target, sender, chain and public spec
-  Note over A: Admin wallet signs/broadcasts separately; indexer integration is still pending
+  Note over A: Admin wallet signs/broadcasts separately; indexer integration was outside this slice
 ```
 
 The deployment registry holds verified manifests, not input-supplied `verified` flags. Registration invokes the existing verifier against an operator-configured RPC and locally supplied ABI artifacts. A deployment ID cannot be reassigned to a different manifest, and a market contract cannot be registered under multiple IDs. Re-registering the identical enabled deployment adds a new verification record.
@@ -83,4 +83,4 @@ Local tests cover atomic success, exact-byte public retrieval, ABI calldata deco
 
 The dedicated PostgreSQL suite also exercises four approvals competing on independent pooled connections, expecting one intent/slot/outbox event. Docker was checked on 2026-10-03 and its daemon was unavailable, so this suite and Docker image execution have **not been verified locally**. PGlite's serialized single-session tests are not a substitute for that concurrency check.
 
-Remaining work: canonical `MarketCreated` receipt reconciliation, chain-assigned market IDs, confirmations/reorg handling, intent failure/cancellation and audited slot release, admin wallet UI, RFQ reservations and signer integration. Pending slots are deliberately not auto-expired or released: a delayed transaction could still be mined. For now a pending intent retains its slot; do not bypass this by manually deleting rows. No LIVE market, funded account, remote transaction or paid model was used during implementation.
+At this slice’s checkpoint, remaining work included canonical `MarketCreated` receipt reconciliation, chain-assigned market IDs, confirmations/reorg handling, intent failure/cancellation and audited slot release, admin wallet UI, RFQ reservations and signer integration. Later [creation tracking](M2_CREATION_TRACKING.md), [indexer](M2_CHAIN_INDEXER.md), [RFQ](M2_RFQ.md), [signer](M2_SIGNER.md) and [local Alpha](M5_LOCAL_ALPHA.md) records describe the subsequent backend integration; the admin wallet UI remains open. Pending slots are deliberately not auto-expired or released: a delayed transaction could still be mined. For now a pending intent retains its slot; do not bypass this by manually deleting rows. No LIVE market, funded account, remote transaction or paid model was used during implementation.

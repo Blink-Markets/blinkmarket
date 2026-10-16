@@ -4,7 +4,7 @@
 
 M2.3a 增加 admin-only `GET /v1/admin/creation-intents/:id/chain-status`，回傳有 observedAt/headHash 的歷史觀測快照，不在 GET 時觸發 RPC。即使 CONFIRMED 也不代表不可 reorg；細節見 [建市追蹤](../M2_CREATION_TRACKING.md)。
 
-所有 endpoint prefix /v1。identity 模式啟用 wallet auth；preparation 模式另啟用候選／證據流程；approval 模式再啟用人工核准、管理員建市意圖查詢與公開原始 spec bytes，見 [M2 核准交付](../M2_APPROVAL_DELIVERY.md)。markets 模式已接公開市場／持倉／結算／交易追蹤、forecast、resolution reports 與 metrics；trading 模式另接 RFQ 與 faucet。未啟用的路徑仍 fail-closed。正式 OpenAPI 由 apiContracts 產生，實際可用性依 runtime 模式與 readiness；見 [公開讀取](../M2_PUBLIC_READS.md)、[RFQ](../M2_RFQ.md) 與 [keeper/faucet](../M3_KEEPER_FAUCET.md)。API 尚未部署。
+所有 endpoint prefix /v1。identity 模式啟用 wallet auth；preparation 模式另啟用候選／證據流程；approval 模式再啟用人工核准、管理員建市意圖查詢與公開原始 spec bytes，見 [M2 核准交付](../M2_APPROVAL_DELIVERY.md)。markets 模式已接公開市場／持倉／結算／交易追蹤、forecast、resolution reports 與 metrics；trading 模式另接 RFQ、faucet、公開 `GET /v1/health` 與 admin-only `GET /v1/admin/metrics`。Health 回 `{status, tradingEnabled, reasons}`，ready 為 200、否則 503；admin key 另加 details，無效／非 admin key 回 401／403。API `/health/ready` 使用同一決策；較早模式維持 not-ready。Admin metrics 提供 execution latency、持久化狀態／錯誤計數與 role/day gas，不是公開 evaluation metrics，見 [健康與指標](../M5_HEALTH_METRICS.md)。未啟用的路徑仍 fail-closed。正式 OpenAPI 由 apiContracts 產生，實際可用性依 runtime 模式與 readiness；見 [公開讀取](../M2_PUBLIC_READS.md)、[RFQ](../M2_RFQ.md) 與 [keeper/faucet](../M3_KEEPER_FAUCET.md)。API 尚未部署。
 
 ## ID / 型別 / 版本
 
@@ -18,7 +18,7 @@ M2.3a 增加 admin-only `GET /v1/admin/creation-intents/:id/chain-status`，回�
 - 未知 body 欄位拒絕，query filter 有 allowlist；content-type=application/json；預設 body 上限64KiB。Evidence 原文透過受控 storage pipeline，不塞 POST 任意 blob。
 - List 回 {items,nextCursor}；limit預設20最大100。cursor封裝排序 createdAt/id、filter hash，防串用篩選條件；依 endpoint 權限再過濾。
 
-上一輪「opaque market ID」設計已被此部署明確的規則取代，見 ADR0002。共享 schema 已使用 deploymentId + chain decimal marketId；初版 private client 不是已發布 SDK，擴充 SDK／example agent 留待後續交付。
+上一輪「opaque market ID」設計已被此部署明確的規則取代，見 ADR0002。共享 schema 已使用 deploymentId + chain decimal marketId；`@blink/client` 已補齊型別化端點回應、runtime validation、同 key 重試、spec hash 與 signed quote 驗證；仍是 private workspace package，未發布 npm。外部 agent 範例僅接本機 RPC，見 [SDK 交付](../M5_CLIENT_SDK.md)。
 
 ## 身份
 

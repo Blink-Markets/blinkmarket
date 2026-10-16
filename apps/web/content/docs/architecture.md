@@ -8,9 +8,13 @@ agentTask: understand which Blink component is responsible for what
 
 # Architecture
 
-Blink is a modular monolith with implemented API, worker, indexer and restricted signer processes. They are not deployed; local verification uses REPLAY fixtures with no paid model provider. The public site is read-only, with fictional samples and no trading. LIVE approval remains rejected. The internal trader, expanded client SDK/example agent and integrated local Alpha harness/readiness remain deferred.
+Blink is a modular monolith with implemented API, worker, indexer and restricted signer processes. They are not deployed; local verification uses REPLAY fixtures with no paid model provider. The public site is read-only, with fictional samples and no trading. LIVE approval remains rejected. The mandate trader, typed SDK and local example agent, local Alpha harness, health/readiness and admin execution metrics are implemented. The harness exercises normal YES, disputed NO and timeout INVALID settlement plus projection recovery on a local stack; it does not establish public-network finality or hosted readiness.
 
 ![Hand-drawn sketch of the target Blink architecture (target, not live): web, API, worker, indexer and signer processes around PostgreSQL, object storage and the BlinkMarket contract.](/docs-assets/architecture-sketch.jpg)
+
+The trading-mode API exposes public `GET /v1/health` and uses the same readiness decision for `/health/ready`. An admin key adds private diagnostics; `GET /v1/admin/metrics` is admin-only and reports execution latency, persisted status/error counts and role/day gas. Public evaluation metrics remain separate. Readiness does not guarantee a particular market or wallet can trade.
+
+The internal trader reserves mandate risk, verifies public RFQs and uses the restricted signer for exact approval, fill and FINAL redemption. It supports one trader per deployment; mandate caps are enforced by the worker, not independently by the signer. External agents can use the private [typed client](/docs/client) and local example; a future testnet API needs operator configuration.
 
 ## What are the three responsibilities?
 

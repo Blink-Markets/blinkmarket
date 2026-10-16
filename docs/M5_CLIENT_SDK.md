@@ -89,13 +89,13 @@ Branch `ws/t15-waitloop`. In the unknown-fill wait of `examples/agent/run.ts`, `
 
 Residual: both reads go to one node. If `consumed(digest)` were served by a node behind the one serving chain time, the answer could still be stale; reading `consumed` at the block number just read would close that and was not done.
 
-Parked (reviewer's Minors 6, 8 and 9): the cap on `Retry-After` and the worker's abort signal, the unreachable API expiry branch of the example and an exhausted `MAX_QUOTE_ATTEMPTS`, and folding the Anvil stack into Task 16's harness.
+Parked (reviewer's Minors 6, 8 and 9): the cap on `Retry-After` and the worker's abort signal, the unreachable API expiry branch of the example and an exhausted `MAX_QUOTE_ATTEMPTS`, and consolidating the separate Anvil test stack with Task 16’s now-integrated harness.
 
 Follow-up verification: `pnpm check` exit 0 (548 tests), `pnpm build` exit 0, `pnpm test:anvil` exit 0 (47 tests), `pnpm build:services && pnpm test:service-build` exit 0 (5 tests).
 
 ## Remaining limits and open items
 
-- **Task 16** will run the example as a process against the full harness (including the real keeper finalization); the Anvil test here finalizes the market with a direct, permissionless `finalizeUnchallenged`.
+- The integrated [Task 16b local harness](M5_LOCAL_ALPHA.md) now calls `runAgent` in process, with real worker keeper finalization for normal and timeout paths. It does not launch the example as a separate process; the Anvil tests in this slice still finalize with a direct, permissionless `finalizeUnchallenged`.
 - The example submits a fixed probability (a real forecaster derives it from evidence) and buys a fixed 10 YES shares with a 0.9 bUSD per share limit.
 - Request inputs are `unknown` at the type level (validated at run time). Typing them would break `tests/platform-forecaster.test.ts`, which passes `unknown` through, so it was left for a later change.
 - A network failure (no answer at all) is not retried by the client; a caller that needs it can repeat the call with the key it chose.

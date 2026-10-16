@@ -2,7 +2,7 @@
 
 圖解導覽：[架構圖解與運行方式](ARCHITECTURE_GUIDE.md)，先看目前已實作範圍，再看完整系統與運行流程。
 
-細部介面與交易順序見 [細部設計](design/README.md)；決策以 [ADR 0002](adr/0002-protocol-boundaries.md) 為準。M0/M1 與 Tasks 1–13 的 backend 已實作，尚未部署；API/worker/indexer/signer 已有業務接線。見 [RFQ](M2_RFQ.md)、[Signer](M2_SIGNER.md)、[Indexer](M2_CHAIN_INDEXER.md)、[公開讀取](M2_PUBLIC_READS.md) 與 [本輪文件交付](ROADMAP.md)。本機驗證僅 REPLAY，沒有付費模型，LIVE 核准仍拒絕；內部 trader、擴充 SDK／example agent、整合式本機 Alpha harness 與 health/metrics readiness 留待下一輪，不宣稱整個 M2/M3/M5 完成。
+細部介面與交易順序見 [細部設計](design/README.md)；決策以 [ADR 0002](adr/0002-protocol-boundaries.md) 為準。M0/M1 與 Tasks 1–16 的 backend 已實作，尚未部署；API/worker/indexer/signer 已有業務接線。見 [RFQ](M2_RFQ.md)、[Signer](M2_SIGNER.md)、[Indexer](M2_CHAIN_INDEXER.md)、[公開讀取](M2_PUBLIC_READS.md) 與 [本輪文件交付](ROADMAP.md)。本機驗證僅 REPLAY，沒有付費模型，LIVE 核准仍拒絕；[內部 trader](M3_INTERNAL_TRADER.md)、[SDK／example agent](M5_CLIENT_SDK.md)、[本機 Alpha harness](M5_LOCAL_ALPHA.md) 與 [health/metrics readiness](M5_HEALTH_METRICS.md) 已實作，不宣稱整個 M2/M3/M5 完成。
 
 ## 決策摘要
 
@@ -41,9 +41,9 @@ flowchart TB
 | --- | --- | --- |
 | Web | 唯讀說明站、文件與虛構 REPLAY 樣本；交易／持倉／管理 UI 尚未實作 | 獨立部署，透過 API，無 DB／signer secrets |
 | API | 認證、驗證、讀取、同步 RFQ 與 command 接收 | 無狀態，多 instance 前先共用限流與 DB reservation |
-| Worker | discovery、forecast、成本對帳、keeper 排程 | 同一 codebase 的 job registry，按 job type/併發限額擴展 |
+| Worker | discovery、forecast、成本對帳、keeper 與 mandate trader 排程 | 同一 codebase 的 job registry，按 job type/併發限額擴展 |
 | Indexer | event 拉取、reorg、projection、重啟 reconciliation | 每 deployment 單一 lease owner，擴容按 deployment 分片 |
-| Signer | maker quote、faucet、keeper 的受限簽署；trader policy 已有，trader worker 尚未實作 | 私有程序；已實作角色 key、caller token、nonce 鎖，部署隔離待完成 |
+| Signer | maker quote、faucet、keeper 的受限簽署；trader worker 已接 exact approve／fill／redeem | 私有程序；已實作角色 key、caller token、nonce 鎖，部署隔離待完成 |
 | 合約 | 抵押、成交、持倉、最終結果與贖回 | 非升級；新版本新部署，不可改舊市場規則 |
 
 初期 Web/API/Worker/Indexer 可共用一台小型應用主機；Signer 至少獨立程序與 OS/container 身份。caller 身份與每角色函式 allowlist 已實作；正式 Alpha 必須再落实網路 ACL 與獨立 secrets 管理；只分資料夾不形成安全隔離。手動管理與裁決錢包不放自動 signer。
@@ -89,7 +89,7 @@ flowchart LR
 - runtime：最小 HTTP bootstrap；不演變成任意工具的共用資料夾。
 - client：對外契約與範例，不引用後端內部資料模型。
 
-`pnpm check:boundaries` 檢查 package dependency / 靜態 import 的基本方向；它不是私鑰隔離或完整 static analysis。API 以明確模式逐層啟用 identity、preparation、approval、markets、trading；未設定服務維持 fail-closed，不回假成功。markets/trading 已接公開讀取、forecast、resolution 與 evaluation；trading 另接 RFQ、faucet。詳見 [身份交付](M2_IDENTITY_DELIVERY.md)、[公開讀取](M2_PUBLIC_READS.md)、[RFQ](M2_RFQ.md)。
+`pnpm check:boundaries` 檢查 package dependency / 靜態 import 的基本方向；它不是私鑰隔離或完整 static analysis。API 以明確模式逐層啟用 identity、preparation、approval、markets、trading；未設定服務維持 fail-closed，不回假成功。markets/trading 已接公開讀取、forecast、resolution 與 evaluation；trading 另接 RFQ、faucet、公開 health 與 admin execution metrics；API `/health/ready` 使用相同 readiness 決策。Readiness 不是個別市場／taker 的成交保證，見 [健康與指標](M5_HEALTH_METRICS.md)。詳見 [身份交付](M2_IDENTITY_DELIVERY.md)、[公開讀取](M2_PUBLIC_READS.md)、[RFQ](M2_RFQ.md)。
 
 ## 關鍵資料流
 
@@ -103,7 +103,7 @@ allowlist 擷取 → 保存 bytes/hash → candidate revision → validation →
 
 window 開放 → 原子研究預算預留 → 模型／外部提交 → 截止後公開 → 合格固定雙模型平均。Baseline 分開，缺一模型時 ensemble 缺失；maker 沒有合格 snapshot 即拒絕報價。
 
-RFQ 驗證身份／wallet／deployment／市場與 freshness → DB lock 下 maker collateral reservation → signer 重驗 → 回 EIP-712 quote。鏈上資金尚未鎖定；quote service 不替代合約驗證。外部 taker 本人 approve 與 fill；內部 trader 的 notional/gas mandate 是後續工作，不屬本輪已實作範圍。
+RFQ 驗證身份／wallet／deployment／市場與 freshness → DB lock 下 maker collateral reservation → signer 重驗 → 回 EIP-712 quote。鏈上資金尚未鎖定；quote service 不替代合約驗證。外部 taker 本人 approve 與 fill；內部 trader 已有 mandate 與鎖下 notional 預留，經公開 RFQ 與受限 signer 執行精確 approve／fill，FINAL 後 redeem。僅支援每 deployment 一個 trader；edge 必須嚴格超過門檻（預設 500 bps），恰好等於不交易。Mandate 由 DB owner 設定，signer 不重驗 mandate 額度；gas 另由 signer role/day 帳控管，詳見 [限制](M3_INTERNAL_TRADER.md)。
 
 Index canonical QuoteFilled → 同一 cursor 對帳 consumed、balance、reservation 與 position projection。簽署成功但回覆遺失也保留 reservation；到期不單憑本機時間釋放。
 

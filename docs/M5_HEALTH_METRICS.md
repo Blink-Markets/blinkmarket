@@ -21,8 +21,7 @@
   sample counts, quote/attempt/job status counts, persisted error-code counts,
   and exact decimal-string gas spend/reservations by role and UTC day.
 - `docs/ACCEPTANCE_MATRIX.md` maps all C01–C15 and S01–S12 to test files and
-  commands, explicitly separating pending standalone-client/harness integration
-  and public Alpha manual/deployment evidence.
+  commands, separating automated local evidence from public Alpha manual/deployment evidence. The subsequently integrated client and harness coverage is linked there.
 
 ## Readiness and metric semantics
 
@@ -51,7 +50,7 @@ saw inclusion, not the block's timestamp. Old receipts are deliberately not back
 `updated_at`. The API gains column-only reads of attempt status/timestamps and
 read access to the gas ledger; it still cannot read raw signed transactions or
 attempt transaction hashes. Existing migrations are unchanged. Number 0018 is
-reserved for the parallel internal trader task.
+now delivered by the [internal trader](M3_INTERNAL_TRADER.md) task.
 
 ## Verification
 
@@ -68,7 +67,7 @@ Verified locally on 2026-10-15:
   temporary offline font fixtures as described below; the ordinary run passed
   in the fix round.
 - Acceptance matrix validation: all 27 required cases appear exactly once and
-  all referenced existing test files exist; alpha harness explicitly pending.
+  all referenced existing test files existed; the Alpha harness was pending at that checkpoint and is now integrated (see [Local Alpha](M5_LOCAL_ALPHA.md)).
 - `git diff --check`: passed.
 
 HTTP/PostgreSQL/Anvil tests and Turbopack used local-loopback sandbox escalation.
@@ -83,6 +82,5 @@ it does not verify production font downloads or appearance.
 ## Remaining work
 
 Task 16b owns `scripts/local-alpha.ts`, `tests/alpha`, `pnpm alpha:local`, CI
-integration and `docs/M5_LOCAL_ALPHA.md`. None is changed or claimed as verified
-here. Real deployment, LIVE events, external-user acceptance, alert operations,
+integration and `docs/M5_LOCAL_ALPHA.md`; those are now delivered separately. This health/metrics slice did not verify the harness; see its delivery record for results and limits. Real deployment, LIVE events, external-user acceptance, alert operations,
 backups and demo publication remain the manual work in the acceptance matrix.

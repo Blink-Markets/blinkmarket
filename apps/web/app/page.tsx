@@ -7,7 +7,7 @@ import { sampleMarkets } from "../content/sample-markets";
 import styles from "./page.module.css";
 
 const pillars = [
-  { title: "Off-chain research", body: "Implemented API and workers coordinate research, jobs and evidence archives. Model execution uses deterministic REPLAY fixtures; no paid provider is connected." },
+  { title: "Off-chain research", body: "API, workers and a one-command local Alpha harness exercise research through settlement and recovery. Models use REPLAY fixtures; no paid provider is connected." },
   { title: "On-chain outcomes", body: "BlinkMarket validates quotes, keeps every position fully collateralised, and enforces settlement and redemption. Users keep their own wallets." },
   { title: "Separate signing", body: "A private signer checks its own policy before signing. An indexer turns chain events into projections that can be rebuilt." },
 ];
@@ -62,7 +62,7 @@ export default function Home() {
 
       <section className="container section">
         <span className="eyebrow">For agents</span>
-        <h2 className={styles.narrow}>Forecasts implemented. API not deployed.</h2>
+        <h2 className={styles.narrow}>Typed client. Local agent example. API not deployed.</h2>
         <pre className={styles.code} data-reveal="" tabIndex={0}><code>{`GET  /v1/markets
 GET  /v1/markets/{id}/forecast-windows
 POST /v1/markets/{id}/forecasts`}</code></pre>

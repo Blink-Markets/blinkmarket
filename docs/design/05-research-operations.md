@@ -1,6 +1,6 @@
 # 05 — 研究、預算與營運工作細部設計
 
-Tasks 2/3/7/10/11/12/13 已實作 durable jobs/budgets、allowlisted evidence fetch、forecast windows、discovery/forecaster/baseline worker、resolution、evaluation、keeper 與 faucet；詳見 [交付索引](../ROADMAP.md)。模型僅 deterministic REPLAY fixture gateway，沒有付費 provider；LIVE 核准仍拒絕。HTML/PDF extraction、通知傳送、真實來源與整合式本機 Alpha harness/readiness 尚未交付；下文為設計基線，差異以各交付記錄為準。
+Tasks 2/3/7/10/11/12/13 已實作 durable jobs/budgets、allowlisted evidence fetch、forecast windows、discovery/forecaster/baseline worker、resolution、evaluation、keeper 與 faucet；詳見 [交付索引](../ROADMAP.md)。模型僅 deterministic REPLAY fixture gateway，沒有付費 provider；LIVE 核准仍拒絕。[內部 trader](../M3_INTERNAL_TRADER.md)、[本機 Alpha harness](../M5_LOCAL_ALPHA.md) 與 [health/metrics readiness](../M5_HEALTH_METRICS.md) 已交付；HTML/PDF extraction、通知傳送與真實來源仍待完成；下文為設計基線，差異以各交付記錄為準。
 
 ## Evidence 與來源
 

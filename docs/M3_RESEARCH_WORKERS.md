@@ -43,7 +43,7 @@ Payload `{ sourceId, day, slot }`. `createDiscoveryScheduler` enqueues one per f
 5. A valid answer is stored (`forecasts.pending_answers`, with the run's reservation and provider request id) before it is submitted with the role's own key. If the response is lost, the run stays `STARTED` and the retry finds the stored answer and submits it again under the same run id and `Idempotency-Key`: no second model call or reservation, and the run that made the real submission ends `SUBMITTED`. The stored answer is deleted when the run ends (`SUBMITTED`, `LATE` or `FAILED`), so it exists only between the model's reply and the settled submission.
 6. `409 FORECAST_WINDOW_CLOSED` (the database clock decides) ends the run `LATE` without retry; a window already closed when the job starts is `LATE` without a model call. `BUDGET_EXHAUSTED` ends the run `FAILED`, non-retryable. Other API refusals end the run `FAILED` and keep their code and retryability; a retryable failure on the job's last attempt also ends it `FAILED`.
 
-The runner never queries `forecasts.submissions` or `forecasts.snapshots`; the `blink_worker` grants deny them (tests assert both). Stored pending answers are the one place the worker role can read forecast answers, and only its own unsettled ones; the runner reads them by agent and window only, and no other role has a grant on that table. The grant-level wall between the worker and published answers is unchanged.
+The runner never queries `forecasts.submissions` or `forecasts.snapshots`; the `blink_worker` grants deny them (tests assert both). Within this runner, stored pending answers contain only its own unsettled answers, read by agent and window; no other role has a grant on that table. Task 14 later adds closed-window answers through restricted trader views, not direct grants on the forecast tables; see [internal trader](M3_INTERNAL_TRADER.md), including the session-clock embargo limitation.
 
 ## Worker composition and configuration
 
@@ -83,4 +83,4 @@ Run on 2026-10-14 in the task worktree.
 - Platform agent API keys expire after at most 30 days (identity schema) and the worker has no rotation; keys are plain environment variables. Rotation and secret storage are deployment items.
 - Discovery does not record `forecasts.model_runs` rows (that table requires a registered agent id); its provenance is the scan run, the budget reservation and the idempotency record.
 - The `NO_CANDIDATE` answer form and the same-day evidence fallback are small additions to the brief.
-- Real LIVE sources, the end-to-end REPLAY wiring (Task 16) and the Task 16 registration of the platform agents with the prompt hashes are not part of this slice.
+- Real LIVE sources remain unconfigured. End-to-end REPLAY wiring and local fixture registration of the platform agents with prompt hashes are delivered separately by the integrated [local Alpha harness](M5_LOCAL_ALPHA.md); they were outside this slice.

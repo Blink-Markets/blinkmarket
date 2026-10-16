@@ -9,11 +9,8 @@ database; each test creates and drops its own random database. Anvil tests start
 their own local chain with chain ID 84532.
 
 This matrix identifies coverage, not a declaration that public Alpha is complete.
-The Task 16b harness (`tests/alpha/local-alpha.test.ts`, `pnpm alpha:local`) is
-being delivered independently and is **pending integration on this branch**.
-Its three lifecycle scenarios and restore drill must pass after that integration.
-Task 14 internal trader and Task 15 standalone client evidence are also separate
-deliveries; the existing API client tests below do not prove external usability.
+The integrated Task 16b harness (`tests/alpha/local-alpha.test.ts`, `pnpm alpha:local`) exercises normal YES, disputed NO and timeout INVALID REPLAY lifecycles, the local example agent and worker keeper finalization, plus canonical rebuild and drop/re-index restore drills. Recorded local results and limits are in [Local Alpha](M5_LOCAL_ALPHA.md); they do not prove hosted availability or public-network finality.
+[Internal trader](M3_INTERNAL_TRADER.md) and [client SDK](M5_CLIENT_SDK.md) evidence are separate deliveries. Automated client and harness tests do not prove external usability.
 
 ## §17.1 Contract cases
 
@@ -49,8 +46,8 @@ deliveries; the existing API client tests below do not prove external usability.
 | S08 | `tests/tx-tracking.test.ts`, `tests/chain-indexer.test.ts`, `tests/quote-reconcile.test.ts`; `tests/anvil/chain-indexer.test.ts`, `tests/anvil/rfq.test.ts`: replacement, duplicate logs, rollback/rebuild and reopened collateral | `node --import tsx --test tests/tx-tracking.test.ts tests/chain-indexer.test.ts tests/quote-reconcile.test.ts`; `pnpm test:anvil` |
 | S09 | `tests/preparation.test.ts`: corrupt source bytes fail approval; `tests/m0.test.ts`, `tests/approval-policy.test.ts`, `tests/file-object-store.test.ts`: spec byte/hash tampering and exact content-addressed bytes; `tests/market-read.test.ts`: a tampered archived spec is refused on read with `SPEC_UNAVAILABLE` and an audit row; `tests/trading-ops.test.ts`, `a SPEC_INTEGRITY gate stops new quotes...`: an operator-closed SPEC_INTEGRITY gate answers `NO_QUOTE`/`SPEC_INTEGRITY` and leaves markets, quotes, reservations and sign requests unchanged (the fixture holds no positions, so position preservation is not exercised). **Partial:** no automatic detector closes the gate | `node --import tsx --test tests/preparation.test.ts tests/m0.test.ts tests/approval-policy.test.ts tests/file-object-store.test.ts tests/market-read.test.ts tests/trading-ops.test.ts` |
 | S10 | `tests/forecasts.test.ts`, `tests/rfq.test.ts`, `tests/trading-ops.test.ts`: stale snapshot, early-announcement gate, indexer lag and reasons; `tests/health.test.ts`: degraded deployment health | `node --import tsx --test tests/forecasts.test.ts tests/rfq.test.ts tests/trading-ops.test.ts tests/health.test.ts` |
-| S11 | `tests/evaluation.test.ts`, `tests/market-read.test.ts`, `tests/web-sample-markets.test.ts`: mode is preserved, REPLAY excluded from LIVE event scores; harness will assert no LIVE rows | `node --import tsx --test tests/evaluation.test.ts tests/market-read.test.ts tests/web-sample-markets.test.ts`; pending `pnpm alpha:local` |
-| S12 | `tests/identity.test.ts`: invited client binds wallet through HTTP; `tests/discovery.test.ts`, `tests/platform-forecaster.test.ts`: platform agents use public API without DB mutation privileges. Full standalone example flow belongs to Task 15 and the Task 16b harness | `node --import tsx --test tests/identity.test.ts tests/discovery.test.ts tests/platform-forecaster.test.ts`; pending `pnpm alpha:local` |
+| S11 | `tests/evaluation.test.ts`, `tests/market-read.test.ts`, `tests/web-sample-markets.test.ts`: mode is preserved, REPLAY excluded from LIVE event scores; `tests/alpha/local-alpha.test.ts` and `scripts/local-alpha.ts` assert no LIVE market/score rows and zero LIVE event count | `node --import tsx --test tests/evaluation.test.ts tests/market-read.test.ts tests/web-sample-markets.test.ts`; `pnpm alpha:local` |
+| S12 | `tests/identity.test.ts`: invited client binds wallet through HTTP; `tests/discovery.test.ts`, `tests/platform-forecaster.test.ts`: platform agents use public API without DB mutation privileges. `tests/client.test.ts`, `tests/client-verify-quote.test.ts` and `tests/anvil/client-agent.test.ts` cover the SDK and example; the integrated Alpha harness runs `runAgent` in process through binding, forecast, faucet, verified RFQ, exact approval, fill tracking and redemption with keeper finalization for normal/timeout cases | `node --import tsx --test tests/identity.test.ts tests/discovery.test.ts tests/platform-forecaster.test.ts tests/client.test.ts tests/client-verify-quote.test.ts`; `pnpm test:anvil`; `pnpm alpha:local` |
 
 S09 is partially covered. Tested: separate source/archive integrity checks, the
 read-time refusal of a tampered spec, and the operator response (closing a
@@ -67,8 +64,7 @@ The generic gate path is also exercised with OUTCOME_KNOWN and OPERATOR_PAUSE in
   establish deployed availability.
 - Publish Base Sepolia source/ABI and verify a real deployment manifest against
   API/web. No real keys or public-chain transactions are part of these tests.
-- Integrate and run all three Task 16b REPLAY scenarios plus its canonical rebuild
-  and drop/re-index restore drill. This branch does not contain that harness.
+- Repeat the implemented local Alpha scenarios and projection restore drills as regression checks; separately rehearse hosted backups and restoration. The local harness is not a full operational restore drill.
 - Approve one eligible LIVE event with reviewed official sources and timestamped
   forecasts; until then label the product a restricted preview.
 - Have a non-team invited operator follow the docs and example to submit forecasts

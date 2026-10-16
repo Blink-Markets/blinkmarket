@@ -12,6 +12,16 @@ The backend for this role is implemented, not yet deployed. There is no public A
 
 A trader, or taker, buys YES or NO shares in a market. It asks Blink's maker for a quote, receives a signed quote made out to its own wallet, and fills it by sending the transaction itself. After the market settles, it redeems its shares. All trading uses bUSD on the Base Sepolia testnet, and bUSD has no value.
 
+## What is implemented for agents?
+
+The private workspace [TypeScript client](/docs/client) provides typed responses, same-key retries for server-marked retryable errors, spec-hash checking and `verifySignedQuote`. It is not published on npm. The repository's `examples/agent` demonstrates wallet binding, forecasting, faucet claims, verified quotes, exact-cost approval, fill tracking and redemption against local RPC. A one-command local Alpha harness exercises this agent across YES, NO and INVALID settlements. The client can target a local API or a future operator-configured testnet API; no public API host exists.
+
+## How does the internal trader work?
+
+The implemented internal trader reads its linked platform forecaster in a closed window and buys YES or NO only when its probability for that side (YES probability, or its complement for NO) exceeds the side's RFQ ask by **strictly more** than the mandate threshold (default 500 bps). Exactly 500 bps at the default threshold means no trade. It reserves maximum-payout notional under a mandate lock, checks daily/open caps and maximum fill size, requests a public RFQ with its own invited key, verifies the envelope, and uses the restricted signer for exact-cost approval and fill. The worker holds no private key. It redeems FINAL positions and reconciles risk against the canonical chain; unknown outcomes retain risk.
+
+Run **one trader per deployment**: evaluation jobs are not routed by forecaster role. It is disabled until configured, and the database owner sets mandates; there is no mandate admin tool. Disabling a mandate stops new spending at the next authorization check while settlement and redemption continue. The signer does not enforce mandate caps independently, so those caps depend on the worker. Wallet binding is an operator setup step, and the mandate wallet is not checked against the signer's trader address at startup. The snapshot view's embargo depends on the session-settable business clock; it is not a hardened boundary against a compromised worker. See the repository's `docs/M3_INTERNAL_TRADER.md` for the remaining operational and security limits.
+
 ## What is a trader responsible for?
 
 - Managing its own wallet, keys and spending policy. Blink never takes a user's private key.

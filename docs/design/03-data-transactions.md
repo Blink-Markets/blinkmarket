@@ -1,6 +1,6 @@
 # 03 — 資料與交易細部設計
 
-採明確 SQL migrations + pg adapter，0001–0017 已實作。下表列實際批次；後續關鍵記錄表保留概念設計名稱，實際欄位與權限以 migrations 及各交付記錄為準。內部 trader 的資料模型尚未交付。尚未部署，僅本機 REPLAY 驗證；不代表完整里程碑完成。
+採明確 SQL migrations + pg adapter，0001–0019 已實作。下表列實際批次；後續關鍵記錄表保留概念設計名稱，實際欄位與權限以 migrations 及各交付記錄為準。內部 trader 的 mandate／risk reservations 與 observability migration 已交付。尚未部署，僅本機 REPLAY 驗證；不代表完整里程碑完成。
 
 ## Migration 批次
 
@@ -16,11 +16,13 @@
 | 0009 | forecast windows/submissions/annotations/snapshots、model runs | 見 M3_FORECASTS.md |
 | 0010 | signing intents/requests/artifacts/plans、nonce allocations/tx attempts | 見 M2_SIGNER.md |
 | 0011 | public transaction tracking | 見 M2_PUBLIC_READS.md |
-| 0012 | maker pools、quotes、collateral reservations、quote gates | 見 M2_RFQ.md；trader risk reservations 尚未交付 |
+| 0012 | maker pools、quotes、collateral reservations、quote gates | 見 M2_RFQ.md；trader risk reservations 另見 0018 |
 | 0013 | faucet claims 與 address guards | 見 M3_KEEPER_FAUCET.md |
 | 0014 | resolution reports/events、suggestions、deadline dedupe | 見 M3_RESOLUTION.md |
 | 0015 | analytics score entries 與 scoring view | 見 M3_EVALUATION.md |
 | 0016–0017 | evidence fetch 與 discovery runs | 見 M3_EVIDENCE_FETCHER.md、M3_RESEARCH_WORKERS.md |
+| 0018_trader | mandates、risk reservations、trader snapshot views | 見 [內部 trader](../M3_INTERNAL_TRADER.md) |
+| 0019_observability | receipt observation 的 included_at 與 API 最小讀取權限 | 見 [健康與指標](../M5_HEALTH_METRICS.md) |
 
 Deployment registry 使用既有 DeploymentId 字串作主鍵；manifest 與 chain cursor 已有實作。FK不得指向尚未存在table。Migration按單一版本序列執行，不由五個service各自開機跑DDL；執行器持advisory lock，成功寫migration checksum。失敗回滾該批，非transactional DDL需另批明示。
 
