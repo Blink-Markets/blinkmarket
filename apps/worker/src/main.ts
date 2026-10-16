@@ -7,10 +7,14 @@ import {
   assertProductionClock,
   dispatchOutbox,
   postgresJobQueue,
+  stdoutAlertSink,
+  fileAlertSink,
+  webhookAlertSink,
 } from "@blink/adapters";
-import { startWorker } from "@blink/application";
+import { createAlertDeliveryHandler, startWorker } from "@blink/application";
 import { createService, startService } from "@blink/runtime";
 import {
+  alertConfig,
   executionConfig,
   researchConfig,
   traderConfig,
@@ -69,6 +73,14 @@ try {
     await assertProductionClock(database, false);
     await assertJobsMigrationInstalled(database);
     const queue = postgresJobQueue(database);
+    const alerts = alertConfig(process.env);
+    handlers["alert.deliver"] = createAlertDeliveryHandler(
+      alerts.sink === "webhook"
+        ? webhookAlertSink(alerts.url)
+        : alerts.sink === "file"
+          ? fileAlertSink(alerts.path)
+          : stdoutAlertSink(),
+    );
     registerEvaluationHandler(database);
     registerResolutionHandlers(database, process.env.EVIDENCE_OBJECT_DIRECTORY);
     registerQuoteReconcile(database);

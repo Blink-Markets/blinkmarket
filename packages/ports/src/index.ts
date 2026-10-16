@@ -46,3 +46,5 @@ export * from "./resolution.js";
 export * from "./execution.js";
 
 export * from "./health.js";
+
+export type { Alert, AlertSink } from "./alerts.js";

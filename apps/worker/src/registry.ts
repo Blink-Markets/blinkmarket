@@ -4,5 +4,5 @@ export const jobs = [
   "forecast.schedule", "forecast.dispatch", "forecast.run", "baseline.run",
   "budget.reconcile", "quote.reconcile", "chain.reconcile", "tx.dispatch",
   "tx.track", "resolution.parse", "resolution.alerts", "keeper.finalize",
-  "faucet.mint", "trader.evaluate", "evaluation.score",
+  "alert.deliver", "faucet.mint", "trader.evaluate", "evaluation.score",
 ] as const satisfies readonly JobType[];
