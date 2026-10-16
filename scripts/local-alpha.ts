@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AddressInfo } from "node:net";
+import type pg from "pg";
 import { keccak256, type Address, type Hex, type Abi } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import * as adapters from "../packages/adapters/src/index.js";
@@ -28,9 +29,10 @@ import { tradingServices } from "../apps/api/src/trading.js";
 import { buildSignerServer } from "../apps/signer/src/server.js";
 import { buildExecution } from "../apps/worker/src/execution.js";
 import { runAgent, type AgentConfig } from "../examples/agent/run.js";
-import { startAnvil } from "../tests/helpers/anvil.js";
+import { startAnvil, type Anvil } from "../tests/helpers/anvil.js";
 import { reportJobFailures } from "../tests/helpers/job-failures.js";
 import {
+  type Lifecycle,
   runChild,
   runWithCleanup,
   shutDownServer,
@@ -50,6 +52,27 @@ const DATABASE_LIMITS = {
 const DEPLOYMENT = "local-alpha";
 const TOKEN = "local-alpha-public-fixture-token";
 const hash = (text: string) => keccak256(new TextEncoder().encode(text));
+// What a drill that runs on the finished Alpha (the backup and restore drill) may use: the source
+// database, the chain, and the lifecycle that cleans up whatever the drill creates.
+export interface AlphaDrillContext {
+  deploymentId: string;
+  owner: pg.Pool;
+  anvil: Anvil;
+  manifest: Awaited<ReturnType<typeof deployContracts>>;
+  market: Address;
+  chainStore: ReturnType<typeof adapters.postgresChainIndexStore>;
+  life: Lifecycle;
+  // Asks the API for a quote as the scenario's taker; the quote stays unfilled.
+  requestQuote: () => Promise<{ quoteId: string }>;
+  send: (
+    account: Anvil["accounts"]["admin"],
+    address: Address,
+    abi: Abi,
+    functionName: string,
+    args: readonly unknown[],
+  ) => Promise<unknown>;
+}
+
 export interface AlphaReport {
   scenarios: {
     scenario: string;
@@ -100,6 +123,9 @@ export async function runLocalAlpha(
     signal?: AbortSignal;
     // Hears each stage the run enters, such as "scenario normal: external agent".
     onStage?: (stage: string) => void;
+    // Runs in the last scenario while its market is open and the taker has bought, with the
+    // indexer pump and the worker stopped; both restart when it returns.
+    whileOpen?: (context: AlphaDrillContext) => Promise<void>;
   } = {},
 ): Promise<AlphaReport> {
   const signal = options.signal ?? AbortSignal.timeout(ALPHA_DEADLINE_MS);
@@ -485,7 +511,7 @@ export async function runLocalAlpha(
       // so its tx.dispatch job answers TX_PENDING and retries until its attempts run out. That is
       // expected here; any other job failure ends the run, naming the job's type and error code,
       // instead of surfacing later as a timeout of whatever was waiting on it.
-      const worker = application.startWorker({
+      const workerOptions = {
         queue,
         workerId: "local-alpha",
         pollIntervalMs: 10,
@@ -498,7 +524,8 @@ export async function runLocalAlpha(
           ),
         }),
         signal: life.signal,
-      });
+      };
+      let worker = application.startWorker(workerOptions);
       life.add("worker", () => worker.stop());
       const runJob = async (
         type: JobType,
@@ -530,9 +557,9 @@ export async function runLocalAlpha(
       const discoveryClient = createBlinkClient(url, discovery.apiKey),
         adminClient = createBlinkClient(url, administrator.apiKey);
       // Indexer and transaction tracker follow the chain as `apps/indexer` does, for every scenario.
-      const stopPump = life.every("indexer pump", 100, () =>
-        sync().then(track),
-      );
+      const startPump = () =>
+        life.every("indexer pump", 100, () => sync().then(track));
+      let stopPump = startPump();
       for (const [i, scenario] of ["normal", "dispute", "timeout"].entries()) {
         console.log("ALPHA scenario " + scenario);
         life.stage("scenario " + scenario);
@@ -734,7 +761,8 @@ export async function runLocalAlpha(
           waitMs: {
             faucet: 30_000,
             indexing: 30_000,
-            final: 60_000,
+            // The drill hook runs while the agent waits; its time must not count against it.
+            final: options.whileOpen ? 300_000 : 60_000,
             // Anvil automines: after an abort the agent must not poll a dead node for minutes.
             receipt: RECEIPT_TIMEOUT_MS,
           },
@@ -744,6 +772,37 @@ export async function runLocalAlpha(
         await stopAfter(agent.bought, "block miner", stopBlocks);
         await sync();
         await reconcile.reconcileOnce(DEPLOYMENT);
+        // The market is open and the taker has just bought: the one moment a drill can leave a
+        // quote unfilled. Nothing else writes while it runs.
+        if (i === 2 && options.whileOpen) {
+          life.stage("scenario " + scenario + ": drill while open");
+          await stopPump();
+          await worker.stop();
+          await options.whileOpen({
+            deploymentId: DEPLOYMENT,
+            owner,
+            anvil,
+            manifest,
+            market,
+            chainStore,
+            life,
+            send,
+            requestQuote: () =>
+              createBlinkClient(url, external.apiKey).requestQuote(
+                {
+                  deploymentId: DEPLOYMENT,
+                  marketId,
+                  side: "YES",
+                  quantity: "1",
+                  maxCostMicros: "1000000",
+                },
+                randomUUID(),
+              ) as Promise<{ quoteId: string }>,
+          });
+          await setClock();
+          stopPump = startPump();
+          worker = application.startWorker(workerOptions);
+        }
         life.stage("scenario " + scenario + ": settlement");
         const position = (
           await owner.query(

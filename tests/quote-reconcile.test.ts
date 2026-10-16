@@ -28,6 +28,7 @@ import { poolAs } from "./helpers/research.js";
 import {
   DEPLOYMENT,
   FREE_MICROS,
+  HEAD_NUMBER,
   HEAD_TS,
   blockHash,
   seedSnapshot,
@@ -117,6 +118,8 @@ test("expiry releases on the block time of the cursor, never on a local clock", 
     const reconciler = reconcilerFor(w);
     // The database clock is an hour ahead; the canonical block is not past the expiry.
     await w.setDbClock(3600);
+    // The indexer syncs on that clock, so its cursor is fresh and the reconciler really judges.
+    await w.setCursor({ number: HEAD_NUMBER, timestamp: HEAD_TS });
     assert.deepEqual(await reconciler.reconcileOnce(DEPLOYMENT), {
       accounted: 0,
       released: 0,
@@ -200,6 +203,55 @@ test("an indexed cancellation or a maker epoch bump releases the reservation", a
     assert.equal((await events(bumped))[1]!.reason, "EPOCH_INCREMENTED");
   } finally {
     await bumped.close();
+  }
+});
+
+test("a cursor that is not fresh leaves the gate and the reservations alone; a fresh one reconciles as usual", async () => {
+  const gate = (w: TradingWorld) =>
+    w
+      .query<{ gate_reason: string | null }>(
+        "SELECT gate_reason FROM trading.maker_pools",
+      )
+      .then((rows) => rows[0]!.gate_reason);
+  for (const lagging of [
+    { headNumber: 110n }, // more than three blocks behind the head it last saw
+    { gate: "REORG_IN_PROGRESS" },
+    "stale",
+  ] as const) {
+    const w = await tradingWorld();
+    try {
+      await quoted(w);
+      const reconciler = reconcilerFor(w);
+      await reconciler.reconcileOnce(DEPLOYMENT);
+      await w.owner(() =>
+        w.query("UPDATE trading.maker_pools SET gate_reason='OVERCOMMITTED'"),
+      );
+      // The block time is past the quote's expiry, so a reconcile that looked would release it.
+      const cursor = { number: 105n, timestamp: HEAD_TS + 600n };
+      await w.setCursor(
+        lagging === "stale" ? cursor : { ...cursor, ...lagging },
+      );
+      if (lagging === "stale") await w.setDbClock(60);
+      assert.deepEqual(await reconciler.reconcileOnce(DEPLOYMENT), {
+        accounted: 0,
+        released: 0,
+        reopened: 0,
+        skipped: "INDEXER_LAG",
+      });
+      assert.equal(await gate(w), "OVERCOMMITTED");
+      assert.equal((await state(w)).state, "HELD");
+
+      await w.setCursor(cursor);
+      if (lagging === "stale") await w.setDbClock(0);
+      assert.deepEqual(await reconciler.reconcileOnce(DEPLOYMENT), {
+        accounted: 0,
+        released: 1,
+        reopened: 0,
+      });
+      assert.equal(await gate(w), null);
+    } finally {
+      await w.close();
+    }
   }
 });
 
@@ -331,10 +383,12 @@ test("while the indexer's cursor is gated nothing is concluded", async () => {
       gate: "PROJECTION_MISMATCH",
     });
     await fill(w, digest, 101n);
+    // Same as before, except that the outcome now says why nothing was judged.
     assert.deepEqual(await reconcilerFor(w).reconcileOnce(DEPLOYMENT), {
       accounted: 0,
       released: 0,
       reopened: 0,
+      skipped: "INDEXER_LAG",
     });
     assert.equal((await state(w)).state, "HELD");
   } finally {
