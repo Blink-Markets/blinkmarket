@@ -5,6 +5,11 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # On one developer machine pnpm check, the PostgreSQL, Anvil, contract and Alpha harness
+    # steps took about 2.5 minutes idle and about 9 minutes under heavy load, before install and
+    # the web build. 30 minutes is over three times the loaded figure, and still ends a hang
+    # that escapes every in-harness bound long before GitHub's 6-hour default.
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17.6
@@ -31,6 +36,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm test:postgres
+        env:
+          TEST_POSTGRES_ADMIN_URL: postgresql://blink_test:local-ci-only@127.0.0.1:5432/postgres
+      - run: pnpm alpha:local
         env:
           TEST_POSTGRES_ADMIN_URL: postgresql://blink_test:local-ci-only@127.0.0.1:5432/postgres
       - run: pnpm test:contracts

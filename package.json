@@ -38,7 +38,8 @@
     "test:anvil": "node --import tsx --test tests/anvil/*.test.ts",
     "test:browsers": "playwright test -c tests/browser/playwright.config.ts",
     "infra:up": "docker compose -f infra/compose.yaml up -d",
-    "infra:down": "docker compose -f infra/compose.yaml down"
+    "infra:down": "docker compose -f infra/compose.yaml down",
+    "alpha:local": "node scripts/check-contracts.mjs && node --import tsx --test tests/alpha/local-alpha.test.ts"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

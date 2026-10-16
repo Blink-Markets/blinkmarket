@@ -546,10 +546,14 @@ export function postgresChainIndexStore(pool: Pool): ChainIndexStore {
           ],
         );
         // Stale until the first committed sync: nothing has been indexed yet.
+        // A restore may lose chain tables while retaining outbox history. Continue its
+        // version sequence so replay emits new notifications without unique-key collisions.
         await db.query(
           `INSERT INTO chain.cursors(deployment_id,block_number,block_hash,block_timestamp,head_number,
-             finalized_number,synced_at)
-           VALUES ($1,$2,decode($3,'hex'),$4,$5,$6,to_timestamp(0)) ON CONFLICT (deployment_id) DO NOTHING`,
+             finalized_number,synced_at,version)
+           SELECT $1,$2,decode($3,'hex'),$4,$5,$6,to_timestamp(0),COALESCE(max(event_version),0)
+           FROM operations.outbox WHERE aggregate_id=$1 AND event_type IN ('chain.synced','chain.reorged')
+           ON CONFLICT (deployment_id) DO NOTHING`,
           [
             deploymentId,
             baseline.number.toString(),
