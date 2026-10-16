@@ -39,7 +39,10 @@
     "test:browsers": "playwright test -c tests/browser/playwright.config.ts",
     "infra:up": "docker compose -f infra/compose.yaml up -d",
     "infra:down": "docker compose -f infra/compose.yaml down",
-    "alpha:local": "node scripts/check-contracts.mjs && node --import tsx --test tests/alpha/local-alpha.test.ts"
+    "alpha:local": "node scripts/check-contracts.mjs && node --import tsx --test tests/alpha/local-alpha.test.ts",
+    "images:build": "for s in api worker indexer signer; do docker build -f infra/Dockerfile.$s -t blink-$s:local . || exit 1; done",
+    "test:images": "node --test tests/images.test.mjs",
+    "images:smoke": "node scripts/check-contracts.mjs && node --import tsx scripts/images-smoke.ts"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

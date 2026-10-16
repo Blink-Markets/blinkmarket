@@ -11,6 +11,6 @@ ENV NODE_ENV=production API_HOST=0.0.0.0 API_PORT=3001
 COPY --from=build --chown=node:node /repo/dist/services/api.mjs ./api.mjs
 USER node
 EXPOSE 3001
-# Liveness only. Trading/platform readiness deliberately remains 503 in M2.1.
+# Liveness only; readiness is /health/ready, for the orchestrator (503 until the API's adapters are connected).
 HEALTHCHECK --interval=30s --timeout=5s CMD node -e "fetch('http://127.0.0.1:'+process.env.API_PORT+'/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "api.mjs"]
