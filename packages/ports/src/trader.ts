@@ -142,6 +142,17 @@ export interface TraderStore {
   }): Promise<TraderTrade[]>;
   trade(intentId: string): Promise<TraderTrade | null>;
   release(reservationId: string, reason: string): Promise<void>;
+  /**
+   * Gives back a buy that spent nothing, under the mandate's lock: refused (false) unless the
+   * reservation is HELD with no approve or fill intent and, when `quoteAllowed` is false, no quote
+   * row under its key either. A caller's snapshot may be stale; this is read now, so a buy another
+   * run already carried to a quote or a transaction is handed over, not released.
+   */
+  releaseUnspent(
+    reservationId: string,
+    reason: string,
+    options: { quoteAllowed: boolean },
+  ): Promise<boolean>;
   /** HELD to ACCOUNTED when `accounted`, ACCOUNTED back to HELD when not (the fill's block was reorged away). */
   setAccounted(reservationId: string, accounted: boolean): Promise<void>;
   /**

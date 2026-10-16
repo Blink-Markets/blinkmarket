@@ -427,6 +427,51 @@ test(
         pool("blink_worker", 1).query("SELECT 1 FROM forecasts.snapshots"),
         /permission denied/,
       );
+
+      // Giving back a buy that spent nothing: refused once an intent or (unless allowed) a quote exists.
+      const reserveOne = async () =>
+        (
+          (await store.reserve({
+            mandate,
+            intentId: randomUUID(),
+            deploymentId: DEPLOYMENT,
+            marketId: "1",
+            windowId: window.id,
+            side: "YES",
+            shares: 1,
+            askBps: 6700,
+            ownProbabilityMillionths: 800_000,
+          })) as { reservationId: string }
+        ).reservationId;
+      const unspent = await reserveOne();
+      assert.equal(
+        await store.releaseUnspent(unspent, "NOT_SPENT", {
+          quoteAllowed: false,
+        }),
+        true,
+      );
+      assert.equal(
+        await store.releaseUnspent(unspent, "AGAIN", { quoteAllowed: true }),
+        false,
+        "released is final",
+      );
+      const spent = await reserveOne();
+      const spentIntent = (
+        await owner.query(
+          "SELECT intent_id FROM trading.risk_reservations WHERE id=$1",
+          [spent],
+        )
+      ).rows[0]!.intent_id;
+      await store.prepare({
+        ...approve,
+        reservationId: spent,
+        dedupeKey: "trader:approve:" + spentIntent,
+      });
+      for (const quoteAllowed of [false, true])
+        assert.equal(
+          await store.releaseUnspent(spent, "SPENT", { quoteAllowed }),
+          false,
+        );
     });
   },
 );

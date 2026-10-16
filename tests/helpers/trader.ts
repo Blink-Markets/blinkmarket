@@ -158,6 +158,8 @@ export function apiOver(
     tamper?: Tamper | undefined;
     /** Runs before the request reaches the API: another run's move while this one waits for it. */
     before?: ((key: string) => Promise<void>) | undefined;
+    /** Answers instead of the API (which is then not called): a refusal, an error, silence. */
+    answer?: ((key: string) => TraderQuoteResult | null) | undefined;
   } = {},
 ) {
   const calls: { input: Record<string, unknown>; key: string }[] = [];
@@ -165,6 +167,8 @@ export function apiOver(
     async requestQuote(input, key) {
       calls.push({ input, key });
       await options.before?.(key);
+      const canned = options.answer?.(key);
+      if (canned) return canned;
       const res = await w.post(key, input, agent);
       const body = res.json();
       if (res.statusCode !== 200)
@@ -190,6 +194,7 @@ export async function traderWorld(
   options: {
     tamper?: Tamper;
     before?: (key: string) => Promise<void>;
+    answer?: (key: string) => TraderQuoteResult | null;
     a?: number;
     b?: number;
     window?: boolean;
@@ -254,6 +259,7 @@ export async function traderWorld(
   const { api, calls } = apiOver(w, agent, {
     tamper: options.tamper,
     before: options.before,
+    answer: options.answer,
   });
   const tracked: string[] = [];
   // A clock that moves only when the trader sleeps: its time budget is exact and nothing really waits.

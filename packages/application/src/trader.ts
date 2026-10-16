@@ -196,6 +196,19 @@ const wire = (m: QuoteMessage): Record<string, string> => ({
   nonce: String(m.nonce),
   epoch: String(m.epoch),
 });
+// An RFQ answer that releases risk: a stored business refusal (404, or a 409 that is not the
+// idempotency machinery). The API answers every unexpected error with a non-retryable 500, and
+// 401/403 only say that the key is not usable: none of those says there is no quote.
+const definitiveRefusal = (answer: {
+  status: number;
+  code: string;
+  retryable: boolean;
+}) =>
+  !answer.retryable &&
+  (answer.status === 404 ||
+    (answer.status === 409 &&
+      answer.code !== "IDEMPOTENCY_CONFLICT" &&
+      answer.code !== "REQUEST_IN_PROGRESS"));
 const isMined = (fact: TraderIntentFact | null) =>
   fact !== null &&
   fact.mined === "success" &&
@@ -301,10 +314,18 @@ export function createTrader(deps: TraderDeps) {
     deadline: number,
   ): Promise<string> {
     const r = trade.reservation;
+    // Definitive ends on the chain (a failed intent, an expired or cancelled quote).
     const release = async (reason: string) => {
       await store.release(r.id, reason);
       return "RELEASED:" + reason;
     };
+    // Ends that rest on this run's view of a buy that spent nothing: this run's snapshot may be
+    // stale, so the store re-checks under the lock and hands a buy that has moved on back to the
+    // normal quote / intent path instead of releasing it.
+    const releaseUnspent = async (reason: string, quoteAllowed: boolean) =>
+      (await store.releaseUnspent(r.id, reason, { quoteAllowed }))
+        ? "RELEASED:" + reason
+        : "WAITING:HANDED_OVER";
     const cursor = trade.cursor;
     // A projection under repair is not evidence of anything: settle nothing against it.
     if (!cursor || cursor.gateReason) return "WAITING:INDEXER_GATED";
@@ -332,7 +353,7 @@ export function createTrader(deps: TraderDeps) {
         market.state !== "OPEN" ||
         cursor.blockTimestamp >= market.closeAt)
     )
-      return release("MARKET_CLOSED");
+      return releaseUnspent("MARKET_CLOSED", false);
     if (quote) {
       if (
         trade.digest === "CANCELLED" ||
@@ -383,7 +404,7 @@ export function createTrader(deps: TraderDeps) {
           resource: r.intentId,
           reason: "SCHEMA",
         });
-        return release("ENVELOPE_INVALID:SCHEMA");
+        return releaseUnspent("ENVELOPE_INVALID:SCHEMA", true);
       }
       envelope = stored.data;
     }
@@ -399,10 +420,19 @@ export function createTrader(deps: TraderDeps) {
         },
         "trader-" + r.intentId,
       );
-      if (!answer.ok)
-        return answer.retryable
-          ? "WAITING:RFQ:" + answer.code
-          : release("RFQ_REJECTED:" + answer.code);
+      if (!answer.ok) {
+        if (definitiveRefusal(answer))
+          return releaseUnspent("RFQ_REJECTED:" + answer.code, false);
+        // Anything else (a 500, a 401, an idempotency answer, no answer) proves nothing about the
+        // quote: the buy stays HELD and the same key is asked again. Odd answers are audited once.
+        if (!answer.retryable)
+          await store.audit({
+            action: "trader.rfq_unanswered",
+            resource: r.intentId,
+            reason: answer.code,
+          });
+        return "WAITING:RFQ:" + answer.code;
+      }
       envelope = answer.quote;
     }
     const verified = await verifyTraderQuote({
@@ -423,7 +453,7 @@ export function createTrader(deps: TraderDeps) {
         resource: r.intentId,
         reason: verified.reason,
       });
-      return release("ENVELOPE_INVALID:" + verified.reason);
+      return releaseUnspent("ENVELOPE_INVALID:" + verified.reason, true);
     }
     // The edge was computed on one forecast window. A quote priced from another (a newer window closed
     // since) is not the trade that was decided: it is left to expire, unspent.
@@ -435,7 +465,7 @@ export function createTrader(deps: TraderDeps) {
         resource: r.intentId,
         reason: "QUOTE_WINDOW_MISMATCH",
       });
-      return release("QUOTE_WINDOW_MISMATCH");
+      return releaseUnspent("QUOTE_WINDOW_MISMATCH", true);
     }
 
     // 5. Approve exactly the cost, then fill. Quote life is read from the live head each time.

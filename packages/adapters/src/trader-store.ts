@@ -384,6 +384,33 @@ export function postgresTraderStore(pool: Pool): TraderStore {
         "UPDATE trading.risk_reservations SET state='RELEASED',release_reason=$2,updated_at=blink.now() WHERE id=$1 AND state='HELD'",
         [reason.slice(0, 200)],
       ),
+    releaseUnspent: (id, reason, { quoteAllowed }) =>
+      uow.run(async (ctx) => {
+        const db = uow.client(ctx);
+        const owner = await db.query(
+          "SELECT agent_id FROM trading.risk_reservations WHERE id=$1",
+          [id],
+        );
+        if (!owner.rows[0]) return false;
+        await lockMandate(db, String(owner.rows[0].agent_id));
+        const { rows } = await db.query(
+          `SELECT r.state='HELD' AS held,
+            EXISTS (SELECT 1 FROM trading.quotes q WHERE q.agent_id=r.agent_id
+              AND q.idempotency_key='trader-'||r.intent_id::text) AS quoted,
+            EXISTS (SELECT 1 FROM signing.economic_intents i
+              WHERE i.dedupe_key IN ('trader:approve:'||r.intent_id::text,'trader:fill:'||r.intent_id::text)) AS spent
+          FROM trading.risk_reservations r WHERE r.id=$1`,
+          [id],
+        );
+        const row = rows[0];
+        if (!row || row.held !== true || row.spent === true) return false;
+        if (row.quoted === true && !quoteAllowed) return false;
+        await db.query(
+          "UPDATE trading.risk_reservations SET state='RELEASED',release_reason=$2,updated_at=blink.now() WHERE id=$1 AND state='HELD'",
+          [id, reason.slice(0, 200)],
+        );
+        return true;
+      }),
     setAccounted: (id, accounted) =>
       transition(
         id,

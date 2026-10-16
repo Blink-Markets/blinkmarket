@@ -9,7 +9,10 @@ import {
 } from "../packages/application/src/trader.js";
 import { quoteTypedData } from "../packages/application/src/signer.js";
 import { parseQuoteMessage } from "../packages/domain/src/signing-policy.js";
-import type { TraderSignedQuote } from "../packages/ports/src/index.js";
+import type {
+  TraderQuoteResult,
+  TraderSignedQuote,
+} from "../packages/ports/src/index.js";
 import { DEPLOYMENT, HEAD_NUMBER } from "./helpers/trading.js";
 import { inviteAgent } from "./helpers/database.js";
 import { poolAs } from "./helpers/research.js";
@@ -686,7 +689,8 @@ test("an envelope that is not exactly what was asked for is refused before anyth
     await freeMaker(w);
     assert.deepEqual(Object.values((await w.run()).trades), ["FILL_INCLUDED"]);
 
-    // A stored envelope that is not a signed quote at all is refused the same way.
+    // A stored envelope that is not a signed quote at all is refused too. This one's approve is
+    // already out, so the risk is not given back for it: it stays until the quote expires.
     await w.seedWindow({ hoursAgo: 0 });
     await freeMaker(w);
     w.dispatcher.modes.APPROVE = "pending";
@@ -697,10 +701,18 @@ test("an envelope that is not exactly what was asked for is refused before anyth
       `UPDATE trading.quotes SET envelope='{"quote":"garbage"}'::jsonb WHERE id=(SELECT id FROM trading.quotes ORDER BY created_at DESC LIMIT 1)`,
     );
     const garbled = await w.run();
-    assert.ok(
-      Object.values(garbled.trades).includes(
-        "RELEASED:ENVELOPE_INVALID:SCHEMA",
-      ),
+    assert.equal(Object.values(garbled.trades).at(-1), "WAITING:HANDED_OVER");
+    assert.equal((await w.reservations()).at(-1)!.state, "HELD");
+    const [newest] = await w.query<{ expires_at: string }>(
+      "SELECT expires_at::text FROM trading.quotes ORDER BY created_at DESC LIMIT 1",
+    );
+    await w.setCursor({
+      number: HEAD_NUMBER,
+      timestamp: BigInt(newest!.expires_at),
+    });
+    assert.equal(
+      Object.values((await w.run()).trades).at(-1),
+      "RELEASED:QUOTE_EXPIRED",
     );
   } finally {
     await w.close();
@@ -1286,6 +1298,200 @@ test("a run never waits more than its budget: it returns while the fill is pendi
       !Object.values((await w.run()).trades).includes("WAITING:FILL"),
       "the resume run completed it",
     );
+  } finally {
+    await w.close();
+  }
+});
+
+test("only a stored business refusal releases the risk: every other RFQ answer keeps the buy held and asks again under the same key", async () => {
+  // [status, code, retryable, releases]
+  const answers = [
+    [404, "NOT_FOUND", false, true],
+    [409, "NO_QUOTE", false, true],
+    [409, "PRICE_LIMIT_EXCEEDED", false, true],
+    [409, "IDEMPOTENCY_CONFLICT", false, false],
+    [409, "REQUEST_IN_PROGRESS", true, false],
+    [500, "INTERNAL_ERROR", false, false],
+    [401, "UNAUTHORIZED", false, false],
+    [403, "WALLET_NOT_VERIFIED", false, false],
+    [429, "RATE_LIMITED", true, false],
+    [503, "SERVICE_NOT_READY", true, false],
+    [0, "API_UNAVAILABLE", true, false],
+  ] as const;
+  for (const [status, code, retryable, releases] of answers) {
+    let canned: TraderQuoteResult | null = {
+      ok: false,
+      status,
+      code,
+      retryable,
+    };
+    const w = await traderWorld({ answer: () => canned });
+    try {
+      const label = `${status} ${code}`;
+      const id = intentOf(w, w.windowId!);
+      const audits = async () =>
+        (
+          await w.query(
+            "SELECT id FROM operations.audit_log WHERE action='trader.rfq_unanswered'",
+          )
+        ).length;
+      const first = await w.run();
+      if (releases) {
+        assert.deepEqual(
+          first.trades,
+          { [id]: "RELEASED:RFQ_REJECTED:" + code },
+          label,
+        );
+        assert.deepEqual(
+          (await w.reservations()).map((r) => r.state),
+          ["RELEASED"],
+          label,
+        );
+        continue;
+      }
+      assert.deepEqual(first.trades, { [id]: "WAITING:RFQ:" + code }, label);
+      assert.deepEqual(
+        (await w.run()).trades,
+        { [id]: "WAITING:RFQ:" + code },
+        label,
+      );
+      assert.deepEqual(
+        (await w.reservations()).map((r) => r.state),
+        ["HELD"],
+        label,
+      );
+      // An odd answer is audited once per buy and code; a routine retryable one is not audited.
+      assert.equal(await audits(), retryable ? 0 : 1, label);
+      // The API answers again: the same key carries the buy through.
+      canned = null;
+      assert.deepEqual(
+        (await w.run()).trades,
+        { [id]: "FILL_INCLUDED" },
+        label,
+      );
+      assert.deepEqual(
+        [...new Set(w.apiCalls.map((c) => c.key))],
+        ["trader-" + id],
+        label,
+      );
+    } finally {
+      await w.close();
+    }
+  }
+});
+
+test("a run with a stale view gets a refusal or an error on the same-key replay after another run approved and filled: the buy is never released", async () => {
+  // Run B read its buys while the buy had no quote row; run A then requested the quote, approved and
+  // filled; B's replay of the same key answers with an API error (the 500 the API gives to any
+  // unexpected failure) or, in the second case, even with a stored-looking refusal.
+  const replays = [
+    { ok: false, status: 500, code: "INTERNAL_ERROR", retryable: false },
+    { ok: false, status: 409, code: "NO_QUOTE", retryable: false },
+  ] as const;
+  for (const replay of replays) {
+    let world: TraderWorld | null = null;
+    let calls = 0;
+    let nestedDone = false;
+    const w = await traderWorld({
+      before: async () => {
+        calls += 1;
+        if (calls > 1) return;
+        await world!.run();
+        nestedDone = true;
+      },
+      answer: () => (nestedDone ? replay : null),
+    });
+    world = w;
+    try {
+      const id = intentOf(w, w.windowId!);
+      const outer = await w.run();
+      assert.equal(
+        outer.trades[id],
+        replay.status === 500
+          ? "WAITING:RFQ:INTERNAL_ERROR"
+          : "WAITING:HANDED_OVER",
+        replay.code,
+      );
+      assert.deepEqual(
+        (await w.reservations()).map((r) => [r.state, r.release_reason]),
+        [["HELD", null]],
+        replay.code,
+      );
+      assert.deepEqual(
+        (await w.intents()).map((i) => [i.kind, i.state]),
+        [
+          ["APPROVE", "INCLUDED"],
+          ["FILL", "INCLUDED"],
+        ],
+      );
+      // The indexer shows the fill: the buy is accounted, never lost.
+      await w.fillDigest();
+      assert.deepEqual((await w.run()).trades, { [id]: "ACCOUNTED" });
+      assert.equal((await w.reservations())[0]!.state, "ACCOUNTED");
+    } finally {
+      await w.close();
+    }
+  }
+});
+
+test("a buy that spent nothing is released only while nothing says otherwise, read under the lock", async () => {
+  let world: TraderWorld | null = null;
+  let first = true;
+  const w = await traderWorld({
+    // The first RFQ runs the budget out: the quote exists, no intent was prepared.
+    before: async () => {
+      if (!first) return;
+      first = false;
+      world!.clock.ms += 6000;
+    },
+  });
+  world = w;
+  try {
+    const id = intentOf(w, w.windowId!);
+    assert.deepEqual((await w.run()).trades, { [id]: "WAITING:BUDGET" });
+    assert.equal((await w.query("SELECT id FROM trading.quotes")).length, 1);
+    assert.deepEqual(await w.intents(), []);
+    const reservation = await reservationId(w);
+    // A quote row means "no quote" releases are refused; the ones that expect a quote may go ahead.
+    assert.equal(
+      await w.store.releaseUnspent(reservation, "NO_QUOTE_RELEASE", {
+        quoteAllowed: false,
+      }),
+      false,
+    );
+    assert.equal((await w.reservations())[0]!.state, "HELD");
+    assert.equal(
+      await w.store.releaseUnspent(reservation, "UNSPENT_WITH_QUOTE", {
+        quoteAllowed: true,
+      }),
+      true,
+    );
+    assert.deepEqual(
+      (await w.reservations()).map((r) => r.release_reason),
+      ["UNSPENT_WITH_QUOTE"],
+    );
+
+    // An approve intent for the buy refuses both kinds, and a buy already released refuses again.
+    await w.seedWindow({ hoursAgo: 0 });
+    await freeMaker(w);
+    w.clock.ms = 0;
+    w.dispatcher.modes.APPROVE = "pending";
+    await w.run();
+    const pending = await reservationId(w);
+    for (const quoteAllowed of [false, true])
+      assert.equal(
+        await w.store.releaseUnspent(pending, "AFTER_APPROVE", {
+          quoteAllowed,
+        }),
+        false,
+      );
+    assert.equal(
+      await w.store.releaseUnspent(reservation, "AGAIN", {
+        quoteAllowed: true,
+      }),
+      false,
+    );
+    assert.equal((await w.reservations()).at(-1)!.state, "HELD");
   } finally {
     await w.close();
   }
