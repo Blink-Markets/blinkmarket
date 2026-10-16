@@ -101,3 +101,8 @@ export {
 
 export * from "./operator-status.js";
 export { createAlertDeliveryHandler } from "./alerts.js";
+export {
+  createAlertEvaluateHandler,
+  decideEpisodeChanges,
+  type AlertEvaluatePolicy,
+} from "./alert-evaluate.js";

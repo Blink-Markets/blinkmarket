@@ -14,7 +14,13 @@ import { createEvaluationHandler, schedulePeriodic } from "@blink/application";
 import type { JobType } from "@blink/domain";
 import type { JobHandler } from "@blink/ports";
 import type { OutboxEvent, OutboxMapping } from "@blink/adapters";
-import { postgresTradingStore } from "@blink/adapters";
+import {
+  postgresAlertEvaluateStore,
+  httpRpcProbe,
+  postgresTradingStore,
+} from "@blink/adapters";
+import { createAlertEvaluateHandler } from "@blink/application";
+import type { AlertEvaluateConfig } from "./config.js";
 import {
   createQuoteReconcileHandler,
   createQuoteReconciler,
@@ -66,6 +72,30 @@ export async function scheduleResolution(pool: Pool): Promise<void> {
   const queue = postgresJobQueue(pool);
   for (const type of ["resolution.parse", "resolution.alerts"] as const)
     await schedulePeriodic(queue, type, 60_000, {}, rows[0]!.now);
+}
+// --- alert.evaluate (budget, pause, RPC, indexer lag, keeper overdue, dead jobs: Task A4b) ---
+export function registerAlertEvaluate(
+  pool: Pool,
+  config: AlertEvaluateConfig,
+): void {
+  handlers["alert.evaluate"] = createAlertEvaluateHandler({
+    store: postgresAlertEvaluateStore(pool),
+    rpc: config.rpcUrl ? httpRpcProbe(config.rpcUrl) : null,
+    policy: { reAlertMs: config.reAlertMs, rpcFailures: config.rpcFailures },
+    keeperOverdueSeconds: config.keeperOverdueSeconds,
+    deploymentIds: config.deploymentIds,
+  });
+}
+// Every minute (a bucket of the business clock); RPC failures are counted one per evaluation.
+export async function scheduleAlertEvaluate(pool: Pool): Promise<void> {
+  const { rows } = await pool.query<{ now: Date }>("SELECT blink.now() AS now");
+  await schedulePeriodic(
+    postgresJobQueue(pool),
+    "alert.evaluate",
+    60_000,
+    {},
+    rows[0]!.now,
+  );
 }
 // Research jobs (evidence, discovery, forecasts) are composed in ./research.ts.
 export { buildResearch } from "./research.js";

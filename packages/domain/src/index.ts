@@ -25,6 +25,7 @@ export type JobType =
   | "resolution.parse"
   | "resolution.alerts"
   | "alert.deliver"
+  | "alert.evaluate"
   | "keeper.finalize"
   | "faucet.mint"
   | "trader.evaluate"

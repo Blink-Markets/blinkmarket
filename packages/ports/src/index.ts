@@ -49,3 +49,19 @@ export * from "./health.js";
 
 export * from "./operator-status.js";
 export type { Alert, AlertSink } from "./alerts.js";
+export {
+  ALERT_FAMILIES,
+  checkGasCaps,
+  keeperDueSince,
+} from "./alert-evaluate.js";
+export type {
+  AlertFamily,
+  AlertState,
+  AlertFields,
+  AlertObservation,
+  AlertEpisode,
+  EpisodeChange,
+  AlertEvaluateStore,
+  RpcProbe,
+  RpcProbeResult,
+} from "./alert-evaluate.js";
