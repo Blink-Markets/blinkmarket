@@ -5,11 +5,17 @@ import { DeploymentManifest } from "@blink/schemas";
 import { indexerStaleSql } from "./market-read-store.js";
 import { createUnitOfWork } from "./database.js";
 
+const DEFAULT_ALERT_STALL_MS = 15 * 60_000;
+
 type Count = { name: string; count: string };
 export function postgresHealthReader(
   pool: Pool,
   deploymentId: string,
+  options: { alertStallMs?: number } = {},
 ): HealthReader {
+  const alertStallMs = options.alertStallMs ?? DEFAULT_ALERT_STALL_MS;
+  if (!Number.isSafeInteger(alertStallMs) || alertStallMs < 1)
+    throw new Error("INVALID_ALERT_STALL_MS");
   const uow = createUnitOfWork(pool);
   return {
     async health() {
@@ -64,6 +70,17 @@ export function postgresHealthReader(
            (SELECT count(*)::text FROM budgets.questions WHERE gate_closed_reason IS NOT NULL) AS questions_closed`,
           )
         ).rows[0]!;
+        // Undelivered (counted from creation) after the threshold and failing: informational only.
+        const alerts = (
+          await db.query<{ count: string; oldest: string | null }>(
+            `SELECT count(*)::text AS count,
+                    floor(extract(epoch FROM blink.now()-min(created_at)))::text AS oldest
+             FROM operations.jobs WHERE type='alert.deliver' AND state IN ('QUEUED','LEASED')
+               AND last_error_code IN ('ALERT_SINK_FAILED','ALERT_SINK_REJECTED')
+               AND created_at<=blink.now()-$1::bigint*interval '1 millisecond'`,
+            [alertStallMs],
+          )
+        ).rows[0]!;
         const reasons: Awaited<ReturnType<HealthReader["health"]>>["reasons"] =
           [];
         if (
@@ -91,6 +108,11 @@ export function postgresHealthReader(
               questionsClosed: budget.questions_closed,
             },
             poolGate: { closed: poolClosed, reconcileRequired: reconcile },
+            alerts: {
+              stalled: alerts.count !== "0",
+              stalledCount: alerts.count,
+              oldestStalledSeconds: alerts.oldest,
+            },
           },
         };
       });

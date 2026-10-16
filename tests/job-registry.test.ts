@@ -20,6 +20,7 @@ const expected = [
   "resolution.parse",
   "resolution.alerts",
   "keeper.finalize",
+  "alert.deliver",
   "faucet.mint",
   "trader.evaluate",
   "evaluation.score",

@@ -115,3 +115,9 @@ export * from "./health-reader.js";
 export { postgresTraderStore, assertTraderInstalled } from "./trader-store.js";
 
 export * from "./operator-status-store.js";
+export {
+  stdoutAlertSink,
+  fileAlertSink,
+  webhookAlertSink,
+} from "./alert-sinks.js";
+export { isAllowedAlertWebhookUrl } from "./alert-url.js";

@@ -7,10 +7,14 @@ import {
   assertProductionClock,
   dispatchOutbox,
   postgresJobQueue,
+  stdoutAlertSink,
+  fileAlertSink,
+  webhookAlertSink,
 } from "@blink/adapters";
-import { startWorker } from "@blink/application";
+import { createAlertDeliveryHandler } from "@blink/application";
 import { createService, startService } from "@blink/runtime";
 import {
+  alertConfig,
   executionConfig,
   researchConfig,
   traderConfig,
@@ -29,6 +33,7 @@ import {
   scheduleQuoteReconcile,
   scheduleResolution,
 } from "./handlers.js";
+import { startJobLoops } from "./loops.js";
 import { jobs } from "./registry.js";
 
 const OUTBOX_DISPATCH_INTERVAL_MS = 1000;
@@ -36,7 +41,7 @@ const PERIODIC_SCHEDULE_INTERVAL_MS = 15_000;
 const QUOTE_RECONCILE_INTERVAL_MS = 5000;
 
 let pool: pg.Pool | null = null;
-let worker: ReturnType<typeof startWorker> | null = null;
+let worker: ReturnType<typeof startJobLoops> | null = null;
 let outboxTimer: ReturnType<typeof setInterval> | null = null;
 let outboxRun: Promise<unknown> = Promise.resolve();
 let scheduleTimer: ReturnType<typeof setInterval> | null = null;
@@ -69,6 +74,14 @@ try {
     await assertProductionClock(database, false);
     await assertJobsMigrationInstalled(database);
     const queue = postgresJobQueue(database);
+    const alerts = alertConfig(process.env);
+    const alertHandler = createAlertDeliveryHandler(
+      alerts.sink === "webhook"
+        ? webhookAlertSink(alerts.url)
+        : alerts.sink === "file"
+          ? fileAlertSink(alerts.path)
+          : stdoutAlertSink(),
+    );
     registerEvaluationHandler(database);
     registerResolutionHandlers(database, process.env.EVIDENCE_OBJECT_DIRECTORY);
     registerQuoteReconcile(database);
@@ -91,8 +104,9 @@ try {
       api: researchSettings.api,
       execution: executionSettings,
     });
-    worker = startWorker({
+    worker = startJobLoops({
       queue,
+      alertHandler,
       handlers: {
         ...handlers,
         ...research.handlers,

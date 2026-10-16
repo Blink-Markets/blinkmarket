@@ -1,3 +1,4 @@
+import { isAllowedAlertWebhookUrl } from "@blink/adapters";
 import type { PlatformRole } from "@blink/domain";
 
 export interface WorkerConfig {
@@ -129,4 +130,21 @@ export function traderConfig(env: NodeJS.ProcessEnv): TraderConfig | null {
   if (role !== "FORECASTER_A" && role !== "FORECASTER_B")
     throw new Error("INVALID_WORKER_TRADER_FORECASTER_ROLE");
   return { apiKey, forecasterRole: role };
+}
+
+export type AlertConfig =
+  | { sink: "stdout" }
+  | { sink: "file"; path: string }
+  | { sink: "webhook"; url: string };
+
+export function alertConfig(env: NodeJS.ProcessEnv): AlertConfig {
+  const sink = env.ALERT_SINK ?? "stdout";
+  const path = env.ALERT_FILE_PATH?.trim();
+  const url = env.ALERT_WEBHOOK_URL?.trim();
+  if (sink === "stdout" && !path && !url) return { sink };
+  if (sink === "file" && path && !url && !path.includes("<TO BE PROVIDED:"))
+    return { sink, path };
+  if (sink === "webhook" && url && !path && isAllowedAlertWebhookUrl(url))
+    return { sink, url };
+  throw new Error("INVALID_ALERT_CONFIGURATION");
 }

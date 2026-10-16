@@ -7,7 +7,7 @@
 `pnpm dev` 啟動五個 loopback host；Web 是唯讀說明、文件與虛構 REPLAY 樣本。API 預設 scaffold，Worker／Indexer 業務功能與 Signer 預設停用，避免未設定就連 DB／RPC 或簽章；啟用方式見 [本機開發](DEVELOPMENT.md)。設定完整後，已實作的接線包括：
 
 - API 依模式逐層啟用身份、候選、核准與公開讀取；trading 模式另接 RFQ、faucet、health/admin metrics，並經 caller token 呼叫受限 signer。
-- Worker 在 `WORKER_ENABLED=true` 與專用 DB 登入下消費持久 queue、dispatch outbox 與排程；research、execution、trader 依各自設定組合，涵蓋 fixture 預測、評估、resolution jobs、reservation 對帳、keeper、faucet 與受限交易提交。未設定的可選功能不會自動啟用；通知仍只有 outbox，沒有告警傳送渠道。
+- Worker 在 `WORKER_ENABLED=true` 與專用 DB 登入下消費持久 queue、dispatch outbox 與排程；research、execution、trader 依各自設定組合，涵蓋 fixture 預測、評估、resolution jobs、reservation 對帳、keeper、faucet 與受限交易提交。未設定的可選功能不會自動啟用；`alert.*` outbox 事件由獨立的 `alert.deliver` worker loop 以 stdout／檔案／webhook sink 至少一次傳送（見 [告警傳送](M5_ALERTS.md)）；目前只有期限告警有產生者，預算、暫停、RPC 失敗與 indexer 落後告警尚未產生，待後續任務補上。
 - Indexer 在 `CHAIN_INDEXER_ENABLED=true` 與專用 DB／RPC／deployment 設定下持續同步 canonical 區塊、事件與投影並處理 reorg；creation receipt polling 與交易追蹤另有各自開關。
 - Signer 在 `SIGNER_ENABLED=true`、key 檔、DB 登入、RPC 與 caller 白名單完整時提供 `POST /internal/sign`，已接 trading API 與 execution/trader Worker；私鑰只在 signer，caller 驗證不等於正式網路隔離已完成，見 [Signer](M2_SIGNER.md)。
 

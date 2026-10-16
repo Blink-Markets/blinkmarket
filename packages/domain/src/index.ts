@@ -24,6 +24,7 @@ export type JobType =
   | "tx.track"
   | "resolution.parse"
   | "resolution.alerts"
+  | "alert.deliver"
   | "keeper.finalize"
   | "faucet.mint"
   | "trader.evaluate"

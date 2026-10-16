@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { JobSpec } from "@blink/ports";
 import { createUnitOfWork } from "./database.js";
+import { alertPayload } from "./alert-payload.js";
 import { insertJob } from "./job-queue.js";
 
 export interface OutboxEvent {
@@ -22,7 +23,8 @@ export type OutboxMapping = Record<
 /**
  * Turns undispatched outbox events into jobs. Jobs and the dispatched mark commit
  * together, and the `outbox:<id>:<jobType>` dedupe key keeps a replay from
- * duplicating a job. Events without a mapping are marked dispatched with no jobs.
+ * duplicating a job. All alert.* events route to delivery. Other unmapped events
+ * are marked dispatched with no jobs.
  * Returns the number of events dispatched; a result equal to `batch` means more may wait.
  */
 export async function dispatchOutbox(
@@ -52,13 +54,26 @@ export async function dispatchOutbox(
       const map = Object.hasOwn(mapping, row.event_type)
         ? mapping[row.event_type]
         : undefined;
-      const specs =
-        map?.({
+      const specs: OutboxJobSpec[] = [
+        // Every alert.* event is delivered; an explicit mapping adds to that, never replaces it.
+        ...(row.event_type.startsWith("alert.")
+          ? [
+              {
+                type: "alert.deliver" as const,
+                dedupeKey: `outbox:${row.id}:alert.deliver`,
+                payload: {
+                  ...alertPayload(row.id, row.event_type, row.payload),
+                },
+              },
+            ]
+          : []),
+        ...(map?.({
           id: row.id,
           type: row.event_type,
           aggregateId: row.aggregate_id,
           payload: row.payload,
-        }) ?? [];
+        }) ?? []),
+      ];
       for (const { coalesce, ...spec } of specs)
         await insertJob(
           db,

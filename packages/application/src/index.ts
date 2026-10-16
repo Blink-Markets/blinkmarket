@@ -100,3 +100,4 @@ export {
 } from "./trader.js";
 
 export * from "./operator-status.js";
+export { createAlertDeliveryHandler } from "./alerts.js";

@@ -64,13 +64,14 @@ export function postgresJobQueue(pool: Pool): JobQueue {
       if (types.length === 0) return null;
       // A job whose lease keeps expiring has crashed its workers every time:
       // dead-letter it once its attempts are spent instead of leasing it again.
+      // Alert delivery stays recoverable until a destination accepts it.
       await pool.query(
         `WITH expired AS (
            UPDATE operations.jobs
            SET state='DEAD',finished_at=blink.now(),lease_owner=NULL,lease_until=NULL,
                last_error_code='LEASE_EXPIRED'
            WHERE state='LEASED' AND lease_until<blink.now()
-             AND attempt>=max_attempts AND type=ANY($1::text[])
+             AND attempt>=max_attempts AND type<>'alert.deliver' AND type=ANY($1::text[])
            RETURNING id
          )
          INSERT INTO operations.audit_log(id,actor,action,resource,reason,request_id)
@@ -132,14 +133,15 @@ export function postgresJobQueue(pool: Pool): JobQueue {
       return rows.length === 1;
     },
     async fail(job, error) {
+      // Alert delivery remains pending until acceptance, even past the normal retry ceiling.
       // Dead-lettering and its audit row are one statement, so neither can be lost.
       const { rows } = await pool.query<{ state: "QUEUED" | "DEAD" }>(
         `WITH updated AS (
            UPDATE operations.jobs
-           SET state=CASE WHEN $4::boolean AND attempt<max_attempts THEN 'QUEUED' ELSE 'DEAD' END,
-               next_run_at=CASE WHEN $4::boolean AND attempt<max_attempts
+           SET state=CASE WHEN $4::boolean AND (attempt<max_attempts OR type='alert.deliver') THEN 'QUEUED' ELSE 'DEAD' END,
+               next_run_at=CASE WHEN $4::boolean AND (attempt<max_attempts OR type='alert.deliver')
                  THEN blink.now()+$5::bigint*interval '1 millisecond' ELSE next_run_at END,
-               finished_at=CASE WHEN $4::boolean AND attempt<max_attempts THEN NULL ELSE blink.now() END,
+               finished_at=CASE WHEN $4::boolean AND (attempt<max_attempts OR type='alert.deliver') THEN NULL ELSE blink.now() END,
                lease_owner=NULL,lease_until=NULL,last_error_code=$6::text
            WHERE id=$1 AND state='LEASED' AND lease_owner=$2 AND lease_token=$3::bigint
              AND lease_until>blink.now()
