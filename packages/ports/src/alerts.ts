@@ -25,6 +25,7 @@ export interface Alert {
   overdueSeconds?: string;
   failures?: string;
   jobTypes?: string[];
+  truncated?: true;
 }
 
 /** Resolves only after the destination accepts the alert; rejects on failure. */

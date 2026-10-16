@@ -56,6 +56,7 @@ export function alertPayload(id: string, type: string, raw: unknown): Alert {
   ] as const)
     if (typeof payload[key] === "string" && /^[0-9]{1,78}$/.test(payload[key]))
       alert[key] = payload[key];
+  if (payload.truncated === true) alert.truncated = true;
   if (Array.isArray(payload.jobTypes)) {
     const types = payload.jobTypes
       .filter(

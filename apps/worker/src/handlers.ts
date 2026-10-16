@@ -79,7 +79,9 @@ export function registerAlertEvaluate(
   config: AlertEvaluateConfig,
 ): void {
   handlers["alert.evaluate"] = createAlertEvaluateHandler({
-    store: postgresAlertEvaluateStore(pool),
+    store: postgresAlertEvaluateStore(pool, {
+      onError: (code) => console.error(code),
+    }),
     rpc: config.rpcUrl ? httpRpcProbe(config.rpcUrl) : null,
     policy: { reAlertMs: config.reAlertMs, rpcFailures: config.rpcFailures },
     keeperOverdueSeconds: config.keeperOverdueSeconds,

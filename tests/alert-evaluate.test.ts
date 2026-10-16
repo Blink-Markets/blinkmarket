@@ -36,6 +36,7 @@ async function world(
     rpc?: RpcProbe | null;
     deploymentIds?: string[] | null;
     markets?: boolean;
+    onError?: (code: string) => void;
   } = {},
 ) {
   const t = await createTestDatabase();
@@ -50,7 +51,7 @@ async function world(
   );
   await t.setRole("blink_worker");
   const handler = createAlertEvaluateHandler({
-    store: postgresAlertEvaluateStore(t.pool),
+    store: postgresAlertEvaluateStore(t.pool, { onError: options.onError }),
     rpc: options.rpc ?? null,
     policy,
     keeperOverdueSeconds: 600,
@@ -119,62 +120,54 @@ const states = (alerts: { state: string }[]) => alerts.map((a) => a.state);
 test("episode lifecycle: OPEN once, no duplicate across ticks, STILL_OPEN after the interval, CLEARED once", async () => {
   const w = await world();
   try {
-    await w.sql(
-      "INSERT INTO operations.jobs(id,type,dedupe_key,payload,state) VALUES($1,'tx.dispatch','dead-1','{\"secret\":\"x\"}','DEAD')",
-      [randomUUID()],
-    );
+    const gate = (reason: string | null) =>
+      w.sql(
+        "INSERT INTO trading.maker_pools(deployment_id,gate_reason) VALUES($1,$2) ON CONFLICT (deployment_id) DO UPDATE SET gate_reason=$2",
+        [DEPLOYMENT, reason],
+      );
+    await gate("OVERCOMMITTED");
     await w.run();
     await w.run();
     await w.run();
-    let dead = await w.alerts("jobs_dead");
-    assert.deepEqual(states(dead), ["OPEN"]);
-    assert.equal(dead[0].family, "jobs_dead");
-    assert.equal(dead[0].subject, "jobs");
-    assert.equal(dead[0].reason, "DEAD_JOBS");
-    assert.equal(dead[0].count, "1");
-    assert.deepEqual(dead[0].jobTypes, ["tx.dispatch"]);
-    assert.equal(dead[0].deploymentId, DEPLOYMENT);
-    assert.match(dead[0].since, /^[0-9]+$/);
+    let pool = await w.alerts("pause");
+    assert.deepEqual(states(pool), ["OPEN"]);
+    assert.equal(pool[0].family, "pause");
+    assert.equal(pool[0].subject, "pool");
+    assert.equal(pool[0].reason, "OVERCOMMITTED");
+    assert.equal(pool[0].deploymentId, DEPLOYMENT);
+    assert.match(pool[0].since, /^[0-9]+$/);
     // Still inside the interval 59 minutes later: nothing new.
     await w.clock(59 * MINUTE);
     await w.run();
-    assert.deepEqual(states(await w.alerts("jobs_dead")), ["OPEN"]);
+    assert.deepEqual(states(await w.alerts("pause")), ["OPEN"]);
     // Past the interval: one re-alert, then quiet again until the next interval.
     await w.clock(61 * MINUTE);
     await w.run();
     await w.run();
-    dead = await w.alerts("jobs_dead");
-    assert.deepEqual(states(dead), ["OPEN", "STILL_OPEN"]);
-    assert.equal(dead[1].since, dead[0].since);
+    pool = await w.alerts("pause");
+    assert.deepEqual(states(pool), ["OPEN", "STILL_OPEN"]);
+    assert.equal(pool[1].since, pool[0].since);
     await w.clock(100 * MINUTE);
     await w.run();
-    assert.deepEqual(states(await w.alerts("jobs_dead")), [
-      "OPEN",
-      "STILL_OPEN",
-    ]);
+    assert.deepEqual(states(await w.alerts("pause")), ["OPEN", "STILL_OPEN"]);
     // The condition ends: CLEARED exactly once.
-    await w.sql(
-      "UPDATE operations.jobs SET state='SUCCEEDED' WHERE state='DEAD'",
-    );
+    await gate(null);
     await w.run();
     await w.run();
-    dead = await w.alerts("jobs_dead");
-    assert.deepEqual(states(dead), ["OPEN", "STILL_OPEN", "CLEARED"]);
-    assert.equal(dead[2].since, dead[0].since);
+    pool = await w.alerts("pause");
+    assert.deepEqual(states(pool), ["OPEN", "STILL_OPEN", "CLEARED"]);
+    assert.equal(pool[2].since, pool[0].since);
     // A new incident is a new episode with a new OPEN.
-    await w.sql(
-      "INSERT INTO operations.jobs(id,type,dedupe_key,payload,state) VALUES($1,'keeper.finalize','dead-2','{}','DEAD')",
-      [randomUUID()],
-    );
+    await gate("OVERCOMMITTED");
     await w.run();
-    assert.deepEqual(states(await w.alerts("jobs_dead")), [
+    assert.deepEqual(states(await w.alerts("pause")), [
       "OPEN",
       "STILL_OPEN",
       "CLEARED",
       "OPEN",
     ]);
     const { rows } = await w.t.pool.query(
-      "SELECT active,alert_seq::text FROM operations.alert_episodes WHERE family='jobs_dead'",
+      "SELECT active,alert_seq::text FROM operations.alert_episodes WHERE family='pause'",
     );
     assert.deepEqual(rows, [{ active: true, alert_seq: "4" }]);
   } finally {
@@ -237,18 +230,10 @@ test("alert.budget fires from the daily gate, a closed question gate and signer 
         .map((a) => [a.subject, a.state, a.reason])
         .sort(),
       [
+        ["daily", "STILL_OPEN", "DAILY_CAP_REACHED"],
         ["questions", "CLEARED", "QUESTION_GATE_CLOSED"],
         ["role:keeper", "CLEARED", "GAS_DAILY_CAP_EXCEEDED"],
       ],
-    );
-    // The daily episode stays the same one: the cap, not the gate, now holds it closed.
-    assert.equal(
-      (
-        await w.t.pool.query(
-          "SELECT reason FROM operations.alert_episodes WHERE subject='daily'",
-        )
-      ).rows[0].reason,
-      "OVERRUN",
     );
     // Gate cleared and the cap raised above the reservation: the daily episode ends too.
     await w.sql("UPDATE budgets.daily SET cap_usd_micros=20000000");
@@ -328,6 +313,7 @@ test("alert.indexer_lag uses the health freshness rule and carries block numbers
       "OPEN",
       "CLEARED",
       "OPEN",
+      "STILL_OPEN",
     ]);
     await w.sql("UPDATE chain.cursors SET gate_reason=NULL");
     await w.run();
@@ -532,10 +518,7 @@ test("alert.evaluate runs with no keeper, signer or execution configuration", as
       w.t.pool,
       alertEvaluateConfig({ BLINK_DEPLOYMENT_ID: DEPLOYMENT }),
     );
-    await w.sql(
-      "INSERT INTO operations.jobs(id,type,dedupe_key,payload,state) VALUES($1,'tx.dispatch','dead-3','{}','DEAD')",
-      [randomUUID()],
-    );
+    await deadJob(w, "tx.dispatch", 5);
     await scheduleAlertEvaluate(w.t.pool);
     await scheduleAlertEvaluate(w.t.pool);
     const queue = postgresJobQueue(w.t.pool);
@@ -556,10 +539,7 @@ test("alert.evaluate runs with no keeper, signer or execution configuration", as
 test("without a configured deployment every enabled deployment is evaluated", async () => {
   const w = await world({ deploymentIds: null });
   try {
-    await w.sql(
-      "INSERT INTO operations.jobs(id,type,dedupe_key,payload,state) VALUES($1,'tx.dispatch','dead-4','{}','DEAD')",
-      [randomUUID()],
-    );
+    await deadJob(w, "tx.dispatch", 5);
     await w.run();
     assert.equal((await w.alerts("jobs_dead")).length, 1);
   } finally {
@@ -595,18 +575,12 @@ test("a failed observation neither clears nor emits anything", async () => {
 test("the episode row and its outbox alert commit together", async () => {
   const w = await world();
   try {
-    await w.sql(
-      "INSERT INTO operations.jobs(id,type,dedupe_key,payload,state) VALUES($1,'tx.dispatch','dead-5','{}','DEAD')",
-      [randomUUID()],
-    );
+    await deadJob(w, "tx.dispatch", 5);
     // The alert's identity is taken, so its outbox insert fails.
     await w.sql(
       `INSERT INTO operations.outbox(id,event_type,aggregate_id,event_version,payload)
        VALUES($1,'alert.jobs_dead',$2,1,'{}')`,
-      [
-        randomUUID(),
-        JSON.stringify(["alert", DEPLOYMENT, "jobs_dead", "jobs"]),
-      ],
+      [randomUUID(), JSON.stringify(["alert", "*", "jobs_dead", "jobs"])],
     );
     await assert.rejects(w.run());
     const { rows } = await w.t.pool.query(
@@ -639,10 +613,7 @@ test("alert_episodes is readable and writable by the worker login only", async (
 test("episode alerts reach delivery through a closed allow-list: codes and numbers only", async () => {
   const w = await world();
   try {
-    await w.sql(
-      "INSERT INTO operations.jobs(id,type,dedupe_key,payload,state) VALUES($1,'tx.dispatch','dead-6','{\"url\":\"https://secret.example\"}','DEAD')",
-      [randomUUID()],
-    );
+    await deadJob(w, "tx.dispatch", 5);
     await w.run();
     // A hostile or buggy row cannot smuggle text through the projection.
     await w.t.pool.query(
@@ -679,7 +650,6 @@ test("episode alerts reach delivery through a closed allow-list: codes and numbe
       {
         dedupeKey: "k",
         type: "alert.jobs_dead",
-        deploymentId: DEPLOYMENT,
         family: "jobs_dead",
         state: "OPEN",
         subject: "jobs",
@@ -723,6 +693,7 @@ test("episode transitions are decided from the stored state only", () => {
     openedAt: new Date(now.getTime() - 1000),
     lastAlertAt: new Date(now.getTime() - 1000),
     consecutiveFailures: 0,
+    lastCount: 0,
     ...patch,
   });
   const seen = {
@@ -799,4 +770,317 @@ test("alert.evaluate configuration has defaults, reuses the worker RPC and fails
       /^Error: INVALID_ALERT_EVALUATE_CONFIGURATION$/,
       JSON.stringify(env),
     );
+});
+
+// --- Fix round 1: unknown is not inactive, no truncation, windowed growth families, global scope ---
+
+const failing = (n: number): RpcProbe =>
+  scripted(
+    ...Array.from({ length: n }, () => ({
+      ok: false as const,
+      reason: "RPC_UNREACHABLE",
+    })),
+  );
+const deadJob = (w: Awaited<ReturnType<typeof world>>, type: string, age = 0) =>
+  w.sql(
+    "INSERT INTO operations.jobs(id,type,dedupe_key,payload,state,finished_at) VALUES($1,$2,$3,'{}','DEAD',blink.now()-$4*interval '1 second')",
+    [randomUUID(), type, randomUUID(), age],
+  );
+
+test("a gated or missing chain cursor makes keeper_overdue and pause unknown: no CLEARED, no second OPEN", async () => {
+  const w = await world();
+  try {
+    await w.sql("UPDATE chain.markets SET paused=true");
+    await w.sql("UPDATE chain.cursors SET block_timestamp=4601");
+    await w.run();
+    assert.deepEqual(states(await w.alerts("keeper_overdue")), ["OPEN"]);
+    assert.deepEqual(states(await w.alerts("pause")), ["OPEN"]);
+    await w.sql("UPDATE chain.cursors SET gate_reason='REORG_IN_PROGRESS'");
+    await w.run();
+    await w.run();
+    assert.deepEqual(states(await w.alerts("keeper_overdue")), ["OPEN"]);
+    assert.deepEqual(states(await w.alerts("pause")), ["OPEN"]);
+    // The indexer's own problem is still reported, by its own family.
+    assert.equal(
+      (await w.alerts("indexer_lag"))[0].reason,
+      "REORG_IN_PROGRESS",
+    );
+    await w.sql("DELETE FROM chain.cursors");
+    await w.run();
+    assert.deepEqual(states(await w.alerts("keeper_overdue")), ["OPEN"]);
+    assert.equal(
+      (await w.alerts("indexer_lag")).at(-1).reason,
+      "CURSOR_MISSING",
+    );
+    await w.sql(
+      `INSERT INTO chain.cursors(deployment_id,block_number,block_hash,block_timestamp,head_number,synced_at)
+       VALUES('${DEPLOYMENT}',10,decode(repeat('11',32),'hex'),4601,10,blink.now())`,
+    );
+    await w.run();
+    assert.deepEqual(states(await w.alerts("keeper_overdue")), ["OPEN"]);
+    assert.deepEqual(states(await w.alerts("pause")), ["OPEN"]);
+    // Once the source is readable and the market is no longer due, it does clear.
+    await w.sql("UPDATE chain.markets SET state='FINAL'");
+    await w.run();
+    assert.deepEqual(states(await w.alerts("keeper_overdue")), [
+      "OPEN",
+      "CLEARED",
+    ]);
+  } finally {
+    await w.close();
+  }
+});
+
+test("episodes beyond 1000 historical rows never cause a duplicate OPEN or stall the rpc streak", async () => {
+  const w = await world({ rpc: failing(10) });
+  try {
+    await w.sql(
+      `INSERT INTO operations.alert_episodes(deployment_id,family,subject,active,reason,opened_at,last_alert_at)
+       SELECT '${DEPLOYMENT}','keeper_overdue','market:'||g,false,'KEEPER_OVERDUE',blink.now(),blink.now()
+       FROM generate_series(1000,2400) g`,
+    );
+    await w.sql("UPDATE chain.markets SET paused=true");
+    for (let n = 0; n < 5; n++) await w.run();
+    assert.deepEqual(states(await w.alerts("pause")), ["OPEN"]);
+    const rpc = await w.alerts("rpc");
+    assert.deepEqual(states(rpc), ["OPEN"]);
+    assert.equal(rpc[0].failures, "3");
+  } finally {
+    await w.close();
+  }
+});
+
+test("old inactive episodes are pruned in the evaluation tick, recent ones are kept", async () => {
+  const w = await world();
+  try {
+    await w.sql(
+      `INSERT INTO operations.alert_episodes(deployment_id,family,subject,active,reason,opened_at,last_alert_at)
+       VALUES('${DEPLOYMENT}','pause','market:98',false,'MARKET_PAUSED',blink.now()-interval '40 days',blink.now()-interval '40 days'),
+             ('${DEPLOYMENT}','pause','market:99',false,'MARKET_PAUSED',blink.now()-interval '10 days',blink.now()-interval '10 days')`,
+    );
+    await w.run();
+    const { rows } = await w.t.pool.query(
+      "SELECT subject FROM operations.alert_episodes WHERE family='pause' ORDER BY subject",
+    );
+    assert.deepEqual(rows, [{ subject: "market:99" }]);
+  } finally {
+    await w.close();
+  }
+});
+
+test("jobs_dead is active for DEAD jobs of the last 24 hours, re-alerts on growth, has no heartbeat, and clears when the window empties", async () => {
+  const w = await world();
+  try {
+    await deadJob(w, "evidence.fetch", 25 * 3600); // too old to count
+    await w.run();
+    assert.deepEqual(await w.alerts("jobs_dead"), []);
+    await deadJob(w, "tx.dispatch", 60);
+    await w.run();
+    await w.run();
+    let dead = await w.alerts("jobs_dead");
+    assert.deepEqual(states(dead), ["OPEN"]);
+    assert.equal(dead[0].count, "1");
+    assert.equal(dead[0].deploymentId, undefined);
+    // A new DEAD job is announced at once, with the new count and types.
+    await deadJob(w, "keeper.finalize", 30);
+    await w.run();
+    await w.run();
+    dead = await w.alerts("jobs_dead");
+    assert.deepEqual(states(dead), ["OPEN", "STILL_OPEN"]);
+    assert.equal(dead[1].count, "2");
+    assert.deepEqual(dead[1].jobTypes, ["keeper.finalize", "tx.dispatch"]);
+    // No hourly heartbeat while the count is unchanged.
+    await w.clock(3 * 3600);
+    await w.run();
+    assert.deepEqual(states(await w.alerts("jobs_dead")), [
+      "OPEN",
+      "STILL_OPEN",
+    ]);
+    // Jobs age out of the 24 h window: CLEARED.
+    await w.clock(26 * 3600);
+    await w.run();
+    dead = await w.alerts("jobs_dead");
+    assert.equal(dead.at(-1).state, "CLEARED");
+    assert.equal(dead.filter((a) => a.state === "CLEARED").length, 1);
+  } finally {
+    await w.close();
+  }
+});
+
+test("closed question gates alert on growth only: OPEN 0 to n, STILL_OPEN when n grows, no heartbeat, CLEARED at 0", async () => {
+  const w = await world();
+  try {
+    const gate = (key: string) =>
+      w.sql(
+        "INSERT INTO budgets.questions(question_key,cap_usd_micros,gate_closed_reason) VALUES($1,1000,'OVERRUN')",
+        [key],
+      );
+    await gate("q1");
+    await w.run();
+    await gate("q2");
+    await w.run();
+    await w.run();
+    await w.clock(3 * 3600);
+    await w.run();
+    const q = (await w.alerts("budget")).filter(
+      (a) => a.subject === "questions",
+    );
+    assert.deepEqual(states(q), ["OPEN", "STILL_OPEN"]);
+    assert.deepEqual(
+      q.map((a) => a.count),
+      ["1", "2"],
+    );
+    await w.sql("UPDATE budgets.questions SET gate_closed_reason=NULL");
+    await w.run();
+    assert.deepEqual(
+      states(
+        (await w.alerts("budget")).filter((a) => a.subject === "questions"),
+      ),
+      ["OPEN", "STILL_OPEN", "CLEARED"],
+    );
+  } finally {
+    await w.close();
+  }
+});
+
+test("a reason change inside an open episode is announced at once as STILL_OPEN with the new reason", async () => {
+  const w = await world();
+  try {
+    await w.sql(
+      "INSERT INTO budgets.daily(day,gate_closed_reason) VALUES((blink.now() AT TIME ZONE 'UTC')::date,'OVERRUN')",
+    );
+    await w.run();
+    await w.sql(
+      "UPDATE budgets.daily SET gate_closed_reason=NULL,cap_usd_micros=1",
+    );
+    await w.sql(
+      `INSERT INTO budgets.questions(question_key,cap_usd_micros) VALUES('q',1000);
+       INSERT INTO budgets.reservations(id,day,question_key,run_id,provider,model,max_usd_micros,state)
+       VALUES('${randomUUID()}',(blink.now() AT TIME ZONE 'UTC')::date,'q','${randomUUID()}','p','m',5,'RESERVED')`,
+    );
+    await w.run();
+    await w.run();
+    const daily = (await w.alerts("budget")).filter(
+      (a) => a.subject === "daily",
+    );
+    assert.deepEqual(states(daily), ["OPEN", "STILL_OPEN"]);
+    assert.deepEqual(
+      daily.map((a) => a.reason),
+      ["OVERRUN", "DAILY_CAP_REACHED"],
+    );
+  } finally {
+    await w.close();
+  }
+});
+
+test("a paused market that resolves clears its pause episode even though the pause flag stays", async () => {
+  const w = await world();
+  try {
+    await w.sql("UPDATE chain.markets SET paused=true");
+    await w.run();
+    await w.sql("UPDATE chain.markets SET state='FINAL'");
+    await w.run();
+    assert.deepEqual(states(await w.alerts("pause")), ["OPEN", "CLEARED"]);
+  } finally {
+    await w.close();
+  }
+});
+
+test("global conditions alert once per tick under one global scope, not once per deployment", async () => {
+  const w = await world({ deploymentIds: null, rpc: failing(10) });
+  try {
+    await w.sql(
+      "INSERT INTO markets.deployments(id,manifest,market_address) VALUES('second','{}',decode(repeat('12',20),'hex'))",
+    );
+    await w.sql(
+      "INSERT INTO budgets.daily(day,gate_closed_reason) VALUES((blink.now() AT TIME ZONE 'UTC')::date,'OVERRUN')",
+    );
+    await deadJob(w, "tx.dispatch", 10);
+    for (let n = 0; n < 3; n++) await w.run();
+    for (const [family, subject] of [
+      ["jobs_dead", "jobs"],
+      ["rpc", "rpc"],
+      ["budget", "daily"],
+    ] as const) {
+      const sent = (await w.alerts(family)).filter(
+        (a) => a.subject === subject,
+      );
+      assert.deepEqual(states(sent), ["OPEN"], family);
+      assert.equal(sent[0].deploymentId, undefined, family);
+    }
+  } finally {
+    await w.close();
+  }
+});
+
+test("a failing family is unknown and logged by code only; the other families still evaluate", async () => {
+  const errors: string[] = [];
+  const w = await world({ onError: (code) => errors.push(code) });
+  try {
+    await w.sql(
+      "INSERT INTO budgets.daily(day,gate_closed_reason) VALUES((blink.now() AT TIME ZONE 'UTC')::date,'OVERRUN')",
+    );
+    await w.run();
+    await w.sql("UPDATE budgets.daily SET gate_closed_reason=NULL");
+    await w.sql("REVOKE SELECT ON budgets.questions FROM blink_worker");
+    await deadJob(w, "tx.dispatch", 10);
+    await w.run();
+    assert.deepEqual(
+      states((await w.alerts("budget")).filter((a) => a.subject === "daily")),
+      ["OPEN"],
+    );
+    assert.deepEqual(states(await w.alerts("jobs_dead")), ["OPEN"]);
+    assert.ok(errors.length > 0);
+    for (const code of errors) assert.match(code, /^[A-Z0-9_:a-z]{1,80}$/);
+    assert.equal(errors.join().includes("budgets"), false);
+  } finally {
+    await w.close();
+  }
+});
+
+test("more subjects than the bound are truncated, flagged, and never cleared while truncated", async () => {
+  const w = await world();
+  try {
+    await w.sql(
+      `INSERT INTO chain.markets(deployment_id,market_id,spec_hash,spec_uri,mode,close_at,proposal_deadline,hard_deadline,challenge_seconds,max_pairs,max_taker_shares,state,created_block_number,created_tx_hash,as_of_block_hash)
+       SELECT deployment_id,g,decode(md5('s'||g)||md5('s'||g),'hex'),spec_uri,mode,close_at,proposal_deadline,hard_deadline,challenge_seconds,max_pairs,max_taker_shares,state,created_block_number,
+              decode(md5('t'||g)||md5('t'||g),'hex'),as_of_block_hash FROM chain.markets,generate_series(2,150) g WHERE market_id=1`,
+    );
+    await w.sql("UPDATE chain.markets SET paused=true");
+    await w.run();
+    let pause = await w.alerts("pause");
+    assert.equal(pause.length, 100);
+    assert.ok(pause.every((a) => a.truncated === true));
+    // Market 1 is no longer paused, but while truncated nothing is cleared; the window moves on
+    // to market 101, which opens.
+    await w.sql("UPDATE chain.markets SET paused=false WHERE market_id=1");
+    await w.run();
+    pause = await w.alerts("pause");
+    assert.equal(pause.length, 101);
+    assert.equal(pause.filter((a) => a.state === "CLEARED").length, 0);
+    // Back under the bound: the clearing resumes.
+    await w.sql("UPDATE chain.markets SET paused=false");
+    await w.run();
+    pause = await w.alerts("pause");
+    assert.equal(pause.filter((a) => a.state === "CLEARED").length, 101);
+  } finally {
+    await w.close();
+  }
+});
+
+test("indexer_lag: exactly 3 blocks behind is healthy, 4 is lag, a missing cursor is CURSOR_MISSING; unpaused markets never alert", async () => {
+  const w = await world();
+  try {
+    await w.sql("UPDATE chain.cursors SET head_number=block_number+3");
+    await w.run();
+    assert.deepEqual(await w.alerts("indexer_lag"), []);
+    assert.deepEqual(await w.alerts("pause"), []);
+    await w.sql("DELETE FROM chain.cursors");
+    await w.run();
+    const lag = await w.alerts("indexer_lag");
+    assert.equal(lag[0].reason, "CURSOR_MISSING");
+    assert.equal(lag[0].blockNumber, undefined);
+  } finally {
+    await w.close();
+  }
 });

@@ -87,6 +87,21 @@ export function researchConfig(env: NodeJS.ProcessEnv): ResearchConfig {
   };
 }
 
+/** http(s) without embedded credentials: the shape every worker service/RPC URL must have. */
+function isPlainHttpUrl(value: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false;
+  }
+  return (
+    ["http:", "https:"].includes(parsed.protocol) &&
+    !parsed.username &&
+    !parsed.password
+  );
+}
+
 export interface ExecutionConfig {
   deploymentId: string;
   signerUrl: string;
@@ -104,15 +119,8 @@ export function executionConfig(
   const deploymentId = env.BLINK_DEPLOYMENT_ID?.trim();
   if (!deploymentId || !signerUrl || !signerToken || !rpcUrl)
     throw new Error("WORKER_EXECUTION_CONFIGURATION_INCOMPLETE");
-  for (const url of [signerUrl, rpcUrl]) {
-    const parsed = new URL(url);
-    if (
-      !["http:", "https:"].includes(parsed.protocol) ||
-      parsed.username ||
-      parsed.password
-    )
-      throw new Error("INVALID_WORKER_EXECUTION_URL");
-  }
+  for (const url of [signerUrl, rpcUrl])
+    if (!isPlainHttpUrl(url)) throw new Error("INVALID_WORKER_EXECUTION_URL");
   return { deploymentId, signerUrl, signerToken, rpcUrl };
 }
 
@@ -173,20 +181,8 @@ export function alertEvaluateConfig(
     return value;
   };
   const rpcUrl = env.BASE_SEPOLIA_RPC_URL?.trim() || null;
-  if (rpcUrl !== null) {
-    let parsed: URL;
-    try {
-      parsed = new URL(rpcUrl);
-    } catch {
-      throw new Error("INVALID_ALERT_EVALUATE_CONFIGURATION");
-    }
-    if (
-      !["http:", "https:"].includes(parsed.protocol) ||
-      parsed.username ||
-      parsed.password
-    )
-      throw new Error("INVALID_ALERT_EVALUATE_CONFIGURATION");
-  }
+  if (rpcUrl !== null && !isPlainHttpUrl(rpcUrl))
+    throw new Error("INVALID_ALERT_EVALUATE_CONFIGURATION");
   const deploymentId = env.BLINK_DEPLOYMENT_ID?.trim() || null;
   if (
     deploymentId !== null &&

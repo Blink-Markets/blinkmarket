@@ -51,6 +51,8 @@ export * from "./operator-status.js";
 export type { Alert, AlertSink } from "./alerts.js";
 export {
   ALERT_FAMILIES,
+  ALERT_SCOPE_FAMILIES,
+  GLOBAL_ALERT_SCOPE,
   checkGasCaps,
   keeperDueSince,
 } from "./alert-evaluate.js";
@@ -59,6 +61,7 @@ export type {
   AlertState,
   AlertFields,
   AlertObservation,
+  AlertObserved,
   AlertEpisode,
   EpisodeChange,
   AlertEvaluateStore,

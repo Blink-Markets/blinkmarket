@@ -31,7 +31,7 @@ test(
     let rpcServer: Server | undefined;
     try {
       await withDatabase(async ({ owner, pool }) => {
-        // A real login with only the worker's grants, as the deployed worker runs.
+        // A connection that assumes the blink_worker role, so only the worker's grants apply.
         const worker = pool("blink_worker", 3);
         await owner.query(`CREATE OR REPLACE FUNCTION blink.now() RETURNS timestamptz LANGUAGE sql VOLATILE AS $$ SELECT to_timestamp(${NOW}) $$;
           INSERT INTO markets.deployments(id,manifest,market_address) VALUES('drill','{}',decode(repeat('11',20),'hex'));
@@ -52,9 +52,10 @@ test(
         const rpcPort = (closed.address() as { port: number }).port;
         closed.close();
         await once(closed, "close");
+        let target = httpRpcProbe(`http://127.0.0.1:${rpcPort}`);
         const evaluate = createAlertEvaluateHandler({
           store: postgresAlertEvaluateStore(worker),
-          rpc: httpRpcProbe(`http://127.0.0.1:${rpcPort}`),
+          rpc: { probe: (signal) => target.probe(signal) },
           policy: { reAlertMs: 60 * 60_000, rpcFailures: 3 },
           keeperOverdueSeconds: 600,
           deploymentIds: ["drill"],
@@ -117,7 +118,8 @@ test(
           UPDATE chain.maker_state SET global_paused=true;
           INSERT INTO trading.maker_pools(deployment_id,gate_reason) VALUES('drill','OVERCOMMITTED');
           UPDATE chain.cursors SET synced_at=to_timestamp(${NOW - 1000});
-          INSERT INTO operations.jobs(id,type,dedupe_key,payload,state) VALUES('00000000-0000-4000-8000-000000000003','tx.dispatch','drill-dead','{"private":"private-fixture"}','DEAD');`);
+          INSERT INTO operations.jobs(id,type,dedupe_key,payload,state) VALUES('00000000-0000-4000-8000-000000000003','tx.dispatch','drill-dead','{"private":"private-fixture"}','DEAD');
+          UPDATE operations.jobs SET finished_at=to_timestamp(${NOW - 30}) WHERE state='DEAD';`);
         // The RPC streak: two failures are not an incident yet.
         await tick();
         await tick();
@@ -156,7 +158,7 @@ test(
           (
             await owner.query(
               `SELECT count(*)::int AS n FROM operations.outbox WHERE event_type LIKE 'alert.%'
-               AND event_type<>'alert.deadline' AND aggregate_id NOT LIKE '["alert","drill",%'`,
+               AND event_type<>'alert.deadline' AND aggregate_id NOT LIKE '["alert",%'`,
             )
           ).rows[0].n,
           0,
@@ -181,8 +183,11 @@ test(
             );
           });
         });
-        rpcServer.listen(rpcPort, "127.0.0.1");
+        rpcServer.listen(0, "127.0.0.1");
         await once(rpcServer, "listening");
+        target = httpRpcProbe(
+          `http://127.0.0.1:${(rpcServer.address() as { port: number }).port}`,
+        );
         await owner.query(`
           UPDATE budgets.daily SET gate_closed_reason=NULL;
           UPDATE signing.sign_requests SET updated_at=to_timestamp(${NOW - 90_000});
@@ -223,5 +228,35 @@ test(
       rpcServer?.close();
       await rm(directory, { recursive: true, force: true });
     }
+  },
+);
+
+test(
+  "concurrent alert.evaluate runs emit one OPEN per episode",
+  { timeout: 60_000 },
+  async () => {
+    await withDatabase(async ({ owner, pool }) => {
+      const worker = pool("blink_worker", 8);
+      await owner.query(`INSERT INTO markets.deployments(id,manifest,market_address) VALUES('race','{}',decode(repeat('11',20),'hex'));
+        INSERT INTO operations.jobs(id,type,dedupe_key,payload,state,finished_at)
+        VALUES('00000000-0000-4000-8000-000000000009','tx.dispatch','race-dead','{}','DEAD',now());`);
+      const evaluate = () =>
+        createAlertEvaluateHandler({
+          store: postgresAlertEvaluateStore(worker),
+          rpc: null,
+          policy: { reAlertMs: 60 * 60_000, rpcFailures: 3 },
+          keeperOverdueSeconds: 600,
+          deploymentIds: ["race"],
+        })({ job: {} as never, signal: new AbortController().signal });
+      await Promise.all([evaluate(), evaluate(), evaluate(), evaluate()]);
+      const { rows } = await owner.query(
+        `SELECT event_type,payload->>'state' AS state FROM operations.outbox WHERE event_type LIKE 'alert.%' ORDER BY event_type`,
+      );
+      // jobs_dead (global) and the missing cursor of the deployment: one OPEN each.
+      assert.deepEqual(rows, [
+        { event_type: "alert.indexer_lag", state: "OPEN" },
+        { event_type: "alert.jobs_dead", state: "OPEN" },
+      ]);
+    });
   },
 );
