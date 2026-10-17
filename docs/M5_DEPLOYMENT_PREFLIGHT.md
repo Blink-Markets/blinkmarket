@@ -20,6 +20,7 @@ This delivery adds [the deployment runbook](DEPLOYMENT_RUNBOOK.md), a marker-onl
 | `PREFLIGHT_KEY_FILE_MISSING`       | No signer key path is configured, or a configured signer key file is missing.   |
 | `PREFLIGHT_KEY_FILE_MODE`          | A signer key file is not exactly mode 0600.                                     |
 | `PREFLIGHT_SIGNER_URL`             | `SIGNER_URL` is malformed, credentialed, or not loopback/RFC 1918/IPv6 ULA.     |
+| `PREFLIGHT_WORKER_API_URL`         | `WORKER_API_URL` is malformed, credentialed, or not HTTPS/HTTP loopback.        |
 | `PREFLIGHT_ALERT_SINK`             | `ALERT_SINK` is missing, stdout, invalid, or incomplete.                        |
 | `PREFLIGHT_WEBHOOK_HTTPS`          | A non-loopback webhook is not HTTPS, or the webhook has credentials/fragment.   |
 | `PREFLIGHT_SERVICE_CONFIGURATION`  | A required service is disabled or its production config parser rejects the env. |
@@ -48,3 +49,11 @@ Remote Base Sepolia REPLAY smoke does not yet have a repository command. `pnpm a
 - Fake profile — `DEPLOY PREFLIGHT ok: Base Sepolia profile, environment rules passed (offline)`.
 - `pnpm build:services && pnpm test:service-build` — passed; 6/6 bundle checks.
 - `pnpm typecheck && pnpm check:boundaries` — passed.
+
+### A9 follow-ups
+
+The Signer now reads deployment `enabled` and manifest `tradingEnabled` in the request transaction. Quotes follow flag changes immediately while transaction signing remains gated by `enabled`, so keeper finalize still signs with trading off. Dispatcher failures now reach the worker as `JobError`s with their original code and retryability. Preflight enforces the `@blink/client` HTTPS-or-loopback rule for `WORKER_API_URL`; the runbook describes colocated loopback and cross-host HTTPS layouts.
+
+Verification: `pnpm typecheck` passed. Focused signer, dispatcher, job-failure and preflight tests passed (66/66); the final job-failure rerun passed 8/8 and confirmed `SIGN_REJECTED:POLICY` is dead-lettered under its actual code. `pnpm build:services && pnpm test:service-build` passed (6/6 bundle checks), and `pnpm check:boundaries` passed. `pnpm check` could not complete because a suite test opening an ephemeral loopback listener received `listen EPERM` in this sandbox. The A9 brief also names `docs/M5_SERVICE_IMAGES.md`, which is absent from this worktree; no edit was possible there.
+
+Fix round 1 shared the exact `@blink/client` HTTP loopback host policy with preflight, covered admin metrics for a dead dispatcher job, and made `ForecastScheduleError` a `JobError`. The focused review-round suite passed 54/54, `pnpm typecheck` passed, and service bundles passed 6/6. `pnpm build` could not fetch existing Google Fonts because network access is unavailable; `tests/client.test.ts` could not bind its loopback listener (`listen EPERM`). `ModelCallError` remains gateway-internal: all worker model jobs use `createBudgetedModelCaller`, which catches gateway errors and converts them to `JobError` before they reach job handlers.

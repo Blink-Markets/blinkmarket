@@ -45,7 +45,7 @@ test("a job that will not be retried ends the run at once naming its type and er
       1,
       "faucet.mint INVALID_JOB_PAYLOAD",
     ],
-    // The dispatcher's own flag says it will not be retried, though the worker would retry it.
+    // Dispatcher errors keep their code and retry policy in the worker.
     [
       "tx.dispatch",
       new TxDispatchError("SIGN_REJECTED:POLICY", false),
@@ -106,6 +106,22 @@ test("a retryable job failure followed by success does not fail the run", async 
   assert.equal(outcome, "completed");
 });
 
+test("worker reports dispatcher codes and honors the dispatcher's retry flag", async () => {
+  const dispatchError = new TxDispatchError("SIGN_REJECTED:POLICY", false);
+  assert.ok(dispatchError instanceof JobError);
+  assert.equal(dispatchError.code, "SIGN_REJECTED:POLICY");
+  assert.equal(dispatchError.retryable, false);
+  const failed = await ending(
+    { "tx.dispatch": failing(dispatchError) },
+    async (wrapped) => {
+      await wrapped["tx.dispatch"]!(context(1));
+      await never();
+    },
+  );
+  assert.match(failed, /tx\.dispatch SIGN_REJECTED:POLICY/);
+  assert.doesNotMatch(failed, /INTERNAL_ERROR/);
+});
+
 test("retryable job failures are named, counted once per kind, in a later failure of the run", async () => {
   const outcome = await ending(
     {
@@ -144,13 +160,13 @@ test("a transaction that is only waiting for finality is neither a failure nor r
   assert.equal(outcome, "Error: ALPHA_KEEPER_DID_NOT_FINALIZE");
 });
 
-test("a job that dies in the real worker ends the run naming its type and code", async () => {
+test("a non-retryable dispatcher failure is reported and dead-lettered with its actual code", async () => {
   const s = await migratedPglite();
   try {
     const queue = postgresJobQueue(s.pool);
     const { jobId } = await queue.enqueue({
-      type: "faucet.mint",
-      dedupeKey: "mint",
+      type: "tx.dispatch",
+      dedupeKey: "dispatch",
       payload: {},
     });
     const outcome = await runWithCleanup({}, async (life) => {
@@ -158,7 +174,9 @@ test("a job that dies in the real worker ends the run naming its type and code",
       const worker = startWorker({
         queue,
         handlers: reportJobFailures(life, {
-          "faucet.mint": failing(new JobError("INVALID_JOB_PAYLOAD", false)),
+          "tx.dispatch": failing(
+            new TxDispatchError("SIGN_REJECTED:POLICY", false),
+          ),
         }),
         workerId: "w",
         pollIntervalMs: 5,
@@ -168,7 +186,7 @@ test("a job that dies in the real worker ends the run naming its type and code",
     }).catch((error: unknown) => String(error));
     assert.equal(
       outcome,
-      "Error: LIFECYCLE_ABORTED during scenario dispute: external agent: ALPHA_JOB_FAILED: faucet.mint INVALID_JOB_PAYLOAD",
+      "Error: LIFECYCLE_ABORTED during scenario dispute: external agent: ALPHA_JOB_FAILED: tx.dispatch SIGN_REJECTED:POLICY",
     );
     // The queue dead-letters it as it always did.
     const { rows } = await s.pool.query(
@@ -177,7 +195,7 @@ test("a job that dies in the real worker ends the run naming its type and code",
     );
     assert.deepEqual(rows[0], {
       state: "DEAD",
-      last_error_code: "INVALID_JOB_PAYLOAD",
+      last_error_code: "SIGN_REJECTED:POLICY",
     });
   } finally {
     await s.db.close();

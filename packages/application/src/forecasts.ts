@@ -1,5 +1,5 @@
 import { apiContracts, IdempotencyHeaders } from "@blink/schemas";
-import { plannedWindows } from "@blink/domain";
+import { JobError, plannedWindows } from "@blink/domain";
 import type {
   ForecastStore,
   ForecastInput,
@@ -256,12 +256,13 @@ export function createForecastScheduleHandler(
     }
   };
 }
-export class ForecastScheduleError extends Error {
+export class ForecastScheduleError extends JobError {
   constructor(
-    readonly code: string,
-    readonly retryable: boolean,
+    code: string,
+    retryable: boolean,
     cause?: unknown,
   ) {
-    super(code, { cause });
+    super(code, retryable);
+    if (cause !== undefined) this.cause = cause;
   }
 }

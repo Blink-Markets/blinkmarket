@@ -1467,18 +1467,20 @@ test("maker quote policy is enforced against the chain projection and the signer
     // Trading disabled in the manifest closes quoting.
     const disabled = await harness();
     try {
-      const closedManifest = testManifest({ tradingEnabled: false });
+      await disabled.t.db.query(
+        "UPDATE markets.deployments SET manifest=jsonb_set(manifest,'{tradingEnabled}','false')",
+      );
       const closed = createSignerService({
         store: postgresSignerStore(disabled.t.pool),
         keys: { maker: testAccounts.maker },
         rpc: disabled.rpc,
-        deployment: closedManifest,
+        deployment: disabled.manifest,
         callers,
         policy: fullPolicy,
         encodeCall: encodeAllowedCall,
         now: () => 1_010_000,
       });
-      const prepared = await prepareRequest(disabled.client, closedManifest, {
+      const prepared = await prepareRequest(disabled.client, disabled.manifest, {
         kind: "MAKER_QUOTE",
         payload: testQuote,
       });
@@ -1486,10 +1488,34 @@ test("maker quote policy is enforced against the chain projection and the signer
         signRequestId: prepared.signRequestId,
         expectedRequestHash: prepared.requestHash,
       });
+      assert.equal(response.body.state, "REJECTED");
       assert.equal(response.body.code, "TRADING_DISABLED");
     } finally {
       await disabled.t.close();
     }
+  } finally {
+    await h.t.close();
+  }
+});
+
+test("quote signing follows the deployment trading flag per request; keeper finalize remains available", async () => {
+  const h = await harness();
+  try {
+    await h.t.db.query(
+      "UPDATE markets.deployments SET manifest=jsonb_set(manifest,'{tradingEnabled}','false')",
+    );
+    const offQuote = await h.call("MAKER_QUOTE", testQuote);
+    assert.equal(offQuote.response.body.state, "REJECTED");
+    assert.equal(offQuote.response.body.code, "TRADING_DISABLED");
+
+    const finalize = await h.call("FINALIZE_TIMEOUT", finalizeTimeout("44"));
+    assert.equal(finalize.response.body.state, "SIGNED");
+
+    await h.t.db.query(
+      "UPDATE markets.deployments SET manifest=jsonb_set(manifest,'{tradingEnabled}','true')",
+    );
+    const onQuote = await h.call("MAKER_QUOTE", testQuote);
+    assert.equal(onQuote.response.body.state, "SIGNED");
   } finally {
     await h.t.close();
   }

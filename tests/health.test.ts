@@ -98,6 +98,22 @@ test("real API role: public readiness, admin diagnostics and persisted RFQ metri
       p95Ms: null,
     });
     assert.deepEqual(metrics.counts.quotes, [{ name: "SIGNED", count: "1" }]);
+    const deadJobId = randomUUID();
+    await w.owner(() =>
+      w.t.db.query(
+        `INSERT INTO operations.jobs(id,type,dedupe_key,payload,state,attempt,last_error_code)
+        VALUES($1,'tx.dispatch',$2,'{}','DEAD',1,'SIGN_REJECTED:POLICY')`,
+        [deadJobId, `dead-dispatch:${deadJobId}`],
+      ),
+    );
+    const deadJobMetrics = (
+      await get("/v1/admin/metrics", w.agents.admin.apiKey)
+    ).json();
+    assert.ok(
+      deadJobMetrics.counts.errors.some(
+        (entry: { name: string }) => entry.name === "job:SIGN_REJECTED:POLICY",
+      ),
+    );
     await assert.rejects(
       w.apiPool.query("SELECT raw_transaction FROM signing.artifacts"),
       /permission denied/,

@@ -306,12 +306,13 @@ export function createSignerService(deps: SignerDeps) {
     request: SignRequestRecord,
     intent: IntentRecord,
     enabled: boolean,
+    tradingEnabled: boolean,
   ): Promise<Decision> {
     if (request.artifactVersion !== 1) return reject("VERSION_NOT_ALLOWED");
     const account = deps.keys.maker!;
     const parsed = parseQuoteMessage(request.unsignedPayload);
     const checked = checkMakerQuote({
-      manifest: deployment,
+      manifest: { ...deployment, tradingEnabled },
       makerAddress: account.address,
       deploymentEnabled: enabled,
       nowMs: now(),
@@ -599,12 +600,18 @@ export function createSignerService(deps: SignerDeps) {
       return reject("DEPLOYMENT_MISMATCH");
     if (request.policyVersion !== SIGNING_POLICY_VERSION)
       return reject("POLICY_VERSION_UNSUPPORTED");
-    const enabled = await tx.deploymentEnabled(intent.deploymentId);
+    const deploymentState = await tx.deploymentEnabled(intent.deploymentId);
     if (intent.kind === "MAKER_QUOTE") {
       if (intent.state !== "PREPARED") return reject("INTENT_NOT_SIGNABLE");
-      return signQuote(tx, request, intent, enabled);
+      return signQuote(
+        tx,
+        request,
+        intent,
+        deploymentState.enabled,
+        deploymentState.tradingEnabled,
+      );
     }
-    if (!enabled) return reject("DEPLOYMENT_DISABLED");
+    if (!deploymentState.enabled) return reject("DEPLOYMENT_DISABLED");
     return signTransaction(tx, request, intent, actor);
   }
 

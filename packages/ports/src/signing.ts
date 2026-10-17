@@ -134,7 +134,9 @@ export interface SignerTransaction {
   signedVersions(
     intentId: string,
   ): Promise<(ArtifactRecord & { unsignedPayload: Record<string, unknown> })[]>;
-  deploymentEnabled(deploymentId: string): Promise<boolean>;
+  deploymentEnabled(
+    deploymentId: string,
+  ): Promise<{ enabled: boolean; tradingEnabled: boolean }>;
   market(
     deploymentId: string,
     marketId: bigint,

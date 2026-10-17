@@ -14,6 +14,7 @@ import {
   indexerConfig,
 } from "../apps/indexer/src/config.js";
 import { signerConfig } from "../apps/signer/src/config.js";
+import { isClientHttpLoopbackHost } from "../packages/client/src/url-policy.ts";
 
 type Env = Map<string, string>;
 
@@ -166,6 +167,24 @@ async function main() {
       parsed!.password
     )
       fail("PREFLIGHT_SIGNER_URL", "SIGNER_URL");
+  }
+
+  const workerApi = env.get("WORKER_API_URL");
+  if (workerApi) {
+    let parsed: URL;
+    try {
+      parsed = new URL(workerApi);
+    } catch {
+      fail("PREFLIGHT_WORKER_API_URL", "WORKER_API_URL");
+    }
+    if (
+      parsed!.username ||
+      parsed!.password ||
+      !(parsed!.protocol === "https:" ||
+        (parsed!.protocol === "http:" &&
+          isClientHttpLoopbackHost(parsed!.hostname)))
+    )
+      fail("PREFLIGHT_WORKER_API_URL", "WORKER_API_URL");
   }
 
   const sink = env.get("ALERT_SINK");
