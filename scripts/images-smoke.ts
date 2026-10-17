@@ -680,7 +680,10 @@ async function main() {
     compose("up", "-d", "--wait", "postgres", "anvil");
     const provisioned = await provision(owner);
     const { chain } = provisioned;
-    // Creating (not starting) the services creates the volumes and builds any missing image.
+    // Always rebuild from the working tree: an existing blink-<service>:local tag may come from an
+    // older commit, and Compose would otherwise reuse it. Docker's layer cache keeps this cheap.
+    compose("build");
+    // Creating (not starting) the services creates the volumes.
     compose("up", "--no-start");
     seedVolumes();
     compose("up", "-d", "--wait", "signer", "api", "indexer", "worker");

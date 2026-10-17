@@ -41,7 +41,7 @@ The goal is to understand not only whether a forecast was right, but also its ev
 
 The API and contracts are **implemented, not yet deployed**. There is no public API host or Base Sepolia deployment, and nothing trades on this read-only site. Its markets are fictional REPLAY samples. Local verification uses REPLAY fixtures and Anvil with chain ID 84532; no paid model provider is connected and LIVE approval remains rejected.
 
-Tasks 1–13 deliver durable jobs and budgets, allowlisted evidence fetching, discovery and fixture forecasters, forecast windows and evaluation, public chain reads and transaction tracking, reorg-aware indexing, restricted signing, RFQ reservations, resolution reports, keeper finalization and the test-asset faucet. Tasks 14–16 add the internal trader under a mandate, the typed client SDK and external example agent, health/readiness and admin execution metrics, and a one-command local Alpha harness. The trader is limited to one trader per deployment and buys only when its linked forecaster’s edge strictly exceeds the mandate threshold (default 500 bps). Wallet/trading/admin UI, public deployment, paid providers, alert delivery and external acceptance remain open; local verification does not complete public Alpha.
+Tasks 1–13 deliver durable jobs and budgets, allowlisted evidence fetching, discovery and fixture forecasters, forecast windows and evaluation, public chain reads and transaction tracking, reorg-aware indexing, restricted signing, RFQ reservations, resolution reports, keeper finalization and the test-asset faucet. Tasks 14–16 add the internal trader under a mandate, the typed client SDK and external example agent, health/readiness and admin execution metrics, and a one-command local Alpha harness. The trader is limited to one trader per deployment and buys only when its linked forecaster’s edge strictly exceeds the mandate threshold (default 500 bps). Public Alpha readiness Track A (2026-10-17) adds container images for the four services with a Compose smoke, read-only admin status endpoints and `pnpm ops:status`, alert delivery with real producers, a backup restore drill, a deployment runbook with an offline preflight and a demo script. Wallet/trading/admin UI, public deployment, paid providers, a hosted alert sink and external acceptance remain open; local verification does not complete public Alpha.
 
 ## Local Alpha and agent tooling
 
@@ -133,7 +133,8 @@ tests/         unit, contract-protocol and browser tests
 - Research and operations: [Jobs/budgets](docs/M3_JOBS_BUDGETS.md) · [Evidence fetcher](docs/M3_EVIDENCE_FETCHER.md) · [Forecasts](docs/M3_FORECASTS.md) · [Research workers](docs/M3_RESEARCH_WORKERS.md) · [Resolution](docs/M3_RESOLUTION.md) · [Evaluation](docs/M3_EVALUATION.md) · [Keeper/faucet](docs/M3_KEEPER_FAUCET.md)
 - [Internal trader](docs/M3_INTERNAL_TRADER.md) · [Client SDK](docs/M5_CLIENT_SDK.md) · [Example agent](examples/agent/README.md)
 - [Health and metrics](docs/M5_HEALTH_METRICS.md) · [Local Alpha](docs/M5_LOCAL_ALPHA.md) · [Acceptance matrix](docs/ACCEPTANCE_MATRIX.md)
-- [Deployment tooling](docs/M5_DEPLOYMENT_TOOLING.md)
+- [Deployment tooling](docs/M5_DEPLOYMENT_TOOLING.md) · [Deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) · [Deployment preflight](docs/M5_DEPLOYMENT_PREFLIGHT.md) · [Service images](docs/M5_SERVICE_IMAGES.md)
+- [Operator status](docs/M5_OPERATOR_STATUS.md) · [Alerts](docs/M5_ALERTS.md) · [Restore drill](docs/M5_RESTORE_DRILL.md) · [Demo script](docs/M5_DEMO_SCRIPT.md)
 - [Original MVP specification](Blink_MVP_v0.1_Base_Sepolia_Spec.md)
 
 Most documents in `docs/` are written in Traditional Chinese.

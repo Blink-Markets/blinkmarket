@@ -4,6 +4,8 @@
 
 **Status:** Track A approved by the user on 2026-10-17, with D1 = (a), D7 = (a) and D8 = (b) as recommended. A2 is deferred until an API is deployed (it is optional and needs a mockup); A7 waits for D6. Track B is not approved: it still needs the user's answers to D3–D6, D9 and D10 and an explicit go-ahead for each outward-facing action. For those choices the user prefers free or the cheapest options while the project is experimental.
 
+**Track A result (2026-10-17):** A1, A3, A4, A4b, A5, A6, A8 and A9 are done, reviewed and merged to `main`; A2 stays deferred and A7 still waits for D6. Verification on `main` after the last merge: `pnpm check` 697 pass, 0 fail; `pnpm build`; `pnpm build:services` and `pnpm test:service-build`; `pnpm test:anvil` 50 pass; `pnpm test:postgres` 57 pass; `pnpm alpha:local` 8 pass; `node --test tests/images.test.mjs` 16 pass; on freshly built images, `pnpm images:smoke` (fast) ok in 103 s and `pnpm images:smoke -- --market` without the signer restart ok in 2034 s; `--full` passed on the A1 branch (5764 s) but on images built before A1's fix rounds (see the correction in `docs/M5_SERVICE_IMAGES.md`), so a fresh `--full` run on `main` is still to be recorded; CI green on 3b216a1. Everything is local: nothing is deployed, no real key signed and no public-chain transaction was sent. Track A does not complete M5; the remaining §17.3 items need Track B.
+
 **Goal:** Take the locally verified v0.1 backend (plan `2026-10-14-remaining-milestones.md`, Tasks 1–17) to the spec §17.3 Public Alpha Definition of Done on Base Sepolia. Track A does everything that can be built and proven locally. Track B lists the deployment steps that need the user's resources and authorization. The functional web UI (spec §13 trading, positions, admin) is decision D1, not an assumption.
 
 **Architecture:** Keep the modular monolith and the four service bundles (`dist/services/{api,worker,indexer,signer}.mjs`). Track A adds:
@@ -302,3 +304,10 @@ A separate plan, written after mockups of the trading area (§13.2 confirmation 
    - GitHub repository setting (the user's action): Issues → "Creation allowed by: Collaborators only".
 7. Real Safari and real-device checks for the site; CSP inline styles; site search (from `docs/M4_WEB_SHOWCASE_DELIVERY.md`).
 8. Per-mode (LIVE/REPLAY) budget split.
+9. Parked findings from this plan's Track A (copied from its SDD ledger at Track A close, 2026-10-17):
+   - A1: the `--market` (about 34 min) and `--full` (about 96 min) smokes are slow because of the forecast-window rules and are not in CI; in Compose the worker shares the API's network namespace because `@blink/client` accepts only https or the exact loopback hosts (the runbook lists both valid layouts); the worker's `/health/ready` is loopback-only; `tx.dispatch` retried several times after the faucet mint — since A9 the worker records the dispatcher's real code, so capture the `tx.dispatch` job rows on the next smoke to confirm it is the expected `TX_PENDING`.
+   - A3: identity service built per request; the 20000000 default cap is hard-coded in the status display; admin diagnostics (jobs, budgets, pause) are global, not scoped per operator (fine for a single-operator Alpha); `approval.state` is a plain string.
+   - A4: no startup check that the alert sink is reachable; the runbook's post-start step covers it by hand.
+   - A4b: pause-family truncation keeps the pool alert from clearing above 100 paused markets; the worker pool's max of 4 connections with one pinned by the evaluation lock; no "last successful evaluation" health signal.
+   - A5: the drill test waits a fixed 65 s.
+   - A9: the signer trading-flag test toggles one service instance only (no second instance or clock change).

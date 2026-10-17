@@ -8,7 +8,7 @@ agentTask: understand which Blink component is responsible for what
 
 # Architecture
 
-Blink is a modular monolith with implemented API, worker, indexer and restricted signer processes. They are not deployed; local verification uses REPLAY fixtures with no paid model provider. The public site is read-only, with fictional samples and no trading. LIVE approval remains rejected. The mandate trader, typed SDK and local example agent, local Alpha harness, health/readiness and admin execution metrics are implemented. The harness exercises normal YES, disputed NO and timeout INVALID settlement plus projection recovery on a local stack; it does not establish public-network finality or hosted readiness.
+Blink is a modular monolith with implemented API, worker, indexer and restricted signer processes. They are not deployed; local verification uses REPLAY fixtures with no paid model provider. The public site is read-only, with fictional samples and no trading. LIVE approval remains rejected. The mandate trader, typed SDK and local example agent, local Alpha harness, health/readiness and admin execution metrics are implemented. The harness exercises normal YES, disputed NO and timeout INVALID settlement plus projection recovery on a local stack; it does not establish public-network finality or hosted readiness. Container images for the four processes, operator status reads, alert delivery, a backup restore drill and a deployment runbook are also implemented and verified locally; none of them is a hosted deployment.
 
 ![Hand-drawn sketch of the target Blink architecture (target, not live): web, API, worker, indexer and signer processes around PostgreSQL, object storage and the BlinkMarket contract.](/docs-assets/architecture-sketch.jpg)
 

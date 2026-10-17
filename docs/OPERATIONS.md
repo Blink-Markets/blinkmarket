@@ -1,6 +1,6 @@
 # 運行與部署設計
 
-目前 backend 已有 API／Worker／Indexer／Signer 業務接線與 migrations 0001–0019；交付範圍見 [整體架構](ARCHITECTURE.md)、[本機 Alpha](M5_LOCAL_ALPHA.md) 及 [驗收矩陣](ACCEPTANCE_MATRIX.md)。以下公開服務拓樸是部署目標，並非未實作的 backend：尚無公開 API 主機或 Base Sepolia 部署，沒有付費模型，LIVE 核准仍拒絕；託管服務與外部使用者驗收仍未完成。
+目前 backend 已有 API／Worker／Indexer／Signer 業務接線與 migrations 0001–0022（無 0021）；交付範圍見 [整體架構](ARCHITECTURE.md)、[本機 Alpha](M5_LOCAL_ALPHA.md) 及 [驗收矩陣](ACCEPTANCE_MATRIX.md)。以下公開服務拓樸是部署目標，並非未實作的 backend：尚無公開 API 主機或 Base Sepolia 部署，沒有付費模型，LIVE 核准仍拒絕；託管服務與外部使用者驗收仍未完成。
 
 ## 現在可執行
 
@@ -11,9 +11,9 @@
 - Indexer 在 `CHAIN_INDEXER_ENABLED=true` 與專用 DB／RPC／deployment 設定下持續同步 canonical 區塊、事件與投影並處理 reorg；creation receipt polling 與交易追蹤另有各自開關。
 - Signer 在 `SIGNER_ENABLED=true`、key 檔、DB 登入、RPC 與 caller 白名單完整時提供 `POST /internal/sign`，已接 trading API 與 execution/trader Worker；私鑰只在 signer，caller 驗證不等於正式網路隔離已完成，見 [Signer](M2_SIGNER.md)。
 
-`pnpm build:services` 產生 `dist/services/{api,worker,indexer,signer}.mjs`、管理工具 bundles 與 migrations，`pnpm test:service-build` 驗證獨立 bundle。`infra/Dockerfile.api` 已有 API 多階段容器範本，以非 root 使用者執行 API bundle，healthcheck 只測 liveness；尚未驗收公開部署、完整服務容器拓樸或供應鏈發布流程。
+`pnpm build:services` 產生 `dist/services/{api,worker,indexer,signer}.mjs`、管理工具 bundles 與 migrations，`pnpm test:service-build` 驗證獨立 bundle。`infra/Dockerfile.{api,worker,indexer,signer}` 為四個服務各建一個非 root、執行階段不含 npm／yarn／corepack 的多階段映像；`infra/compose.alpha.yaml` 與 `pnpm images:smoke` 以本機容器驗證整套服務與測試資產 faucet，`--market`／`--full` 另跑真實時間 REPLAY 市場的報價成交與 keeper 結算贖回（見 [服務映像](M5_SERVICE_IMAGES.md)）。部署步驟與離線 env 檢查 `pnpm deploy:preflight` 見 [部署手冊](DEPLOYMENT_RUNBOOK.md)；管理員唯讀狀態 API 與 `pnpm ops:status` 見 [營運狀態](M5_OPERATOR_STATUS.md)。尚未驗收公開部署或供應鏈發布流程。
 
-`pnpm check` 執行兩個 TS typecheck、Node 單元／整合測試、package boundaries 與 Solidity 合約編譯。`pnpm test:contracts`／`pnpm replay` 驗證本機帳本；`pnpm build` 建置 Next.js Web；`pnpm alpha:local` 使用專用本機 PostgreSQL 與 Anvil 驗證三種 REPLAY 結算及投影恢復。這些不等於公開 Alpha、公開網路 finality、完整營運 restore drill 或安全審計。
+`pnpm check` 執行兩個 TS typecheck、Node 單元／整合測試、package boundaries 與 Solidity 合約編譯。`pnpm test:contracts`／`pnpm replay` 驗證本機帳本；`pnpm build` 建置 Next.js Web；`pnpm alpha:local` 使用專用本機 PostgreSQL 與 Anvil 驗證三種 REPLAY 結算及投影恢復。`pnpm drill:restore` 在本機演練 pg_dump 備份、還原到新資料庫、重放 canonical 事件與報價重新開啟（見 [還原演練](M5_RESTORE_DRILL.md)）。這些不等於公開 Alpha、公開網路 finality、託管環境的備份還原或安全審計。
 
 ## 目標 Alpha 拓樸
 
@@ -58,6 +58,6 @@ deployments/base-sepolia/manifest.template.json 是未部署範本，不能作 r
 
 ## 事故與備份
 
-新交易 pause 與既有結算／贖回分離。部署不可升級，bug 用新 deployment；舊部位沿既定結算。每日 DB backup，object versioning/retention；Alpha 前演練 DB restore + canonical events 重播、資料核對及重新開啟報價。
+新交易 pause 與既有結算／贖回分離。部署不可升級，bug 用新 deployment；舊部位沿既定結算。每日 DB backup，object versioning/retention；Alpha 前演練 DB restore + canonical events 重播、資料核對及重新開啟報價；本機演練已完成（[還原演練](M5_RESTORE_DRILL.md)），託管環境的演練與物件封存還原仍待部署，步驟見 [部署手冊](DEPLOYMENT_RUNBOOK.md)。
 
 未定費率、不明 gas 上界或缺 RPC finality 能力時保持停止／unknown，不能自動假設免費、失敗或 finalized。

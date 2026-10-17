@@ -49,7 +49,7 @@ pnpm images:smoke -- --full     # implies --market; adds keeper finalize and red
 
 `ALPHA_PROJECT` and `ALPHA_POSTGRES_PORT`/`ALPHA_ANVIL_PORT`/`ALPHA_API_PORT`/`ALPHA_INDEXER_PORT` override the Compose project name and host ports (defaults `blink-alpha`, 55420, 58545, 3001, 3003; the test PostgreSQL ports 55411-55415 are avoided). Compose starts PostgreSQL 17.6, Anvil with chain ID 84532 and the four images; the file holds no secret and refuses to start a service whose required value is missing. The driver `scripts/images-smoke.ts`:
 
-1. starts PostgreSQL and Anvil (one block per second), migrates, creates one ordinary login per service (in exactly its own group) plus registration, identity and evidence logins that are never given to a container;
+1. rebuilds the four images from the working tree (`docker compose build`; an existing `blink-<service>:local` tag can come from an older commit, so it is never reused as is), starts PostgreSQL and Anvil (one block per second), migrates, creates one ordinary login per service (in exactly its own group) plus registration, identity and evidence logins that are never given to a container;
 2. installs a GasPriceOracle stub at the OP-stack predeploy `0x4200...000F` with `anvil_setCode` (runtime code `0x600160005260206000f3`: every call returns an L1 fee of 1 wei; smoke only, the signer stays in its real oracle fee mode), deploys the contracts, registers and verifies the deployment (trading still off), funds the maker pool, allow-lists and funds the taker, invites the discovery, admin, three platform-forecaster and external-agent keys and registers the forecasters;
 3. seeds the signer key files (mode 0600, owner `node`) and the object directories into named volumes, then starts signer, API, indexer and worker;
 4. asserts all four containers are running, `healthy` and non-root, and the signer, worker and indexer ready (the default run then switches trading on and asserts the API reports `ready`);
@@ -65,8 +65,8 @@ The business clock is never shifted: the production guard (`assertProductionCloc
 
 | Command | Adds | Measured |
 | --- | --- | --- |
-| `pnpm images:smoke` | stack healthy, non-root, ready; faucet mint signed and landed; API ready | 74 s (2026-10-17) |
-| `pnpm images:smoke -- --market` | a real-time REPLAY market, the platform forecasts, the example agent's quote and buy, the indexer's position | 2028 s, about 34 min (an earlier run 2032 s) |
+| `pnpm images:smoke` | stack healthy, non-root, ready; faucet mint signed and landed; API ready | 103 s including the image rebuild (2026-10-17, `main`) |
+| `pnpm images:smoke -- --market` | a real-time REPLAY market, the platform forecasts, the example agent's quote and buy, the indexer's position | 2034 s, about 34 min (2026-10-17, `main`, fresh images, no signer restart) |
 | `pnpm images:smoke -- --full` (or `IMAGES_SMOKE_FULL=1`) | implies `--market`; the market closes, propose, keeper finalize, agent redeem, balances | 5764 s, about 96 min |
 
 The 34 minutes of `--market` are the shortest the normal path allows (no domain change):
@@ -97,7 +97,7 @@ None of the modes is part of `pnpm check` or CI. Run the default for any image c
 - The platform forecasters call the API through `@blink/client`, which accepts only HTTPS or a loopback host. In Compose the worker therefore shares the API container's network namespace (`network_mode: service:api`) and calls `http://127.0.0.1:3001`; a real deployment needs the worker to reach the API over HTTPS or on the same host.
 - Fixed in A9: the signer used to read the deployment row only at start-up, so enabling trading needed a restart. It now reads `tradingEnabled` per sign request, and the `--market` mode no longer restarts it.
 - The worker's `/health/ready` and `/health/live` listen on loopback only (fixed in `apps/worker/src/main.ts`), so an orchestrator cannot probe the worker from outside the container; the image's own healthcheck works, and the smoke checks readiness with `docker compose exec`.
-- The worker's `tx.dispatch` job retried with `INTERNAL_ERROR` several times after the faucet mint before succeeding (Anvil never finalizes); not investigated here.
+- The worker's `tx.dispatch` job retried with `INTERNAL_ERROR` several times after the faucet mint before succeeding (Anvil never finalizes). Since A9 the worker records the dispatcher's own code, so the next run's `tx.dispatch` job rows show whether this is the expected `TX_PENDING`.
 - The runtime stage removes npm, corepack and yarn from the filesystem (the base image's lower layer still contains them). No registry push, image signing or vulnerability scan; images are built for the local daemon's architecture only.
 - Evidence and spec volumes are named volumes owned by `node`; a real deployment must provide the same ownership.
 
@@ -107,4 +107,5 @@ Run on 2026-10-17 with Docker 28.3.2:
 
 - `node --test tests/images.test.mjs`: 16 pass, 0 fail (4 images x 4 checks).
 - `pnpm images:smoke` (fast default): ok in 74 s. `--market` ok in 2028 s and `--full` ok in 5764 s, measured before the mode split (not re-run after it); no container, volume or network left afterwards.
+- Correction (controller, after the merge): until the smoke ran `docker compose build`, Compose reused any existing `blink-<service>:local` tag, and the tags on this machine dated from before the A1 fix rounds. The runs above therefore exercised older bundles; the Dockerfile properties themselves were verified by `tests/images.test.mjs`, which builds fresh `:test` images. A `--market` run on `main` after A9 failed with `TRADING_DISABLED` from such a stale signer image, which exposed the problem. With the rebuild in place, on `main`: fast ok in 103 s and `--market` ok in 2034 s, with no signer restart.
 - `pnpm typecheck`: passes. `pnpm check` (619 pass) and `pnpm build:services && pnpm test:service-build` (5 pass) ran in round 2; round 3 changed only the smoke script and this document. Round 1 results for `test:anvil` (50 pass) and `test:postgres` (53 pass) stand. `pnpm build` was not needed: no web-consumed package changed.
