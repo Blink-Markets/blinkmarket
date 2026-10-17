@@ -604,24 +604,7 @@ async function createMarket(
       [DEPLOYMENT],
     );
     chain.manifest.tradingEnabled = true;
-    // The signer reads the deployment row once at start-up and refuses quotes (TRADING_DISABLED)
-    // while its copy says trading is off, so turning trading on means restarting it.
-    compose("restart", "signer");
-    await waitFor("signer ready after restart", () => {
-      const result = docker(
-        [
-          ...COMPOSE,
-          "exec",
-          "-T",
-          "signer",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:3004/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ],
-        { allowFailure: true },
-      );
-      return result.status === 0 ? true : null;
-    });
+    // Since A9 the signer reads tradingEnabled per sign request, so no restart is needed here.
 
     // Forecast window, then the three platform forecasts run by the worker container. The jobs
     // carry the key the worker's own forecast.dispatch would give them.
