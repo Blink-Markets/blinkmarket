@@ -13,6 +13,7 @@ This runbook describes a provider-neutral deployment on Base Sepolia. It support
 - The signer runs on its separate host and accepts traffic only on a private network. Its key files are mounted read-only, owned/readable by its service user, and mode `0600`. No key or URL credential belongs in a public variable, image, log, checked-in file, or command argument.
 - A1 images are built from `infra/Dockerfile.<service>` and use the pinned `node:22.23.1-bookworm-slim` base tag; the build record lists digest `sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3`. Rebuild and record the actual base digest when producing a release image. The runtime image is non-root and contains only its service bundle. See `docs/M5_SERVICE_IMAGES.md` on the A1 branch for the image contract.
 - `pnpm deploy:preflight <env-file>` is offline. It does not resolve hosts or contact PostgreSQL, an RPC, a webhook, or any other service. A passing result checks policy and local signer key-file existence/mode; it does not prove that a sink is writable or reachable.
+- `WORKER_API_URL` must use HTTPS between hosts. Plain HTTP is allowed only for loopback (`localhost`, `127.0.0.1`, or `[::1]`), matching `@blink/client`: either colocate the Worker with the API and use loopback, or provide an internal HTTPS API endpoint to a separately hosted Worker.
 - Service configuration variable names, grouped by owner, are listed below. Optional features may leave their related values unset; the matching service parser rejects incomplete feature groups.
 
 ### Environment variables
@@ -73,7 +74,7 @@ Start the signer with its dedicated `blink_signer` login. Verify `/health/live` 
 
 ### 7. Worker
 
-**USER ACTION — needs explicit approval:** installing/updating and starting the Worker deploys a service. The user executes the approved change. Use `WORKER_ENABLED=true`, its own `WORKER_DATABASE_URL`, internal `WORKER_API_URL`, and only the feature settings required for the chosen REPLAY profile. Start with deterministic, reviewed model fixtures and no live provider keys. Configure a non-stdout `ALERT_SINK` explicitly. For `file`, ensure the parent exists and the worker can append; for `webhook`, use the user-selected HTTPS endpoint. Worker `/health/ready` listens on loopback only: check it from inside the container with `docker compose exec` or from the host namespace. Do not probe it from an external orchestrator.
+**USER ACTION — needs explicit approval:** installing/updating and starting the Worker deploys a service. The user executes the approved change. Use `WORKER_ENABLED=true`, its own `WORKER_DATABASE_URL`, and `WORKER_API_URL` over loopback on a colocated host or HTTPS between hosts. Start with deterministic, reviewed model fixtures and no live provider keys. Configure a non-stdout `ALERT_SINK` explicitly. For `file`, ensure the parent exists and the worker can append; for `webhook`, use the user-selected HTTPS endpoint. Worker `/health/ready` listens on loopback only: check it from inside the container with `docker compose exec` or from the host namespace. Do not probe it from an external orchestrator.
 
 ### 8. API
 
@@ -92,6 +93,8 @@ There is no remote Base Sepolia REPLAY smoke command in the repository. The clos
 **USER ACTION — needs explicit approval:** any future target-chain REPLAY smoke may sign or broadcast transactions. The user must approve its exact commands and test-asset effects before execution. Record forecast, quote/fill, indexing, resolution and redeem evidence that the approved procedure actually exercises. It must not call a paid model/data provider or use a mainnet endpoint.
 
 ### 11. Open trading
+
+The Signer reads the deployment's `tradingEnabled` flag for each quote request, so the next quote observes a trading-state change without a Signer restart. Transaction signing remains governed by the deployment `enabled` kill switch; keeper finalize remains available while trading is off.
 
 Review all prior evidence, alerts and current operator status. Use `pnpm ops:status` once more and confirm no pause, stale cursor, unresolved reservation, signer nonce issue, failed alert delivery or readiness reason. Prepare `pnpm ops:status --unpause` to produce the unsigned ADMIN draft; inspect it before an authorized human uses the ADMIN wallet. The pause/unpause options only print unsigned drafts.
 

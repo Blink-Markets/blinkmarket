@@ -168,6 +168,23 @@ async function main() {
       fail("PREFLIGHT_SIGNER_URL", "SIGNER_URL");
   }
 
+  const workerApi = env.get("WORKER_API_URL");
+  if (workerApi) {
+    let parsed: URL;
+    try {
+      parsed = new URL(workerApi);
+    } catch {
+      fail("PREFLIGHT_WORKER_API_URL", "WORKER_API_URL");
+    }
+    if (
+      parsed!.username ||
+      parsed!.password ||
+      !(parsed!.protocol === "https:" ||
+        (parsed!.protocol === "http:" && isLoopback(parsed!.hostname)))
+    )
+      fail("PREFLIGHT_WORKER_API_URL", "WORKER_API_URL");
+  }
+
   const sink = env.get("ALERT_SINK");
   if (!sink || sink === "stdout") fail("PREFLIGHT_ALERT_SINK", "ALERT_SINK");
   if (sink === "file" && !env.get("ALERT_FILE_PATH"))

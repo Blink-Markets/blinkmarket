@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { keccak256 } from "viem";
-import { minimumReplacementFees, SIGNING_POLICY_VERSION } from "@blink/domain";
+import {
+  JobError,
+  minimumReplacementFees,
+  SIGNING_POLICY_VERSION,
+} from "@blink/domain";
 import type {
   ArtifactRecord,
   AttemptPatch,
@@ -18,12 +22,12 @@ import { decodeEip1559, transactionRequestHash } from "./signer.js";
 export type DispatchResult =
   "SUBMITTED" | "INCLUDED" | "FINALIZED" | "REVERTED" | "UNKNOWN" | "PENDING";
 
-export class TxDispatchError extends Error {
+export class TxDispatchError extends JobError {
   constructor(
     readonly code: string,
     readonly retryable: boolean,
   ) {
-    super(code);
+    super(code, retryable);
   }
 }
 

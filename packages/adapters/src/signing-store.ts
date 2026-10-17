@@ -198,10 +198,13 @@ function signerTransaction(client: PoolClient): SignerTransaction {
     },
     async deploymentEnabled(deploymentId) {
       const rows = await q(
-        "SELECT enabled FROM markets.deployments WHERE id = $1",
+        "SELECT enabled, manifest->>'tradingEnabled' AS trading_enabled FROM markets.deployments WHERE id = $1",
         [deploymentId],
       );
-      return rows[0]?.enabled === true;
+      return {
+        enabled: rows[0]?.enabled === true,
+        tradingEnabled: rows[0]?.trading_enabled === "true",
+      };
     },
     async market(deploymentId, marketId) {
       const rows = await q(
