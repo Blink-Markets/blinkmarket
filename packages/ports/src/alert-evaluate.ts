@@ -48,7 +48,8 @@ export interface AlertObservation {
 /** What one scope's sources said. A family in `unknown` could not be judged and must not transition. */
 export interface AlertObserved {
   observations: AlertObservation[];
-  unknown: AlertFamily[];
+  /** Subjects of a family that could not be judged; `covers` says which. */
+  unknown: { family: AlertFamily; covers(subject: string): boolean }[];
   truncated: AlertFamily[];
 }
 
@@ -70,6 +71,11 @@ export interface EpisodeChange extends AlertEpisode {
 }
 
 export interface AlertEvaluateStore {
+  /**
+   * A job-level lock so two evaluators never overlap. Null when another evaluator holds it; the
+   * holder releases it when the tick ends (a crashed holder's lock goes with its connection).
+   */
+  tryLock(): Promise<{ release(): Promise<void> } | null>;
   /** Enabled deployments, used when none is configured. */
   deployments(): Promise<string[]>;
   /**

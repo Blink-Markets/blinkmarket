@@ -47,14 +47,19 @@ type FamilyResult = { observations: AlertObservation[]; truncated?: boolean };
 
 export function postgresAlertEvaluateStore(
   pool: Pool,
-  options: { onError?: ((code: string) => void) | undefined } = {},
+  options: {
+    onError?: ((code: string) => void) | undefined;
+    /** Set false for a single-connection test pool, where a held lock connection would deadlock. */
+    jobLock?: boolean | undefined;
+  } = {},
 ): AlertEvaluateStore {
   const uow = createUnitOfWork(pool);
   /** One family's reads in a transaction with its own statement timeout. */
   async function bounded<T>(run: (db: Pool) => Promise<T>): Promise<T> {
     const client = await pool.connect();
     try {
-      await client.query("BEGIN");
+      // One snapshot per family: the cursor check and the reads that depend on it agree.
+      await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
       await client.query(`SET LOCAL statement_timeout = ${FAMILY_TIMEOUT_MS}`);
       const result = await run(client as unknown as Pool);
       await client.query("COMMIT");
@@ -129,9 +134,12 @@ export function postgresAlertEvaluateStore(
         })),
       };
     },
-    // The indexed pause projection (A3 operator status) for markets still open to trading, and the
-    // maker pool gate. Unknown while the cursor is gated or missing.
-    async pause(db: Pool, deploymentId: string): Promise<FamilyResult | null> {
+    // The indexed pause projection (A3 operator status) for markets still open to trading.
+    // Unknown while the cursor is gated or missing.
+    async pauseProjection(
+      db: Pool,
+      deploymentId: string,
+    ): Promise<FamilyResult | null> {
       if (!(await cursorReadable(db, deploymentId))) return null;
       const found: AlertObservation[] = [];
       const projection = await postgresOperatorStatusStore(
@@ -166,17 +174,29 @@ export function postgresAlertEvaluateStore(
           subject: "market:" + id,
           reason: "MARKET_PAUSED",
         });
+      return { observations: found, truncated };
+    },
+    // The maker pool gate is database state, not the chain projection: it is judged even while the
+    // cursor is gated (a reorg is when it tends to close).
+    async poolGate(db: Pool, deploymentId: string): Promise<FamilyResult> {
       const poolGate = await db.query<{ gate_reason: string }>(
         POOL_GATE_CLOSED_SQL + " LIMIT 1",
         [deploymentId],
       );
-      if (poolGate.rows[0])
-        found.push({
-          family: "pause",
-          subject: "pool",
-          reason: reasonOf(poolGate.rows[0].gate_reason, "POOL_GATE_CLOSED"),
-        });
-      return { observations: found, truncated };
+      return {
+        observations: poolGate.rows[0]
+          ? [
+              {
+                family: "pause",
+                subject: "pool",
+                reason: reasonOf(
+                  poolGate.rows[0].gate_reason,
+                  "POOL_GATE_CLOSED",
+                ),
+              },
+            ]
+          : [],
+      };
     },
     // The health INDEXER_LAG freshness rule. A gated or missing cursor is itself the condition.
     async indexerLag(db: Pool, deploymentId: string): Promise<FamilyResult> {
@@ -284,6 +304,35 @@ export function postgresAlertEvaluateStore(
   };
 
   return {
+    async tryLock() {
+      if (options.jobLock === false) return { release: async () => {} };
+      const client = await pool.connect();
+      try {
+        const { rows } = await client.query(
+          "SELECT pg_try_advisory_lock(hashtextextended('alert.evaluate:job',0)) AS locked",
+        );
+        if (rows[0].locked !== true) {
+          client.release();
+          return null;
+        }
+      } catch (error) {
+        client.release();
+        throw error;
+      }
+      return {
+        async release() {
+          try {
+            await client.query(
+              "SELECT pg_advisory_unlock(hashtextextended('alert.evaluate:job',0))",
+            );
+            client.release();
+          } catch {
+            // The session lock dies with a broken connection.
+            client.release(true);
+          }
+        },
+      };
+    },
     async deployments() {
       const { rows } = await pool.query<{ id: string }>(
         `SELECT id FROM markets.deployments WHERE enabled ORDER BY id COLLATE "C" LIMIT ${MAX_DEPLOYMENTS}`,
@@ -300,10 +349,12 @@ export function postgresAlertEvaluateStore(
       const attempt = async (
         family: AlertFamily,
         run: (db: Pool) => Promise<FamilyResult | null>,
+        covers: (subject: string) => boolean = () => true,
       ) => {
         try {
           const found = await bounded(run);
-          if (found === null) return void result.unknown.push(family);
+          if (found === null)
+            return void result.unknown.push({ family, covers });
           for (const observation of found.observations)
             result.observations.push(
               found.truncated
@@ -315,7 +366,7 @@ export function postgresAlertEvaluateStore(
             );
           if (found.truncated) result.truncated.push(family);
         } catch {
-          result.unknown.push(family);
+          result.unknown.push({ family, covers });
           options.onError?.("ALERT_EVALUATE_FAMILY_FAILED:" + family);
         }
       };
@@ -325,7 +376,16 @@ export function postgresAlertEvaluateStore(
         return result;
       }
       await attempt("budget", (db) => families.budgetDeployment(db, scope));
-      await attempt("pause", (db) => families.pause(db, scope));
+      await attempt(
+        "pause",
+        (db) => families.pauseProjection(db, scope),
+        (subject) => subject !== "pool",
+      );
+      await attempt(
+        "pause",
+        (db) => families.poolGate(db, scope),
+        (subject) => subject === "pool",
+      );
       await attempt("indexer_lag", (db) => families.indexerLag(db, scope));
       await attempt("keeper_overdue", (db) =>
         families.keeperOverdue(db, scope, keeperOverdueSeconds),
@@ -402,7 +462,15 @@ export function postgresAlertEvaluateStore(
             [
               randomUUID(),
               "alert." + change.family,
-              JSON.stringify(["alert", scope, change.family, change.subject]),
+              // The episode's opening time is part of the identity: a pruned subject that recurs
+              // can never collide with an older episode's alerts.
+              JSON.stringify([
+                "alert",
+                scope,
+                change.family,
+                change.subject,
+                (change.openedAt ?? now).getTime(),
+              ]),
               saved.rows[0].alert_seq,
               {
                 ...change.emit.fields,

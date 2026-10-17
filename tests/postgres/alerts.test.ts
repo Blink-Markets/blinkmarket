@@ -231,32 +231,100 @@ test(
   },
 );
 
+const RACE_SETUP = `INSERT INTO markets.deployments(id,manifest,market_address) VALUES('race','{}',decode(repeat('11',20),'hex'));
+  INSERT INTO operations.jobs(id,type,dedupe_key,payload,state,finished_at)
+  VALUES('00000000-0000-4000-8000-000000000009','tx.dispatch','race-dead','{}','DEAD',now());`;
+const evaluator = (
+  worker: Parameters<typeof postgresAlertEvaluateStore>[0],
+  options: Parameters<typeof postgresAlertEvaluateStore>[1] = {},
+  onSkip?: (code: string) => void,
+) =>
+  createAlertEvaluateHandler({
+    store: postgresAlertEvaluateStore(worker, options),
+    rpc: null,
+    policy: { reAlertMs: 60 * 60_000, rpcFailures: 3 },
+    keeperOverdueSeconds: 600,
+    deploymentIds: ["race"],
+    ...(onSkip ? { onSkip } : {}),
+  });
+const run = (handler: ReturnType<typeof evaluator>) =>
+  handler({ job: {} as never, signal: new AbortController().signal });
+const raceAlerts = async (owner: {
+  query: (sql: string) => Promise<{ rows: unknown[] }>;
+}) =>
+  (
+    await owner.query(
+      `SELECT event_type,payload->>'state' AS state FROM operations.outbox WHERE event_type LIKE 'alert.%' ORDER BY event_type`,
+    )
+  ).rows;
+// jobs_dead (global) and the missing cursor of the deployment: one OPEN each.
+const RACE_EXPECTED = [
+  { event_type: "alert.indexer_lag", state: "OPEN" },
+  { event_type: "alert.jobs_dead", state: "OPEN" },
+];
+
 test(
-  "concurrent alert.evaluate runs emit one OPEN per episode",
+  "concurrent alert.evaluate runs emit one OPEN per episode: the per-scope lock alone, and the job lock",
   { timeout: 60_000 },
   async () => {
     await withDatabase(async ({ owner, pool }) => {
-      const worker = pool("blink_worker", 8);
-      await owner.query(`INSERT INTO markets.deployments(id,manifest,market_address) VALUES('race','{}',decode(repeat('11',20),'hex'));
-        INSERT INTO operations.jobs(id,type,dedupe_key,payload,state,finished_at)
-        VALUES('00000000-0000-4000-8000-000000000009','tx.dispatch','race-dead','{}','DEAD',now());`);
-      const evaluate = () =>
-        createAlertEvaluateHandler({
-          store: postgresAlertEvaluateStore(worker),
-          rpc: null,
-          policy: { reAlertMs: 60 * 60_000, rpcFailures: 3 },
-          keeperOverdueSeconds: 600,
-          deploymentIds: ["race"],
-        })({ job: {} as never, signal: new AbortController().signal });
-      await Promise.all([evaluate(), evaluate(), evaluate(), evaluate()]);
-      const { rows } = await owner.query(
-        `SELECT event_type,payload->>'state' AS state FROM operations.outbox WHERE event_type LIKE 'alert.%' ORDER BY event_type`,
-      );
-      // jobs_dead (global) and the missing cursor of the deployment: one OPEN each.
-      assert.deepEqual(rows, [
-        { event_type: "alert.indexer_lag", state: "OPEN" },
-        { event_type: "alert.jobs_dead", state: "OPEN" },
+      const worker = pool("blink_worker", 12);
+      await owner.query(RACE_SETUP);
+      // Without the job lock, four evaluators race on the transaction lock.
+      const racing = () => evaluator(worker, { jobLock: false });
+      await Promise.all([
+        run(racing()),
+        run(racing()),
+        run(racing()),
+        run(racing()),
       ]);
+      assert.deepEqual(await raceAlerts(owner), RACE_EXPECTED);
+    });
+    await withDatabase(async ({ owner, pool }) => {
+      const worker = pool("blink_worker", 12);
+      await owner.query(RACE_SETUP);
+      const skipped: string[] = [];
+      const guarded = () => evaluator(worker, {}, (code) => skipped.push(code));
+      await Promise.all([
+        run(guarded()),
+        run(guarded()),
+        run(guarded()),
+        run(guarded()),
+      ]);
+      assert.deepEqual(await raceAlerts(owner), RACE_EXPECTED);
+      assert.ok(skipped.length >= 1);
+      assert.ok(
+        skipped.every((code) => code === "ALERT_EVALUATE_SKIPPED_OVERLAP"),
+      );
+    });
+  },
+);
+
+test(
+  "a tick is skipped, not failed, while another evaluator holds the job lock",
+  { timeout: 60_000 },
+  async () => {
+    await withDatabase(async ({ owner, pool }) => {
+      const worker = pool("blink_worker", 4);
+      await owner.query(RACE_SETUP);
+      const skipped: string[] = [];
+      const holder = await owner.connect();
+      try {
+        await holder.query(
+          "SELECT pg_advisory_lock(hashtextextended('alert.evaluate:job',0))",
+        );
+        await run(evaluator(worker, {}, (code) => skipped.push(code)));
+        assert.deepEqual(skipped, ["ALERT_EVALUATE_SKIPPED_OVERLAP"]);
+        assert.deepEqual(await raceAlerts(owner), []);
+      } finally {
+        await holder.query(
+          "SELECT pg_advisory_unlock(hashtextextended('alert.evaluate:job',0))",
+        );
+        holder.release();
+      }
+      await run(evaluator(worker, {}, (code) => skipped.push(code)));
+      assert.deepEqual(await raceAlerts(owner), RACE_EXPECTED);
+      assert.equal(skipped.length, 1);
     });
   },
 );

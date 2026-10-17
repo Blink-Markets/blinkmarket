@@ -11,6 +11,9 @@ import {
   type RpcProbeResult,
 } from "@blink/ports";
 
+/** A reason change is announced at most this often per episode (a flapping probe stays quiet). */
+const REASON_CHANGE_MIN_MS = 10 * 60_000;
+
 export interface AlertEvaluatePolicy {
   /** An episode that stays active this long is announced again (STILL_OPEN). */
   reAlertMs: number;
@@ -38,6 +41,8 @@ export function decideEpisodeChanges(input: {
   now: Date;
   policy: AlertEvaluatePolicy;
   rpc: RpcProbeResult | null;
+  /** Episodes whose subject could not be judged this tick: they change nothing. */
+  skip?: (episode: AlertEpisode) => boolean;
 }): EpisodeChange[] {
   const { episodes, evaluated, now, policy, rpc } = input;
   const previous = new Map(episodes.map((e) => [key(e.family, e.subject), e]));
@@ -78,7 +83,9 @@ export function decideEpisodeChanges(input: {
         emit: { state: "OPEN", fields: o.fields },
       });
     else if (
-      o.reason !== before.reason ||
+      (o.reason !== before.reason &&
+        now.getTime() - before.lastAlertAt!.getTime() >=
+          REASON_CHANGE_MIN_MS) ||
       (o.monotonic
         ? count > before.lastCount
         : now.getTime() - before.lastAlertAt!.getTime() > policy.reAlertMs)
@@ -101,7 +108,11 @@ export function decideEpisodeChanges(input: {
   }
   for (const [k, before] of previous) {
     if (current.has(k)) continue;
-    if (before.active && evaluated.includes(before.family))
+    if (
+      before.active &&
+      evaluated.includes(before.family) &&
+      !input.skip?.(before)
+    )
       changes.push({
         ...before,
         active: false,
@@ -151,6 +162,8 @@ export function createAlertEvaluateHandler(deps: {
   keeperOverdueSeconds: number;
   /** Fixed deployments; when null every enabled deployment is evaluated. */
   deploymentIds: string[] | null;
+  /** Called with a fixed code when a tick is skipped because another evaluator is running. */
+  onSkip?: (code: string) => void;
 }): JobHandler {
   const evaluateScope = async (
     scope: string,
@@ -160,22 +173,24 @@ export function createAlertEvaluateHandler(deps: {
     const observed = await deps.store.observe(scope, {
       keeperOverdueSeconds: deps.keeperOverdueSeconds,
     });
-    // Unknown families neither open nor clear; truncated ones may open but never clear.
-    const known = scopeFamilies.filter((f) => !observed.unknown.includes(f));
-    if (!known.length) return;
-    const clearable = known.filter((f) => !observed.truncated.includes(f));
-    const observations = observed.observations.filter((o) =>
-      known.includes(o.family),
-    );
+    // Unknown subjects neither open nor clear; truncated families may open but never clear.
+    const unknown = (episode: { family: AlertFamily; subject: string }) =>
+      observed.unknown.some(
+        (u) => u.family === episode.family && u.covers(episode.subject),
+      );
+    const observations = observed.observations.filter((o) => !unknown(o));
     await deps.store.transition(
       scope,
-      known,
+      scopeFamilies,
       observations,
       ({ episodes, now }) =>
         decideEpisodeChanges({
           episodes,
           observations,
-          evaluated: clearable,
+          evaluated: scopeFamilies.filter(
+            (f) => !observed.truncated.includes(f),
+          ),
+          skip: unknown,
           now,
           policy: deps.policy,
           rpc,
@@ -184,18 +199,45 @@ export function createAlertEvaluateHandler(deps: {
   };
   return async ({ signal }) => {
     signal.throwIfAborted();
-    // One probe per tick; it never throws.
-    const rpc = deps.rpc ? await deps.rpc.probe(signal) : null;
-    signal.throwIfAborted();
-    await evaluateScope(
-      GLOBAL_ALERT_SCOPE,
-      ALERT_SCOPE_FAMILIES.global.filter((f) => f !== "rpc" || rpc !== null),
-      rpc,
-    );
-    for (const deploymentId of deps.deploymentIds ??
-      (await deps.store.deployments())) {
+    // Two evaluators never overlap: a late one skips its tick instead of failing.
+    const lock = await deps.store.tryLock();
+    if (!lock) return void deps.onSkip?.("ALERT_EVALUATE_SKIPPED_OVERLAP");
+    try {
+      // One probe per tick; it never throws.
+      const rpc = deps.rpc ? await deps.rpc.probe(signal) : null;
       signal.throwIfAborted();
-      await evaluateScope(deploymentId, ALERT_SCOPE_FAMILIES.deployment, null);
+      // A scope that fails does not stop the others; the first failure is rethrown afterwards.
+      const failures: unknown[] = [];
+      const scoped = async (run: () => Promise<void>) => {
+        try {
+          await run();
+        } catch (error) {
+          if (signal.aborted) throw error;
+          failures.push(error);
+        }
+      };
+      await scoped(() =>
+        evaluateScope(
+          GLOBAL_ALERT_SCOPE,
+          ALERT_SCOPE_FAMILIES.global.filter(
+            (f) => f !== "rpc" || rpc !== null,
+          ),
+          rpc,
+        ),
+      );
+      let deployments: string[] = [];
+      await scoped(async () => {
+        deployments = deps.deploymentIds ?? (await deps.store.deployments());
+      });
+      for (const deploymentId of deployments) {
+        signal.throwIfAborted();
+        await scoped(() =>
+          evaluateScope(deploymentId, ALERT_SCOPE_FAMILIES.deployment, null),
+        );
+      }
+      if (failures.length) throw failures[0];
+    } finally {
+      await lock.release();
     }
   };
 }

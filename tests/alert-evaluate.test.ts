@@ -51,7 +51,10 @@ async function world(
   );
   await t.setRole("blink_worker");
   const handler = createAlertEvaluateHandler({
-    store: postgresAlertEvaluateStore(t.pool, { onError: options.onError }),
+    store: postgresAlertEvaluateStore(t.pool, {
+      onError: options.onError,
+      jobLock: false,
+    }),
     rpc: options.rpc ?? null,
     policy,
     keeperOverdueSeconds: 600,
@@ -230,7 +233,6 @@ test("alert.budget fires from the daily gate, a closed question gate and signer 
         .map((a) => [a.subject, a.state, a.reason])
         .sort(),
       [
-        ["daily", "STILL_OPEN", "DAILY_CAP_REACHED"],
         ["questions", "CLEARED", "QUESTION_GATE_CLOSED"],
         ["role:keeper", "CLEARED", "GAS_DAILY_CAP_EXCEEDED"],
       ],
@@ -303,7 +305,8 @@ test("alert.indexer_lag uses the health freshness rule and carries block numbers
     lag = await w.alerts("indexer_lag");
     assert.deepEqual(states(lag), ["OPEN", "CLEARED", "OPEN"]);
     assert.equal(lag[2].reason, "STALE_CURSOR");
-    // A gated cursor reports the gate.
+    // A gated cursor reports the gate (a reason change, announced after 10 minutes).
+    await w.clock(41 * MINUTE, true);
     await w.sql(
       "UPDATE chain.cursors SET synced_at=blink.now(),gate_reason='REORG_IN_PROGRESS'",
     );
@@ -517,6 +520,7 @@ test("alert.evaluate runs with no keeper, signer or execution configuration", as
     registerAlertEvaluate(
       w.t.pool,
       alertEvaluateConfig({ BLINK_DEPLOYMENT_ID: DEPLOYMENT }),
+      { jobLock: false },
     );
     await deadJob(w, "tx.dispatch", 5);
     await scheduleAlertEvaluate(w.t.pool);
@@ -551,6 +555,7 @@ test("a failed observation neither clears nor emits anything", async () => {
   const calls: string[] = [];
   const handler = createAlertEvaluateHandler({
     store: {
+      tryLock: async () => ({ release: async () => {} }),
       deployments: async () => ["d"],
       observe: async () => {
         throw new Error("DATABASE_DOWN");
@@ -576,12 +581,8 @@ test("the episode row and its outbox alert commit together", async () => {
   const w = await world();
   try {
     await deadJob(w, "tx.dispatch", 5);
-    // The alert's identity is taken, so its outbox insert fails.
-    await w.sql(
-      `INSERT INTO operations.outbox(id,event_type,aggregate_id,event_version,payload)
-       VALUES($1,'alert.jobs_dead',$2,1,'{}')`,
-      [randomUUID(), JSON.stringify(["alert", "*", "jobs_dead", "jobs"])],
-    );
+    // The alert cannot be written, so the episode must not be either.
+    await w.sql("REVOKE INSERT ON operations.outbox FROM blink_worker");
     await assert.rejects(w.run());
     const { rows } = await w.t.pool.query(
       "SELECT count(*)::int AS n FROM operations.alert_episodes WHERE family='jobs_dead'",
@@ -805,6 +806,7 @@ test("a gated or missing chain cursor makes keeper_overdue and pause unknown: no
       (await w.alerts("indexer_lag"))[0].reason,
       "REORG_IN_PROGRESS",
     );
+    await w.clock(11 * MINUTE, true); // a reason change is announced at most every 10 minutes
     await w.sql("DELETE FROM chain.cursors");
     await w.run();
     assert.deepEqual(states(await w.alerts("keeper_overdue")), ["OPEN"]);
@@ -943,7 +945,7 @@ test("closed question gates alert on growth only: OPEN 0 to n, STILL_OPEN when n
   }
 });
 
-test("a reason change inside an open episode is announced at once as STILL_OPEN with the new reason", async () => {
+test("a reason change inside an open episode is announced as STILL_OPEN with the new reason, at most every 10 minutes", async () => {
   const w = await world();
   try {
     await w.sql(
@@ -958,6 +960,12 @@ test("a reason change inside an open episode is announced at once as STILL_OPEN 
        INSERT INTO budgets.reservations(id,day,question_key,run_id,provider,model,max_usd_micros,state)
        VALUES('${randomUUID()}',(blink.now() AT TIME ZONE 'UTC')::date,'q','${randomUUID()}','p','m',5,'RESERVED')`,
     );
+    await w.run();
+    assert.deepEqual(
+      states((await w.alerts("budget")).filter((a) => a.subject === "daily")),
+      ["OPEN"],
+    );
+    await w.clock(11 * MINUTE);
     await w.run();
     await w.run();
     const daily = (await w.alerts("budget")).filter(
@@ -1082,5 +1090,146 @@ test("indexer_lag: exactly 3 blocks behind is healthy, 4 is lag, a missing curso
     assert.equal(lag[0].blockNumber, undefined);
   } finally {
     await w.close();
+  }
+});
+
+// --- Fix round 2 ---
+
+test("a subject pruned after 30 quiet days reopens with a delivered OPEN and no identity collision", async () => {
+  const w = await world();
+  try {
+    await deadJob(w, "tx.dispatch", 60);
+    await w.run();
+    await w.clock(25 * 3600);
+    await w.run();
+    assert.deepEqual(states(await w.alerts("jobs_dead")), ["OPEN", "CLEARED"]);
+    // 31 days later the cleared episode is pruned in the tick.
+    await w.clock(31 * 24 * 3600);
+    await w.run();
+    assert.equal(
+      (
+        await w.t.pool.query(
+          "SELECT count(*)::int AS n FROM operations.alert_episodes WHERE family='jobs_dead'",
+        )
+      ).rows[0].n,
+      0,
+    );
+    await deadJob(w, "tx.dispatch", 10);
+    await w.run();
+    await w.run();
+    assert.deepEqual(states(await w.alerts("jobs_dead")), [
+      "OPEN",
+      "CLEARED",
+      "OPEN",
+    ]);
+    // Both OPENs are dispatchable: nothing collides on the outbox identity.
+    assert.equal(await dispatchOutbox(w.t.pool, {}), 3);
+  } finally {
+    await w.close();
+  }
+});
+
+test("a failing scope does not stop the other scopes; the first failure is rethrown afterwards", async () => {
+  const seen: string[] = [];
+  const handler = createAlertEvaluateHandler({
+    store: {
+      tryLock: async () => ({ release: async () => {} }),
+      deployments: async () => ["d1", "d2"],
+      observe: async () => ({ observations: [], unknown: [], truncated: [] }),
+      transition: async (scope) => {
+        seen.push(scope);
+        if (scope === "*" || scope === "d1")
+          throw new Error("SCOPE_DOWN:" + scope);
+        return [];
+      },
+    },
+    rpc: null,
+    policy,
+    keeperOverdueSeconds: 600,
+    deploymentIds: null,
+  });
+  await assert.rejects(
+    handler({ job: {} as never, signal: new AbortController().signal }),
+    /SCOPE_DOWN:\*/,
+  );
+  assert.deepEqual(seen, ["*", "d1", "d2"]);
+});
+
+test("an alternating rpc reason is announced at most once per 10 minutes", async () => {
+  const bad = (reason: string): RpcProbeResult => ({ ok: false, reason });
+  const alternating = Array.from({ length: 30 }, (_, n) =>
+    bad(n % 2 ? "RPC_BAD_RESPONSE" : "RPC_UNREACHABLE"),
+  );
+  const w = await world({ rpc: scripted(...alternating) });
+  try {
+    for (let n = 0; n < 8; n++) await w.run(); // opens at the 3rd probe, then 5 reason flips
+    assert.deepEqual(states(await w.alerts("rpc")), ["OPEN"]);
+    await w.clock(11 * MINUTE);
+    await w.run();
+    await w.run();
+    const rpc = await w.alerts("rpc");
+    assert.deepEqual(states(rpc), ["OPEN", "STILL_OPEN"]);
+    assert.notEqual(rpc[1].reason, rpc[0].reason);
+  } finally {
+    await w.close();
+  }
+});
+
+test("the maker pool gate is judged while the cursor is gated; the projection stays unknown", async () => {
+  const w = await world();
+  try {
+    await w.sql("UPDATE chain.markets SET paused=true");
+    await w.run();
+    await w.sql("UPDATE chain.cursors SET gate_reason='REORG_IN_PROGRESS'");
+    await w.sql(
+      `INSERT INTO trading.maker_pools(deployment_id,gate_reason) VALUES('${DEPLOYMENT}','OVERCOMMITTED')`,
+    );
+    await w.run();
+    const pause = await w.alerts("pause");
+    assert.deepEqual(
+      pause.map((a) => [a.subject, a.state]),
+      [
+        ["market:1", "OPEN"],
+        ["pool", "OPEN"],
+      ],
+    );
+    // The projection is unknown, the pool is known: only the pool clears.
+    await w.sql("UPDATE trading.maker_pools SET gate_reason=NULL");
+    await w.sql("UPDATE chain.markets SET paused=false");
+    await w.run();
+    assert.deepEqual(
+      (await w.alerts("pause")).slice(2).map((a) => [a.subject, a.state]),
+      [["pool", "CLEARED"]],
+    );
+  } finally {
+    await w.close();
+  }
+});
+
+test("the RPC probe refuses mainnet with its own code", async () => {
+  const server = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => (body += chunk));
+    request.on("end", () =>
+      response.end(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: JSON.parse(body).id,
+          result: "0x2105",
+        }),
+      ),
+    );
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    assert.deepEqual(
+      await httpRpcProbe(
+        `http://127.0.0.1:${(server.address() as { port: number }).port}`,
+      ).probe(new AbortController().signal),
+      { ok: false, reason: "MAINNET_REFUSED" },
+    );
+  } finally {
+    server.close();
   }
 });

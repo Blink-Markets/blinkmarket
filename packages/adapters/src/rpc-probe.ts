@@ -37,7 +37,10 @@ export function httpRpcProbe(
       };
       try {
         const chainId = await call(1, "eth_chainId");
-        if (BigInt(chainId as string) !== BigInt(expectedChainId))
+        const seen = BigInt(chainId as string);
+        // The worker must never talk to mainnet: say so, rather than a generic wrong chain.
+        if (seen === 8453n) return { ok: false, reason: "MAINNET_REFUSED" };
+        if (seen !== BigInt(expectedChainId))
           return { ok: false, reason: "RPC_WRONG_CHAIN" };
         await call(2, "eth_blockNumber");
         return { ok: true };

@@ -77,15 +77,19 @@ export async function scheduleResolution(pool: Pool): Promise<void> {
 export function registerAlertEvaluate(
   pool: Pool,
   config: AlertEvaluateConfig,
+  /** Test seam: a single-connection pool cannot hold the job lock. */
+  storeOptions: { jobLock?: boolean } = {},
 ): void {
   handlers["alert.evaluate"] = createAlertEvaluateHandler({
     store: postgresAlertEvaluateStore(pool, {
       onError: (code) => console.error(code),
+      ...storeOptions,
     }),
     rpc: config.rpcUrl ? httpRpcProbe(config.rpcUrl) : null,
     policy: { reAlertMs: config.reAlertMs, rpcFailures: config.rpcFailures },
     keeperOverdueSeconds: config.keeperOverdueSeconds,
     deploymentIds: config.deploymentIds,
+    onSkip: (code) => console.error(code),
   });
 }
 // Every minute (a bucket of the business clock); RPC failures are counted one per evaluation.
