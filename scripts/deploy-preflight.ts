@@ -68,15 +68,36 @@ function secretLooking(value: string): boolean {
   const mnemonic =
     value.trim().split(/\s+/).length >= 12 && /^[a-z ]+$/i.test(value.trim());
   const credentialUrl = /https?:\/\/[^\s/@:]+:[^\s/@]+@/i.test(value);
+  const jwt = /\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/.test(
+    value,
+  );
+  const awsAccessKey = /\bAKIA[0-9A-Z]{16}\b/.test(value);
+  const opaqueToken =
+    /(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])/.test(value);
+  const keyLikeUrlValue =
+    /https?:\/\/[^\s?#]+(?:\?[^\s#]*)?/i.test(value) &&
+    /(?:[?&])(?:api[_-]?key|key|token|access[_-]?token|secret|auth|signature)=([^&#]{8,})/i.test(
+      value,
+    );
   const keyToken =
     /(?:api[_-]?key|access[_-]?token|secret|password|bearer)\s*[:=]\s*[^\s]{6,}/i.test(
       value,
     );
-  const opaqueToken =
+  const providerToken =
     /\b(?:sk_live_|sk_test_|sk-|ghp_|github_pat_|xox[baprs]-|AIza|eyJ)[A-Za-z0-9_.-]{12,}/.test(
       value,
     );
-  return privateKey || mnemonic || credentialUrl || keyToken || opaqueToken;
+  return (
+    privateKey ||
+    mnemonic ||
+    credentialUrl ||
+    jwt ||
+    awsAccessKey ||
+    opaqueToken ||
+    keyLikeUrlValue ||
+    keyToken ||
+    providerToken
+  );
 }
 
 async function main() {
@@ -95,6 +116,10 @@ async function main() {
   const chain = env.get("BLINK_CHAIN_ID");
   if (chain === "8453") fail("MAINNET_REFUSED", "BLINK_CHAIN_ID");
   if (chain !== "84532") fail("PREFLIGHT_CHAIN_ID", "BLINK_CHAIN_ID");
+  if (env.has("BLINK_ALLOW_TEST_CLOCK"))
+    fail("PREFLIGHT_TEST_CLOCK_FORBIDDEN", "BLINK_ALLOW_TEST_CLOCK");
+  if (env.has("DEPLOYER_PRIVATE_KEY"))
+    fail("PREFLIGHT_DEPLOYER_KEY_FORBIDDEN", "DEPLOYER_PRIVATE_KEY");
   for (const [name, value] of env)
     if (
       name.startsWith("NEXT_PUBLIC_") &&
@@ -109,6 +134,11 @@ async function main() {
     "SIGNER_FAUCET_KEY_FILE",
     "SIGNER_TRADER_KEY_FILE",
   ];
+  if (
+    env.get("SIGNER_ENABLED") === "true" &&
+    !keyNames.some((name) => env.get(name)?.trim())
+  )
+    fail("PREFLIGHT_KEY_FILE_MISSING", "SIGNER_*_KEY_FILE");
   for (const name of keyNames) {
     const value = env.get(name);
     if (!value) continue;
@@ -154,7 +184,8 @@ async function main() {
       parsed!.username ||
       parsed!.password ||
       parsed!.hash ||
-      (parsed!.protocol !== "https:" && !isLoopback(parsed!.hostname))
+      (parsed!.protocol !== "https:" &&
+        !(parsed!.protocol === "http:" && isLoopback(parsed!.hostname)))
     )
       fail("PREFLIGHT_WEBHOOK_HTTPS", "ALERT_WEBHOOK_URL");
   }
