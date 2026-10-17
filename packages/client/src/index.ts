@@ -1,4 +1,5 @@
 import { hasMainnetChain } from "./chain-guard.ts";
+import { isClientHttpLoopbackHost } from "./url-policy.ts";
 import { keccak256 } from "viem";
 import {
   ApiError,
@@ -54,7 +55,7 @@ export function createBlinkClient(
     base.protocol !== "https:" &&
     !(
       base.protocol === "http:" &&
-      ["127.0.0.1", "localhost", "[::1]"].includes(base.hostname)
+      isClientHttpLoopbackHost(base.hostname)
     )
   )
     throw new Error("HTTPS_REQUIRED");

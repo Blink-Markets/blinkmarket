@@ -509,6 +509,9 @@ test("worker API URL accepts HTTPS or HTTP loopback only", async () => {
       ["http://[::1]:3001", null],
       ["http://localhost:3001", null],
       ["http://10.0.0.5:3001", "PREFLIGHT_WORKER_API_URL"],
+      ["http://127.0.0.2:3001", "PREFLIGHT_WORKER_API_URL"],
+      ["http://a.localhost:3001", "PREFLIGHT_WORKER_API_URL"],
+      ["http://localhost.evil.com:3001", "PREFLIGHT_WORKER_API_URL"],
     ] as const) {
       const f = await fixture(baseProfile(dir, { WORKER_API_URL: url }));
       try {

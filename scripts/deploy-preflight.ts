@@ -14,6 +14,7 @@ import {
   indexerConfig,
 } from "../apps/indexer/src/config.js";
 import { signerConfig } from "../apps/signer/src/config.js";
+import { isClientHttpLoopbackHost } from "../packages/client/src/url-policy.ts";
 
 type Env = Map<string, string>;
 
@@ -180,7 +181,8 @@ async function main() {
       parsed!.username ||
       parsed!.password ||
       !(parsed!.protocol === "https:" ||
-        (parsed!.protocol === "http:" && isLoopback(parsed!.hostname)))
+        (parsed!.protocol === "http:" &&
+          isClientHttpLoopbackHost(parsed!.hostname)))
     )
       fail("PREFLIGHT_WORKER_API_URL", "WORKER_API_URL");
   }

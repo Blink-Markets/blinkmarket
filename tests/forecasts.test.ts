@@ -13,6 +13,7 @@ import {
 } from "../packages/application/src/forecasts.js";
 import { buildApi } from "../apps/api/src/server.js";
 import { apiContracts } from "../packages/schemas/src/index.ts";
+import { JobError } from "../packages/domain/src/jobs.ts";
 
 async function setup() {
   const t = await createTestDatabase();
@@ -325,6 +326,7 @@ test("DB deadlines, evidence ownership, visibility, pagination and scheduler per
       }),
       (error) =>
         error instanceof ForecastScheduleError &&
+        error instanceof JobError &&
         error.code === "FORECAST_SCHEDULE_FAILED" &&
         error.retryable &&
         error.cause === boom,
