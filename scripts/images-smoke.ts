@@ -36,19 +36,21 @@ import {
 // would configure them, against a PostgreSQL and an Anvil (chain ID 84532) started by
 // infra/compose.alpha.yaml. Test keys only; nothing leaves this machine. The business clock is never
 // shifted (the production guard stays on), so everything runs in real time.
-//   default: containers healthy, non-root, ready; a faucet mint is signed and lands; one REPLAY
-//            market is created through the normal path (discovery candidate, approval, creation),
-//            gets its forecast snapshot, and the example agent quotes and buys against the
-//            containerized API; the indexer container ingests the fill.
-//   --full (or IMAGES_SMOKE_FULL=1): the same run continues until the market closes, the proposer
-//            proposes, the keeper in the worker container finalizes, and the agent redeems.
+//   default: containers healthy, non-root, ready; a faucet mint is signed and lands (a few minutes).
+//   --market: also one REPLAY market through the normal path (discovery candidate, approval,
+//            creation), its forecast snapshot, and the example agent quoting and buying against the
+//            containerized API; the indexer container ingests the fill (about 34 minutes).
+//   --full (or IMAGES_SMOKE_FULL=1), which implies --market: continues until the market closes,
+//            the proposer proposes, the keeper in the worker container finalizes, and the agent
+//            redeems (about 96 minutes).
 // A market can only trade after a forecast snapshot. The earliest forecast window ends at
 // closeAt - 1 h and opens 30 minutes earlier (packages/domain/src/forecast-windows.ts), and a
 // forecaster reads only evidence observed before its window opens (platform-run-store.ts
-// `evidence`, cutoff = openAt). So the default run takes about 32 minutes from the evidence
-// import to the first quote, and --full adds the remaining hour to closeAt.
+// `evidence`, cutoff = openAt). So --market takes about 32 minutes from the evidence import to the
+// first quote, and --full adds the remaining hour to closeAt.
 const FULL =
   process.argv.includes("--full") || process.env.IMAGES_SMOKE_FULL === "1";
+const MARKET = FULL || process.argv.includes("--market");
 // The project name and the host ports can be overridden, so two runs (or another stack on a shared
 // machine) never share containers, volumes or ports; the defaults avoid the test PostgreSQL ports.
 const PROJECT = process.env.ALPHA_PROJECT ?? "blink-alpha";
@@ -768,116 +770,138 @@ async function main() {
     );
     console.log("IMAGES SMOKE faucet mint signed and landed");
 
-    const { marketId, closeAt } = await createMarket(owner, chain, provisioned);
-    console.log(`IMAGES SMOKE market ${marketId} forecast snapshot ready`);
-    // Now the API can say it is ready for trading: database, signer probe, chain cursor, deployment.
-    const health = await waitFor("api ready", async () => {
-      const r = await fetch(apiUrl() + "/v1/health");
-      return r.status === 200 ? r.json() : null;
-    });
-    assert.deepEqual(health, {
-      status: "ready",
-      tradingEnabled: true,
-      reasons: [],
-    });
-
-    // The example agent against the containerized API: quote (the signer signs it), approve, fill.
-    const agent = startAgent({
-      apiUrl: apiUrl(),
-      apiKey: provisioned.keys.external.apiKey,
-      privateKey: keyOf(6) as `0x${string}`,
-      rpcUrl: `http://127.0.0.1:${ports.anvil}`,
-      pollMs: 250,
-      waitMs: {
-        faucet: 30_000,
-        indexing: 60_000,
-        // The default run stops after the purchase; --full waits for the keeper.
-        final: FULL ? 4 * 3_600_000 : 1000,
-        receipt: 30_000,
-      },
-    });
-    await agent.bought;
-    const position = (
-      await sql<{ yes_shares: string; no_shares: string }>(
+    if (!MARKET) {
+      // Fast mode: turn trading on and check the API's readiness; no quote is requested, so the
+      // signer's start-up copy of the flag does not matter.
+      await owner.query(
+        "UPDATE markets.deployments SET manifest = jsonb_set(manifest,'{tradingEnabled}','true') WHERE id=$1",
+        [DEPLOYMENT],
+      );
+      const fastHealth = await waitFor("api ready", async () => {
+        const r = await fetch(apiUrl() + "/v1/health");
+        return r.status === 200 ? r.json() : null;
+      });
+      assert.deepEqual(fastHealth, {
+        status: "ready",
+        tradingEnabled: true,
+        reasons: [],
+      });
+    } else {
+      const { marketId, closeAt } = await createMarket(
         owner,
-        "SELECT yes_shares::text,no_shares::text FROM chain.positions WHERE market_id=$1 AND account=decode($2,'hex')",
-        [marketId, taker!.address.slice(2)],
-      )
-    )[0];
-    const onChain = (await chain.client.readContract({
-      address: chain.market,
-      abi: blinkMarketAbi,
-      functionName: "getPosition",
-      args: [BigInt(marketId), taker!.address],
-    })) as readonly [bigint, bigint];
-    assert.deepEqual(position, {
-      yes_shares: String(onChain[0]),
-      no_shares: String(onChain[1]),
-    });
-    assert.equal(onChain[0], 10n);
-    console.log(
-      "IMAGES SMOKE quote signed, fill landed, indexer ingested position: 10 YES shares",
-    );
+        chain,
+        provisioned,
+      );
+      console.log(`IMAGES SMOKE market ${marketId} forecast snapshot ready`);
+      // Now the API can say it is ready for trading: database, signer probe, chain cursor, deployment.
+      const health = await waitFor("api ready", async () => {
+        const r = await fetch(apiUrl() + "/v1/health");
+        return r.status === 200 ? r.json() : null;
+      });
+      assert.deepEqual(health, {
+        status: "ready",
+        tradingEnabled: true,
+        reasons: [],
+      });
 
-    if (FULL) {
-      const boughtBalance = await balance(taker!.address);
-      const chainNow = async () => (await chain.client.getBlock()).timestamp;
+      // The example agent against the containerized API: quote (the signer signs it), approve, fill.
+      const agent = startAgent({
+        apiUrl: apiUrl(),
+        apiKey: provisioned.keys.external.apiKey,
+        privateKey: keyOf(6) as `0x${string}`,
+        rpcUrl: `http://127.0.0.1:${ports.anvil}`,
+        pollMs: 250,
+        waitMs: {
+          faucet: 30_000,
+          indexing: 60_000,
+          // The default run stops after the purchase; --full waits for the keeper.
+          final: FULL ? 4 * 3_600_000 : 1000,
+          receipt: 30_000,
+        },
+      });
+      await agent.bought;
+      const position = (
+        await sql<{ yes_shares: string; no_shares: string }>(
+          owner,
+          "SELECT yes_shares::text,no_shares::text FROM chain.positions WHERE market_id=$1 AND account=decode($2,'hex')",
+          [marketId, taker!.address.slice(2)],
+        )
+      )[0];
+      const onChain = (await chain.client.readContract({
+        address: chain.market,
+        abi: blinkMarketAbi,
+        functionName: "getPosition",
+        args: [BigInt(marketId), taker!.address],
+      })) as readonly [bigint, bigint];
+      assert.deepEqual(position, {
+        yes_shares: String(onChain[0]),
+        no_shares: String(onChain[1]),
+      });
+      assert.equal(onChain[0], 10n);
       console.log(
-        `IMAGES SMOKE full: waiting ${Number(closeAt - (await chainNow()))} s for the market to close`,
+        "IMAGES SMOKE quote signed, fill landed, indexer ingested position: 10 YES shares",
       );
-      await waitFor(
-        "market close",
-        async () => ((await chainNow()) > closeAt ? true : null),
-        4 * 3_600_000,
-      );
-      await chain.send(
-        proposer!,
-        chain.market,
-        blinkMarketAbi,
-        "proposeOutcome",
-        [BigInt(marketId), 0, hash("proposal image smoke")],
-      );
-      // The keeper job in the worker container finalizes after the 120 s challenge window:
-      // worker -> signer (bearer token, keeper key) -> keeper send.
-      const state = async () =>
-        ["OPEN", "PROPOSED", "DISPUTED", "FINAL"][
-          Number(
-            (
-              (await chain.client.readContract({
-                address: chain.market,
-                abi: blinkMarketAbi,
-                functionName: "getMarket",
-                args: [BigInt(marketId)],
-              })) as { state: number }
-            ).state,
-          )
-        ];
-      await waitFor(
-        "keeper finalization",
-        async () => ((await state()) === "FINAL" ? true : null),
-        600_000,
-      );
-      const rows = await sql(
-        owner,
-        "SELECT id FROM signing.economic_intents WHERE kind IN ('FINALIZE_UNCHALLENGED','FINALIZE_TIMEOUT') AND payload->>'marketId'=$1",
-        [marketId],
-      );
-      assert.equal(rows.length, 1);
-      const result = await agent.result;
-      const makerBefore = await balance(maker!.address);
-      await chain.send(maker!, chain.market, blinkMarketAbi, "redeem", [
-        BigInt(marketId),
-      ]);
-      const paidTaker = (await balance(taker!.address)) - boughtBalance,
-        paidMaker = (await balance(maker!.address)) - makerBefore;
-      assert.equal(paidTaker, 10_000_000n);
-      assert.equal(paidMaker, 0n);
-      assert.equal(result.payoutMicros, "10000000");
-      assert.equal(result.finalOutcome.length > 0, true);
-      console.log(
-        `IMAGES SMOKE full: keeper finalized, agent redeemed ${paidTaker} micro-bUSD, maker ${paidMaker}`,
-      );
-    } else await agent.result.catch(() => undefined);
+
+      if (FULL) {
+        const boughtBalance = await balance(taker!.address);
+        const chainNow = async () => (await chain.client.getBlock()).timestamp;
+        console.log(
+          `IMAGES SMOKE full: waiting ${Number(closeAt - (await chainNow()))} s for the market to close`,
+        );
+        await waitFor(
+          "market close",
+          async () => ((await chainNow()) > closeAt ? true : null),
+          4 * 3_600_000,
+        );
+        await chain.send(
+          proposer!,
+          chain.market,
+          blinkMarketAbi,
+          "proposeOutcome",
+          [BigInt(marketId), 0, hash("proposal image smoke")],
+        );
+        // The keeper job in the worker container finalizes after the 120 s challenge window:
+        // worker -> signer (bearer token, keeper key) -> keeper send.
+        const state = async () =>
+          ["OPEN", "PROPOSED", "DISPUTED", "FINAL"][
+            Number(
+              (
+                (await chain.client.readContract({
+                  address: chain.market,
+                  abi: blinkMarketAbi,
+                  functionName: "getMarket",
+                  args: [BigInt(marketId)],
+                })) as { state: number }
+              ).state,
+            )
+          ];
+        await waitFor(
+          "keeper finalization",
+          async () => ((await state()) === "FINAL" ? true : null),
+          600_000,
+        );
+        const rows = await sql(
+          owner,
+          "SELECT id FROM signing.economic_intents WHERE kind IN ('FINALIZE_UNCHALLENGED','FINALIZE_TIMEOUT') AND payload->>'marketId'=$1",
+          [marketId],
+        );
+        assert.equal(rows.length, 1);
+        const result = await agent.result;
+        const makerBefore = await balance(maker!.address);
+        await chain.send(maker!, chain.market, blinkMarketAbi, "redeem", [
+          BigInt(marketId),
+        ]);
+        const paidTaker = (await balance(taker!.address)) - boughtBalance,
+          paidMaker = (await balance(maker!.address)) - makerBefore;
+        assert.equal(paidTaker, 10_000_000n);
+        assert.equal(paidMaker, 0n);
+        assert.equal(result.payoutMicros, "10000000");
+        assert.equal(result.finalOutcome.length > 0, true);
+        console.log(
+          `IMAGES SMOKE full: keeper finalized, agent redeemed ${paidTaker} micro-bUSD, maker ${paidMaker}`,
+        );
+      } else await agent.result.catch(() => undefined);
+    }
 
     // No container log may carry a credential or a key.
     const logs = compose("logs", "--no-color").stdout;
@@ -894,7 +918,7 @@ async function main() {
       );
 
     console.log(
-      `IMAGES SMOKE ok${FULL ? " (full)" : ""}: signer, api, indexer and worker healthy, non-root and ready; faucet and quote signed; market traded in the containers (chain index lag ${(chainIndex as { lagBlocks: string }).lagBlocks}, ${Math.round((Date.now() - started) / 1000)} s)`,
+      `IMAGES SMOKE ok${FULL ? " (full)" : MARKET ? " (market)" : ""}: signer, api, indexer and worker healthy, non-root and ready; faucet mint signed${MARKET ? "; quote signed, market traded in the containers" : ""} (chain index lag ${(chainIndex as { lagBlocks: string }).lagBlocks}, ${Math.round((Date.now() - started) / 1000)} s)`,
     );
   } catch (error) {
     // Keep the evidence of a failed run: the services' last lines, codes only by design.
