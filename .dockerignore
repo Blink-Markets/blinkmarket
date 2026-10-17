@@ -12,3 +12,7 @@ contracts/cache
 contracts/artifacts
 artifacts
 coverage
+*.key
+*.pem
+.superpowers
+.claude

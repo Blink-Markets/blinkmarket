@@ -45,7 +45,10 @@
     "drill:alerts": "node --import tsx --test tests/postgres/alerts.test.ts",
     "restore:prepare": "node --import tsx scripts/restore-prepare.ts",
     "drill:restore": "node scripts/check-contracts.mjs && node --import tsx scripts/restore-drill.ts",
-    "drill:restore:test": "node scripts/check-contracts.mjs && node --import tsx --test tests/alpha/restore-drill.test.ts"
+    "drill:restore:test": "node scripts/check-contracts.mjs && node --import tsx --test tests/alpha/restore-drill.test.ts",
+    "images:build": "for s in api worker indexer signer; do docker build -f infra/Dockerfile.$s -t blink-$s:local . || exit 1; done",
+    "test:images": "node --test tests/images.test.mjs",
+    "images:smoke": "node scripts/check-contracts.mjs && node --import tsx scripts/images-smoke.ts"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

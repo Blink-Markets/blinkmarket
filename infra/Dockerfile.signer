@@ -1,0 +1,21 @@
+# One service per image: the only process that holds signing keys. No key exists at build time: keys are
+# read at start-up from files mounted at the paths in SIGNER_*_KEY_FILE (mode 0600, owned by the node user).
+# The only listener is the internal sign port: keep it on a private network.
+# Build context is the repository root: workspace dependencies are required.
+FROM node:22.23.1-bookworm-slim AS build
+WORKDIR /repo
+RUN corepack enable && corepack prepare pnpm@11.20.0 --activate
+COPY . .
+RUN pnpm install --frozen-lockfile && pnpm build:services
+
+FROM node:22.23.1-bookworm-slim AS runtime
+# Nothing at runtime needs a package manager: drop npm, corepack and yarn from the filesystem.
+RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-v*
+WORKDIR /app
+ENV NODE_ENV=production SIGNER_HOST=0.0.0.0 SIGNER_PORT=3004
+COPY --from=build --chown=node:node /repo/dist/services/signer.mjs ./signer.mjs
+USER node
+EXPOSE 3004
+# Liveness only; readiness is /health/ready, for the orchestrator.
+HEALTHCHECK --interval=30s --timeout=5s CMD node -e "fetch('http://127.0.0.1:'+process.env.SIGNER_PORT+'/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD ["node", "signer.mjs"]
