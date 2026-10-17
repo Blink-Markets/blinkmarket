@@ -7,14 +7,13 @@ import {
   assertProductionClock,
   dispatchOutbox,
   postgresJobQueue,
-  stdoutAlertSink,
-  fileAlertSink,
-  webhookAlertSink,
 } from "@blink/adapters";
 import { createAlertDeliveryHandler } from "@blink/application";
 import { createService, startService } from "@blink/runtime";
+import { alertSinkFor } from "./alerts.js";
 import {
   alertConfig,
+  alertEvaluateConfig,
   executionConfig,
   researchConfig,
   traderConfig,
@@ -26,9 +25,11 @@ import {
   buildTrader,
   handlers,
   outboxMapping,
+  registerAlertEvaluate,
   registerEvaluationHandler,
   registerQuoteReconcile,
   registerResolutionHandlers,
+  scheduleAlertEvaluate,
   scheduleEvaluation,
   scheduleQuoteReconcile,
   scheduleResolution,
@@ -75,13 +76,8 @@ try {
     await assertJobsMigrationInstalled(database);
     const queue = postgresJobQueue(database);
     const alerts = alertConfig(process.env);
-    const alertHandler = createAlertDeliveryHandler(
-      alerts.sink === "webhook"
-        ? webhookAlertSink(alerts.url)
-        : alerts.sink === "file"
-          ? fileAlertSink(alerts.path)
-          : stdoutAlertSink(),
-    );
+    const alertHandler = createAlertDeliveryHandler(alertSinkFor(alerts));
+    registerAlertEvaluate(database, alertEvaluateConfig(process.env));
     registerEvaluationHandler(database);
     registerResolutionHandlers(database, process.env.EVIDENCE_OBJECT_DIRECTORY);
     registerQuoteReconcile(database);
@@ -137,6 +133,7 @@ try {
         trader.tick(),
         scheduleEvaluation(database),
         scheduleResolution(database),
+        scheduleAlertEvaluate(database),
       ])
         .then((results) => {
           if (results.some((result) => result.status === "rejected"))

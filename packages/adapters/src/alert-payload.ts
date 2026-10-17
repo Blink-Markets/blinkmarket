@@ -1,4 +1,4 @@
-import type { Alert } from "@blink/ports";
+import { ALERT_FAMILIES, type Alert } from "@blink/ports";
 
 /** Closed projection: no raw event payload, aggregate, URL, evidence or error text leaves the DB. */
 export function alertPayload(id: string, type: string, raw: unknown): Alert {
@@ -27,5 +27,44 @@ export function alertPayload(id: string, type: string, raw: unknown): Alert {
     alert.mode = payload.mode;
   if (payload.kind === "HARD_DEADLINE" || payload.kind === "CHALLENGE_END")
     alert.kind = payload.kind;
+  // Episode alerts (alert.evaluate): codes and numbers only, never free text.
+  const family = ALERT_FAMILIES.find((name) => name === payload.family);
+  if (family) alert.family = family;
+  if (
+    payload.state === "OPEN" ||
+    payload.state === "STILL_OPEN" ||
+    payload.state === "CLEARED"
+  )
+    alert.state = payload.state;
+  if (
+    typeof payload.subject === "string" &&
+    /^[a-z_]{1,32}(:[a-z0-9_]{1,78})?$/.test(payload.subject)
+  )
+    alert.subject = payload.subject;
+  if (
+    typeof payload.reason === "string" &&
+    /^[A-Z0-9_]{1,64}$/.test(payload.reason)
+  )
+    alert.reason = payload.reason;
+  for (const key of [
+    "since",
+    "blockNumber",
+    "headNumber",
+    "count",
+    "overdueSeconds",
+    "failures",
+  ] as const)
+    if (typeof payload[key] === "string" && /^[0-9]{1,78}$/.test(payload[key]))
+      alert[key] = payload[key];
+  if (payload.truncated === true) alert.truncated = true;
+  if (Array.isArray(payload.jobTypes)) {
+    const types = payload.jobTypes
+      .filter(
+        (type): type is string =>
+          typeof type === "string" && /^[a-z][a-z0-9_.]{0,63}$/.test(type),
+      )
+      .slice(0, 10);
+    if (types.length) alert.jobTypes = types;
+  }
   return alert;
 }

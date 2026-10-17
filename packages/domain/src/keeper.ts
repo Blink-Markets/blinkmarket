@@ -6,17 +6,25 @@ export interface KeeperMarket {
 }
 export type KeeperDecision = "FINALIZE_UNCHALLENGED" | "FINALIZE_TIMEOUT";
 
+/** The chain time from which the keeper must finalize this market, or null once it is FINAL. */
+export function keeperDueSince(market: KeeperMarket): bigint | null {
+  if (market.state === "FINAL") return null;
+  const unchallenged =
+    market.state === "PROPOSED" && market.proposedAt !== null
+      ? market.proposedAt + BigInt(market.challengeSeconds)
+      : null;
+  return unchallenged !== null && unchallenged < market.hardDeadline
+    ? unchallenged
+    : market.hardDeadline;
+}
+
 export function keeperDecision(
   market: KeeperMarket,
   nowChain: bigint,
 ): KeeperDecision | null {
-  if (market.state === "FINAL") return null;
-  if (nowChain >= market.hardDeadline) return "FINALIZE_TIMEOUT";
-  if (
-    market.state === "PROPOSED" &&
-    market.proposedAt !== null &&
-    nowChain >= market.proposedAt + BigInt(market.challengeSeconds)
-  )
-    return "FINALIZE_UNCHALLENGED";
-  return null;
+  const dueSince = keeperDueSince(market);
+  if (dueSince === null || nowChain < dueSince) return null;
+  return nowChain >= market.hardDeadline
+    ? "FINALIZE_TIMEOUT"
+    : "FINALIZE_UNCHALLENGED";
 }

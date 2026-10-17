@@ -8,6 +8,7 @@ import { startJobLoops } from "../apps/worker/src/loops.js";
 import { isAllowedAlertWebhookUrl } from "../packages/adapters/src/alert-url.js";
 import { alertPayload } from "../packages/adapters/src/alert-payload.js";
 import { postgresHealthReader } from "../packages/adapters/src/health-reader.js";
+import { alertSinkFor } from "../apps/worker/src/alerts.js";
 
 test("every alert.* event becomes a durable delivery job, including unknown alert types", async () => {
   const t = await createTestDatabase();
@@ -708,5 +709,128 @@ test("health shows a stalled alert in details only and never as a readiness reas
     assert.deepEqual(await alerts(), none);
   } finally {
     await t.close();
+  }
+});
+
+test("a hung first attempt counts as a stalled alert: queued or leased, older than the threshold, no error recorded", async () => {
+  const t = await createTestDatabase();
+  try {
+    await t.setRole("blink_worker");
+    const queue = postgresJobQueue(t.pool);
+    for (const key of ["a", "b"])
+      await queue.enqueue({
+        type: "alert.deliver",
+        dedupeKey: key,
+        payload: { dedupeKey: "alert:" + randomUUID(), type: "alert.budget" },
+      });
+    const alerts = async () =>
+      (await postgresHealthReader(t.pool, "none").health()).details.alerts;
+    assert.equal((await alerts()).stalled, false);
+    await t.pool.query(
+      "UPDATE operations.jobs SET created_at=blink.now()-interval '16 minutes'",
+    );
+    // Both still QUEUED with last_error_code NULL.
+    assert.equal((await alerts()).stalledCount, "2");
+    // One is now LEASED and hanging (no failure is ever recorded).
+    assert.ok(await queue.lease("hung", ["alert.deliver"], 600_000));
+    const hung = await alerts();
+    assert.equal(hung.stalledCount, "2");
+    assert.equal(hung.stalled, true);
+    assert.equal(
+      (
+        await t.pool.query(
+          "SELECT count(*)::int AS n FROM operations.jobs WHERE last_error_code IS NOT NULL",
+        )
+      ).rows[0].n,
+      0,
+    );
+  } finally {
+    await t.close();
+  }
+});
+
+test("the worker picks the sink from ALERT_SINK: file and webhook deliver, stdout writes a line, mixed settings are refused", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "blink-alert-sink-"));
+  const alert = { dedupeKey: "alert:" + randomUUID(), type: "alert.budget" };
+  const signal = new AbortController().signal;
+  const received: string[] = [];
+  const server = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => (body += chunk));
+    request.on("end", () => {
+      received.push(body);
+      response.writeHead(204).end();
+    });
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const port = (server.address() as { port: number }).port;
+  const write = process.stdout.write;
+  try {
+    const path = join(directory, "alerts.jsonl");
+    await alertSinkFor(
+      alertConfig({ ALERT_SINK: "file", ALERT_FILE_PATH: path }),
+    ).deliver(alert, signal);
+    assert.equal(JSON.parse(await readFile(path, "utf8")).dedupeKey, alert.dedupeKey);
+    await alertSinkFor(
+      alertConfig({
+        ALERT_SINK: "webhook",
+        ALERT_WEBHOOK_URL: `http://127.0.0.1:${port}/hook`,
+      }),
+    ).deliver(alert, signal);
+    assert.equal(JSON.parse(received[0]!).dedupeKey, alert.dedupeKey);
+    const lines: string[] = [];
+    process.stdout.write = ((chunk: string, callback?: () => void) => {
+      lines.push(String(chunk));
+      callback?.();
+      return true;
+    }) as typeof process.stdout.write;
+    await alertSinkFor(alertConfig({})).deliver(alert, signal);
+    process.stdout.write = write;
+    assert.equal(JSON.parse(lines[0]!).dedupeKey, alert.dedupeKey);
+    for (const env of [
+      { ALERT_SINK: "stdout", ALERT_WEBHOOK_URL: "https://alerts.example/hook" },
+      { ALERT_SINK: "stdout", ALERT_FILE_PATH: path },
+      { ALERT_SINK: "file", ALERT_FILE_PATH: path, ALERT_WEBHOOK_URL: "https://alerts.example/hook" },
+    ])
+      assert.throws(() => alertConfig(env), /INVALID_ALERT_CONFIGURATION/);
+  } finally {
+    process.stdout.write = write;
+    server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a webhook redirect is refused and never followed", async () => {
+  let targetHits = 0;
+  const target = createServer((_request, response) => {
+    targetHits += 1;
+    response.writeHead(204).end();
+  });
+  target.listen(0, "127.0.0.1");
+  await once(target, "listening");
+  const targetPort = (target.address() as { port: number }).port;
+  const redirector = createServer((_request, response) => {
+    response
+      .writeHead(307, { location: `http://127.0.0.1:${targetPort}/elsewhere` })
+      .end();
+  });
+  redirector.listen(0, "127.0.0.1");
+  await once(redirector, "listening");
+  try {
+    const sink = webhookAlertSink(
+      `http://127.0.0.1:${(redirector.address() as { port: number }).port}/hook`,
+    );
+    await assert.rejects(
+      sink.deliver(
+        { dedupeKey: "alert:" + randomUUID(), type: "alert.budget" },
+        new AbortController().signal,
+      ),
+      (error: { code?: string }) => error.code === "ALERT_SINK_FAILED",
+    );
+    assert.equal(targetHits, 0);
+  } finally {
+    redirector.close();
+    target.close();
   }
 });

@@ -87,6 +87,21 @@ export function researchConfig(env: NodeJS.ProcessEnv): ResearchConfig {
   };
 }
 
+/** http(s) without embedded credentials: the shape every worker service/RPC URL must have. */
+function isPlainHttpUrl(value: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false;
+  }
+  return (
+    ["http:", "https:"].includes(parsed.protocol) &&
+    !parsed.username &&
+    !parsed.password
+  );
+}
+
 export interface ExecutionConfig {
   deploymentId: string;
   signerUrl: string;
@@ -104,15 +119,8 @@ export function executionConfig(
   const deploymentId = env.BLINK_DEPLOYMENT_ID?.trim();
   if (!deploymentId || !signerUrl || !signerToken || !rpcUrl)
     throw new Error("WORKER_EXECUTION_CONFIGURATION_INCOMPLETE");
-  for (const url of [signerUrl, rpcUrl]) {
-    const parsed = new URL(url);
-    if (
-      !["http:", "https:"].includes(parsed.protocol) ||
-      parsed.username ||
-      parsed.password
-    )
-      throw new Error("INVALID_WORKER_EXECUTION_URL");
-  }
+  for (const url of [signerUrl, rpcUrl])
+    if (!isPlainHttpUrl(url)) throw new Error("INVALID_WORKER_EXECUTION_URL");
   return { deploymentId, signerUrl, signerToken, rpcUrl };
 }
 
@@ -147,4 +155,45 @@ export function alertConfig(env: NodeJS.ProcessEnv): AlertConfig {
   if (sink === "webhook" && url && !path && isAllowedAlertWebhookUrl(url))
     return { sink, url };
   throw new Error("INVALID_ALERT_CONFIGURATION");
+}
+
+/**
+ * alert.evaluate. It runs in every worker, with or without execution/keeper. The RPC probe uses
+ * the worker's existing BASE_SEPOLIA_RPC_URL when set; without one the RPC family is not evaluated.
+ */
+export interface AlertEvaluateConfig {
+  rpcUrl: string | null;
+  /** BLINK_DEPLOYMENT_ID when set; otherwise every enabled deployment is evaluated. */
+  deploymentIds: string[] | null;
+  rpcFailures: number;
+  reAlertMs: number;
+  keeperOverdueSeconds: number;
+}
+export function alertEvaluateConfig(
+  env: NodeJS.ProcessEnv,
+): AlertEvaluateConfig {
+  const integer = (name: string, fallback: number, max: number) => {
+    const raw = env[name]?.trim();
+    if (!raw) return fallback;
+    const value = Number(raw);
+    if (!/^[0-9]{1,9}$/.test(raw) || value < 1 || value > max)
+      throw new Error("INVALID_ALERT_EVALUATE_CONFIGURATION");
+    return value;
+  };
+  const rpcUrl = env.BASE_SEPOLIA_RPC_URL?.trim() || null;
+  if (rpcUrl !== null && !isPlainHttpUrl(rpcUrl))
+    throw new Error("INVALID_ALERT_EVALUATE_CONFIGURATION");
+  const deploymentId = env.BLINK_DEPLOYMENT_ID?.trim() || null;
+  if (
+    deploymentId !== null &&
+    !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(deploymentId)
+  )
+    throw new Error("INVALID_ALERT_EVALUATE_CONFIGURATION");
+  return {
+    rpcUrl,
+    deploymentIds: deploymentId === null ? null : [deploymentId],
+    rpcFailures: integer("ALERT_RPC_FAILURES", 3, 100),
+    reAlertMs: integer("ALERT_REALERT_MINUTES", 60, 10_080) * 60_000,
+    keeperOverdueSeconds: integer("ALERT_KEEPER_OVERDUE_SECONDS", 600, 604_800),
+  };
 }

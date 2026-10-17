@@ -7,7 +7,7 @@
 `pnpm dev` 啟動五個 loopback host；Web 是唯讀說明、文件與虛構 REPLAY 樣本。API 預設 scaffold，Worker／Indexer 業務功能與 Signer 預設停用，避免未設定就連 DB／RPC 或簽章；啟用方式見 [本機開發](DEVELOPMENT.md)。設定完整後，已實作的接線包括：
 
 - API 依模式逐層啟用身份、候選、核准與公開讀取；trading 模式另接 RFQ、faucet、health/admin metrics，並經 caller token 呼叫受限 signer。
-- Worker 在 `WORKER_ENABLED=true` 與專用 DB 登入下消費持久 queue、dispatch outbox 與排程；research、execution、trader 依各自設定組合，涵蓋 fixture 預測、評估、resolution jobs、reservation 對帳、keeper、faucet 與受限交易提交。未設定的可選功能不會自動啟用；`alert.*` outbox 事件由獨立的 `alert.deliver` worker loop 以 stdout／檔案／webhook sink 至少一次傳送（見 [告警傳送](M5_ALERTS.md)）；目前只有期限告警有產生者，預算、暫停、RPC 失敗與 indexer 落後告警尚未產生，待後續任務補上。
+- Worker 在 `WORKER_ENABLED=true` 與專用 DB 登入下消費持久 queue、dispatch outbox 與排程；research、execution、trader 依各自設定組合，涵蓋 fixture 預測、評估、resolution jobs、reservation 對帳、keeper、faucet 與受限交易提交。未設定的可選功能不會自動啟用；`alert.*` outbox 事件由獨立的 `alert.deliver` worker loop 以 stdout／檔案／webhook sink 至少一次傳送（見 [告警傳送](M5_ALERTS.md)）；告警由 `alert.evaluate`（每分鐘，主 worker loop，不需 keeper／signer／execution 設定）自真實條件產生：預算（日／問題閘門、signer gas 上限拒絕）、暫停（全域／市場／maker pool）、RPC 故障（沿用 `BASE_SEPOLIA_RPC_URL`；未設定則不評估）、indexer 落後、keeper 逾時（due 超過 600 chain 秒）與 DEAD job；每個條件為一個 episode，送出 OPEN、結束時 CLEARED；一般條件每 60 分鐘 STILL_OPEN、原因改變時立即 STILL_OPEN，DEAD job（近 24 小時）與問題閘門只在數量增加時立即 STILL_OPEN（無定時重送）；來源無法判讀（cursor 被 gate／缺失、查詢失敗）時該類別不產生 OPEN 也不 CLEARED。期限告警 `alert.deadline` 不變。
 - Indexer 在 `CHAIN_INDEXER_ENABLED=true` 與專用 DB／RPC／deployment 設定下持續同步 canonical 區塊、事件與投影並處理 reorg；creation receipt polling 與交易追蹤另有各自開關。
 - Signer 在 `SIGNER_ENABLED=true`、key 檔、DB 登入、RPC 與 caller 白名單完整時提供 `POST /internal/sign`，已接 trading API 與 execution/trader Worker；私鑰只在 signer，caller 驗證不等於正式網路隔離已完成，見 [Signer](M2_SIGNER.md)。
 
@@ -53,7 +53,7 @@ deployments/base-sepolia/manifest.template.json 是未部署範本，不能作 r
 - trace：requestId → jobId → intentId → quote digest → tx hash / replacement → block hash。
 - 目標監控項目還包括 queue age／attempt、indexer lag、未知 tx、reservation age、spent／unknown cost 與 keeper deadlines；不代表 admin metrics 已逐項輸出，實際欄位以 [健康與指標](M5_HEALTH_METRICS.md) 為準。
 - log 不記 API key、私鑰、完整 provider secrets；audit 記 actor/reason/hashes。
-- indexer lag >3 blocks OR 更新停滯 >10 秒停止新報價；期限告警不依賴 keeper 單一 process。
+- indexer lag >3 blocks OR 更新停滯 >10 秒停止新報價；期限告警不依賴 keeper 單一 process；`alert.evaluate` 在任何啟用的 Worker 都會執行，keeper 未設定時也一樣；建議仍另開一個關閉 execution 的 Worker 以免被 keeper job 拖住。
 - Worker shutdown 停止排程與工作迴圈、等待既有工作並關閉 pool；Indexer 停各觀測迴圈。未決交易與 reservations 由持久記錄恢復／對帳，不能因程序重啟就假設失敗或釋放風險；完整營運 shutdown／recovery 仍需部署演練。
 
 ## 事故與備份
