@@ -212,6 +212,30 @@ These run after the previous plan's final review. They can run in parallel: A1 �
 
 **Files:** `docs/M5_DEMO_SCRIPT.md`.
 
+### Task A9: Follow-ups found by the A1 container runs (added 2026-10-17)
+
+**Why:** The A1 full container run (keeper finalize and redeem in containers, 5764 s) and its review found three product defects. Local harnesses did not show them.
+
+**Files:**
+- Modify `packages/application/src/signer.ts` and the signer store (`deploymentEnabled` read).
+- Modify `packages/application/src/tx-dispatcher.ts`.
+- Modify `scripts/deploy-preflight.ts` and `docs/DEPLOYMENT_RUNBOOK.md`.
+- Modify `docs/M5_SERVICE_IMAGES.md` (remove the restart workaround note).
+- Add tests beside the existing ones.
+
+**Rules:**
+1. **Trading flag per request.** The signer reads the deployment's current `manifest.tradingEnabled` per quote sign request, in the same transaction that reads `enabled` today (`signer.ts`, `tx.deploymentEnabled`). It stops using the copy loaded at start.
+   - The startup manifest is still used for contracts, roles and the startup equality check.
+   - Turning trading off makes the next quote sign return `TRADING_DISABLED` without a restart. Turning it on lets the next one through without a restart.
+   - Transaction kinds keep their current gating: keeper finalize must keep working while trading is off.
+   - Test both directions against a running service instance.
+2. **Dispatcher error mapping.** `TxDispatchError` becomes a `JobError` (or maps to one) with its own retryable flag. This way the worker logs and dead-letters with the dispatcher's real code (for example `SIGN_REJECTED:POLICY`, not retryable) instead of retryable `INTERNAL_ERROR`.
+   - Update `tests/job-failures.test.ts`, which documents the mismatch today.
+   - Check that the `jobs_dead` alert and admin metrics then show the real codes.
+3. **Worker → API URL.** The preflight rejects a `WORKER_API_URL` that is neither https nor a loopback host, with its own code and a test. This matches what `@blink/client` accepts.
+   - The runbook explains the two valid layouts: same host over loopback, or https between hosts.
+   - The runbook drops any "restart the signer after enabling trading" step that rule 1 makes unnecessary.
+
 ---
 
 ## Track B — needs the user's decisions and authorization
