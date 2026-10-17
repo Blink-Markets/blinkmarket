@@ -301,7 +301,7 @@ A separate plan, written after mockups of the trading area (§13.2 confirmation 
    - T16a: no deadline on `/v1/health` database reads; harness clock jumps inflate transaction latency metrics.
    - T16b: the leak check looks at the whole shared server; on a failing run the stage-keyed abort test's `finally` SIGKILLs the child and can leave its database and Anvil behind; the pump's delay is not tied to the run's signal; ack-level worker errors (`LEASE_LOST`, `JOB_ACK_FAILED`, `JOB_LEASE_FAILED`) are not reported; the window scheduler, creation tracker, quote reconciler and scoring run directly rather than through the worker's ticks.
    - T17: `FORCE_COLOR`/`NO_COLOR` warnings in the browser run; the `metadataBase` localhost warning.
-   - GitHub repository setting (the user's action): Issues → "Creation allowed by: Collaborators only".
+   - Done by the user (reported 2026-10-17): GitHub repository setting Issues → "Creation allowed by: Collaborators only".
 7. Real Safari and real-device checks for the site; CSP inline styles; site search (from `docs/M4_WEB_SHOWCASE_DELIVERY.md`).
 8. Per-mode (LIVE/REPLAY) budget split.
 9. Parked findings from this plan's Track A (copied from its SDD ledger at Track A close, 2026-10-17):
