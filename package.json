@@ -28,6 +28,7 @@
     "contracts:deploy": "node --import tsx scripts/deploy-contracts.ts",
     "manifest:verify": "node --import tsx scripts/verify-deployment.ts",
     "deployment:register": "node --import tsx scripts/register-deployment.ts",
+    "deploy:preflight": "node --import tsx scripts/deploy-preflight.ts",
     "creation:reconcile": "node --import tsx scripts/reconcile-creation.ts",
     "chain:rebuild": "node --import tsx scripts/rebuild-chain-index.ts",
     "api:spec": "node --import tsx scripts/generate-openapi.ts",
