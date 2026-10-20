@@ -85,19 +85,22 @@ Running this against a public network needs the project owner's explicit authori
 | `DEPLOYER_KEY_INVALID`, `DEPLOYER_MISMATCH` | The key is malformed or outside the secp256k1 range (a fixed message that never echoes the value), or `--deployer` is not the key's address. |
 | `MANIFEST_WRITE_FAILED` | The deployment verified but the file could not be written; the manifest is on stdout. |
 | `DEPLOY_TX_REVERTED` | A deployment transaction reverted on chain. |
-| `DEPLOYMENT_VERIFICATION_FAILED` | Contracts were deployed but the manifest did not verify. No file was written. |
+| `DEPLOY_GAS_ESTIMATE_FAILED` | The read-only gas estimate for a contract failed on every attempt; that contract was not sent. |
+| `DEPLOYMENT_VERIFICATION_FAILED` | Contracts were deployed but the retried verification did not succeed. No file was written. |
+
+Reads after a receipt are retried (30 × 1 s) because a load-balanced RPC can answer from a node that has not seen the latest block. Gas and nonces are set explicitly; sends are never retried.
 
 An error ending in `(already deployed: ...)` lists contracts that are on chain but have no manifest. They are not part of any deployment: fix the cause and run again with a **new** `<DEPLOYMENT_ID>`.
 
 ## Verification
 
-Run on 2026-10-14 against local Anvil only (chain ID 84532, the public test mnemonic).
+Run on 2026-10-20 against local Anvil only (chain ID 84532, the public test mnemonic).
 
 | Command | Result |
 | --- | --- |
-| `pnpm test:anvil` | 27 tests passed |
-| `pnpm check` | passed: typecheck, 102 Node tests, package boundaries, contract compile |
-| `pnpm build:services && pnpm test:service-build` | passed |
+| `pnpm test:anvil` | 54 tests passed |
+| `pnpm check` | passed: typecheck, 697 Node tests, package boundaries, contract compile |
+| `pnpm build:services && pnpm test:service-build` | passed: 6 tests |
 
 The Anvil tests cover: a deployment on 84532 whose manifest parses, verifies and has code at both addresses with exactly two transactions sent; the plan's predicted token address matching the real deployment; `MAINNET_REFUSED` (chain 8453) and `WRONG_CHAIN` (chain 31337) with the deployer's nonce and the block number unchanged; a dry run that sends nothing; duplicate, zero, malformed, bad-checksum and deployer-held roles, and a maker that has code, all rejected with no transaction sent; invalid deployment ID, commit and dependencies; a tampered artifact; a failed verification (simulated head-hash change) naming what is on chain; the chain re-check before each broadcast (the RPC flips to 8453 before the token or before the market, and the market is never sent); `readReleaseCommit` on a temporary repository; and the CLI for the dry run (key unread), a broadcast that writes a verifying manifest once and never prints the key, `OUTPUT_EXISTS`, the chain check running before the key is read, `DEPLOYER_MISMATCH`, an out-of-range key that is never echoed, and a manifest write failure that prints the verified manifest.
 
@@ -105,6 +108,6 @@ The Anvil tests cover: a deployment on 84532 whose manifest parses, verifies and
 
 - **Not run on Base Sepolia.** The real run needs the owner's authorization, real role wallets, a funded deployer and an RPC provider. None exist yet.
 - **Stale artifacts are only detected when inconsistent.** The tool cannot tell that `contracts/artifacts/` was built from different sources than `HEAD`; the runbook step 2 is the control. A freshness check (rebuild, or compare source hashes) is not implemented.
-- **Verification runs right after the receipts.** A load-balanced RPC provider that lags behind its own receipt could fail the check although the contracts are fine. There is no resume mode that builds a manifest from existing addresses; today the recovery is a new deployment ID.
+- **Verification can still exhaust its retries.** A load-balanced RPC provider that remains behind for 30 seconds can fail the check although the contracts are fine. There is no resume mode that builds a manifest from existing addresses; today the recovery is a new deployment ID.
 - **`gitCommit` does not by itself bind the deployed bytecode.** The manifest's `bytecodeHashes` are read back from the chain after deployment, and `contracts/artifacts/` is git-ignored, so nothing in the repository proves that the deployed code was built from the recorded commit. A reproducible-build check (rebuild from the commit and compare the creation bytecode hash) is not implemented.
 - **The deployer key comes from an environment variable.** Same-user processes can read it. Loading from a mode 0600 file, a hardware wallet or a secret manager is not implemented.

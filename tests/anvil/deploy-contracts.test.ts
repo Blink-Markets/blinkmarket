@@ -363,9 +363,132 @@ test("a failed on-chain verification returns no manifest and names the deployed 
       }),
     } as unknown as PublicClient;
     await assert.rejects(
-      deployContracts(request(node, { client: lying })),
+      deployContracts(
+        request(node, { client: lying, retry: { attempts: 3, delayMs: 10 } }),
+      ),
       /DEPLOYMENT_VERIFICATION_FAILED: REORG_DURING_DEPLOYMENT_CHECK.*BlinkTestUSD 0x[0-9a-fA-F]{40}.*BlinkMarket 0x[0-9a-fA-F]{40}/,
     );
+  });
+});
+
+test("retries a lagging market estimate and sends the market once", async () => {
+  await withAnvil(84532, async (node) => {
+    let estimates = 0;
+    const client = {
+      ...node.client,
+      estimateGas: async (args: Parameters<PublicClient["estimateGas"]>[0]) => {
+        estimates++;
+        if (estimates === 2 || estimates === 3)
+          throw new Error("RPC node has not seen the token block");
+        return node.client.estimateGas(args);
+      },
+    } as unknown as PublicClient;
+    const manifest = await deployContracts(
+      request(node, { client, retry: { attempts: 3, delayMs: 10 } }),
+    );
+    await verifyDeploymentOnChain(
+      manifest,
+      "anvil-test",
+      node.client,
+      await abis(),
+    );
+    assert.equal(estimates, 4);
+    assert.equal(
+      await node.client.getTransactionCount({ address: deployer.address }),
+      2,
+    );
+    assert.notEqual(
+      await node.client.getCode({ address: marketAddress }),
+      undefined,
+    );
+  });
+});
+
+test("a market estimate that never succeeds stops before the market is sent", async () => {
+  await withAnvil(84532, async (node) => {
+    let estimates = 0;
+    const client = {
+      ...node.client,
+      estimateGas: async (_args: Parameters<PublicClient["estimateGas"]>[0]) => {
+        estimates++;
+        if (estimates > 1) throw new Error("market estimate unavailable");
+        return node.client.estimateGas(_args);
+      },
+    } as unknown as PublicClient;
+    await assert.rejects(
+      deployContracts(
+        request(node, { client, retry: { attempts: 3, delayMs: 10 } }),
+      ),
+      /^Error: DEPLOY_GAS_ESTIMATE_FAILED: BlinkMarket: .* \(already deployed: BlinkTestUSD 0x[0-9a-fA-F]{40}\)$/,
+    );
+    assert.equal(estimates, 4);
+    assert.equal(
+      await node.client.getTransactionCount({ address: deployer.address }),
+      1,
+    );
+    assert.equal(await node.client.getCode({ address: marketAddress }), undefined);
+  });
+});
+
+test("deployment nonces and gas are explicit", async () => {
+  await withAnvil(84532, async (node) => {
+    const sends: { nonce: number | undefined; gas: bigint | undefined }[] = [];
+    const wallet = {
+      ...node.wallet,
+      deployContract: async (
+        args: Parameters<WalletClient["deployContract"]>[0],
+      ) => {
+        sends.push({ nonce: args.nonce, gas: args.gas });
+        return node.wallet.deployContract(args);
+      },
+    } as unknown as WalletClient;
+    await deployContracts(
+      request(node, { wallet, retry: { attempts: 3, delayMs: 10 } }),
+    );
+    assert.deepEqual(
+      sends.map((send) => send.nonce),
+      [0, 1],
+    );
+    assert.equal(sends.length, 2);
+    assert.ok(sends.every((send) => typeof send.gas === "bigint" && send.gas > 0n));
+  });
+});
+
+test("retries lagging post-deploy reads until the manifest verifies", async () => {
+  await withAnvil(84532, async (node) => {
+    let receipts = 0;
+    let delayedReads = 0;
+    const client = {
+      ...node.client,
+      waitForTransactionReceipt: async (
+        args: Parameters<PublicClient["waitForTransactionReceipt"]>[0],
+      ) => {
+        const receipt = await node.client.waitForTransactionReceipt(args);
+        if (++receipts === 2) delayedReads = 0;
+        return receipt;
+      },
+      getCode: async (args: Parameters<PublicClient["getCode"]>[0]) => {
+        if (
+          receipts >= 2 &&
+          [tokenAddress, marketAddress].includes(args.address) &&
+          delayedReads < 2
+        ) {
+          delayedReads++;
+          return undefined;
+        }
+        return node.client.getCode(args);
+      },
+    } as unknown as PublicClient;
+    const manifest = await deployContracts(
+      request(node, { client, retry: { attempts: 3, delayMs: 10 } }),
+    );
+    await verifyDeploymentOnChain(
+      manifest,
+      "anvil-test",
+      node.client,
+      await abis(),
+    );
+    assert.equal(delayedReads, 2);
   });
 });
 

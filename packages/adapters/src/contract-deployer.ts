@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import {
   encodeDeployData,
   getAddress,
@@ -74,10 +75,10 @@ async function loadArtifacts(dir: URL): Promise<PerContract<Artifact>> {
 }
 
 // The deployer's next two CREATE addresses, which are the token and the market.
-async function nextAddresses(
+async function nextDeployment(
   client: PublicClient,
   deployer: Address,
-): Promise<PerContract<Address>> {
+): Promise<{ nonce: bigint; addresses: PerContract<Address> }> {
   const nonce = BigInt(
     await client.getTransactionCount({
       address: deployer,
@@ -85,10 +86,15 @@ async function nextAddresses(
     }),
   );
   return {
-    BlinkTestUSD: getContractAddress({ from: deployer, nonce }),
-    BlinkMarket: getContractAddress({ from: deployer, nonce: nonce + 1n }),
+    nonce,
+    addresses: {
+      BlinkTestUSD: getContractAddress({ from: deployer, nonce }),
+      BlinkMarket: getContractAddress({ from: deployer, nonce: nonce + 1n }),
+    },
   };
 }
+
+export const DEPLOY_READ_RETRY = { attempts: 30, delayMs: 1000 } as const;
 
 const constructorArgs = (roles: RoleAddresses, token: Address) =>
   ({
@@ -152,8 +158,8 @@ export async function planDeployment(input: {
   checkDeploymentId(input.deploymentId);
   checkRoles(input.roles, input.deployer);
   const artifacts = await loadArtifacts(input.artifactsDir);
-  const [addresses, deployerBalanceWei] = await Promise.all([
-    nextAddresses(input.client, input.deployer),
+  const [{ addresses }, deployerBalanceWei] = await Promise.all([
+    nextDeployment(input.client, input.deployer),
     input.client.getBalance({ address: input.deployer }),
   ]);
   await checkDeployable(
@@ -186,8 +192,10 @@ export async function deployContracts(input: {
   artifactsDir: URL;
   gitCommit: string;
   dependencies: Record<string, string>;
+  retry?: { attempts: number; delayMs: number };
 }): Promise<DeploymentManifest> {
   const { client, wallet, roles, deploymentId } = input;
+  const retry = input.retry ?? DEPLOY_READ_RETRY;
   await assertDeployChain(client);
   const account = wallet.account;
   if (!account) throw new Error("DEPLOYER_ACCOUNT_REQUIRED");
@@ -229,7 +237,10 @@ export async function deployContracts(input: {
   // Find everything that would fail after the token is on chain before spending any gas:
   // constructor arguments and the maker, then a dry parse of the manifest with the
   // predicted addresses (bad commit or dependency list).
-  const predicted = await nextAddresses(client, account.address);
+  const { nonce: firstNonce, addresses: predicted } = await nextDeployment(
+    client,
+    account.address,
+  );
   await checkDeployable(client, artifacts, roles, predicted.BlinkTestUSD);
   const preflight = DeploymentManifest.safeParse(
     manifestFor(predicted, 0n, {
@@ -247,14 +258,41 @@ export async function deployContracts(input: {
 
   const deployed: Partial<PerContract<Address>> = {};
   const blocks: bigint[] = [];
-  const broadcast = async (name: ContractName, args: readonly unknown[]) => {
+  const broadcast = async (
+    name: ContractName,
+    args: readonly unknown[],
+    nonce: bigint,
+  ) => {
     await assertDeployChain(client);
+    // Explicit gas and nonces avoid wallet-side reads against a lagging RPC node.
+    const data = encodeDeployData({
+      abi: artifacts[name].abi,
+      bytecode: artifacts[name].bytecode,
+      args,
+    });
+    let estimate: bigint | undefined;
+    let lastEstimateError: unknown;
+    for (let attempt = 0; attempt < retry.attempts; attempt++) {
+      try {
+        estimate = await client.estimateGas({ account: account.address, data });
+        break;
+      } catch (error) {
+        lastEstimateError = error;
+        if (attempt + 1 < retry.attempts) await delay(retry.delayMs);
+      }
+    }
+    if (estimate === undefined)
+      throw new Error(
+        "DEPLOY_GAS_ESTIMATE_FAILED: " + name + ": " + reason(lastEstimateError),
+      );
     const hash = await wallet.deployContract({
       abi: artifacts[name].abi,
       bytecode: artifacts[name].bytecode,
       args,
       account,
       chain: wallet.chain,
+      nonce: Number(nonce),
+      gas: (estimate * 12n) / 10n,
     });
     const receipt = await client.waitForTransactionReceipt({ hash });
     if (receipt.status !== "success" || !receipt.contractAddress)
@@ -263,34 +301,43 @@ export async function deployContracts(input: {
     return (deployed[name] = getAddress(receipt.contractAddress));
   };
   try {
-    const token = await broadcast("BlinkTestUSD", [roles.faucetMinter]);
+    const token = await broadcast("BlinkTestUSD", [roles.faucetMinter], firstNonce);
     const market = await broadcast(
       "BlinkMarket",
       constructorArgs(roles, token).BlinkMarket,
+      firstNonce + 1n,
     );
     const runtimeHash = async (address: Address) => {
       const code = await client.getCode({ address });
       if (!code) throw new Error("DEPLOYED_CODE_MISSING: " + address);
       return keccak256(code);
     };
-    const manifest = manifestFor(
-      { BlinkTestUSD: token, BlinkMarket: market },
-      blocks.reduce((a, b) => (b < a ? b : a)),
-      {
-        BlinkTestUSD: await runtimeHash(token),
-        BlinkMarket: await runtimeHash(market),
-      },
-    );
-    try {
-      return (
-        await verifyDeploymentOnChain(manifest, deploymentId, client, {
-          BlinkTestUSD: artifacts.BlinkTestUSD.abi,
-          BlinkMarket: artifacts.BlinkMarket.abi,
-        })
-      ).manifest;
-    } catch (error) {
-      throw new Error("DEPLOYMENT_VERIFICATION_FAILED: " + reason(error));
+    // Retry reads after receipts that may lag; never retry sends, which may already be accepted.
+    let lastVerificationError: unknown;
+    for (let attempt = 0; attempt < retry.attempts; attempt++) {
+      try {
+        const manifest = manifestFor(
+          { BlinkTestUSD: token, BlinkMarket: market },
+          blocks.reduce((a, b) => (b < a ? b : a)),
+          {
+            BlinkTestUSD: await runtimeHash(token),
+            BlinkMarket: await runtimeHash(market),
+          },
+        );
+        return (
+          await verifyDeploymentOnChain(manifest, deploymentId, client, {
+            BlinkTestUSD: artifacts.BlinkTestUSD.abi,
+            BlinkMarket: artifacts.BlinkMarket.abi,
+          })
+        ).manifest;
+      } catch (error) {
+        lastVerificationError = error;
+        if (attempt + 1 < retry.attempts) await delay(retry.delayMs);
+      }
     }
+    throw new Error(
+      "DEPLOYMENT_VERIFICATION_FAILED: " + reason(lastVerificationError),
+    );
   } catch (error) {
     // Anything already on chain cannot be undone; tell the operator what it is.
     const onChain = Object.entries(deployed)
