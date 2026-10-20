@@ -409,7 +409,9 @@ test("a market estimate that never succeeds stops before the market is sent", as
     let estimates = 0;
     const client = {
       ...node.client,
-      estimateGas: async (_args: Parameters<PublicClient["estimateGas"]>[0]) => {
+      estimateGas: async (
+        _args: Parameters<PublicClient["estimateGas"]>[0],
+      ) => {
         estimates++;
         if (estimates > 1) throw new Error("market estimate unavailable");
         return node.client.estimateGas(_args);
@@ -426,7 +428,10 @@ test("a market estimate that never succeeds stops before the market is sent", as
       await node.client.getTransactionCount({ address: deployer.address }),
       1,
     );
-    assert.equal(await node.client.getCode({ address: marketAddress }), undefined);
+    assert.equal(
+      await node.client.getCode({ address: marketAddress }),
+      undefined,
+    );
   });
 });
 
@@ -450,7 +455,9 @@ test("deployment nonces and gas are explicit", async () => {
       [0, 1],
     );
     assert.equal(sends.length, 2);
-    assert.ok(sends.every((send) => typeof send.gas === "bigint" && send.gas > 0n));
+    assert.ok(
+      sends.every((send) => typeof send.gas === "bigint" && send.gas > 0n),
+    );
   });
 });
 

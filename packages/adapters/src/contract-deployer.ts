@@ -283,7 +283,10 @@ export async function deployContracts(input: {
     }
     if (estimate === undefined)
       throw new Error(
-        "DEPLOY_GAS_ESTIMATE_FAILED: " + name + ": " + reason(lastEstimateError),
+        "DEPLOY_GAS_ESTIMATE_FAILED: " +
+          name +
+          ": " +
+          reason(lastEstimateError),
       );
     const hash = await wallet.deployContract({
       abi: artifacts[name].abi,
@@ -301,7 +304,11 @@ export async function deployContracts(input: {
     return (deployed[name] = getAddress(receipt.contractAddress));
   };
   try {
-    const token = await broadcast("BlinkTestUSD", [roles.faucetMinter], firstNonce);
+    const token = await broadcast(
+      "BlinkTestUSD",
+      [roles.faucetMinter],
+      firstNonce,
+    );
     const market = await broadcast(
       "BlinkMarket",
       constructorArgs(roles, token).BlinkMarket,

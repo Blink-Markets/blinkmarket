@@ -88,7 +88,7 @@ Running this against a public network needs the project owner's explicit authori
 | `DEPLOY_GAS_ESTIMATE_FAILED` | The read-only gas estimate for a contract failed on every attempt; that contract was not sent. |
 | `DEPLOYMENT_VERIFICATION_FAILED` | Contracts were deployed but the retried verification did not succeed. No file was written. |
 
-Reads after a receipt are retried (30 × 1 s) because a load-balanced RPC can answer from a node that has not seen the latest block. Gas and nonces are set explicitly; sends are never retried.
+Gas estimates and reads after a receipt are retried (30 × 1 s) because a load-balanced RPC can answer from a node that has not seen the latest block. Gas and nonces are set explicitly; sends are never retried.
 
 An error ending in `(already deployed: ...)` lists contracts that are on chain but have no manifest. They are not part of any deployment: fix the cause and run again with a **new** `<DEPLOYMENT_ID>`.
 
