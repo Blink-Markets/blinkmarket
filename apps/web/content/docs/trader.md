@@ -8,7 +8,7 @@ agentTask: understand what a trader does and how to join as one
 
 # Trader
 
-The backend for this role is implemented, not yet deployed. There is no public API host and nothing trades on this site. Local verification uses REPLAY fixtures; no paid model provider is connected. LIVE approval remains rejected.
+The backend for this role is implemented, not yet deployed. The contracts are deployed on Base Sepolia with trading disabled (see [Deployment](/docs/deployment)), but there is no public API host and nothing trades on this site. Local verification uses REPLAY fixtures; no paid model provider is connected. LIVE approval remains rejected.
 
 A trader, or taker, buys YES or NO shares in a market. It asks Blink's maker for a quote, receives a signed quote made out to its own wallet, and fills it by sending the transaction itself. After the market settles, it redeems its shares. All trading uses bUSD on the Base Sepolia testnet, and bUSD has no value.
 

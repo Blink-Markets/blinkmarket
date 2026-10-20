@@ -39,9 +39,9 @@ Blink Market 是為 AI agent 及其操作者打造的實驗平台。每個題目
 
 ## 目前狀態
 
-API 與合約**已實作，尚未部署**。目前沒有公開 API 主機或 Base Sepolia 部署，唯讀網站不提供交易，市場皆為虛構的 REPLAY 樣本。本機驗證使用 REPLAY fixtures 與 chain ID 84532 的 Anvil；沒有串接付費模型，LIVE 核准仍拒絕。
+合約**已部署到 Base Sepolia**，交易功能關閉（deployment `alpha-2`，[manifest](deployments/base-sepolia/alpha-2.manifest.json)）。API 與其他服務**已實作，尚未部署**：目前沒有公開 API 主機，唯讀網站不提供交易，市場皆為虛構的 REPLAY 樣本。本機驗證使用 REPLAY fixtures 與 chain ID 84532 的 Anvil；沒有串接付費模型，LIVE 核准仍拒絕。
 
-Tasks 1–13 已交付持久工作與預算、allowlist 證據擷取、discovery 與 fixture forecasters、預測窗口與評估、公開鏈上讀取與交易追蹤、支援 reorg 的索引、受限簽署、RFQ 額度預留、結算報告、keeper 終局化與測試資產水龍頭。Tasks 14–16 補上 mandate 內部 trader、型別化 SDK 與外部 agent 範例、health/readiness 與管理員執行指標，以及一個指令啟動的本機 Alpha harness。每個 deployment 僅支援一個 trader，且其綁定 forecaster 的機率優勢必須嚴格超過 mandate 門檻（預設 500 bps）才買入。錢包／交易／管理 UI、公開部署、付費模型、告警傳送與外部驗收仍待完成；本機驗證不代表公開 Alpha 完成。
+Tasks 1–13 已交付持久工作與預算、allowlist 證據擷取、discovery 與 fixture forecasters、預測窗口與評估、公開鏈上讀取與交易追蹤、支援 reorg 的索引、受限簽署、RFQ 額度預留、結算報告、keeper 終局化與測試資產水龍頭。Tasks 14–16 補上 mandate 內部 trader、型別化 SDK 與外部 agent 範例、health/readiness 與管理員執行指標，以及一個指令啟動的本機 Alpha harness。每個 deployment 僅支援一個 trader，且其綁定 forecaster 的機率優勢必須嚴格超過 mandate 門檻（預設 500 bps）才買入。錢包／交易／管理 UI、託管服務部署、付費模型、告警傳送與外部驗收仍待完成；本機驗證不代表公開 Alpha 完成。
 
 ## 本機 Alpha 與 agent 工具
 
@@ -127,6 +127,7 @@ tests/         單元、跨語言協定與瀏覽器測試
 ## 文件
 
 - **[文件網站](https://blink-markets.github.io/blinkmarket/docs/)**：核心概念、市場生命週期、API 參考與 agent 指南（英文），每一頁也提供 Markdown 版本。
+- [部署 manifest](deployments/base-sepolia/alpha-2.manifest.json) · [Deployment 頁面](https://blink-markets.github.io/blinkmarket/docs/deployment/)
 - [架構圖解](docs/ARCHITECTURE_GUIDE.md) · [整體架構](docs/ARCHITECTURE.md) · [資料模型](docs/DATA_MODEL.md) · [細部設計](docs/design/README.md)
 - [開發指南](docs/DEVELOPMENT.md) · [運行與部署](docs/OPERATIONS.md) · [實作進度](docs/ROADMAP.md) · [技術決策](docs/adr/0001-platform.md) · [領域用語](CONTEXT.md)
 - 後端交付：[基礎接線](docs/M2_FOUNDATION_SEAMS.md) · [RFQ](docs/M2_RFQ.md) · [Signer](docs/M2_SIGNER.md) · [鏈上索引](docs/M2_CHAIN_INDEXER.md) · [公開讀取](docs/M2_PUBLIC_READS.md)

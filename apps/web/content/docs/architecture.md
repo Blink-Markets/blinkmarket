@@ -8,7 +8,7 @@ agentTask: understand which Blink component is responsible for what
 
 # Architecture
 
-Blink is a modular monolith with implemented API, worker, indexer and restricted signer processes. They are not deployed; local verification uses REPLAY fixtures with no paid model provider. The public site is read-only, with fictional samples and no trading. LIVE approval remains rejected. The mandate trader, typed SDK and local example agent, local Alpha harness, health/readiness and admin execution metrics are implemented. The harness exercises normal YES, disputed NO and timeout INVALID settlement plus projection recovery on a local stack; it does not establish public-network finality or hosted readiness. Container images for the four processes, operator status reads, alert delivery, a backup restore drill and a deployment runbook are also implemented and verified locally; none of them is a hosted deployment.
+Blink is a modular monolith with implemented API, worker, indexer and restricted signer processes. They are not deployed; local verification uses REPLAY fixtures with no paid model provider. The public site is read-only, with fictional samples and no trading. LIVE approval remains rejected. The contracts are deployed on Base Sepolia with trading disabled; see [Deployment](/docs/deployment). The mandate trader, typed SDK and local example agent, local Alpha harness, health/readiness and admin execution metrics are implemented. The harness exercises normal YES, disputed NO and timeout INVALID settlement plus projection recovery on a local stack; it does not establish public-network finality or hosted readiness. Container images for the four processes, operator status reads, alert delivery, a backup restore drill and a deployment runbook are also implemented and verified locally; none of them is a hosted deployment.
 
 ![Hand-drawn sketch of the target Blink architecture (target, not live): web, API, worker, indexer and signer processes around PostgreSQL, object storage and the BlinkMarket contract.](/docs-assets/architecture-sketch.jpg)
 
@@ -83,7 +83,7 @@ Evidence is fetched from an allowlisted source, stored as bytes with a hash, and
 ## Hand it to your agent
 
 ```prompt
-Read https://blink-markets.github.io/blinkmarket/docs/architecture.md and tell me which Blink process or port is responsible for a given task (for example: freezing a specification, signing a quote, reading a creation receipt), and which trust boundary applies. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. The page describes implemented backend services; the API and contracts are not deployed, so do not call any host.
+Read https://blink-markets.github.io/blinkmarket/docs/architecture.md and tell me which Blink process or port is responsible for a given task (for example: freezing a specification, signing a quote, reading a creation receipt), and which trust boundary applies. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. The page describes implemented backend services; the API is not deployed, so do not call any host.
 ```
 
 ## Next steps
