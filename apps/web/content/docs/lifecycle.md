@@ -11,7 +11,7 @@ agentTask: explain which state a market is in and what can happen next
 Every Blink market is a YES/NO question that moves through a small, fixed set of contract states. The rules below come from the MVP specification (section 6.2) and apply to the Base Sepolia testnet (chain ID 84532), where bUSD has no value.
 
 > [!NOTE]
-> The market contracts and chain projections are implemented, not yet deployed. This page describes the implemented state machine. Local verification is REPLAY only; nothing trades on this site.
+> The market contracts are deployed on Base Sepolia with trading disabled and no markets created (see [Deployment](/docs/deployment)); the chain projections run in the indexer, which is not yet deployed. This page describes the implemented state machine. Local verification is REPLAY only; nothing trades on this site.
 
 ## What states can a market be in?
 

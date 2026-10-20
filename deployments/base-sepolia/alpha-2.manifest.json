@@ -1,0 +1,45 @@
+{
+  "status": "DEPLOYED",
+  "chainId": 84532,
+  "deploymentId": "alpha-2",
+  "deploymentBlock": "48371702",
+  "contracts": {
+    "BlinkTestUSD": "0x6A656a6576DFfB6697754E378B3f8d620c7250FC",
+    "BlinkMarket": "0x0936fDce1aCB72c88a786250b5454094068D41b9"
+  },
+  "artifacts": {
+    "abiHashes": {
+      "BlinkTestUSD": "0x7466eed0b98302f1fdc5e7c40a6c097cdb0b197eb64999b57f60504b2800e4aa",
+      "BlinkMarket": "0x2634c6734a02558eb2a858d6b6caec4f605b62639b7b3e7ca12d414e3472ad2d"
+    },
+    "bytecodeHashes": {
+      "BlinkTestUSD": "0x4971fd6cd55df85000a8c75a493b53c30611f2097a68496bfb4cad3515c07969",
+      "BlinkMarket": "0xdb93914322206408b5b7f7721e44e155e2285e868498a7e6b6bef94affb5a9e9"
+    },
+    "compiler": "0.8.30",
+    "gitCommit": "0ae8f36785d7dde4bdc5eadc4155462ab210392a",
+    "dependencies": {
+      "@openzeppelin/contracts": "5.6.1",
+      "solc": "0.8.30",
+      "viem": "2.56.8"
+    }
+  },
+  "roles": {
+    "admin": "0xdc9a78D773784B9B01D445816669d50DE9C66439",
+    "resultProposer": "0x771AA52b590e13EBA60f8d28695323c3079cA80e",
+    "challenger": "0x896abDa2920423735cE1b6ddFFBf161b9DA71b71",
+    "arbiter": "0x0950bF36ef320beA22A18a152fdB744e78798150",
+    "maker": "0x4bf0e533BE7E8D3cd1c7771c933078d45D69C964",
+    "faucetMinter": "0x0893b6010E2E352db85e72FEC6FeD4F3beE18ae5"
+  },
+  "parameters": {
+    "collateralDecimals": 6,
+    "quoteDefaultTtlSeconds": 30,
+    "quoteMaxTtlSeconds": 60,
+    "makerSpreadBps": 200,
+    "maxFillShares": "100",
+    "maxMarketPairs": "10000",
+    "maxTakerShares": "500"
+  },
+  "tradingEnabled": false
+}

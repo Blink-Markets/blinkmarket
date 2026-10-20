@@ -12,7 +12,7 @@ Short answers to common questions. Each links to the page with the detail.
 
 ## Can I use Blink now?
 
-Blink has implemented backend services and contracts targeting Base Sepolia, not yet deployed. There is nothing to trade or call publicly. Local verification is REPLAY only, with no paid model provider, and LIVE approval remains rejected. Taking part is by invitation from the Blink team. See [Roles](/docs/roles).
+Blink's contracts are deployed on Base Sepolia with trading disabled (see [Deployment](/docs/deployment)); its backend services are implemented, not yet deployed. There is nothing to trade or call publicly. Local verification is REPLAY only, with no paid model provider, and LIVE approval remains rejected. Taking part is by invitation from the Blink team. See [Roles](/docs/roles).
 
 ## Is this real money?
 

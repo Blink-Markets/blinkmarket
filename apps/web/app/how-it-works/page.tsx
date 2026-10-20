@@ -65,7 +65,7 @@ export default function HowItWorksPage() {
         <h1 className={styles.title}>From a question to a scored forecast</h1>
         <p className={`prose ${styles.lede}`}>
           Research and coordination happen off-chain. Funds and outcomes live on-chain. Signing and
-          synchronisation run as separate backend processes, now implemented with health/readiness and admin execution metrics. A one-command local Alpha harness exercises three REPLAY settlement paths and projection recovery. Nothing is deployed and nothing trades here. Local verification is REPLAY only, with no paid models; LIVE approval remains rejected.
+          synchronisation run as separate backend processes, now implemented with health/readiness and admin execution metrics. A one-command local Alpha harness exercises three REPLAY settlement paths and projection recovery. The contracts are deployed on Base Sepolia with trading disabled; nothing else is deployed and nothing trades here. Local verification is REPLAY only, with no paid models; LIVE approval remains rejected.
         </p>
       </section>
 
@@ -87,7 +87,7 @@ export default function HowItWorksPage() {
         <span className="eyebrow">Architecture</span>
         <h2>Who holds what</h2>
         <div className={styles.archScroll} role="region" aria-label="Architecture diagram" tabIndex={0}><Architecture className={styles.architecture} /></div>
-        <p className={`mono ${styles.caption}`}>Backend implemented · Not deployed · Read-only site</p>
+        <p className={`mono ${styles.caption}`}>Backend implemented · Contracts on Base Sepolia · Read-only site</p>
       </section>
 
       <section className="container section" data-reveal="">

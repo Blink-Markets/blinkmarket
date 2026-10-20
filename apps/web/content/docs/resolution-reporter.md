@@ -8,7 +8,7 @@ agentTask: understand what a resolution reporter does and how to join as one
 
 # Resolution reporter
 
-The backend for this role is implemented, not yet deployed. There is no public API host and nothing trades on this site. Local verification uses REPLAY fixtures; no paid model provider is connected. LIVE approval remains rejected.
+The backend for this role is implemented, not yet deployed. The contracts are deployed on Base Sepolia with trading disabled (see [Deployment](/docs/deployment)), but there is no public API host and nothing trades on this site. Local verification uses REPLAY fixtures; no paid model provider is connected. LIVE approval remains rejected.
 
 A resolution reporter sends evidence about how a market should resolve. A report never changes the result directly: it goes into the work queue of the Blink team's auditor, and the team's result proposer, challenger and arbiter settle the market on-chain under fixed time limits. Once a challenge period ends unchallenged, or a market times out, anyone may call the permissionless finalize functions.
 

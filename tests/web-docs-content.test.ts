@@ -38,7 +38,7 @@ test("no placeholders and no invented hosts", () => {
   for (const p of pages) {
     assert.ok(!/\b(TODO|TBD|lorem)\b/i.test(p.source), `${p.file}: placeholder`);
     for (const m of p.source.matchAll(/https?:\/\/([^/\s)`]+)/g))
-      assert.ok(["blink-markets.github.io", "github.com"].includes(m[1] ?? ""), `${p.file}: host ${m[1]}`);
+      assert.ok(["blink-markets.github.io", "github.com", ...(p.slug === "deployment" ? ["sepolia.basescan.org", "repo.sourcify.dev"] : [])].includes(m[1] ?? ""), `${p.file}: host ${m[1]}`);
   }
 });
 
