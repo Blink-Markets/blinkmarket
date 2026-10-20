@@ -8,10 +8,14 @@ const outputDir = join(publicDir, "deployments");
 
 rmSync(outputDir, { recursive: true, force: true });
 if (existsSync(sourceDir)) {
-  const manifests = readdirSync(sourceDir).filter((file) => file.endsWith(".manifest.json") && file !== "manifest.template.json");
+  const manifests = readdirSync(sourceDir).filter(
+    (file) =>
+      file.endsWith(".manifest.json") && file !== "manifest.template.json",
+  );
   if (manifests.length > 0) {
     const destinationDir = join(outputDir, "base-sepolia");
     mkdirSync(destinationDir, { recursive: true });
-    for (const file of manifests) cpSync(join(sourceDir, file), join(destinationDir, file));
+    for (const file of manifests)
+      cpSync(join(sourceDir, file), join(destinationDir, file));
   }
 }

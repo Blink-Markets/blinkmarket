@@ -50,9 +50,9 @@ The keeper needs no address because anyone may finalize; the internal trader's w
 
 ## How do I check it?
 
-The manifest is at [/deployments/base-sepolia/alpha-2.manifest.json](/deployments/base-sepolia/alpha-2.manifest.json) on this site and at `deployments/base-sepolia/alpha-2.manifest.json` in the repository. Check it read-only with `BASE_SEPOLIA_RPC_URL=<any Base Sepolia RPC> pnpm manifest:verify deployments/base-sepolia/alpha-2.manifest.json alpha-2`.
+The manifest is at [/deployments/base-sepolia/alpha-2.manifest.json](/deployments/base-sepolia/alpha-2.manifest.json) on this site and at `deployments/base-sepolia/alpha-2.manifest.json` in the repository. The repository's [deployment tooling notes](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/M5_DEPLOYMENT_TOOLING.md) describe the read-only verifier that checks a manifest against the chain.
 
-Source verification on a public explorer is pending.
+Both contracts' source code is verified on Sourcify with an exact match (creation and runtime bytecode, including metadata): [BlinkTestUSD](https://repo.sourcify.dev/84532/0x6A656a6576DFfB6697754E378B3f8d620c7250FC) and [BlinkMarket](https://repo.sourcify.dev/84532/0x0936fDce1aCB72c88a786250b5454094068D41b9). Compare the addresses on this page with the explorer and with Sourcify.
 
 ## What about other addresses?
 
@@ -61,5 +61,5 @@ An earlier attempt (`alpha-1`) left an unused BlinkTestUSD at `0x83517271696F742
 ## Hand it to your agent
 
 ```prompt
-Read https://blink-markets.github.io/blinkmarket/docs/deployment.md, list the contract and role addresses, and check them on the explorer. Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks.
+Read https://blink-markets.github.io/blinkmarket/docs/deployment.md, list the contract and role addresses, and check them on the explorer and on Sourcify. Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks.
 ```

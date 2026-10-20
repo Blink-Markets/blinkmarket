@@ -4,18 +4,35 @@ import { test } from "node:test";
 import { DeploymentManifest } from "../packages/schemas/src/index.ts";
 
 const manifest = DeploymentManifest.parse(
-  JSON.parse(readFileSync("deployments/base-sepolia/alpha-2.manifest.json", "utf8")),
+  JSON.parse(
+    readFileSync("deployments/base-sepolia/alpha-2.manifest.json", "utf8"),
+  ),
 );
-const deploymentPage = readFileSync("apps/web/content/docs/deployment.md", "utf8");
+const deploymentPage = readFileSync(
+  "apps/web/content/docs/deployment.md",
+  "utf8",
+);
 
 test("alpha-2 manifest and deployment page agree", () => {
   assert.equal(manifest.deploymentId, "alpha-2");
   assert.equal(manifest.chainId, 84532);
   assert.equal(manifest.tradingEnabled, false);
 
-  for (const address of [...Object.values(manifest.contracts), ...Object.values(manifest.roles)]) {
-    assert.ok(deploymentPage.includes(address), `deployment page is missing ${address}`);
+  for (const address of [
+    ...Object.values(manifest.contracts),
+    ...Object.values(manifest.roles),
+  ]) {
+    assert.ok(
+      deploymentPage.includes(address),
+      `deployment page is missing ${address}`,
+    );
   }
-  assert.ok(deploymentPage.includes(manifest.deploymentBlock), "deployment page is missing deploymentBlock");
-  assert.ok(deploymentPage.includes(manifest.artifacts.gitCommit), "deployment page is missing artifacts.gitCommit");
+  assert.ok(
+    deploymentPage.includes(manifest.deploymentBlock),
+    "deployment page is missing deploymentBlock",
+  );
+  assert.ok(
+    deploymentPage.includes(manifest.artifacts.gitCommit),
+    "deployment page is missing artifacts.gitCommit",
+  );
 });
