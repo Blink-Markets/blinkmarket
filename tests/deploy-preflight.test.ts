@@ -199,6 +199,7 @@ function baseProfile(dir: string, overrides: Record<string, string> = {}) {
     BLINK_API_MODE: "trading",
     API_HOST: "0.0.0.0",
     API_PORT: "3001",
+    API_TRUSTED_PROXIES: "127.0.0.1",
     API_DATABASE_URL: "postgresql://api:fake@db.internal/blink",
     WALLET_BINDING_ORIGIN: "https://api.example.test",
     SPEC_OBJECT_DIRECTORY: "/data/specs",
@@ -624,5 +625,36 @@ test("non-loopback webhook requires HTTPS", async () => {
     assert.match(out.stdout + out.stderr, /PREFLIGHT_WEBHOOK_HTTPS/);
   } finally {
     await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+test("API_TRUSTED_PROXIES is required and must name private or loopback proxies", async () => {
+  for (const [value, code] of [
+    [null, "PREFLIGHT_API_TRUSTED_PROXIES"],
+    ["", "PREFLIGHT_API_TRUSTED_PROXIES"],
+    ["203.0.113.9", "PREFLIGHT_API_TRUSTED_PROXIES"],
+    ["127.0.0.1,203.0.113.9", "PREFLIGHT_API_TRUSTED_PROXIES"],
+    ["127.0.0.1,::1", null],
+    ["10.0.0.0/8", null],
+  ] as const) {
+    const dir = await mkdtemp(path.join(tmpdir(), "blink-proxies-"));
+    const key = path.join(dir, "maker.key");
+    await writeFile(key, "fake-key-material");
+    await chmod(key, 0o600);
+    const profile = baseProfile(dir, { API_TRUSTED_PROXIES: value ?? "" });
+    if (value === null)
+      delete (profile as Record<string, string>).API_TRUSTED_PROXIES;
+    const f = await fixture(profile);
+    try {
+      const out = run(f.envFile);
+      const output = out.stdout + out.stderr;
+      if (code) {
+        assert.notEqual(out.status, 0, String(value));
+        assertCode(output, code);
+      } else assert.equal(out.status, 0, `${value}: ${output}`);
+    } finally {
+      await rm(f.dir, { recursive: true, force: true });
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 });

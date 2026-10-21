@@ -116,6 +116,7 @@ try {
   const app = buildApi(
     pool
       ? {
+          trustedProxies: config.trustedProxies,
           ...(health ? { health } : {}),
           assertReady: () => assertProductionClock(pool, false),
           ...(modeAtLeast(config.mode, "approval")
@@ -153,7 +154,10 @@ try {
                   ? [
                       health,
                       createOperatorStatusService({
-                        store: postgresOperatorStatusStore(pool, config.deploymentId!),
+                        store: postgresOperatorStatusStore(
+                          pool,
+                          config.deploymentId!,
+                        ),
                         health,
                         authenticateAdmin: (authorization) =>
                           createIdentityService(
@@ -219,7 +223,7 @@ try {
               }
             : {}),
         }
-      : {},
+      : { trustedProxies: config.trustedProxies },
   );
   if (pool)
     app.addHook("onClose", async () => {

@@ -180,9 +180,11 @@ async function main() {
     if (
       parsed!.username ||
       parsed!.password ||
-      !(parsed!.protocol === "https:" ||
+      !(
+        parsed!.protocol === "https:" ||
         (parsed!.protocol === "http:" &&
-          isClientHttpLoopbackHost(parsed!.hostname)))
+          isClientHttpLoopbackHost(parsed!.hostname))
+      )
     )
       fail("PREFLIGHT_WORKER_API_URL", "WORKER_API_URL");
   }
@@ -210,6 +212,13 @@ async function main() {
   }
   if (sink !== "file" && sink !== "webhook")
     fail("PREFLIGHT_ALERT_SINK", "ALERT_SINK");
+
+  // The API sits behind a private TLS proxy; only that proxy may supply X-Forwarded-For.
+  const proxies = env.get("API_TRUSTED_PROXIES")?.trim();
+  if (!proxies) fail("PREFLIGHT_API_TRUSTED_PROXIES", "API_TRUSTED_PROXIES");
+  for (const entry of proxies!.split(","))
+    if (!isPrivateHost(entry.trim().split("/")[0]!))
+      fail("PREFLIGHT_API_TRUSTED_PROXIES", "API_TRUSTED_PROXIES");
 
   // Reuse the production parsers; they are pure config checks and perform no I/O.
   const values = Object.fromEntries(env) as NodeJS.ProcessEnv;
