@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import type { JobType } from "@blink/domain";
+import { TX_DISPATCH_MAX_ATTEMPTS, type JobType } from "@blink/domain";
 import type { JobHandler, JobQueue } from "@blink/ports";
 import {
   postgresFaucetStore,
@@ -105,7 +105,7 @@ export async function buildExecution(deps: {
           15_000,
           { [row.field]: row.id },
           now,
-          10,
+          row.type === "tx.dispatch" ? TX_DISPATCH_MAX_ATTEMPTS : 10,
         );
     },
   };

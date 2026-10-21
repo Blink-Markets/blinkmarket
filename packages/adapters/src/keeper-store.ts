@@ -3,6 +3,7 @@ import { keccak256, stringToHex } from "viem";
 import type { Pool } from "pg";
 import {
   canonicalJson,
+  TX_DISPATCH_MAX_ATTEMPTS,
   SIGNING_POLICY_VERSION,
   type KeeperStore,
   type KeeperRequest,
@@ -100,7 +101,7 @@ export function postgresKeeperStore(pool: Pool): KeeperStore {
             type: "tx.dispatch",
             dedupeKey: "tx.dispatch:" + request.intentId,
             payload: { intentId: request.intentId },
-            maxAttempts: 10,
+            maxAttempts: TX_DISPATCH_MAX_ATTEMPTS,
           });
           return true;
         }
@@ -127,7 +128,7 @@ export function postgresKeeperStore(pool: Pool): KeeperStore {
             type: "tx.dispatch",
             dedupeKey: "tx.dispatch:" + request.intentId,
             payload: { intentId: request.intentId },
-            maxAttempts: 10,
+            maxAttempts: TX_DISPATCH_MAX_ATTEMPTS,
           });
         } else {
           const changed = await db.query(

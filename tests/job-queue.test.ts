@@ -9,7 +9,10 @@ import {
   postgresJobQueue,
 } from "../packages/adapters/src/job-queue.js";
 import { dispatchOutbox } from "../packages/adapters/src/outbox-dispatcher.js";
-import { retryDelayMs } from "../packages/domain/src/jobs.js";
+import {
+  retryDelayMs,
+  TX_DISPATCH_MAX_ATTEMPTS,
+} from "../packages/domain/src/jobs.js";
 import { migratedPglite } from "./helpers/serial-pglite-pool.js";
 
 async function withQueue(
@@ -391,4 +394,29 @@ test("a failing mapping rolls the whole dispatch batch back", () =>
       ).rows.length,
       2,
     );
+  }));
+
+test("tx.dispatch backoff outlasts the measured Base Sepolia finality lag", () => {
+  assert.equal(TX_DISPATCH_MAX_ATTEMPTS, 20);
+  let total = 0;
+  for (let a = 1; a < TX_DISPATCH_MAX_ATTEMPTS; a++) total += retryDelayMs(a);
+  assert.equal(total, 4_215_000); // about 70 minutes; the measured lag peaked at 1968 s
+});
+
+test("jobs accept up to 20 max attempts and reject more", () =>
+  withQueue(async (s) => {
+    const db = await s.pool.connect();
+    try {
+      const ok = await enqueueJobInTransaction(
+        db,
+        fetchJob("max-20", { maxAttempts: 20 }),
+      );
+      assert.equal(ok.created, true);
+      await assert.rejects(
+        enqueueJobInTransaction(db, fetchJob("max-21", { maxAttempts: 21 })),
+        (error: { code?: string }) => error.code === "23514",
+      );
+    } finally {
+      db.release();
+    }
   }));

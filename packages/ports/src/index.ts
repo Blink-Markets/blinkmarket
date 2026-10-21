@@ -56,6 +56,7 @@ export {
   checkGasCaps,
   keeperDueSince,
 } from "./alert-evaluate.js";
+export { TX_DISPATCH_MAX_ATTEMPTS } from "@blink/domain";
 export type {
   AlertFamily,
   AlertState,
