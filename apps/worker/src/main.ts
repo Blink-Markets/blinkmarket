@@ -27,10 +27,12 @@ import {
   outboxMapping,
   registerAlertEvaluate,
   registerEvaluationHandler,
+  registerOperationsPrune,
   registerQuoteReconcile,
   registerResolutionHandlers,
   scheduleAlertEvaluate,
   scheduleEvaluation,
+  scheduleOperationsPrune,
   scheduleQuoteReconcile,
   scheduleResolution,
 } from "./handlers.js";
@@ -79,6 +81,7 @@ try {
     const alertHandler = createAlertDeliveryHandler(alertSinkFor(alerts));
     registerAlertEvaluate(database, alertEvaluateConfig(process.env));
     registerEvaluationHandler(database);
+    registerOperationsPrune(database);
     registerResolutionHandlers(database, process.env.EVIDENCE_OBJECT_DIRECTORY);
     registerQuoteReconcile(database);
     const researchSettings = researchConfig(process.env);
@@ -132,6 +135,7 @@ try {
         execution.tick(),
         trader.tick(),
         scheduleEvaluation(database),
+        scheduleOperationsPrune(database),
         scheduleResolution(database),
         scheduleAlertEvaluate(database),
       ])

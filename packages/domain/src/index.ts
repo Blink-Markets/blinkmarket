@@ -29,7 +29,8 @@ export type JobType =
   | "keeper.finalize"
   | "faucet.mint"
   | "trader.evaluate"
-  | "evaluation.score";
+  | "evaluation.score"
+  | "operations.prune";
 export type Job<T extends JobType = JobType> = {
   id: string;
   type: T;

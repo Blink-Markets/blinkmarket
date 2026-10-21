@@ -123,3 +123,4 @@ export {
 export { isAllowedAlertWebhookUrl } from "./alert-url.js";
 export { postgresAlertEvaluateStore } from "./alert-evaluate-store.js";
 export { httpRpcProbe } from "./rpc-probe.js";
+export { pruneOperations } from "./operations-retention.js";
