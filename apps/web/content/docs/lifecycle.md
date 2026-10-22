@@ -76,6 +76,7 @@ A separate question from market state is how settled a transaction is on the cha
 - `UNKNOWN` is not failure. A missing receipt never justifies automatically sending a new economic intent.
 - `PRECONFIRMED` is only a hint. It does not count as a settled position.
 - `INCLUDED` and `FINALIZED` are different levels. Do not treat a fixed number of blocks as Base L1 finality.
+- Expect a wait. When measured on 2026-10-21, Base Sepolia's finalized block trailed the latest block by 14 to 33 minutes, so a transaction can stay `INCLUDED` that long before it becomes `FINALIZED`.
 
 Blink's market-creation tracker uses a fixed observation policy of 12 confirmations. That is explicitly not Base L1 finality.
 

@@ -4,6 +4,15 @@
 
 **Goal:** Fix the four problems that must be fixed before Blink's services run against the live `alpha-2` deployment on Base Sepolia: the `tx.dispatch` retry budget is shorter than Base Sepolia's finality lag; the per-IP limiter sees only the TLS proxy; `operations.jobs` and `operations.outbox` grow without bound and lack indexes for the recovery lookups; and no check stops a deployment from giving the API or the worker the wrong signer roles.
 
+**Status:** Done on 2026-10-22. All four tasks are merged to `main`:
+
+- Task 1: `a2e4971`.
+- Task 3: `0c5e5a1`.
+- Task 2: `4dc562a`, plus the review fix `f05118a`. The fix makes preflight refuse a trusted-proxy range that is not wholly inside a loopback or private block.
+- Task 4: `9a0d530`.
+
+Each task passed its review and CI, which includes `test:postgres` and `alpha:local`. Parked minor findings are listed in Open Item 7.
+
 **Architecture:** Each fix stays inside the layer that owns it.
 
 - Retry budget: a domain constant plus one migration.
@@ -15,7 +24,7 @@
 
 **Spec:** No separate spec. The requirements are the parked items in `docs/superpowers/plans/2026-10-15-public-alpha-readiness.md` (Open Items 6 and 9, entry A1) and the measurement below.
 
-**Finality measurement (2026-10-21, public RPC `https://sepolia.base.org`):** the gap between the `latest` and `finalized` block timestamps was sampled every 30 s: about 70 samples over 100 minutes of wall-clock time, with one gap while the laptop slept.
+**Finality measurement (2026-10-21, public RPC `https://sepolia.base.org`):** the gap between the `latest` and `finalized` block timestamps was sampled every 30 s: 90 samples over about 100 minutes of wall-clock time, with one gap while the laptop slept.
 
 - Lag ranged from 836 s to 1968 s (14 to 33 minutes) in a sawtooth pattern.
 - Today's `tx.dispatch` budget is 10 attempts with backoff of 5 s doubling to 300 s, which totals 1215 s (about 20 minutes). That is shorter than most of the lags observed.
@@ -351,3 +360,16 @@ The 7-day window is far longer than any of these windows.
 4. **Alerts.** No startup check that the alert sink is reachable. No chat-webhook format adapter: dropped while `ALERT_SINK=file` is used.
 5. **Pending finality stays visible.** A finality stall longer than about 70 minutes still dead-letters `tx.dispatch` and alerts. That is intended, because it is a real chain condition. The sweep keeps re-enqueueing it.
 6. **Shared limiter.** A shared rate limiter is still needed before running more than one API instance (Open Item 3 of the public-alpha plan).
+7. **Parked minor findings from the task reviews:**
+   - **Task 1:**
+     - The anvil test's `faucet.mint` assertion checks rows created at claim time, not the rows the sweep re-enqueues.
+     - No red run was captured.
+     - The two docs were not reformatted by Prettier, deliberately, because it would reflow unrelated tables.
+   - **Task 3:**
+     - No test covers the early stop on a short batch, outbox batching, or the register and schedule wiring.
+     - The prune `LIMIT` has no `ORDER BY`, which is harmless.
+     - Prettier reflowed `apps/worker/src/registry.ts`.
+   - **Task 2:**
+     - `isPrivateHost` rejects IPv4-mapped and link-local proxy addresses, which fails closed.
+     - Prettier reflowed unrelated lines in `apps/api/src/main.ts` and `scripts/deploy-preflight.ts`.
+   - **Task 4:** preflight hashes the raw token while the worker trims `WORKER_SIGNER_CALLER_TOKEN`, which fails closed.
