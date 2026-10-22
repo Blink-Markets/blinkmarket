@@ -76,6 +76,8 @@ Start the signer with its dedicated `blink_signer` login. Verify `/health/live` 
 
 **USER ACTION — needs explicit approval:** installing/updating and starting the Worker deploys a service. The user executes the approved change. Use `WORKER_ENABLED=true`, its own `WORKER_DATABASE_URL`, and `WORKER_API_URL` over loopback on a colocated host or HTTPS between hosts. Start with deterministic, reviewed model fixtures and no live provider keys. Configure a non-stdout `ALERT_SINK` explicitly. For `file`, ensure the parent exists and the worker can append; for `webhook`, use the user-selected HTTPS endpoint. Worker `/health/ready` listens on loopback only: check it from inside the container with `docker compose exec` or from the host namespace. Do not probe it from an external orchestrator.
 
+Retention: the Worker prunes `operations.jobs` and `operations.outbox` hourly (`operations.prune`). SUCCEEDED jobs are kept 7 days and DEAD jobs 30 days; dispatched outbox rows are kept 30 days, except rows still referenced by a job and the newest row per aggregate and event type, which a restore needs. DEAD counts in `ops:status` therefore cover the last 30 days.
+
 ### 8. API
 
 **USER ACTION — needs explicit approval:** installing/updating and starting the API deploys a service and may expose an endpoint. The user executes the approved change. Use `BLINK_API_MODE=trading`, its own `API_DATABASE_URL`, the registered `BLINK_DEPLOYMENT_ID`, approved Base Sepolia RPC, private `SIGNER_URL`, and its restricted caller token. Confirm public binding and TLS termination match the reviewed architecture, object directories are writable by the service, and logs contain no credentials. Keep trading disabled and do not issue external credentials yet.

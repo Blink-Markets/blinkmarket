@@ -25,6 +25,7 @@ const expected = [
   "faucet.mint",
   "trader.evaluate",
   "evaluation.score",
+  "operations.prune",
 ] as const;
 // Fails to compile if JobType gains or loses a member relative to the list above.
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;

@@ -9,7 +9,11 @@ import {
 } from "@blink/application";
 import { JobError } from "@blink/domain";
 import type { Pool } from "pg";
-import { postgresEvaluationStore, postgresJobQueue } from "@blink/adapters";
+import {
+  postgresEvaluationStore,
+  postgresJobQueue,
+  pruneOperations,
+} from "@blink/adapters";
 import { createEvaluationHandler, schedulePeriodic } from "@blink/application";
 import type { JobType } from "@blink/domain";
 import type { JobHandler } from "@blink/ports";
@@ -49,6 +53,22 @@ export async function scheduleEvaluation(pool: Pool): Promise<void> {
     postgresJobQueue(pool),
     "evaluation.score",
     600_000,
+    {},
+    rows[0]!.now,
+  );
+}
+
+export function registerOperationsPrune(pool: Pool): void {
+  handlers["operations.prune"] = async () => {
+    await pruneOperations(pool);
+  };
+}
+export async function scheduleOperationsPrune(pool: Pool): Promise<void> {
+  const { rows } = await pool.query<{ now: Date }>("SELECT blink.now() AS now");
+  await schedulePeriodic(
+    postgresJobQueue(pool),
+    "operations.prune",
+    3_600_000,
     {},
     rows[0]!.now,
   );
