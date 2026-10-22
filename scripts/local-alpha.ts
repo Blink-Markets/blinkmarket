@@ -50,7 +50,11 @@ const DATABASE_LIMITS = {
   statementTimeoutMs: 30_000,
 };
 const DEPLOYMENT = "local-alpha";
-const TOKEN = "local-alpha-public-fixture-token";
+// Public fixture tokens, split by service as in a deployment: the API only makes, the worker keeps and fills.
+const API_TOKEN = "local-alpha-public-fixture-api-token";
+const WORKER_TOKEN = "local-alpha-public-fixture-worker-token";
+const sha256 = (token: string) =>
+  createHash("sha256").update(token).digest("hex");
 const hash = (text: string) => keccak256(new TextEncoder().encode(text));
 // What a drill that runs on the finished Alpha (the backup and restore drill) may use: the source
 // database, the chain, and the lifecycle that cleans up whatever the drill creates.
@@ -309,9 +313,14 @@ export async function runLocalAlpha(
         deployment: manifest,
         callers: [
           {
-            name: "local-alpha",
-            tokenSha256: createHash("sha256").update(TOKEN).digest("hex"),
-            roles: ["maker", "keeper", "faucet"],
+            name: "api",
+            tokenSha256: sha256(API_TOKEN),
+            roles: ["maker"],
+          },
+          {
+            name: "worker",
+            tokenSha256: sha256(WORKER_TOKEN),
+            roles: ["keeper", "faucet"],
           },
         ],
         policy: {
@@ -337,7 +346,7 @@ export async function runLocalAlpha(
       const trading = await tradingServices(pools.api, pools.rfq, {
         deploymentId: DEPLOYMENT,
         signerUrl,
-        signerToken: TOKEN,
+        signerToken: API_TOKEN,
         rpcUrl: anvil.url,
       });
       const app = buildApi({
@@ -502,7 +511,7 @@ export async function runLocalAlpha(
         config: {
           deploymentId: DEPLOYMENT,
           signerUrl,
-          signerToken: TOKEN,
+          signerToken: WORKER_TOKEN,
           rpcUrl: anvil.url,
         },
         allowTestClock: true,

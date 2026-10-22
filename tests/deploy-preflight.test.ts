@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import ts from "typescript";
@@ -192,6 +193,9 @@ function assertVariableCoverage(
   );
 }
 
+const sha256 = (token: string) =>
+  createHash("sha256").update(token).digest("hex");
+
 function baseProfile(dir: string, overrides: Record<string, string> = {}) {
   const key = path.join(dir, "maker.key");
   return {
@@ -219,7 +223,16 @@ function baseProfile(dir: string, overrides: Record<string, string> = {}) {
     SIGNER_DATABASE_URL: "postgresql://signer:fake@db.internal/blink",
     SIGNER_DEPLOYMENT_ID: "alpha-test",
     SIGNER_CALLERS: JSON.stringify([
-      { name: "api", tokenSha256: "a".repeat(64), roles: ["maker"] },
+      {
+        name: "api",
+        tokenSha256: sha256("fake-api-caller-token"),
+        roles: ["maker"],
+      },
+      {
+        name: "worker",
+        tokenSha256: sha256("fake-worker-caller-token"),
+        roles: ["keeper", "faucet"],
+      },
     ]),
     SIGNER_MAKER_KEY_FILE: key,
     ALERT_SINK: "file",
@@ -628,6 +641,21 @@ test("non-loopback webhook requires HTTPS", async () => {
   }
 });
 
+async function preflightWith(overrides: Record<string, string>) {
+  const dir = await mkdtemp(path.join(tmpdir(), "blink-preflight-case-"));
+  const key = path.join(dir, "maker.key");
+  await writeFile(key, "fake-key-material");
+  await chmod(key, 0o600);
+  const f = await fixture(baseProfile(dir, overrides));
+  try {
+    const out = run(f.envFile);
+    return { status: out.status, output: out.stdout + out.stderr };
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 test("API_TRUSTED_PROXIES is required and must name private or loopback proxies", async () => {
   for (const [value, code] of [
     [null, "PREFLIGHT_API_TRUSTED_PROXIES"],
@@ -656,5 +684,83 @@ test("API_TRUSTED_PROXIES is required and must name private or loopback proxies"
       await rm(f.dir, { recursive: true, force: true });
       await rm(dir, { recursive: true, force: true });
     }
+  }
+});
+
+test("signer callers must be split: maker-only API, keeper/faucet(/trader) worker", async () => {
+  const callers = (api: string[], worker: string[]) =>
+    JSON.stringify([
+      { name: "api", tokenSha256: sha256("fake-api-caller-token"), roles: api },
+      {
+        name: "worker",
+        tokenSha256: sha256("fake-worker-caller-token"),
+        roles: worker,
+      },
+    ]);
+  const trader = {
+    WORKER_TRADER_API_KEY: "fake-trader-key",
+    WORKER_TRADER_FORECASTER_ROLE: "FORECASTER_A",
+  };
+  for (const [name, overrides, code, variable] of [
+    [
+      "trader worker",
+      {
+        ...trader,
+        SIGNER_CALLERS: callers(["maker"], ["keeper", "faucet", "trader"]),
+      },
+      null,
+      null,
+    ],
+    [
+      "API with extra role",
+      { SIGNER_CALLERS: callers(["maker", "keeper"], ["keeper", "faucet"]) },
+      "PREFLIGHT_SIGNER_CALLERS",
+      "SIGNER_CALLER_TOKEN",
+    ],
+    [
+      "worker holds maker",
+      { SIGNER_CALLERS: callers(["maker"], ["keeper", "faucet", "maker"]) },
+      "PREFLIGHT_SIGNER_CALLERS",
+      "WORKER_SIGNER_CALLER_TOKEN",
+    ],
+    [
+      "trader key without trader role",
+      { ...trader },
+      "PREFLIGHT_SIGNER_CALLERS",
+      "WORKER_SIGNER_CALLER_TOKEN",
+    ],
+    [
+      "trader role without trader key",
+      {
+        WORKER_TRADER_API_KEY: "",
+        WORKER_TRADER_FORECASTER_ROLE: "",
+        SIGNER_CALLERS: callers(["maker"], ["keeper", "faucet", "trader"]),
+      },
+      "PREFLIGHT_SIGNER_CALLERS",
+      "WORKER_SIGNER_CALLER_TOKEN",
+    ],
+    [
+      "API token matches no caller",
+      { SIGNER_CALLER_TOKEN: "fake-unknown-token" },
+      "PREFLIGHT_SIGNER_CALLERS",
+      "SIGNER_CALLER_TOKEN",
+    ],
+    [
+      "shared token",
+      {
+        WORKER_SIGNER_CALLER_TOKEN: "fake-api-caller-token",
+        SIGNER_CALLERS: callers(["maker"], ["keeper", "faucet"]),
+      },
+      "PREFLIGHT_SIGNER_CALLERS",
+      "WORKER_SIGNER_CALLER_TOKEN",
+    ],
+  ] as const) {
+    const result = await preflightWith(overrides);
+    if (code) {
+      assert.notEqual(result.status, 0, name);
+      assertCode(result.output, `${code}: ${variable}`.replace(/: .*/, ""));
+      assert.match(result.output, new RegExp(`${code}: ${variable}\\b`), name);
+      assert.doesNotMatch(result.output, /fake-[a-z]+-(caller-)?(token|key)/);
+    } else assert.equal(result.status, 0, `${name}: ${result.output}`);
   }
 });

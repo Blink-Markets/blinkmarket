@@ -62,7 +62,7 @@ On restore, fence the old API and signer before restoring: stop the old API and 
 
 ### 5. Signer
 
-**USER ACTION — needs explicit approval:** installing or updating the signer service and mounting real role-specific key files changes provisioned infrastructure. The user executes the approved signer installation and key loading. Use the private signer URL in `SIGNER_URL`; verify the listener is reachable only from approved private app hosts. Mount role-specific key files read-only with mode `0600` and verify ownership by the signer service user. Configure only the caller tokens and roles the API and Worker need. Never copy key material into an env file, image or app host.
+**USER ACTION — needs explicit approval:** installing or updating the signer service and mounting real role-specific key files changes provisioned infrastructure. The user executes the approved signer installation and key loading. Use the private signer URL in `SIGNER_URL`; verify the listener is reachable only from approved private app hosts. Mount role-specific key files read-only with mode `0600` and verify ownership by the signer service user. Configure only the caller tokens and roles the API and Worker need: the API caller has exactly `maker`, the Worker caller has exactly `keeper` and `faucet` (plus `trader` only when `WORKER_TRADER_API_KEY` is set), and the two services use different tokens; preflight refuses anything else. Never copy key material into an env file, image or app host.
 
 Start the signer with its dedicated `blink_signer` login. Verify `/health/live` and `/health/ready` from the private network. Before allowing any signing after a restore, compare each signer role's allocated nonce with the chain and resolve any mismatch or pending transaction first.
 

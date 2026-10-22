@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { apiConfig } from "../apps/api/src/config.js";
 import {
@@ -229,6 +230,7 @@ async function main() {
     values.SIGNER_ENABLED !== "true"
   )
     fail("PREFLIGHT_SERVICE_CONFIGURATION");
+  let callers: ReturnType<typeof signerConfig>["callers"];
   try {
     apiConfig(values);
     workerConfig(values);
@@ -239,9 +241,32 @@ async function main() {
     alertEvaluateConfig(values);
     indexerConfig(values);
     chainIndexerConfig(values);
-    signerConfig(values);
+    callers = signerConfig(values).callers;
   } catch {
     fail("PREFLIGHT_SERVICE_CONFIGURATION");
+  }
+
+  // Signer caller tokens are split by service: the API may only make, the worker keeps and fills.
+  const sha256 = (token: string) =>
+    createHash("sha256").update(token).digest("hex");
+  const rolesMatch = (actual: readonly string[], expected: string[]) =>
+    actual.length === expected.length &&
+    expected.every((role) => actual.includes(role));
+  const apiToken = env.get("SIGNER_CALLER_TOKEN");
+  const workerToken = env.get("WORKER_SIGNER_CALLER_TOKEN");
+  if (env.get("SIGNER_CALLERS") && apiToken) {
+    const caller = callers!.find((c) => c.tokenSha256 === sha256(apiToken));
+    if (!caller || !rolesMatch(caller.roles, ["maker"]))
+      fail("PREFLIGHT_SIGNER_CALLERS", "SIGNER_CALLER_TOKEN");
+  }
+  if (env.get("SIGNER_CALLERS") && workerToken) {
+    if (workerToken === apiToken)
+      fail("PREFLIGHT_SIGNER_CALLERS", "WORKER_SIGNER_CALLER_TOKEN");
+    const caller = callers!.find((c) => c.tokenSha256 === sha256(workerToken));
+    const expected = ["keeper", "faucet"];
+    if (env.get("WORKER_TRADER_API_KEY")?.trim()) expected.push("trader");
+    if (!caller || !rolesMatch(caller.roles, expected))
+      fail("PREFLIGHT_SIGNER_CALLERS", "WORKER_SIGNER_CALLER_TOKEN");
   }
   console.log(
     "DEPLOY PREFLIGHT ok: Base Sepolia profile, environment rules passed (offline)",
