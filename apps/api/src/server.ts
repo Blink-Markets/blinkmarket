@@ -78,6 +78,7 @@ export function buildApi(
       refillPerSecond: number;
       now?: () => number;
     };
+    trustedProxies?: readonly string[];
   } = {},
 ) {
   if ((options.preparation || options.approval) && !options.identity)
@@ -107,10 +108,15 @@ export function buildApi(
         : options.identity
           ? "m2-identity"
           : "architecture");
-  const app = createService("api", stage, async () => {
-    await options.assertReady?.();
-    return (await options.health?.read())?.status === "ready";
-  });
+  const app = createService(
+    "api",
+    stage,
+    async () => {
+      await options.assertReady?.();
+      return (await options.health?.read())?.status === "ready";
+    },
+    { trustProxy: options.trustedProxies ?? [] },
+  );
   // Reads of public data are unauthenticated; bound them per client IP (HEAD runs the same handlers).
   const publicReads = options.publicReadLimit
     ? createTokenBucket(options.publicReadLimit)

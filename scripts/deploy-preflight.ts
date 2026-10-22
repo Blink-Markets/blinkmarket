@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { apiConfig } from "../apps/api/src/config.js";
 import {
@@ -62,6 +63,22 @@ function isPrivateHost(hostname: string): boolean {
     );
   }
   return isIP(host) === 6 && /^(fc|fd)/i.test(host);
+}
+
+/** The prefix length of the loopback or private block holding an IP address, or null. */
+function privateBlockPrefix(address: string): number | null {
+  if (isIP(address) === 4) {
+    const [a, b] = address.split(".").map(Number);
+    if (a === 127 || a === 10) return 8;
+    if (a === 172 && b! >= 16 && b! <= 31) return 12;
+    if (a === 192 && b === 168) return 16;
+    return null;
+  }
+  if (isIP(address) === 6) {
+    if (address === "::1") return 128;
+    if (/^f[cd]/i.test(address)) return 7;
+  }
+  return null;
 }
 
 function secretLooking(value: string): boolean {
@@ -180,9 +197,11 @@ async function main() {
     if (
       parsed!.username ||
       parsed!.password ||
-      !(parsed!.protocol === "https:" ||
+      !(
+        parsed!.protocol === "https:" ||
         (parsed!.protocol === "http:" &&
-          isClientHttpLoopbackHost(parsed!.hostname)))
+          isClientHttpLoopbackHost(parsed!.hostname))
+      )
     )
       fail("PREFLIGHT_WORKER_API_URL", "WORKER_API_URL");
   }
@@ -211,6 +230,17 @@ async function main() {
   if (sink !== "file" && sink !== "webhook")
     fail("PREFLIGHT_ALERT_SINK", "ALERT_SINK");
 
+  // The API sits behind a private TLS proxy; only that proxy may supply X-Forwarded-For.
+  const proxies = env.get("API_TRUSTED_PROXIES")?.trim();
+  if (!proxies) fail("PREFLIGHT_API_TRUSTED_PROXIES", "API_TRUSTED_PROXIES");
+  for (const entry of proxies!.split(",")) {
+    // A range must lie wholly inside one loopback or private block: 10.0.0.0/1 is not private.
+    const [address, prefix] = entry.trim().split("/");
+    const floor = privateBlockPrefix(address!);
+    if (floor === null || (prefix !== undefined && Number(prefix) < floor))
+      fail("PREFLIGHT_API_TRUSTED_PROXIES", "API_TRUSTED_PROXIES");
+  }
+
   // Reuse the production parsers; they are pure config checks and perform no I/O.
   const values = Object.fromEntries(env) as NodeJS.ProcessEnv;
   if (
@@ -220,6 +250,7 @@ async function main() {
     values.SIGNER_ENABLED !== "true"
   )
     fail("PREFLIGHT_SERVICE_CONFIGURATION");
+  let callers: ReturnType<typeof signerConfig>["callers"];
   try {
     apiConfig(values);
     workerConfig(values);
@@ -230,9 +261,32 @@ async function main() {
     alertEvaluateConfig(values);
     indexerConfig(values);
     chainIndexerConfig(values);
-    signerConfig(values);
+    callers = signerConfig(values).callers;
   } catch {
     fail("PREFLIGHT_SERVICE_CONFIGURATION");
+  }
+
+  // Signer caller tokens are split by service: the API may only make, the worker keeps and fills.
+  const sha256 = (token: string) =>
+    createHash("sha256").update(token).digest("hex");
+  const rolesMatch = (actual: readonly string[], expected: string[]) =>
+    actual.length === expected.length &&
+    expected.every((role) => actual.includes(role));
+  const apiToken = env.get("SIGNER_CALLER_TOKEN");
+  const workerToken = env.get("WORKER_SIGNER_CALLER_TOKEN");
+  if (env.get("SIGNER_CALLERS") && apiToken) {
+    const caller = callers!.find((c) => c.tokenSha256 === sha256(apiToken));
+    if (!caller || !rolesMatch(caller.roles, ["maker"]))
+      fail("PREFLIGHT_SIGNER_CALLERS", "SIGNER_CALLER_TOKEN");
+  }
+  if (env.get("SIGNER_CALLERS") && workerToken) {
+    if (workerToken === apiToken)
+      fail("PREFLIGHT_SIGNER_CALLERS", "WORKER_SIGNER_CALLER_TOKEN");
+    const caller = callers!.find((c) => c.tokenSha256 === sha256(workerToken));
+    const expected = ["keeper", "faucet"];
+    if (env.get("WORKER_TRADER_API_KEY")?.trim()) expected.push("trader");
+    if (!caller || !rolesMatch(caller.roles, expected))
+      fail("PREFLIGHT_SIGNER_CALLERS", "WORKER_SIGNER_CALLER_TOKEN");
   }
   console.log(
     "DEPLOY PREFLIGHT ok: Base Sepolia profile, environment rules passed (offline)",

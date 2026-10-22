@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { apiConfig } from "../apps/api/src/config.js";
+import { apiConfig, parseTrustedProxies } from "../apps/api/src/config.js";
 
 const identity = {
   API_DATABASE_URL: "postgresql://blink_api@127.0.0.1/blink",
@@ -101,4 +101,36 @@ test("trading mode additionally needs the signer and the RPC", () => {
       /TRADING_CONFIGURATION_REQUIRED/,
       name,
     );
+});
+
+test("trusted proxies parse to exact addresses or CIDRs and refuse anything broad or malformed", () => {
+  assert.deepEqual(parseTrustedProxies(undefined), []);
+  assert.deepEqual(parseTrustedProxies(""), []);
+  assert.deepEqual(parseTrustedProxies(" 127.0.0.1, ::1,10.0.0.0/8 "), [
+    "127.0.0.1",
+    "::1",
+    "10.0.0.0/8",
+  ]);
+  for (const raw of [
+    "true",
+    "*",
+    "0.0.0.0/0",
+    "::/0",
+    "10.0.0.0/33",
+    "fe80::/129",
+    "proxy.internal",
+    "127.0.0.1,,::1",
+  ])
+    assert.throws(
+      () => parseTrustedProxies(raw),
+      /INVALID_API_TRUSTED_PROXIES/,
+    );
+});
+
+test("apiConfig exposes the trusted proxies", () => {
+  assert.deepEqual(apiConfig({}).trustedProxies, []);
+  assert.deepEqual(
+    apiConfig({ API_TRUSTED_PROXIES: "127.0.0.1" }).trustedProxies,
+    ["127.0.0.1"],
+  );
 });

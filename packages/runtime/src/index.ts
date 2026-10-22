@@ -6,8 +6,11 @@ export function createService(
   // Services that have connected their business adapters report real readiness here
   // (synchronously or not); the default stays not-ready.
   ready: () => boolean | Promise<boolean> = () => false,
+  // Addresses whose X-Forwarded-For is believed; an empty list trusts no header.
+  options: { trustProxy?: readonly string[] } = {},
 ) {
   const app = Fastify({
+    trustProxy: options.trustProxy?.length ? [...options.trustProxy] : false,
     bodyLimit: 65536,
     logger: { redact: ["req.headers.authorization", "req.headers.cookie"] },
   });
