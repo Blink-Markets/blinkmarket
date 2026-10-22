@@ -330,6 +330,25 @@ test(
         2,
         "a dead dispatch job recovers the same intent",
       );
+      assert.deepEqual(
+        (
+          await t.pool.query(
+            "SELECT max_attempts FROM operations.jobs WHERE type='tx.dispatch' AND payload->>'intentId'=$1 AND state='QUEUED'",
+            [intentId],
+          )
+        ).rows.map((r) => Number(r.max_attempts)),
+        [20],
+        "the recovered dispatch job gets the finality-lag attempt budget",
+      );
+      assert.deepEqual(
+        (
+          await t.pool.query(
+            "SELECT DISTINCT max_attempts FROM operations.jobs WHERE type='faucet.mint'",
+          )
+        ).rows.map((r) => Number(r.max_attempts)),
+        [10],
+        "faucet.mint keeps its own budget",
+      );
 
       await postgresFaucetStore(t.pool).settle(intentId, {
         state: "FAILED",

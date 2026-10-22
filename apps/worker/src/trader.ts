@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import { createPublicClient, http, type Hex } from "viem";
-import type { JobType } from "@blink/domain";
+import { TX_DISPATCH_MAX_ATTEMPTS, type JobType } from "@blink/domain";
 import type { JobHandler, JobQueue, TraderQuoteApi } from "@blink/ports";
 import {
   assertProductionClock,
@@ -132,7 +132,7 @@ export async function buildTrader(deps: {
         type: "tx.dispatch",
         dedupeKey: "tx.dispatch:" + intentId,
         payload: { intentId },
-        maxAttempts: 10,
+        maxAttempts: TX_DISPATCH_MAX_ATTEMPTS,
       });
     },
     // A run that ran out of time leaves its pending buys to a run at most one bucket later.

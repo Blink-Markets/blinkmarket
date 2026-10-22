@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import {
   SIGNING_POLICY_VERSION,
   canonicalJson,
+  TX_DISPATCH_MAX_ATTEMPTS,
   type FaucetStore,
 } from "@blink/ports";
 import { keccak256, stringToHex } from "viem";
@@ -133,7 +134,7 @@ export function postgresFaucetStore(pool: Pool): FaucetStore {
             type: "tx.dispatch",
             dedupeKey: "tx.dispatch:" + intentId,
             payload: { intentId },
-            maxAttempts: 10,
+            maxAttempts: TX_DISPATCH_MAX_ATTEMPTS,
           });
         await db.query(
           "UPDATE faucet.claims SET state=$2,updated_at=blink.now() WHERE id=$1",

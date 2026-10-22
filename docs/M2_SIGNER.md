@@ -76,7 +76,7 @@ The signer locks `sender_guards(84532, sender)`, reads `eth_getTransactionCount(
 
 Gas follows canonical receipts through idempotent deltas. Each attempt records what it currently holds in `gas_spend.reserved_wei` (`gas_reserved_wei`) and has charged to `spent_wei` (`gas_spent_wei`); every state change moves the ledger by the difference. A pending version (`SIGNED`, `SUBMITTED`, `UNKNOWN`, `REORGED`) holds its maximum cost; a version with a canonical receipt holds nothing and is charged its actual cost (gas used times effective price plus the L1 fee); a `REPLACED` version holds and is charged nothing. So orphaning an inclusion reverses its spend and restores its reservation, re-inclusion charges the new actual amount, and a replaced sibling that wins after a reorg is charged. The ledger day is the UTC day of the plan.
 
-The handler returns only for `FINALIZED` and `REVERTED`; every other result throws `TxDispatchError("TX_PENDING", true)` so the job runtime re-enqueues it, which also keeps watching an `INCLUDED` transaction for a reorg until the provider reports finality.
+The handler returns only for `FINALIZED` and `REVERTED`; every other result throws `TxDispatchError("TX_PENDING", true)` so the job runtime re-enqueues it, which also keeps watching an `INCLUDED` transaction for a reorg until the provider reports finality. `tx.dispatch` jobs get 20 attempts (about 70 minutes of backoff, `TX_DISPATCH_MAX_ATTEMPTS`) because Base Sepolia's finalized head trailed by 14-33 minutes on 2026-10-21; a job that still dies alerts, and the worker's recovery sweep re-enqueues it with the same 20-attempt budget.
 
 ## Differences from the brief
 
