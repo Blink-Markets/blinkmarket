@@ -662,8 +662,13 @@ test("API_TRUSTED_PROXIES is required and must name private or loopback proxies"
     ["", "PREFLIGHT_API_TRUSTED_PROXIES"],
     ["203.0.113.9", "PREFLIGHT_API_TRUSTED_PROXIES"],
     ["127.0.0.1,203.0.113.9", "PREFLIGHT_API_TRUSTED_PROXIES"],
+    ["127.0.0.1/1", "PREFLIGHT_API_TRUSTED_PROXIES"],
+    ["10.0.0.0/7", "PREFLIGHT_API_TRUSTED_PROXIES"],
+    ["192.168.0.0/15", "PREFLIGHT_API_TRUSTED_PROXIES"],
+    ["::1/127", "PREFLIGHT_API_TRUSTED_PROXIES"],
     ["127.0.0.1,::1", null],
     ["10.0.0.0/8", null],
+    ["172.16.0.0/12", null],
   ] as const) {
     const dir = await mkdtemp(path.join(tmpdir(), "blink-proxies-"));
     const key = path.join(dir, "maker.key");

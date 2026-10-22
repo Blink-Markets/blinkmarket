@@ -65,6 +65,22 @@ function isPrivateHost(hostname: string): boolean {
   return isIP(host) === 6 && /^(fc|fd)/i.test(host);
 }
 
+/** The prefix length of the loopback or private block holding an IP address, or null. */
+function privateBlockPrefix(address: string): number | null {
+  if (isIP(address) === 4) {
+    const [a, b] = address.split(".").map(Number);
+    if (a === 127 || a === 10) return 8;
+    if (a === 172 && b! >= 16 && b! <= 31) return 12;
+    if (a === 192 && b === 168) return 16;
+    return null;
+  }
+  if (isIP(address) === 6) {
+    if (address === "::1") return 128;
+    if (/^f[cd]/i.test(address)) return 7;
+  }
+  return null;
+}
+
 function secretLooking(value: string): boolean {
   const privateKey = /(?:0x)?[0-9a-f]{64}\b/i.test(value);
   const mnemonic =
@@ -217,9 +233,13 @@ async function main() {
   // The API sits behind a private TLS proxy; only that proxy may supply X-Forwarded-For.
   const proxies = env.get("API_TRUSTED_PROXIES")?.trim();
   if (!proxies) fail("PREFLIGHT_API_TRUSTED_PROXIES", "API_TRUSTED_PROXIES");
-  for (const entry of proxies!.split(","))
-    if (!isPrivateHost(entry.trim().split("/")[0]!))
+  for (const entry of proxies!.split(",")) {
+    // A range must lie wholly inside one loopback or private block: 10.0.0.0/1 is not private.
+    const [address, prefix] = entry.trim().split("/");
+    const floor = privateBlockPrefix(address!);
+    if (floor === null || (prefix !== undefined && Number(prefix) < floor))
       fail("PREFLIGHT_API_TRUSTED_PROXIES", "API_TRUSTED_PROXIES");
+  }
 
   // Reuse the production parsers; they are pure config checks and perform no I/O.
   const values = Object.fromEntries(env) as NodeJS.ProcessEnv;
