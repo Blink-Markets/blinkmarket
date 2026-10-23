@@ -43,7 +43,6 @@ contract JurorsTest is ProtocolBase {
     address internal alice = actor("alice");
     address internal bob = actor("bob");
     address internal carol = actor("carol");
-    address internal treasury = actor("treasury");
     uint256 private constant STREAM = 7 days;
     uint256 private constant R = 604_800_000; // 604.8 bUSD: exactly 1000 micros per second over STREAM
 
