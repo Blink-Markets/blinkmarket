@@ -53,3 +53,34 @@ Solidity tests, and `pnpm check:contracts` passed; BlinkMarkets runtime is 9,693
 bytes. The alerts TypeScript suite is skipped per the controller's fix instructions;
 the controller verifies `pnpm check` on main. This worktree does not claim that
 repository-wide check passed.
+
+## P1 Task 7: dispute arbitration slice
+
+`protocol/BlinkResolution.sol` adds snapshot-weighted commit/reveal arbitration,
+permissionless per-vote settlement, same-level restarts and bounded appeals for both
+creation and result disputes. No function enumerates jurors. Bond loops have at most
+five entries: two initial parties and three appeals (`maxRounds <= 4`).
+
+`getDispute(disputeId)` returns the dispute and its current round aggregates. Use
+`currentRound` in commitments and `settleVote(disputeId, round, juror)`; this attempt
+number increases on restarts and appeals. `appealRound` selects the quorum and credit
+parameters and increases only on appeal. Snapshots use round start minus one second.
+A tied, inquorate or INVALID-leading result round restarts; only the hard deadline
+permits final INVALID.
+
+After `settleRound`, anyone can settle losers. Settle all losers at an appeal level,
+including non-revealers from restarted attempts, before claiming coherent jurors'
+token rewards. Coherent claims wait until that round is appealed or the dispute is
+finalized. Each vote unlocks exactly once. Only the final round earns JUROR credit:
+a loser settled early needs another `settleVote` after `finalizeDispute` for credit.
+After timeout, remaining votes only unlock. bUSD cuts transfer to jurors before
+`notifyReward` and follow its existing seven-day stream.
+
+The focused command is
+`node scripts/foundry.mjs forge test --root contracts --match-path 'test/protocol/Resolution*.t.sol'`.
+All 51 focused tests, all 172 Solidity tests (`pnpm test:contracts`) and
+`pnpm check:contracts` pass. This remains a partial P1 delivery:
+Task 5's position getter is represented by a test-local markets subclass; real
+registry, jurors, creation and resolution hooks are exercised. Task 8 still supplies
+RESULT bounty payout, redemption and FINAL creator accounting. Full TypeScript
+verification remains the controller's gate on main. No deployment was performed.
