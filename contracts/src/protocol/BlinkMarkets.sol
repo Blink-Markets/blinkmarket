@@ -59,7 +59,7 @@ contract BlinkMarkets is ReentrancyGuard {
     struct Template {
         QuestionClass cls;
         bool exists;
-        bool used;
+        bool reviewed;
     }
 
     uint256 public constant UNIT = 1_000_000;
@@ -107,11 +107,13 @@ contract BlinkMarkets is ReentrancyGuard {
         Template storage t = templates[a.templateId];
         if (!t.exists) revert TemplateNotFound();
         if (a.specHash == bytes32(0) || bytes(a.specURI).length == 0) revert InvalidSpec();
-        if (usedSpecHashes[a.specHash]) revert DuplicateSpec();
+        bytes32 specKey = keccak256(abi.encode(msg.sender, a.specHash));
+        if (usedSpecHashes[specKey]) revert DuplicateSpec();
         Params memory p = registry.params();
         if (a.replay && !p.replayAllowed) revert ReplayNotAllowed();
+        uint64 openAt = uint64(block.timestamp) + p.creationWindow[uint256(t.cls)] + (t.reviewed ? 0 : p.firstUseExtraWindow);
         if (
-            !(block.timestamp < a.closeAt && a.closeAt < a.proposalDeadline && a.proposalDeadline < a.hardDeadline)
+            !(openAt < a.closeAt && a.closeAt < a.proposalDeadline && a.proposalDeadline < a.hardDeadline)
                 || a.hardDeadline - a.proposalDeadline <= p.resultChallengeWindow[uint256(t.cls)]
         ) revert InvalidSchedule();
         if (a.maxPairs == 0 || a.maxPairs > p.maxMarketPairs) revert InvalidCap();
@@ -127,10 +129,8 @@ contract BlinkMarkets is ReentrancyGuard {
             revert SecurityBoundExceeded();
         }
         uint256 bond = registry.bondFor(msg.sender, Role.CREATOR, payout * p.creationBondBps / 10_000);
-        uint64 openAt = uint64(block.timestamp) + p.creationWindow[uint256(t.cls)] + (t.used ? 0 : p.firstUseExtraWindow);
-        t.used = true;
         id = nextMarketId++;
-        usedSpecHashes[a.specHash] = true;
+        usedSpecHashes[specKey] = true;
         IBlinkMarkets.Market storage m = markets[id];
         m.creator = msg.sender;
         m.cls = t.cls;
@@ -176,6 +176,7 @@ contract BlinkMarkets is ReentrancyGuard {
         if (m.creationChallenged) revert CreationChallengePending();
         if (block.timestamp < m.openAt) revert CreationWindowActive();
         m.state = MarketState.OPEN;
+        templates[m.templateId].reviewed = true;
         emit MarketOpened(id, m.openAt);
     }
 
@@ -209,6 +210,7 @@ contract BlinkMarkets is ReentrancyGuard {
             }
         } else {
             m.state = MarketState.OPEN;
+            templates[m.templateId].reviewed = true;
             if (block.timestamp > m.openAt) m.openAt = uint64(block.timestamp);
             emit MarketOpened(id, m.openAt);
         }

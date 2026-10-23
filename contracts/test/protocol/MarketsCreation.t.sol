@@ -130,7 +130,7 @@ contract MarketsCreationTest is ProtocolBase {
         eq(markets.nextMarketId(), 1);
         eq(markets.openPayoutTotal(), 0);
         eq(markets.openPayoutByCreator(creator), 0);
-        require(!markets.usedSpecHashes(a.specHash), "spec consumed on revert");
+        require(!markets.usedSpecHashes(keccak256(abi.encode(creator, a.specHash))), "spec consumed on revert");
         vm.prank(creator);
         registry.requestRoleExit(Role.CREATOR);
         vm.warp(token.clock() + p.roleExitCooldown);
@@ -177,11 +177,40 @@ contract MarketsCreationTest is ProtocolBase {
     }
 
     function test_firstTemplateUseHasLongerWindow() public {
+        uint256 createdAt = token.clock();
         uint256 first = _create(1000);
-        // Re-registering cannot reset first-use state.
+        eq(markets.getMarket(first).openAt, createdAt + p.creationWindow[0] + p.firstUseExtraWindow);
+        _open(first);
+        // Re-registering cannot reset the completed template review.
         markets.registerTemplate(QuestionClass.A_COMPUTABLE, keccak256("parser"), "fixture://template");
         uint256 second = _create(1000);
-        eq(markets.getMarket(first).openAt - markets.getMarket(second).openAt, p.firstUseExtraWindow);
+        eq(markets.getMarket(second).openAt, token.clock() + p.creationWindow[0]);
+    }
+
+    function test_smallFirstAndLargeSecondBothGetExtraWindow() public {
+        uint256 first = _create(1);
+        uint256 second = _create(1000);
+        uint256 expected = token.clock() + p.creationWindow[0] + p.firstUseExtraWindow;
+        eq(markets.getMarket(first).openAt, expected);
+        eq(markets.getMarket(second).openAt, expected);
+    }
+
+    function test_cancelledFirstUseDoesNotReviewTemplate() public {
+        uint256 first = _create(1);
+        _challenge(first);
+        vm.prank(generation.resolution);
+        markets.resolveCreation(first, true, challenger);
+        uint256 second = _create(1000);
+        eq(markets.getMarket(second).openAt, token.clock() + p.creationWindow[0] + p.firstUseExtraWindow);
+    }
+
+    function test_rejectedCreationChallengeReviewsTemplate() public {
+        uint256 first = _create(1);
+        _challenge(first);
+        vm.prank(generation.resolution);
+        markets.resolveCreation(first, false, challenger);
+        uint256 second = _create(1000);
+        eq(markets.getMarket(second).openAt, token.clock() + p.creationWindow[0]);
     }
 
     function test_classCNeedsCreditAfterPhaseIn() public {
@@ -386,6 +415,50 @@ contract MarketsCreationTest is ProtocolBase {
         vm.expectRevert(BlinkMarkets.TemplateNotFound.selector);
         vm.prank(creator);
         markets.createMarket(a);
+    }
+
+    function test_otherCreatorCannotFrontRunSpecHash() public {
+        address other = fundedActor("front-runner");
+        _register(other);
+        vm.prank(other);
+        registry.joinRole(Role.CREATOR, 100e6);
+        approveBusdAs(other, address(markets));
+        IBlinkMarkets.CreateArgs memory a = _args(1);
+        vm.prank(other);
+        uint256 hostile = markets.createMarket(a);
+        a.maxPairs = 1000;
+        vm.prank(creator);
+        uint256 intended = markets.createMarket(a);
+        eq(markets.maxPayout(intended), 1000e6);
+        require(markets.usedSpecHashes(keccak256(abi.encode(other, a.specHash))), "other creator spec missing");
+        require(markets.usedSpecHashes(keccak256(abi.encode(creator, a.specHash))), "creator spec missing");
+        _challenge(hostile);
+        vm.prank(generation.resolution);
+        markets.resolveCreation(hostile, true, challenger);
+        _expectCreateError(a, BlinkMarkets.DuplicateSpec.selector);
+        vm.expectRevert(BlinkMarkets.DuplicateSpec.selector);
+        vm.prank(other);
+        markets.createMarket(a);
+    }
+
+    function test_closeAtEqualToOpenAtRejected() public {
+        IBlinkMarkets.CreateArgs memory a = _args(1000);
+        a.closeAt = uint64(token.clock()) + p.creationWindow[0] + p.firstUseExtraWindow;
+        _expectCreateError(a, BlinkMarkets.InvalidSchedule.selector);
+    }
+
+    function test_closeAtBeforeOpenAtRejected() public {
+        IBlinkMarkets.CreateArgs memory a = _args(1000);
+        a.closeAt = uint64(token.clock()) + p.creationWindow[0] + p.firstUseExtraWindow - 1;
+        _expectCreateError(a, BlinkMarkets.InvalidSchedule.selector);
+    }
+
+    function test_closeAtOneSecondAfterOpenAtAccepted() public {
+        IBlinkMarkets.CreateArgs memory a = _args(1000);
+        a.closeAt = uint64(token.clock()) + p.creationWindow[0] + p.firstUseExtraWindow + 1;
+        vm.prank(creator);
+        uint256 id = markets.createMarket(a);
+        eq(markets.getMarket(id).openAt + 1, markets.getMarket(id).closeAt);
     }
 
     function test_invalidSpecScheduleAndCapsRejected() public {

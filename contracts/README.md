@@ -31,6 +31,11 @@ creator bonds and exposure limits, the global juror security bound, creator role
 and resolution-only creation/result state hooks. `IBlinkMarkets.Market` keeps its URI in
 the separate `specURI(id)` getter; `MarketCreated` includes the URI.
 
+Spec uniqueness is per creator, keyed by `keccak256(abi.encode(creator, specHash))`
+in `usedSpecHashes`. Every market on an unreviewed template gets the extra review
+window until one market reaches OPEN through `open` or a rejected creation challenge.
+Cancellation does not review the template. Creation requires `openAt < closeAt`.
+
 Creation tests use the real registry and jurors, predicted resolution caller, and a
 test-only finalized-count stub. Run them with
 `node scripts/foundry.mjs forge test --root contracts --match-path test/protocol/MarketsCreation.t.sol`.
@@ -43,9 +48,8 @@ finalized counter. Until Task 8, `finalizedCount()` returns zero and FINAL hooks
 record state/outcome. An early rejected creation challenge sets OPEN with the original
 future `openAt`; trading must enforce that timestamp. No deployment was performed.
 
-Task 4 verification: 23 focused tests (including 256 cancellation fuzz cases), all
-114 Solidity tests, `pnpm check:contracts` (9,623-byte BlinkMarkets runtime), type
-checking and package boundaries passed. The broader TypeScript test run reported
-an alerts test-file failure, which reproduced in isolation; a limited-concurrency
-retry stalled and was interrupted. The isolated v0.1 ABI compatibility check passed; the full
-`pnpm check` result remains unverified because of that broader test limitation.
+Fix round 1: 30 focused tests (including 256 cancellation fuzz cases), all 121
+Solidity tests, and `pnpm check:contracts` passed; BlinkMarkets runtime is 9,693
+bytes. The alerts TypeScript suite is skipped per the controller's fix instructions;
+the controller verifies `pnpm check` on main. This worktree does not claim that
+repository-wide check passed.
