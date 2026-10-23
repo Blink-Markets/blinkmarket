@@ -15,7 +15,7 @@
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "check:contracts": "node scripts/check-contracts.mjs",
     "test:contracts": "node scripts/foundry.mjs forge test --root contracts",
-    "test:contracts:seeds": "node scripts/foundry.mjs forge test --root contracts --match-contract LedgerInvariantTest --fuzz-seed 0x01 && node scripts/foundry.mjs forge test --root contracts --match-contract LedgerInvariantTest --fuzz-seed 0x02",
+    "test:contracts:seeds": "node scripts/foundry.mjs forge test --root contracts --match-contract LedgerInvariantTest --fuzz-seed 0x01 && node scripts/foundry.mjs forge test --root contracts --match-contract LedgerInvariantTest --fuzz-seed 0x02 && node scripts/foundry.mjs forge test --root contracts --match-contract ProtocolInvariantTest --fuzz-seed 0x01 && node scripts/foundry.mjs forge test --root contracts --match-contract ProtocolInvariantTest --fuzz-seed 0x02",
     "replay": "node scripts/check-contracts.mjs && node --import tsx scripts/local-replay.ts",
     "db:migrate": "node --import tsx scripts/migrate.ts",
     "identity:admin": "node --import tsx scripts/identity-admin.ts",

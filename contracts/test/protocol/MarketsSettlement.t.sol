@@ -32,7 +32,9 @@ contract MarketsSettlementTest is ProtocolBase {
 
     function setUp() public override { _setUp(100); }
 
-    function _setUp(uint16 feeBps) private {
+    function _setUp(uint16 feeBps) private { _setUp(feeBps, 1e6, 50); }
+
+    function _setUp(uint16 feeBps, uint256 creditUnit, uint32 creditCap) private {
         super.setUp();
         p = defaultParams();
         p.feeBps = feeBps;
@@ -42,7 +44,8 @@ contract MarketsSettlementTest is ProtocolBase {
         p.jurorShareBps = 1500;
         p.bountyShareBps = 500;
         p.keeperTipBps = 1000;
-        p.creditUnitMicros = 1e6;
+        p.creditUnitMicros = creditUnit;
+        p.creditGainCap = creditCap;
         BlinkMarkets deployed;
         (registry, jurors, deployed, resolution) = deployGeneration(p, address(0));
         markets = IBlinkMarkets(address(deployed));
@@ -308,6 +311,7 @@ contract MarketsSettlementTest is ProtocolBase {
     }
 
     function test_washTradingEarnsNoCredit() public {
+        _setUp(100, 10e6, 1000);
         uint256 empty = _create(100);
         for (uint256 i; i < 100; ++i) _fill(taker, uint8(i % 2), 1, 5000);
         _unchallenged(Outcome.YES);
@@ -316,7 +320,7 @@ contract MarketsSettlementTest is ProtocolBase {
         markets.open(id);
         _unchallenged(Outcome.YES);
         eq(registry.creditOf(creator, Role.CREATOR) - tradedCredit, tradedCredit);
-        eq(tradedCredit, p.creditGainCap);
+        eq(tradedCredit, 10); // 100 bUSD cap / 10 bUSD per point; no volume term or cap saturation.
         eq(registry.creditOf(maker, Role.MAKER), 0);
         eq(registry.creditOf(taker, Role.TAKER), 0);
     }
