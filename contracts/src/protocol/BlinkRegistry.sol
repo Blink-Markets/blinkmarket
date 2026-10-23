@@ -28,6 +28,8 @@ contract BlinkRegistry is IBlinkRegistry, ReentrancyGuard {
     error UnauthorizedReporter();
     error NothingToImport();
     error AlreadyImported();
+    error NoObligation();
+    error OpenObligations();
 
     event Registered(address indexed account, uint256 feePaid);
     event RoleJoined(address indexed account, Role indexed role, uint256 amount);
@@ -39,6 +41,8 @@ contract BlinkRegistry is IBlinkRegistry, ReentrancyGuard {
     event CreditLost(address indexed account, Role indexed role, uint256 amount, uint256 credit);
     event CreditImported(address indexed account, Role indexed role, uint256 amount, uint256 credit);
     event Imported(address indexed account);
+    event RoleLocked(address indexed account, Role indexed role, uint256 openObligations);
+    event RoleUnlocked(address indexed account, Role indexed role, uint256 openObligations);
 
     enum RoleStatus { NONE, ACTIVE, EXITING }
 
@@ -46,6 +50,7 @@ contract BlinkRegistry is IBlinkRegistry, ReentrancyGuard {
         uint256 stake;
         uint64 withdrawableAt; // set while EXITING
         RoleStatus status;
+        uint256 openObligations; // reporter-held locks; withdrawRole waits for zero
     }
 
     struct Credit {
@@ -82,7 +87,8 @@ contract BlinkRegistry is IBlinkRegistry, ReentrancyGuard {
         if (a.registry != address(this)) revert WrongAddress();
         if (
             a.jurors == address(0) || a.markets == address(0) || a.resolution == address(0)
-                || a.collateral == address(0) || a.treasury == address(0)
+                || a.collateral == address(0) || a.treasury == address(0) || a.token == address(0)
+                || a.priceSource == address(0)
         ) revert InvalidAddress();
         if (a.previousRegistry != address(0) && a.previousRegistry.code.length == 0) revert InvalidAddress();
         _validate(p);
@@ -100,8 +106,12 @@ contract BlinkRegistry is IBlinkRegistry, ReentrancyGuard {
     function _validate(Params memory p) private pure {
         uint256 shares =
             uint256(p.treasuryShareBps) + p.creatorShareBps + p.resolutionShareBps + p.jurorShareBps + p.bountyShareBps;
-        if (shares != BPS || p.maxRounds > 4 || p.creditHalfLife == 0 || p.creditUnitMicros == 0) revert InvalidParams();
+        if (shares != BPS || p.maxRounds == 0 || p.maxRounds > 4) revert InvalidParams();
+        if (p.creditHalfLife == 0 || p.creditUnitMicros == 0) revert InvalidParams();
         if (p.maxCreditMultiplierBps < BPS) revert InvalidParams(); // the multiplier starts at 10000
+        if (
+            p.creationBondBps == 0 || p.proposerBondBps == 0 || p.challengeBondBps == 0 || p.securityMultipleBps == 0
+        ) revert InvalidParams();
         if (
             p.feeBps > BPS || p.keeperTipBps > BPS || p.jurorBondCutBps > BPS || p.maxCreditDiscountBps > BPS
                 || p.importDiscountBps > BPS || p.nonRevealSlashBps > BPS || p.incoherentSlashBps > BPS
@@ -109,6 +119,9 @@ contract BlinkRegistry is IBlinkRegistry, ReentrancyGuard {
         ) revert InvalidParams();
         for (uint256 i; i < 4; ++i) {
             if (p.quorumBps[i] > BPS) revert InvalidParams();
+        }
+        for (uint256 i; i < 3; ++i) {
+            if (p.minResultChallengeWindow[i] > p.resultChallengeWindow[i]) revert InvalidParams();
         }
     }
 
@@ -165,6 +178,7 @@ contract BlinkRegistry is IBlinkRegistry, ReentrancyGuard {
         RoleAccount storage r = _roles[msg.sender][role];
         if (r.status != RoleStatus.EXITING) revert NotExiting();
         if (block.timestamp < r.withdrawableAt) revert CooldownActive();
+        if (r.openObligations != 0) revert OpenObligations();
         uint256 amount = r.stake;
         delete _roles[msg.sender][role];
         collateral.safeTransfer(msg.sender, amount);
@@ -173,7 +187,8 @@ contract BlinkRegistry is IBlinkRegistry, ReentrancyGuard {
 
     function hasRole(address account, Role role) external view returns (bool) {
         if (role == Role.JUROR) return _registered[account]; // juror stake is the token, registration is enough
-        return _roles[account][role].status == RoleStatus.ACTIVE;
+        RoleAccount storage r = _roles[account][role];
+        return r.status == RoleStatus.ACTIVE && r.stake >= _params.minRoleStake; // a slashed role waits for a top-up
     }
 
     function roleStake(address account, Role role) external view returns (uint256) {
@@ -237,6 +252,18 @@ contract BlinkRegistry is IBlinkRegistry, ReentrancyGuard {
         r.stake -= slashed;
         collateral.safeTransfer(treasury, slashed);
         emit RoleSlashed(account, role, slashed);
+    }
+
+    function lockRole(address account, Role role) external onlyReporter {
+        uint256 open = ++_roles[account][role].openObligations;
+        emit RoleLocked(account, role, open);
+    }
+
+    function unlockRole(address account, Role role) external onlyReporter {
+        RoleAccount storage r = _roles[account][role];
+        if (r.openObligations == 0) revert NoObligation();
+        uint256 open = --r.openObligations;
+        emit RoleUnlocked(account, role, open);
     }
 
     function _creditUnits(uint256 maxPayout) private view returns (uint256) {

@@ -25,6 +25,14 @@ contract StubReporter {
     function slash(IBlinkRegistry r, address who, Role role) external returns (uint256) {
         return r.slashRole(who, role);
     }
+
+    function lock(IBlinkRegistry r, address who, Role role) external {
+        r.lockRole(who, role);
+    }
+
+    function unlock(IBlinkRegistry r, address who, Role role) external {
+        r.unlockRole(who, role);
+    }
 }
 
 contract RegistryTest is ProtocolBase {
@@ -105,6 +113,16 @@ contract RegistryTest is ProtocolBase {
         new BlinkRegistry(p, a);
 
         a = predictGeneration(address(this), address(0));
+        a.token = address(0);
+        vm.expectRevert(BlinkRegistry.InvalidAddress.selector);
+        new BlinkRegistry(p, a);
+
+        a = predictGeneration(address(this), address(0));
+        a.priceSource = address(0);
+        vm.expectRevert(BlinkRegistry.InvalidAddress.selector);
+        new BlinkRegistry(p, a);
+
+        a = predictGeneration(address(this), address(0));
         a.previousRegistry = actor("not a contract");
         vm.expectRevert(BlinkRegistry.InvalidAddress.selector);
         new BlinkRegistry(p, a);
@@ -151,6 +169,37 @@ contract RegistryTest is ProtocolBase {
         p = defaultParams();
         p.quorumBps[3] = 10_001;
         _expectInvalid(p);
+
+        p = defaultParams();
+        p.maxRounds = 0;
+        _expectInvalid(p);
+
+        p = defaultParams();
+        p.creationBondBps = 0;
+        _expectInvalid(p);
+
+        p = defaultParams();
+        p.proposerBondBps = 0;
+        _expectInvalid(p);
+
+        p = defaultParams();
+        p.challengeBondBps = 0;
+        _expectInvalid(p);
+
+        p = defaultParams();
+        p.securityMultipleBps = 0;
+        _expectInvalid(p);
+
+        for (uint256 i; i < 3; ++i) {
+            p = defaultParams();
+            p.minResultChallengeWindow[i] = p.resultChallengeWindow[i] + 1;
+            _expectInvalid(p);
+        }
+
+        p = defaultParams();
+        p.minResultChallengeWindow = p.resultChallengeWindow; // equal is allowed
+        GenerationAddresses memory a = predictGeneration(address(this), address(0));
+        new BlinkRegistry(p, a);
     }
 
     function _expectInvalid(Params memory p) internal {
@@ -296,11 +345,19 @@ contract RegistryTest is ProtocolBase {
         vm.expectRevert(BlinkRegistry.UnauthorizedReporter.selector);
         vm.prank(alice);
         registry.slashRole(alice, Role.CREATOR);
+        vm.expectRevert(BlinkRegistry.UnauthorizedReporter.selector);
+        vm.prank(alice);
+        registry.lockRole(alice, Role.CREATOR);
+        vm.expectRevert(BlinkRegistry.UnauthorizedReporter.selector);
+        vm.prank(alice);
+        registry.unlockRole(alice, Role.CREATOR);
 
         StubReporter stranger = new StubReporter(); // a contract from outside the generation
         IBlinkRegistry r = registry;
         vm.expectRevert(BlinkRegistry.UnauthorizedReporter.selector);
         stranger.gain(r, alice, Role.CREATOR, 1_000e6);
+        vm.expectRevert(BlinkRegistry.UnauthorizedReporter.selector);
+        stranger.lock(r, alice, Role.CREATOR);
 
         markets.gain(r, alice, Role.CREATOR, 1_000e6);
         resolution.gain(r, alice, Role.PROPOSER, 1_000e6);
@@ -446,6 +503,77 @@ contract RegistryTest is ProtocolBase {
         eq(jurors.slash(registry, alice, Role.PROPOSER), 0); // nothing left
         eq(jurors.slash(registry, alice, Role.JUROR), 0); // juror stake lives in the token
         eq(jurors.slash(registry, bob, Role.CREATOR), 0);
+    }
+
+    function test_slashedRoleIsInactiveUntilToppedUp() public {
+        uint256 minStake = registry.params().minRoleStake;
+        _register(alice);
+        _join(alice, Role.PROPOSER, minStake);
+        require(registry.hasRole(alice, Role.PROPOSER), "active at the minimum");
+
+        uint256 slashed = resolution.slash(registry, alice, Role.PROPOSER);
+        eq(slashed, minStake / 10);
+        eq(registry.roleStake(alice, Role.PROPOSER), minStake - slashed);
+        require(!registry.hasRole(alice, Role.PROPOSER), "below the minimum cannot act");
+
+        vm.prank(alice);
+        registry.addRoleStake(Role.PROPOSER, slashed - 1); // still one micro short
+        require(!registry.hasRole(alice, Role.PROPOSER), "still short");
+        vm.prank(alice);
+        registry.addRoleStake(Role.PROPOSER, 1);
+        eq(registry.roleStake(alice, Role.PROPOSER), minStake);
+        require(registry.hasRole(alice, Role.PROPOSER), "topped up");
+
+        // an exiting role is inactive whatever its stake, and a slash cannot revive it
+        vm.prank(alice);
+        registry.requestRoleExit(Role.PROPOSER);
+        require(!registry.hasRole(alice, Role.PROPOSER), "exiting at the minimum");
+        markets.slash(registry, alice, Role.PROPOSER);
+        require(registry.roleStake(alice, Role.PROPOSER) < minStake, "slashed in exit");
+        require(!registry.hasRole(alice, Role.PROPOSER), "exiting below the minimum");
+    }
+
+    function test_openObligationsBlockWithdrawal() public {
+        IBlinkRegistry r = registry;
+        _register(alice);
+        _join(alice, Role.CREATOR, 100e6);
+
+        vm.expectRevert(BlinkRegistry.NoObligation.selector);
+        markets.unlock(r, alice, Role.CREATOR);
+
+        markets.lock(r, alice, Role.CREATOR);
+        resolution.lock(r, alice, Role.CREATOR); // counters stack across reporters
+        require(registry.hasRole(alice, Role.CREATOR), "a lock does not deactivate the role");
+
+        vm.prank(alice);
+        registry.requestRoleExit(Role.CREATOR); // exit may be requested with obligations open
+        vm.warp(token.clock() + registry.params().roleExitCooldown);
+        vm.expectRevert(BlinkRegistry.OpenObligations.selector);
+        vm.prank(alice);
+        registry.withdrawRole(Role.CREATOR);
+
+        eq(markets.slash(registry, alice, Role.CREATOR), 10e6); // the stake stays slashable meanwhile
+        markets.unlock(r, alice, Role.CREATOR);
+        vm.expectRevert(BlinkRegistry.OpenObligations.selector);
+        vm.prank(alice);
+        registry.withdrawRole(Role.CREATOR);
+
+        uint256 before = busd.balanceOf(alice);
+        resolution.unlock(r, alice, Role.CREATOR);
+        vm.expectRevert(BlinkRegistry.NoObligation.selector);
+        resolution.unlock(r, alice, Role.CREATOR);
+        vm.prank(alice);
+        registry.withdrawRole(Role.CREATOR);
+        eq(busd.balanceOf(alice), before + 90e6);
+
+        // locks are per (account, role)
+        markets.lock(r, alice, Role.CREATOR);
+        _join(alice, Role.MAKER, 100e6);
+        vm.prank(alice);
+        registry.requestRoleExit(Role.MAKER);
+        vm.warp(token.clock() + registry.params().roleExitCooldown);
+        vm.prank(alice);
+        registry.withdrawRole(Role.MAKER);
     }
 
     function test_importFromPreviousGeneration() public {

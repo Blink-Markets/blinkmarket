@@ -25,4 +25,6 @@ interface IBlinkRegistry {
     function reportGain(address account, Role role, uint256 maxPayout) external;
     function reportLoss(address account, Role role, uint256 maxPayout) external;
     function slashRole(address account, Role role) external returns (uint256 slashed);
+    function lockRole(address account, Role role) external;
+    function unlockRole(address account, Role role) external;
 }
