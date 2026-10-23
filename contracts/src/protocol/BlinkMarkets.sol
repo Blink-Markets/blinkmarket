@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {IBlinkMarkets} from "./interfaces/IBlinkMarkets.sol";
 import {IBlinkRegistry} from "./interfaces/IBlinkRegistry.sol";
 import {IBlinkJurors} from "./interfaces/IBlinkJurors.sol";
+import {IBlinkResolution} from "./interfaces/IBlinkResolution.sol";
 import {Role, QuestionClass, MarketState, Outcome, Params, GenerationAddresses} from "./BlinkTypes.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -11,7 +12,6 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-// Settlement completes IBlinkMarkets in Task 8.
 contract BlinkMarkets is EIP712, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -48,6 +48,8 @@ contract BlinkMarkets is EIP712, ReentrancyGuard {
     error InvalidSignature();
     error InsufficientMakerBalance();
     error InvalidAmount();
+    error AlreadyDistributed();
+    error NoPosition();
 
     event TemplateRegistered(bytes32 indexed templateId, QuestionClass cls, bytes32 parserHash, string uri);
     event MarketCreated(
@@ -71,6 +73,8 @@ contract BlinkMarkets is EIP712, ReentrancyGuard {
     event MarketProposed(uint256 indexed marketId);
     event MarketDisputed(uint256 indexed marketId);
     event MarketFinalized(uint256 indexed marketId, Outcome outcome);
+    event FeesDistributed(uint256 indexed marketId, uint256 amount, address indexed keeper, uint256 keeperTip);
+    event PositionRedeemed(uint256 indexed marketId, address indexed account, uint256 yes, uint256 no, uint256 payout);
     event MakerDeposited(address indexed maker, uint256 amount);
     event MakerWithdrawn(address indexed maker, uint256 amount);
     event QuoteCancelled(bytes32 indexed digest);
@@ -109,6 +113,7 @@ contract BlinkMarkets is EIP712, ReentrancyGuard {
     address public immutable resolution;
     uint256 public nextMarketId = 1;
     uint256 public openPayoutTotal;
+    uint256 private _finalizedCount;
     mapping(address => uint256) public openPayoutByCreator;
     mapping(bytes32 => bool) public usedSpecHashes;
     mapping(bytes32 => Template) private templates;
@@ -214,8 +219,7 @@ contract BlinkMarkets is EIP712, ReentrancyGuard {
 
     function maxPayout(uint256 id) public view returns (uint256) { return uint256(_market(id).maxPairs) * UNIT; }
 
-    // shortcut: settlement accounting arrives in Task 8; no FINAL credits are reported in this slice.
-    function finalizedCount() public view virtual returns (uint256) { return 0; }
+    function finalizedCount() public view virtual returns (uint256) { return _finalizedCount; }
 
     function depositMaker(uint256 amount) external nonReentrant {
         if (!registry.hasRole(msg.sender, Role.MAKER)) revert MissingRole();
@@ -368,12 +372,73 @@ contract BlinkMarkets is EIP712, ReentrancyGuard {
         emit MarketDisputed(id);
     }
 
-    // shortcut: Task 8 adds bond return, exposure release, creator unlock and credit at FINAL.
-    function finalize(uint256 id, Outcome outcome) external onlyResolution {
+    function finalize(uint256 id, Outcome outcome) external onlyResolution nonReentrant {
         IBlinkMarkets.Market storage m = _market(id);
         if (m.state == MarketState.FINAL || m.state == MarketState.CANCELLED) revert InvalidState();
         m.state = MarketState.FINAL;
         m.finalOutcome = outcome;
+        uint256 payout = maxPayout(id);
+        openPayoutTotal -= payout;
+        openPayoutByCreator[m.creator] -= payout;
+        ++_finalizedCount;
+        uint256 bond = m.creationBond;
+        m.creationBond = 0;
+        if (outcome == Outcome.INVALID) registry.reportLoss(m.creator, Role.CREATOR, payout);
+        else registry.reportGain(m.creator, Role.CREATOR, payout);
+        registry.unlockRole(m.creator, Role.CREATOR);
+        collateral.safeTransfer(m.creator, bond);
         emit MarketFinalized(id, outcome);
+    }
+
+    function distributeFees(uint256 id) external nonReentrant {
+        IBlinkMarkets.Market storage m = _market(id);
+        if (m.state != MarketState.FINAL) revert InvalidState();
+        if (m.feesDistributed) revert AlreadyDistributed();
+        m.feesDistributed = true;
+        uint256 pool = feePool[id];
+        feePool[id] = 0;
+        Params memory p = registry.params();
+        uint256 creatorShare = pool * p.creatorShareBps / 10_000;
+        uint256 resolutionShare = pool * p.resolutionShareBps / 10_000;
+        uint256 jurorShare = pool * p.jurorShareBps / 10_000;
+        uint256 bountyShare = pool * p.bountyShareBps / 10_000;
+        // All share-rounding dust belongs to the treasury (R32).
+        uint256 treasuryShare = pool - creatorShare - resolutionShare - jurorShare - bountyShare;
+        uint256 tip = resolutionShare * p.keeperTipBps / 10_000;
+        resolutionShare -= tip;
+        IBlinkResolution resolver = IBlinkResolution(resolution);
+        address proposer = resolver.proposerOf(id);
+        bool proposalWon = proposer != address(0) && m.finalOutcome == resolver.proposedOutcome(id);
+        address winner = resolver.bountyWinner(id);
+        if (m.finalOutcome == Outcome.INVALID) jurorShare += creatorShare;
+        else if (creatorShare != 0) collateral.safeTransfer(m.creator, creatorShare);
+        if (proposalWon) {
+            if (resolutionShare != 0) collateral.safeTransfer(proposer, resolutionShare);
+        } else jurorShare += resolutionShare;
+        // Resolution also records the proposer on a failed challenge; only an overturn earns this bounty.
+        if (winner != address(0) && !proposalWon && m.finalOutcome != Outcome.INVALID) {
+            if (bountyShare != 0) collateral.safeTransfer(winner, bountyShare);
+        } else jurorShare += bountyShare;
+        if (treasuryShare != 0) collateral.safeTransfer(registry.addresses().treasury, treasuryShare);
+        if (tip != 0) collateral.safeTransfer(msg.sender, tip);
+        if (jurorShare != 0) {
+            collateral.safeTransfer(address(jurors), jurorShare);
+            jurors.notifyReward(jurorShare);
+        }
+        emit FeesDistributed(id, pool, msg.sender, tip);
+    }
+
+    function redeem(uint256 id) external nonReentrant {
+        IBlinkMarkets.Market storage m = _market(id);
+        if (m.state != MarketState.FINAL) revert InvalidState();
+        Position memory p = positions[id][msg.sender];
+        if (p.yes == 0 && p.no == 0) revert NoPosition();
+        delete positions[id][msg.sender];
+        uint256 payout = m.finalOutcome == Outcome.YES
+            ? p.yes * UNIT
+            : m.finalOutcome == Outcome.NO ? p.no * UNIT : (p.yes + p.no) * (UNIT / 2);
+        m.escrowMicros -= payout;
+        if (payout != 0) collateral.safeTransfer(msg.sender, payout);
+        emit PositionRedeemed(id, msg.sender, p.yes, p.no, payout);
     }
 }

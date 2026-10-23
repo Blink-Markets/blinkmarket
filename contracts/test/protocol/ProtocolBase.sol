@@ -5,6 +5,10 @@ import {BlinkFaucet} from "../../src/protocol/BlinkFaucet.sol";
 import {BlinkToken} from "../../src/protocol/BlinkToken.sol";
 import {BlinkTestUSD} from "../../src/BlinkTestUSD.sol";
 import {FixedPriceSource} from "../../src/protocol/FixedPriceSource.sol";
+import {BlinkRegistry} from "../../src/protocol/BlinkRegistry.sol";
+import {BlinkJurors} from "../../src/protocol/BlinkJurors.sol";
+import {BlinkMarkets} from "../../src/protocol/BlinkMarkets.sol";
+import {BlinkResolution} from "../../src/protocol/BlinkResolution.sol";
 import {Params, GenerationAddresses} from "../../src/protocol/BlinkTypes.sol";
 
 interface Vm {
@@ -111,6 +115,16 @@ abstract contract ProtocolBase {
     function fundedActor(string memory label) internal returns (address who) {
         who = actor(label);
         claimAs(who);
+    }
+
+    function deployGeneration(Params memory p, address previous) internal returns (
+        BlinkRegistry registry, BlinkJurors jurors, BlinkMarkets markets, BlinkResolution resolution
+    ) {
+        GenerationAddresses memory a = predictGeneration(address(this), previous);
+        registry = new BlinkRegistry(p, a);
+        jurors = new BlinkJurors(a);
+        markets = new BlinkMarkets(a);
+        resolution = new BlinkResolution(a);
     }
 
     function approveBusdAs(address who, address spender) internal {
