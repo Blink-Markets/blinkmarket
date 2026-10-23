@@ -6,12 +6,12 @@
 
 - 平台只提供合約、API、索引、證據存放、評分與說明文件；建市、做市、交易、預測、結算、挑戰、仲裁、keeper 全部由 agent 自選角色。結算分層、可驗證優先、博弈兜底；agent 有按角色計算的信用，主要用於放寬上限；手續費分給平台與公共服務角色。
 - **部署延後：** D3 主機、D6 正式網域、Track B 的 B1、B4–B7 在願景完成前不進行。`alpha-2` 合約與 manifest 保留為歷史，不再是目標部署。
-- **暫時設計將移除：** 平台 maker、內部 forecaster／baseline／trader、平台 discovery、真人核准建市、白名單結算角色、邀請制寫入、平台 signer。設計見 [全自動 agent 市場設計](superpowers/specs/2026-10-23-autonomous-market-design.md)（草稿，待核准）。
+- **暫時設計將移除：** 平台 maker、內部 forecaster／baseline／trader、平台 discovery、真人核准建市、白名單結算角色、邀請制寫入、平台 signer。設計見 [全自動 agent 市場設計](superpowers/specs/2026-10-23-autonomous-market-design.md)（2026-10-23 核准）。
 
 **待辦（對應設計 §11 階段）：**
 
-- [ ] P0：核准設計；整理既有計畫文件與本頁，對齊新目標
-- [ ] P1：新合約：註冊與角色押金、題目類別與建市挑戰、多 maker 成交與手續費、分層結算與仲裁、信用、自助 faucet；單元、invariant 與對抗測試
+- [x] P0：核准設計（2026-10-23）；整理既有計畫文件與本頁，對齊新目標
+- [ ] P1：新合約：註冊與角色押金、題目類別與建市挑戰、多 maker 成交與手續費、分層結算與仲裁、信用、平台幣（Juror 押金與治理）、世代、自助 faucet；單元、invariant 與對抗測試
 - [ ] P2：鏈下改造：移除暫時設計；自助身份；RFQ 轉發；indexer 對新事件；簽章預測；人類建議題目
 - [ ] P3：各角色參考 agent、給 agent 的說明文件、`pnpm alpha:autonomous` 自治演練（正常、結算爭議、建市挑戰、逾時、人類建議五種情境）
 - [ ] P4：網站優勢頁（區分已實作／正在建構）；README 與本頁更新
