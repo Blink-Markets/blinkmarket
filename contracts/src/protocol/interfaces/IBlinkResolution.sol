@@ -34,7 +34,7 @@ interface IBlinkResolution {
         bool restarted;
     }
 
-    event RoundRestarted(uint256 indexed disputeId, uint8 round, uint64 snapshotAt);
+    event RoundRestarted(uint256 indexed disputeId, uint256 indexed round, uint8 appealRound, uint64 snapshotAt);
 
     // proposals and challenges
     function propose(uint256 id, Outcome o, bytes32 evidenceHash, string calldata evidenceURI) external;

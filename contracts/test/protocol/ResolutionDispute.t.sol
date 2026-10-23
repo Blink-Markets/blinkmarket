@@ -10,22 +10,22 @@ import {IBlinkResolution} from "../../src/protocol/interfaces/IBlinkResolution.s
 import {IBlinkMarkets} from "../../src/protocol/interfaces/IBlinkMarkets.sol";
 import {Role, QuestionClass, MarketState, Outcome, Params, GenerationAddresses} from "../../src/protocol/BlinkTypes.sol";
 
-// Task 5's unmerged position surface; creation and resolution hooks use the real markets implementation.
+// Task 8's finalized-count fixture; positions and state hooks use real markets code.
 contract DisputeMarkets is BlinkMarkets {
-    mapping(uint256 => mapping(address => uint256)) internal positions;
     uint256 internal finalized;
 
     constructor(GenerationAddresses memory a) BlinkMarkets(a) {}
 
-    function seedPosition(uint256 id, address who, uint256 amount) external { positions[id][who] = amount; }
     function seedFinalized(uint256 amount) external { finalized = amount; }
     function finalizedCount() public view override returns (uint256) { return finalized; }
-    function getPosition(uint256 id, address who) external view returns (uint256, uint256) {
-        return (positions[id][who], 0);
-    }
 }
 
 contract ResolutionDisputeTest is ProtocolBase {
+    event RoundRestarted(uint256 indexed disputeId, uint256 indexed round, uint8 appealRound, uint64 snapshotAt);
+    event RoundSettled(uint256 indexed disputeId, uint256 indexed round, uint8 appealRound, uint8 choice, uint256 appealEnd);
+    event Appealed(uint256 indexed disputeId, uint256 indexed round, uint8 appealRound, address indexed appellant, uint256 bond);
+    event log_named_uint(string key, uint256 value);
+
     BlinkRegistry internal registry;
     BlinkJurors internal jurors;
     DisputeMarkets internal markets;
@@ -42,10 +42,15 @@ contract ResolutionDisputeTest is ProtocolBase {
     bytes32 internal constant EVIDENCE = keccak256("evidence");
 
     function setUp() public override {
+        _setUp(2 days);
+    }
+
+    function _setUp(uint64 cooldown) internal {
         super.setUp();
         GenerationAddresses memory a = predictGeneration(address(this), address(0));
         Params memory p = defaultParams();
         p.creditUnitMicros = 1e6;
+        p.jurorUnstakeCooldown = cooldown;
         registry = new BlinkRegistry(p, a);
         jurors = new BlinkJurors(a);
         markets = new DisputeMarkets(a);
@@ -85,7 +90,7 @@ contract ResolutionDisputeTest is ProtocolBase {
 
     function _result() internal returns (uint256 id) {
         vm.warp(markets.getMarket(marketId).openAt);
-        markets.open(marketId);
+        if (markets.getMarket(marketId).state == MarketState.PENDING) markets.open(marketId);
         vm.warp(markets.getMarket(marketId).closeAt);
         vm.prank(proposer); resolution.propose(marketId, Outcome.YES, EVIDENCE, "ipfs://evidence");
         vm.prank(challenger); id = resolution.challengeResult(marketId, EVIDENCE);
@@ -177,7 +182,7 @@ contract ResolutionDisputeTest is ProtocolBase {
         vm.warp(token.clock() + 1 hours); _reveal(id, j3, 1);
         vm.warp(token.clock() + 1 hours);
         vm.expectEmit(true, false, false, true);
-        emit IBlinkResolution.RoundRestarted(id, 0, uint64(token.clock() - 1));
+        emit RoundRestarted(id, 1, 0, uint64(token.clock() - 1));
         resolution.settleRound(id);
         (IBlinkResolution.Dispute memory d,) = resolution.getDispute(id);
         eq(d.currentRound, 1); eq(d.appealRound, 0);
@@ -202,8 +207,27 @@ contract ResolutionDisputeTest is ProtocolBase {
     }
 
     function test_conflictedJurorsCannotCommit() public {
+        uint256 makerKey = 0xA11CE;
+        address maker = vm.addr(makerKey);
+        claimAs(maker);
+        approveBusdAs(maker, address(registry));
+        vm.prank(maker); registry.register();
+        vm.prank(maker); registry.joinRole(Role.MAKER, 100e6);
+        approveBusdAs(maker, address(markets));
+        vm.prank(maker); markets.depositMaker(1e6);
+        vm.prank(j1); registry.joinRole(Role.TAKER, 100e6);
+        approveBusdAs(j1, address(markets));
+        vm.warp(markets.getMarket(marketId).openAt);
+        markets.open(marketId);
+        IBlinkMarkets.Quote memory q = IBlinkMarkets.Quote(
+            marketId, EVIDENCE, maker, j1, 0, 1, 5000,
+            token.clock(), token.clock() + 30, 1, 0
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(makerKey, markets.hashQuote(q));
+        vm.prank(j1); markets.fillQuote(q, abi.encodePacked(r, s, v));
+        (uint256 yes, uint256 no) = markets.getPosition(marketId, j1);
+        eq(yes, 1); eq(no, 0);
         uint256 id = _result();
-        markets.seedPosition(marketId, j1, 1);
         address[4] memory conflicted = [creator, proposer, challenger, j1];
         for (uint256 i; i < conflicted.length; ++i) {
             vm.expectRevert(BlinkResolution.ConflictedJuror.selector);
@@ -339,10 +363,14 @@ contract ResolutionDisputeTest is ProtocolBase {
 
     function test_invalidChoiceCannotFinalizeBeforeHardDeadline() public {
         uint256 id = _result(); _commit(id, 0, j1, 2);
-        vm.warp(token.clock() + 1 hours); _reveal(id, j1, 2);
+        vm.warp(token.clock() + 1 hours);
+        vm.expectRevert(bytes4(keccak256("InvalidChoice()"))); _reveal(id, j1, 2);
         vm.warp(token.clock() + 1 hours); resolution.settleRound(id);
-        (IBlinkResolution.Dispute memory d,) = resolution.getDispute(id); eq(d.currentRound, 1);
+        resolution.settleVote(id, 0, j1);
+        eq(jurors.stakeAt(j1, token.clock()), 54e18);
         eq(uint256(markets.getMarket(marketId).state), uint256(MarketState.DISPUTED));
+        vm.warp(markets.getMarket(marketId).hardDeadline); resolution.finalizeTimeout(marketId);
+        eq(uint256(markets.getMarket(marketId).finalOutcome), uint256(Outcome.INVALID));
     }
 
     function test_commitRevealBoundariesAndReplayProtection() public {
@@ -357,7 +385,7 @@ contract ResolutionDisputeTest is ProtocolBase {
         vm.expectRevert(BlinkResolution.InvalidVote.selector);
         vm.prank(j1); resolution.revealVote(id, 1, keccak256("wrong"));
         vm.expectRevert(BlinkResolution.InvalidVote.selector); _reveal(id, j1, 0);
-        vm.expectRevert(BlinkResolution.InvalidVote.selector); _reveal(id, j1, 3);
+        vm.expectRevert(bytes4(keccak256("InvalidChoice()"))); _reveal(id, j1, 3);
         _reveal(id, j1, 1);
         vm.expectRevert(BlinkResolution.InvalidVote.selector); _reveal(id, j1, 1);
         vm.warp(token.clock() + 1 hours);
@@ -465,5 +493,160 @@ contract ResolutionDisputeTest is ProtocolBase {
         vm.prank(proposer); registry.joinRole(Role.CHALLENGER, 100e6);
         vm.expectRevert(BlinkResolution.SelfChallenge.selector);
         vm.prank(proposer); resolution.appeal(id);
+    }
+
+    function test_creatorWithoutProposerAppealsOnCreatorRole() public {
+        require(!registry.hasRole(creator, Role.PROPOSER), "creator is proposer");
+        uint256 id = _creation(); _majority(id, 0);
+        vm.prank(creator); registry.requestRoleExit(Role.CREATOR);
+        require(!registry.hasRole(creator, Role.CREATOR), "role exiting");
+        uint256 before = busd.balanceOf(creator);
+        vm.expectEmit(true, true, false, true);
+        emit BlinkRegistry.RoleLocked(creator, Role.CREATOR, 2);
+        vm.prank(creator); resolution.appeal(id);
+        eq(busd.balanceOf(creator), before - 2 * BOND);
+        _majority(id, 1);
+        vm.warp(token.clock() + 1 hours); resolution.finalizeDispute(id);
+        eq(registry.roleStake(creator, Role.CREATOR), 90e6);
+        eq(registry.roleStake(creator, Role.PROPOSER), 0);
+        eq(busd.balanceOf(address(resolution)), 0);
+        vm.warp(token.clock() + 1 days);
+        vm.prank(creator); registry.withdrawRole(Role.CREATOR);
+    }
+
+    function test_newCreationAppellantNeedsCreatorRole() public {
+        uint256 id = _creation(); _majority(id, 0);
+        address entrant = _role("creation-appellant", Role.PROPOSER);
+        vm.expectRevert(BlinkResolution.MissingRole.selector);
+        vm.prank(entrant); resolution.appeal(id);
+        vm.prank(entrant); registry.joinRole(Role.CREATOR, 100e6);
+        vm.expectEmit(true, true, false, true);
+        emit BlinkRegistry.RoleLocked(entrant, Role.CREATOR, 1);
+        vm.prank(entrant); resolution.appeal(id);
+        vm.prank(entrant); registry.requestRoleExit(Role.CREATOR);
+        _majority(id, 1);
+        vm.warp(token.clock() + 1 hours); resolution.finalizeDispute(id);
+        eq(registry.roleStake(entrant, Role.CREATOR), 90e6);
+        eq(registry.roleStake(entrant, Role.PROPOSER), 100e6);
+        vm.warp(token.clock() + 1 days);
+        vm.prank(entrant); registry.withdrawRole(Role.CREATOR);
+    }
+
+    function test_withdrawnSnapshotStakeHasNoWeight() public {
+        _setUp(10 minutes);
+        _juror("reserve", 100e18);
+        uint256 id = _result();
+        vm.prank(j1); jurors.requestUnstake(60e18);
+        vm.warp(token.clock() + 10 minutes);
+        vm.prank(j1); jurors.withdrawUnstaked();
+        (, IBlinkResolution.Round memory r) = resolution.getDispute(id);
+        eq(jurors.stakeAt(j1, r.snapshotAt), 60e18);
+        vm.expectRevert(BlinkResolution.NoWeight.selector); _commit(id, 0, j1, 1);
+        eq(jurors.openVotes(j1), 0);
+    }
+
+    function test_slashedSinceSnapshotVotesWithReducedWeight() public {
+        uint256 id = _result();
+        vm.prank(address(resolution)); jurors.slash(j1, 20e18, address(jurors));
+        _commit(id, 0, j1, 1);
+        (, IBlinkResolution.Round memory r) = resolution.getDispute(id);
+        eq(jurors.stakeAt(j1, r.snapshotAt), 60e18);
+        eq(r.committedWeight, 40e18);
+        vm.warp(token.clock() + 1 hours); _reveal(id, j1, 1);
+        (, r) = resolution.getDispute(id);
+        eq(r.revealedWeight[1], 40e18);
+    }
+
+    function test_pendingUnstakeRemainsSlashableWeight() public {
+        uint256 id = _result();
+        vm.prank(j1); jurors.requestUnstake(20e18);
+        _commit(id, 0, j1, 1);
+        (, IBlinkResolution.Round memory r) = resolution.getDispute(id);
+        eq(r.committedWeight, 60e18);
+    }
+
+    function test_partialWithdrawalReducesWeight() public {
+        _setUp(10 minutes);
+        uint256 id = _result();
+        vm.prank(j1); jurors.requestUnstake(20e18);
+        vm.warp(token.clock() + 10 minutes);
+        vm.prank(j1); jurors.withdrawUnstaked();
+        _commit(id, 0, j1, 1);
+        (, IBlinkResolution.Round memory r) = resolution.getDispute(id);
+        eq(r.committedWeight, 40e18);
+    }
+
+    function test_addedStakeDoesNotIncreaseSnapshotWeight() public {
+        uint256 id = _result();
+        vm.prank(j1); jurors.stake(20e18);
+        _commit(id, 0, j1, 1);
+        (, IBlinkResolution.Round memory r) = resolution.getDispute(id);
+        eq(r.committedWeight, 60e18);
+    }
+
+    function test_roundEventsDistinguishAttemptFromAppealLevel() public {
+        uint256 id = _result();
+        vm.warp(token.clock() + 2 hours);
+        vm.expectEmit(true, true, false, true);
+        emit RoundRestarted(id, 1, 0, uint64(token.clock() - 1));
+        resolution.settleRound(id);
+        _commit(id, 1, j1, 1);
+        vm.warp(token.clock() + 1 hours); _reveal(id, j1, 1);
+        vm.warp(token.clock() + 1 hours);
+        vm.expectEmit(true, true, false, true);
+        emit RoundSettled(id, 1, 0, 1, token.clock() + 1 hours);
+        resolution.settleRound(id);
+        vm.expectEmit(true, true, true, true);
+        emit Appealed(id, 2, 1, proposer, 2 * BOND);
+        vm.prank(proposer); resolution.appeal(id);
+        vm.warp(token.clock() + 2 hours);
+        vm.expectEmit(true, true, false, true);
+        emit RoundRestarted(id, 3, 1, uint64(token.clock() - 1));
+        resolution.settleRound(id);
+        (IBlinkResolution.Dispute memory d,) = resolution.getDispute(id);
+        eq(d.currentRound, 3); eq(d.appealRound, 1);
+    }
+
+    function _measureSettlement(uint256 count, bool reveal) internal returns (uint256 roundGas, uint256 voteGas) {
+        _setUp(2 days);
+        address[60] memory voters;
+        for (uint256 i; i < voters.length; ++i) voters[i] = _juror(string(abi.encode("gas-juror", i)), 1e18);
+        if (count == 1) voters[0] = j1;
+        uint256 id = _result();
+        for (uint256 i; i < count; ++i) _commit(id, 0, voters[i], 1);
+        vm.warp(token.clock() + 1 hours);
+        if (reveal) {
+            for (uint256 i; i < count; ++i) _reveal(id, voters[i], 1);
+        }
+        vm.warp(token.clock() + 1 hours);
+        uint256 before = gasleft();
+        resolution.settleRound(id);
+        roundGas = before - gasleft();
+        if (reveal) {
+            vm.warp(token.clock() + 1 hours); resolution.finalizeDispute(id);
+        }
+        before = gasleft();
+        resolution.settleVote(id, 0, voters[0]);
+        voteGas = before - gasleft();
+    }
+
+    function _assertConstantSettlementGas(bool reveal) internal {
+        (uint256 smallRound, uint256 smallVote) = _measureSettlement(1, reveal);
+        (uint256 largeRound, uint256 largeVote) = _measureSettlement(60, reveal);
+        emit log_named_uint("settleRound, 1 committer", smallRound);
+        emit log_named_uint("settleRound, 60 committers", largeRound);
+        emit log_named_uint("settleVote, 1 committer", smallVote);
+        emit log_named_uint("settleVote, 60 committers", largeVote);
+        require(largeRound <= smallRound + 5000, "settleRound grows with committers");
+        require(largeVote <= smallVote + 5000, "settleVote grows with committers");
+        require(largeRound < 250_000 && largeVote < 250_000, "settlement gas bound");
+    }
+
+    function test_sixtyCommittersKeepDecisiveSettlementConstantGas() public {
+        _assertConstantSettlementGas(true);
+    }
+
+    function test_sixtyCommittersKeepRestartSettlementConstantGas() public {
+        _assertConstantSettlementGas(false);
     }
 }

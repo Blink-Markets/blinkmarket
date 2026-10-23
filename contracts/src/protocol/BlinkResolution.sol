@@ -4,7 +4,6 @@ pragma solidity 0.8.30;
 import {IBlinkResolution} from "./interfaces/IBlinkResolution.sol";
 import {IBlinkRegistry} from "./interfaces/IBlinkRegistry.sol";
 import {IBlinkMarkets} from "./interfaces/IBlinkMarkets.sol";
-import {BlinkJurors} from "./BlinkJurors.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IBlinkJurors} from "./interfaces/IBlinkJurors.sol";
 import {Role, MarketState, Outcome, DisputeKind, Params, GenerationAddresses} from "./BlinkTypes.sol";
@@ -27,6 +26,7 @@ contract BlinkResolution is IBlinkResolution, ReentrancyGuard {
     error ConflictedJuror();
     error InsufficientCredit();
     error NoWeight();
+    error InvalidChoice();
     error InvalidVote();
     error AlreadySettled();
     error LosersPending();
@@ -85,8 +85,8 @@ contract BlinkResolution is IBlinkResolution, ReentrancyGuard {
 
     event VoteCommitted(uint256 indexed disputeId, uint256 indexed round, address indexed juror, uint256 weight);
     event VoteRevealed(uint256 indexed disputeId, uint256 indexed round, address indexed juror, uint8 choice);
-    event RoundSettled(uint256 indexed disputeId, uint256 indexed round, uint8 choice, uint256 appealEnd);
-    event Appealed(uint256 indexed disputeId, uint256 indexed round, address indexed appellant, uint256 bond);
+    event RoundSettled(uint256 indexed disputeId, uint256 indexed round, uint8 appealRound, uint8 choice, uint256 appealEnd);
+    event Appealed(uint256 indexed disputeId, uint256 indexed round, uint8 appealRound, address indexed appellant, uint256 bond);
     event VoteSettled(uint256 indexed disputeId, uint256 indexed round, address indexed juror, uint256 slash, uint256 reward);
     event DisputeFinalized(uint256 indexed disputeId, uint8 choice);
 
@@ -291,7 +291,7 @@ contract BlinkResolution is IBlinkResolution, ReentrancyGuard {
         }
         Vote storage v = _votes[disputeId][d.currentRound][msg.sender];
         if (v.weight != 0 || commitment == bytes32(0)) revert InvalidVote();
-        uint256 weight = jurors.stakeAt(msg.sender, r.snapshotAt);
+        uint256 weight = Math.min(jurors.stakeAt(msg.sender, r.snapshotAt), jurors.slashableStake(msg.sender));
         if (weight == 0) revert NoWeight();
         v.commitment = commitment;
         v.weight = weight;
@@ -305,8 +305,9 @@ contract BlinkResolution is IBlinkResolution, ReentrancyGuard {
         Dispute storage d = _activeDispute(disputeId);
         Round storage r = _rounds[disputeId][d.currentRound];
         if (r.settled || block.timestamp < r.commitEnd || block.timestamp >= r.revealEnd) revert DeadlineViolation();
+        if (choice > 1) revert InvalidChoice();
         Vote storage v = _votes[disputeId][d.currentRound][msg.sender];
-        if (choice > (d.kind == DisputeKind.RESULT ? 2 : 1) || v.weight == 0 || v.revealed
+        if (v.weight == 0 || v.revealed
             || v.commitment != keccak256(abi.encode(disputeId, d.currentRound, msg.sender, choice, salt))) {
             revert InvalidVote();
         }
@@ -326,26 +327,20 @@ contract BlinkResolution is IBlinkResolution, ReentrancyGuard {
         Params memory p = registry.params();
         uint8 choice;
         if (r.revealedWeight[1] > r.revealedWeight[choice]) choice = 1;
-        if (r.revealedWeight[2] > r.revealedWeight[choice]) choice = 2;
-        uint256 winningWeight = r.revealedWeight[choice];
-        bool tied = winningWeight == 0
-            || (choice != 0 && r.revealedWeight[0] == winningWeight)
-            || (choice != 1 && r.revealedWeight[1] == winningWeight)
-            || (choice != 2 && r.revealedWeight[2] == winningWeight);
+        bool tied = r.revealedWeight[0] == r.revealedWeight[1];
         r.settled = true;
-        // INVALID is a timeout result only; a vote for it cannot bypass hardDeadline.
         if (r.committedWeight < jurors.totalStakeAt(r.snapshotAt) * p.quorumBps[r.level] / BPS
-            || tied || (d.kind == DisputeKind.RESULT && choice == uint8(Outcome.INVALID))) {
+            || tied) {
             r.restarted = true;
             _pools[disputeId][r.level].pendingLosers += r.committers - r.revealers;
             ++d.currentRound;
             _startRound(disputeId, p);
-            emit RoundRestarted(disputeId, d.appealRound, _rounds[disputeId][d.currentRound].snapshotAt);
+            emit RoundRestarted(disputeId, d.currentRound, d.appealRound, _rounds[disputeId][d.currentRound].snapshotAt);
         } else {
             r.leadingChoice = choice;
             r.appealEnd = block.timestamp + p.appealSeconds;
             _pools[disputeId][r.level].pendingLosers += r.committers - r.revealersByChoice[choice];
-            emit RoundSettled(disputeId, d.currentRound, choice, r.appealEnd);
+            emit RoundSettled(disputeId, d.currentRound, d.appealRound, choice, r.appealEnd);
         }
     }
 
@@ -357,12 +352,17 @@ contract BlinkResolution is IBlinkResolution, ReentrancyGuard {
         Params memory p = registry.params();
         if (d.appealRound + 1 >= p.maxRounds) revert NoMoreAppeals();
         bool challengerSide = !_challengerWins(d, r.leadingChoice);
-        Role role = challengerSide ? Role.CHALLENGER : Role.PROPOSER;
-        if (!registry.hasRole(msg.sender, role)) revert MissingRole();
+        Role role = challengerSide ? Role.CHALLENGER : (d.kind == DisputeKind.CREATION ? Role.CREATOR : Role.PROPOSER);
+        bool existingPoster;
         Bond[] storage bonds = _bonds[disputeId];
         for (uint256 i; i < bonds.length; ++i) {
-            if (bonds[i].poster == msg.sender && bonds[i].challengerSide != challengerSide) revert SelfChallenge();
+            if (bonds[i].poster == msg.sender) {
+                if (bonds[i].challengerSide != challengerSide) revert SelfChallenge();
+                role = bonds[i].role;
+                existingPoster = true;
+            }
         }
+        if (!existingPoster && !registry.hasRole(msg.sender, role)) revert MissingRole();
         // A voter cannot become an appellant in the round they just voted in.
         if (_votes[disputeId][d.currentRound][msg.sender].weight != 0) revert ConflictedJuror();
         uint256 bond = d.lastBond * 2;
@@ -374,7 +374,7 @@ contract BlinkResolution is IBlinkResolution, ReentrancyGuard {
         ++d.appealRound;
         ++d.currentRound;
         _startRound(disputeId, p);
-        emit Appealed(disputeId, d.currentRound, msg.sender, bond);
+        emit Appealed(disputeId, d.currentRound, d.appealRound, msg.sender, bond);
     }
 
     function _challengerWins(Dispute storage d, uint8 choice) internal view returns (bool) {
@@ -474,9 +474,9 @@ contract BlinkResolution is IBlinkResolution, ReentrancyGuard {
             bool loser = !v.revealed || (!r.restarted && v.choice != r.leadingChoice);
             if (loser) {
                 Params memory p = registry.params();
-                uint256 before = BlinkJurors(address(jurors)).undistributedSlashed();
+                uint256 before = jurors.undistributedSlashed();
                 jurors.slash(juror, v.weight * (v.revealed ? p.incoherentSlashBps : p.nonRevealSlashBps) / BPS, address(jurors));
-                slashed = BlinkJurors(address(jurors)).undistributedSlashed() - before;
+                slashed = jurors.undistributedSlashed() - before;
                 pool.tokens += slashed;
                 --pool.pendingLosers;
             } else if (!r.restarted) {
