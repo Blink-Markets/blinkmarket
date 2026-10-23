@@ -551,18 +551,19 @@ contract ResolutionBasicTest is ProtocolBase {
         eq(busd.balanceOf(address(resolution)), 0);
     }
 
-    function test_disputeRoundEntryPointsExplicitlyRevertUntilTask7() public {
+    function test_disputeRoundEntryPointsEnforcePhaseAndConflictChecks() public {
         _propose(1);
         uint256 disputeId = _challengeResult(1);
-        vm.expectRevert(BlinkResolution.DisputeRoundsPending.selector);
+        vm.expectRevert(BlinkResolution.ConflictedJuror.selector);
+        vm.prank(proposer);
         resolution.commitVote(disputeId, EVIDENCE);
-        vm.expectRevert(BlinkResolution.DisputeRoundsPending.selector);
+        vm.expectRevert(BlinkResolution.DeadlineViolation.selector);
         resolution.revealVote(disputeId, 0, EVIDENCE);
-        vm.expectRevert(BlinkResolution.DisputeRoundsPending.selector);
+        vm.expectRevert(BlinkResolution.DeadlineViolation.selector);
         resolution.settleRound(disputeId);
-        vm.expectRevert(BlinkResolution.DisputeRoundsPending.selector);
+        vm.expectRevert(BlinkResolution.InvalidState.selector);
         resolution.appeal(disputeId);
-        vm.expectRevert(BlinkResolution.DisputeRoundsPending.selector);
+        vm.expectRevert(BlinkResolution.InvalidState.selector);
         resolution.finalizeDispute(disputeId);
     }
 }

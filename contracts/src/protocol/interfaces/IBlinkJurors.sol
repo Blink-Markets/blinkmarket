@@ -8,8 +8,10 @@ interface IBlinkJurors {
     function claimRewards() external;
 
     function stakeAt(address juror, uint256 timepoint) external view returns (uint256);
+    function slashableStake(address juror) external view returns (uint256);
     function totalStakeAt(uint256 timepoint) external view returns (uint256);
     function totalStaked() external view returns (uint256);
+    function undistributedSlashed() external view returns (uint256);
     function attackCostMicros() external view returns (uint256);
 
     // callable by markets or resolution, after transferring the bUSD in

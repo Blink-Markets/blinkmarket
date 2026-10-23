@@ -1,10 +1,40 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Outcome} from "../BlinkTypes.sol";
+import {Outcome, DisputeKind} from "../BlinkTypes.sol";
 
 interface IBlinkResolution {
-    event RoundRestarted(uint256 indexed disputeId, uint8 round, uint64 snapshotAt);
+    struct Dispute {
+        uint256 marketId;
+        address challenger;
+        uint256 bond;
+        DisputeKind kind;
+        uint8 ground;
+        bytes32 evidenceHash;
+        bool settled;
+        bool timedOut;
+        uint256 currentRound; // unique attempt number, including restarts
+        uint8 appealRound; // parameter index, unchanged on restart
+        uint256 lastBond;
+    }
+
+    struct Round {
+        uint64 snapshotAt;
+        uint256 commitEnd;
+        uint256 revealEnd;
+        uint256 appealEnd;
+        uint256 committedWeight;
+        uint256[3] revealedWeight;
+        uint256 committers;
+        uint256 revealers;
+        uint256[3] revealersByChoice;
+        uint8 leadingChoice;
+        uint8 level;
+        bool settled;
+        bool restarted;
+    }
+
+    event RoundRestarted(uint256 indexed disputeId, uint256 indexed round, uint8 appealRound, uint64 snapshotAt);
 
     // proposals and challenges
     function propose(uint256 id, Outcome o, bytes32 evidenceHash, string calldata evidenceURI) external;
@@ -17,6 +47,8 @@ interface IBlinkResolution {
     function commitVote(uint256 disputeId, bytes32 commitment) external;
     function revealVote(uint256 disputeId, uint8 choice, bytes32 salt) external;
     function settleRound(uint256 disputeId) external;
+    function settleVote(uint256 disputeId, uint256 round, address juror) external;
+    function getDispute(uint256 disputeId) external view returns (Dispute memory dispute, Round memory round);
     function appeal(uint256 disputeId) external;
     function finalizeDispute(uint256 disputeId) external;
 

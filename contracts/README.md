@@ -53,3 +53,44 @@ Solidity tests, and `pnpm check:contracts` passed; BlinkMarkets runtime is 9,693
 bytes. The alerts TypeScript suite is skipped per the controller's fix instructions;
 the controller verifies `pnpm check` on main. This worktree does not claim that
 repository-wide check passed.
+
+## P1 Task 7: dispute arbitration slice
+
+`protocol/BlinkResolution.sol` adds snapshot-weighted commit/reveal arbitration,
+permissionless per-vote settlement, same-level restarts and bounded appeals for both
+creation and result disputes. No function enumerates jurors. Bond loops have at most
+five entries: two initial parties and three appeals (`maxRounds <= 4`).
+
+`getDispute(disputeId)` returns the dispute and its current round aggregates. Use
+`currentRound` in commitments and `settleVote(disputeId, round, juror)`; this attempt
+number increases on restarts and appeals. `appealRound` selects the quorum and credit
+parameters and increases only on appeal. Snapshots use round start minus one second.
+Vote weight is the smaller of snapshot stake and current active plus pending stake.
+RESULT reveals accept only YES/NO; choice 2 reverts `InvalidChoice`. A tied or
+inquorate round restarts; only the hard deadline permits final INVALID.
+`RoundRestarted`, `RoundSettled` and `Appealed` carry both the attempt index and
+appeal level. A restart event identifies the newly opened attempt.
+
+Creation-side appellants use CREATOR; result proposal-side appellants use PROPOSER.
+Both challenger sides use CHALLENGER. Existing losing-side bond posters appeal
+under their recorded role even if it is exiting; new entrants need an active role.
+
+After `settleRound`, anyone can settle losers. Settle all losers at an appeal level,
+including non-revealers from restarted attempts, before claiming coherent jurors'
+token rewards. Coherent claims wait until that round is appealed or the dispute is
+finalized. Each vote unlocks exactly once. Only the final round earns JUROR credit:
+a loser settled early needs another `settleVote` after `finalizeDispute` for credit.
+After timeout, remaining votes only unlock. bUSD cuts transfer to jurors before
+`notifyReward` and follow its existing seven-day stream.
+
+The focused command is
+`node scripts/foundry.mjs forge test --root contracts --match-path 'test/protocol/{ResolutionDispute,ResolutionBasic,Jurors}.t.sol'`.
+Fix round 1: all 92 focused tests, all 202 Solidity tests (`pnpm test:contracts`)
+and `pnpm check:contracts` pass after rebasing onto Task 5. BlinkResolution runtime
+is 20,113 bytes. With 1 versus 60 committers, `settleRound` uses identical gas and
+`settleVote` differs by 20 gas on both decisive and restart paths. This remains a
+partial P1 delivery. Real Task 5 signed fills seed positions; only Task 8's finalized-count fixture
+remains in the test-local markets subclass. Real registry, jurors, trading, creation
+and resolution hooks are exercised. Task 8 still supplies
+RESULT bounty payout, redemption and FINAL creator accounting. Full TypeScript
+verification remains the controller's gate on main. No deployment was performed.

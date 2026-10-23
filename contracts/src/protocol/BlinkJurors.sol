@@ -151,6 +151,10 @@ contract BlinkJurors is IBlinkJurors, ReentrancyGuard {
         return _stake[juror].upperLookupRecent(_key(timepoint));
     }
 
+    function slashableStake(address juror) external view returns (uint256) {
+        return _stake[juror].latest() + pendingUnstake[juror].amount;
+    }
+
     function totalStakeAt(uint256 timepoint) external view returns (uint256) {
         return _totalStake.upperLookupRecent(_key(timepoint));
     }
