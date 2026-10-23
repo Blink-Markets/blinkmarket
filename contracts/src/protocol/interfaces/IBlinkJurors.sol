@@ -18,4 +18,7 @@ interface IBlinkJurors {
     // callable by resolution only
     function slash(address juror, uint256 amount, address to) external;
     function reward(address juror, uint256 tokenAmount) external;
+    // callable by resolution only: while a juror has an open vote, withdrawUnstaked reverts
+    function lockVote(address juror) external;
+    function unlockVote(address juror) external;
 }

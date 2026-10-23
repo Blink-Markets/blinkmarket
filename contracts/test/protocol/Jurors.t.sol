@@ -43,6 +43,9 @@ contract JurorsTest is ProtocolBase {
     address internal alice = actor("alice");
     address internal bob = actor("bob");
     address internal carol = actor("carol");
+    address internal treasury = actor("treasury");
+    uint256 private constant STREAM = 7 days;
+    uint256 private constant R = 604_800_000; // 604.8 bUSD: exactly 1000 micros per second over STREAM
 
     function setUp() public override {
         super.setUp();
@@ -66,7 +69,7 @@ contract JurorsTest is ProtocolBase {
         a.collateral = address(busd);
         a.token = address(token);
         a.priceSource = address(priceSource);
-        a.treasury = actor("treasury");
+        a.treasury = treasury;
     }
 
     function stakeAs(address who, uint256 amount) internal {
@@ -82,12 +85,36 @@ contract JurorsTest is ProtocolBase {
         jurors.notifyReward(amount);
     }
 
-    // Task 10's solvency claim for this contract
+    // Task 10's solvency claims for this contract
     function assertSolvent() internal view {
         require(
             token.balanceOf(address(jurors)) >= jurors.totalStaked() + jurors.totalPending() + jurors.undistributedSlashed(),
             "token solvency"
         );
+        require(busd.balanceOf(address(jurors)) >= jurors.rewardsOwed(), "bUSD solvency");
+        require(jurors.rewardsOwed() >= jurors.unstreamedRewards(), "unstreamed within owed");
+    }
+
+    function claimed(address who) internal returns (uint256 got) {
+        uint256 before = busd.balanceOf(who);
+        vm.prank(who);
+        jurors.claimRewards();
+        got = busd.balanceOf(who) - before;
+        assertSolvent();
+    }
+
+    function near(uint256 actual, uint256 expected, uint256 tol) internal pure {
+        require(actual + tol >= expected && actual <= expected + tol, "not within tolerance");
+    }
+
+    // faucet allows 1000 tokens a day, so a bigger stake needs several days
+    function fundTokens(address who, uint256 claims) internal {
+        for (uint256 i = 0; i < claims; i++) {
+            if (i > 0) vm.warp(token.clock() + 1 days);
+            claimAs(who);
+        }
+        vm.prank(who);
+        token.approve(address(jurors), type(uint256).max);
     }
 
     function test_stakeCheckpointsByTimestamp() public {
@@ -224,39 +251,88 @@ contract JurorsTest is ProtocolBase {
     function test_rewardsSplitByStakeAndTime() public {
         stakeAs(alice, 100e18);
         stakeAs(bob, 300e18);
+        uint256 t0 = token.clock();
         notify(carol, 400e6);
-        stakeAs(carol, 400e18); // stakes after the notify: no share of it
+        vm.warp(t0 + STREAM);
+        // each claim is at most 1 micro below exact (final floor); the 1e18-scaled rate truncation is below 1e-9
+        near(claimed(alice), 100e6, 1);
+        near(claimed(bob), 300e6, 1);
 
-        uint256 a0 = busd.balanceOf(alice);
-        uint256 b0 = busd.balanceOf(bob);
-        uint256 c0 = busd.balanceOf(carol);
-        vm.prank(alice);
-        jurors.claimRewards();
-        vm.prank(bob);
-        jurors.claimRewards();
-        vm.prank(carol);
-        jurors.claimRewards();
-        eq(busd.balanceOf(alice) - a0, 100e6);
-        eq(busd.balanceOf(bob) - b0, 300e6);
-        eq(busd.balanceOf(carol) - c0, 0);
-        eq(busd.balanceOf(address(jurors)), 0);
+        // a juror staking after the stream ended gets none of it
+        stakeAs(carol, 400e18);
+        vm.warp(token.clock() + STREAM);
+        eq(claimed(carol), 0);
 
-        // second notify: now all three share by stake
+        // second notify: all three stream by stake
+        t0 = token.clock();
         notify(alice, 100e6);
-        vm.prank(carol);
-        jurors.claimRewards();
-        eq(busd.balanceOf(carol) - c0, 50e6);
+        vm.warp(t0 + STREAM);
+        near(claimed(carol), 50e6, 1);
+    }
+
+    function test_rewardsAreNotPaidInstantly() public {
+        stakeAs(alice, 100e18);
+        uint256 t0 = token.clock();
+        notify(carol, R);
+        eq(claimed(alice), 0); // nothing has streamed yet
+        eq(jurors.unstreamedRewards(), R);
+        vm.warp(t0 + STREAM / 2);
+        near(claimed(alice), R / 2, 1);
+        near(jurors.unstreamedRewards(), R / 2, 1);
+    }
+
+    function test_justInTimeStakerEarnsOnlyForTheSecondsItIsStaked() public {
+        address whale = actor("whale");
+        registry.register(whale);
+        fundTokens(whale, 10);
+        stakeAs(alice, 100e18);
+        stakeAs(whale, 9_900e18); // 99% of the pool, one second before the notify
+        uint256 t0 = token.clock();
+        vm.warp(t0 + 1);
+        notify(carol, R);
+        vm.warp(t0 + 2);
+        // one second of the stream (R / 604800 = 1000 micros) times its 99% share; paying R * 99% at once would be 598.7 bUSD
+        eq(claimed(whale), 990);
+        eq(claimed(alice), 10);
+    }
+
+    function test_stakerJoiningHalfwayGetsOnlyTheRestOfTheStream() public {
+        stakeAs(alice, 100e18);
+        stakeAs(bob, 100e18);
+        uint256 t0 = token.clock();
+        notify(carol, R);
+        vm.warp(t0 + STREAM / 2);
+        near(claimed(alice), 151_200_000, 1); // half the stream split two ways
+        stakeAs(carol, 100e18);
+        vm.warp(t0 + STREAM);
+        uint256 aliceSecondHalf = claimed(alice);
+        near(aliceSecondHalf, 100_800_000, 1); // half the stream split three ways
+        near(claimed(carol), aliceSecondHalf, 1); // same stake, same window as alice's second half
+        near(claimed(bob), 252_000_000, 1);
+    }
+
+    function test_notifyRestartsThePeriodAndRollsTheRemainder() public {
+        stakeAs(alice, 100e18);
+        uint256 t0 = token.clock();
+        notify(carol, R);
+        vm.warp(t0 + STREAM / 2);
+        notify(bob, R); // R/2 unstreamed joins R and restarts the 7 days
+        near(jurors.unstreamedRewards(), R + R / 2, 2);
+        vm.warp(t0 + STREAM / 2 + STREAM);
+        near(claimed(alice), 2 * R, 2);
+        near(jurors.rewardsOwed(), 0, 3);
     }
 
     function test_rewardAccruesAcrossStakeChanges() public {
         stakeAs(alice, 100e18);
+        uint256 t0 = token.clock();
         notify(bob, 100e6);
-        stakeAs(alice, 100e18); // settles the first reward before the stake doubles
+        vm.warp(t0 + STREAM);
+        stakeAs(alice, 100e18); // settles the first stream before the stake doubles
+        t0 = token.clock();
         notify(bob, 100e6);
-        uint256 a0 = busd.balanceOf(alice);
-        vm.prank(alice);
-        jurors.claimRewards();
-        eq(busd.balanceOf(alice) - a0, 200e6);
+        vm.warp(t0 + STREAM);
+        near(claimed(alice), 200e6, 2);
     }
 
     function test_unstakedAmountEarnsNoReward() public {
@@ -264,26 +340,63 @@ contract JurorsTest is ProtocolBase {
         stakeAs(bob, 100e18);
         vm.prank(alice);
         jurors.requestUnstake(100e18);
+        uint256 t0 = token.clock();
         notify(carol, 100e6);
-        uint256 a0 = busd.balanceOf(alice);
-        uint256 b0 = busd.balanceOf(bob);
-        vm.prank(alice);
-        jurors.claimRewards();
-        vm.prank(bob);
-        jurors.claimRewards();
-        eq(busd.balanceOf(alice) - a0, 0);
-        eq(busd.balanceOf(bob) - b0, 100e6);
+        vm.warp(t0 + STREAM);
+        eq(claimed(alice), 0);
+        near(claimed(bob), 100e6, 1);
     }
 
-    function test_notifyWithNoStakeCarriesToTheNextNotify() public {
+    function test_notifyWithNoStakeGoesToTheTreasury() public {
+        eq(busd.balanceOf(treasury), 0);
+        BlinkJurors j = jurors;
+        vm.expectRevert(BlinkJurors.RewardNotFunded.selector); // an unfunded notify cannot drain bUSD to the treasury
+        vm.prank(address(markets));
+        j.notifyReward(1e6);
         notify(carol, 60e6);
-        stakeAs(alice, 100e18);
-        notify(carol, 40e6);
-        uint256 a0 = busd.balanceOf(alice);
-        vm.prank(alice);
-        jurors.claimRewards();
-        eq(busd.balanceOf(alice) - a0, 100e6);
+        eq(busd.balanceOf(treasury), 60e6);
         eq(busd.balanceOf(address(jurors)), 0);
+        eq(jurors.rewardsOwed(), 0);
+        stakeAs(alice, 100e18);
+        vm.warp(token.clock() + STREAM);
+        eq(claimed(alice), 0); // the earlier notify is not carried to a later staker
+        eq(busd.balanceOf(treasury), 60e6);
+    }
+
+    function test_streamTimeWithNoStakeGoesToTheTreasury() public {
+        stakeAs(alice, 100e18);
+        uint256 t0 = token.clock();
+        notify(carol, R);
+        vm.warp(t0 + STREAM / 2);
+        vm.prank(alice);
+        jurors.requestUnstake(100e18); // everyone leaves at the halfway mark
+        eq(jurors.totalStaked(), 0);
+
+        vm.warp(t0 + STREAM * 3 / 4);
+        stakeAs(bob, 100e18); // the idle quarter goes to the treasury, not to bob
+        near(busd.balanceOf(treasury), R / 4, 1);
+        assertSolvent();
+
+        vm.warp(t0 + STREAM);
+        near(claimed(bob), R / 4, 1); // only the last quarter, while he was staked
+        near(claimed(alice), R / 2, 1);
+        near(busd.balanceOf(treasury), R / 4, 1);
+        near(jurors.rewardsOwed(), 0, 3);
+    }
+
+    function test_streamEndingWithNoStakeGoesToTheTreasury() public {
+        stakeAs(alice, 100e18);
+        uint256 t0 = token.clock();
+        notify(carol, R);
+        vm.warp(t0 + STREAM / 2);
+        vm.prank(alice);
+        jurors.requestUnstake(100e18);
+        vm.warp(t0 + STREAM + 1 days);
+        stakeAs(bob, 100e18); // joins after the stream is over
+        near(busd.balanceOf(treasury), R / 2, 1);
+        vm.warp(token.clock() + STREAM);
+        eq(claimed(bob), 0);
+        near(claimed(alice), R / 2, 1);
     }
 
     function test_notifyAuthAndFunding() public {
@@ -407,18 +520,86 @@ contract JurorsTest is ProtocolBase {
     function test_slashKeepsAccruedRewardsAndStopsFutureOnes() public {
         stakeAs(alice, 100e18);
         stakeAs(bob, 100e18);
+        uint256 t0 = token.clock();
         notify(carol, 200e6);
+        vm.warp(t0 + STREAM);
         vm.prank(resolution);
         jurors.slash(alice, 100e18, address(jurors));
+        t0 = token.clock();
         notify(carol, 100e6);
-        uint256 a0 = busd.balanceOf(alice);
-        uint256 b0 = busd.balanceOf(bob);
+        vm.warp(t0 + STREAM);
+        near(claimed(alice), 100e6, 1); // earned before the slash
+        near(claimed(bob), 200e6, 1);
+    }
+
+    function test_openVoteBlocksWithdrawButNotRequestAndSlashStillBites() public {
+        stakeAs(alice, 100e18);
+        vm.prank(resolution);
+        jurors.lockVote(alice);
+        eq(jurors.openVotes(alice), 1);
+
         vm.prank(alice);
-        jurors.claimRewards();
-        vm.prank(bob);
-        jurors.claimRewards();
-        eq(busd.balanceOf(alice) - a0, 100e6); // earned before the slash
-        eq(busd.balanceOf(bob) - b0, 200e6);
+        jurors.requestUnstake(80e18); // still allowed
+        vm.warp(token.clock() + COOLDOWN + 1 days);
+        BlinkJurors j = jurors;
+        vm.expectRevert(BlinkJurors.OpenVotes.selector);
+        vm.prank(alice);
+        j.withdrawUnstaked();
+
+        vm.prank(resolution); // the pending request is still slashable: 20 from stake, 30 from the request
+        jurors.slash(alice, 50e18, address(jurors));
+        eq(jurors.totalStaked(), 0);
+        eq(jurors.totalPending(), 50e18);
+        eq(jurors.undistributedSlashed(), 50e18);
+
+        vm.expectRevert(BlinkJurors.OpenVotes.selector);
+        vm.prank(alice);
+        j.withdrawUnstaked();
+
+        vm.prank(resolution);
+        jurors.unlockVote(alice);
+        vm.prank(alice);
+        jurors.withdrawUnstaked();
+        eq(token.balanceOf(alice), 950e18);
+        assertSolvent();
+    }
+
+    function test_voteLocksCount() public {
+        stakeAs(alice, 100e18);
+        vm.prank(alice);
+        jurors.requestUnstake(10e18);
+        vm.startPrank(resolution);
+        jurors.lockVote(alice);
+        jurors.lockVote(alice); // two open disputes
+        jurors.unlockVote(alice);
+        vm.stopPrank();
+        eq(jurors.openVotes(alice), 1);
+        vm.warp(token.clock() + COOLDOWN);
+        BlinkJurors j = jurors;
+        vm.expectRevert(BlinkJurors.OpenVotes.selector);
+        vm.prank(alice);
+        j.withdrawUnstaked();
+        vm.prank(resolution);
+        jurors.unlockVote(alice);
+        vm.prank(alice);
+        jurors.withdrawUnstaked();
+
+        vm.expectRevert(BlinkJurors.NoOpenVote.selector);
+        vm.prank(resolution);
+        j.unlockVote(alice);
+    }
+
+    function test_onlyResolutionLocksVotes() public {
+        BlinkJurors j = jurors;
+        vm.expectRevert(BlinkJurors.UnauthorizedCaller.selector);
+        vm.prank(alice);
+        j.lockVote(alice);
+        vm.expectRevert(BlinkJurors.UnauthorizedCaller.selector);
+        vm.prank(address(markets));
+        j.lockVote(alice);
+        vm.expectRevert(BlinkJurors.UnauthorizedCaller.selector);
+        vm.prank(alice);
+        j.unlockVote(alice);
     }
 
     function test_unregisteredCannotStake() public {
@@ -443,28 +624,50 @@ contract JurorsTest is ProtocolBase {
         new BlinkJurors(a);
 
         a = _addresses(vm.computeCreateAddress(address(this), vm.getNonce(address(this))));
+        a.treasury = address(0);
+        vm.expectRevert(BlinkJurors.WrongAddress.selector);
+        new BlinkJurors(a);
+
+        a = _addresses(vm.computeCreateAddress(address(this), vm.getNonce(address(this))));
         vm.chainId(1);
         vm.expectRevert(WRONG_CHAIN);
         new BlinkJurors(a);
     }
 
-    function testFuzz_claimsNeverExceedNotified(uint96 sa, uint96 sb, uint96 reward1, uint96 reward2) public {
+    function testFuzz_claimsNeverExceedNotified(uint96 sa, uint96 sb, uint96 reward1, uint96 reward2, uint32 gap) public {
         uint256 a = bound(sa, 1, 1_000e18);
         uint256 b = bound(sb, 1, 1_000e18);
         uint256 r1 = bound(reward1, 1, 500e6); // carol funds both from her 1000 bUSD
         uint256 r2 = bound(reward2, 1, 500e6);
+        uint256 dt = bound(gap, 1, STREAM * 2);
         stakeAs(alice, a);
         notify(carol, r1);
+        vm.warp(token.clock() + dt);
         stakeAs(bob, b);
         notify(carol, r2);
-        uint256 before = busd.balanceOf(alice) + busd.balanceOf(bob);
-        vm.prank(alice);
-        jurors.claimRewards();
-        vm.prank(bob);
-        jurors.claimRewards();
-        uint256 paid = busd.balanceOf(alice) + busd.balanceOf(bob) - before;
+        vm.warp(token.clock() + STREAM);
+        uint256 paid = claimed(alice) + claimed(bob);
         require(paid <= r1 + r2, "overpaid");
-        require(r1 + r2 - paid <= 2, "dust beyond rounding"); // all of it goes out bar floor rounding
+        require(r1 + r2 - paid <= 3, "dust beyond rounding"); // one micro per claimant plus rate truncation
+    }
+
+    // whatever is notified ends up with the jurors or the treasury, even across a window with nothing staked
+    function testFuzz_notifiedSplitsBetweenJurorsAndTreasury(uint96 reward1, uint32 stayFor, uint32 idleFor) public {
+        uint256 r = bound(reward1, 1, 1_000e6);
+        uint256 stay = bound(stayFor, 1, STREAM);
+        uint256 idle = bound(idleFor, 0, STREAM);
+        stakeAs(alice, 100e18);
+        notify(carol, r);
+        vm.warp(token.clock() + stay);
+        vm.prank(alice);
+        jurors.requestUnstake(100e18);
+        vm.warp(token.clock() + idle);
+        stakeAs(bob, 100e18);
+        vm.warp(token.clock() + STREAM);
+        uint256 total = claimed(alice) + claimed(bob) + busd.balanceOf(treasury);
+        require(total <= r, "overpaid");
+        require(r - total <= 6, "dust beyond rounding");
+        require(busd.balanceOf(address(jurors)) <= 6, "stranded");
     }
 
     function bound(uint256 x, uint256 lo, uint256 hi) internal pure returns (uint256) {

@@ -30,6 +30,8 @@ contract BlinkJurors is IBlinkJurors, ReentrancyGuard {
     error UnstakeBreaksSecurity();
     error RewardNotFunded();
     error InsufficientSlashed();
+    error OpenVotes();
+    error NoOpenVote();
 
     event Staked(address indexed juror, uint256 amount);
     event UnstakeRequested(address indexed juror, uint256 amount, uint256 unlockAt);
@@ -38,6 +40,9 @@ contract BlinkJurors is IBlinkJurors, ReentrancyGuard {
     event RewardsClaimed(address indexed juror, uint256 amount);
     event Slashed(address indexed juror, uint256 requested, uint256 slashed, address indexed to);
     event JurorRewarded(address indexed juror, uint256 amount);
+    event RewardsForfeited(uint256 amount);
+    event VoteLocked(address indexed juror, uint256 openVotes);
+    event VoteUnlocked(address indexed juror, uint256 openVotes);
 
     struct Unstake {
         uint256 amount;
@@ -45,6 +50,8 @@ contract BlinkJurors is IBlinkJurors, ReentrancyGuard {
     }
 
     uint256 private constant REWARD_PRECISION = 1e36;
+    uint256 private constant RATE_PRECISION = 1e18;
+    uint256 public constant REWARD_STREAM_SECONDS = 7 days;
 
     IBlinkRegistry public immutable registry;
     address public immutable markets;
@@ -52,6 +59,7 @@ contract BlinkJurors is IBlinkJurors, ReentrancyGuard {
     IERC20 public immutable token;
     IERC20 public immutable collateral;
     IBlinkPriceSource public immutable priceSource;
+    address public immutable treasury;
 
     mapping(address => Checkpoints.Trace208) private _stake;
     Checkpoints.Trace208 private _totalStake;
@@ -60,9 +68,18 @@ contract BlinkJurors is IBlinkJurors, ReentrancyGuard {
     uint256 public totalPending;
     uint256 public undistributedSlashed;
 
+    // jurors with a vote in an unsettled dispute cannot withdraw (resolution locks and unlocks)
+    mapping(address => uint256) public openVotes;
+
+    // bUSD streams linearly over REWARD_STREAM_SECONDS (Synthetix StakingRewards); rewardRate is scaled by RATE_PRECISION
     uint256 public rewardPerTokenStored;
-    uint256 public rewardCarry; // notified while nothing was staked; joins the next notify
-    uint256 public rewardsOwed; // notified bUSD not yet claimed (includes floor-rounding dust)
+    uint256 public rewardRate;
+    uint256 public periodFinish;
+    uint256 public lastUpdateTime;
+    uint256 private forfeitRemainder; // sub-micro part of stream time that elapsed with nothing staked
+    // notified bUSD not yet claimed by jurors nor sent to the treasury: accrued-unclaimed + unstreamed + dust.
+    // collateral.balanceOf(this) >= rewardsOwed
+    uint256 public rewardsOwed;
     mapping(address => uint256) public userRewardPerTokenPaid;
     mapping(address => uint256) public rewards;
 
@@ -71,7 +88,7 @@ contract BlinkJurors is IBlinkJurors, ReentrancyGuard {
         if (
             a.jurors != address(this) || a.registry == address(0) || a.markets == address(0)
                 || a.resolution == address(0) || a.collateral == address(0) || a.token == address(0)
-                || a.priceSource == address(0)
+                || a.priceSource == address(0) || a.treasury == address(0)
         ) revert WrongAddress();
         registry = IBlinkRegistry(a.registry);
         markets = a.markets;
@@ -79,6 +96,7 @@ contract BlinkJurors is IBlinkJurors, ReentrancyGuard {
         token = IERC20(a.token);
         collateral = IERC20(a.collateral);
         priceSource = IBlinkPriceSource(a.priceSource);
+        treasury = a.treasury;
     }
 
     function stake(uint256 amount) external nonReentrant {
@@ -90,7 +108,7 @@ contract BlinkJurors is IBlinkJurors, ReentrancyGuard {
         emit Staked(msg.sender, amount);
     }
 
-    function requestUnstake(uint256 amount) external {
+    function requestUnstake(uint256 amount) external nonReentrant {
         if (amount == 0) revert InvalidAmount();
         uint256 current = _stake[msg.sender].latest();
         if (amount > current) revert InsufficientStake();
@@ -112,6 +130,7 @@ contract BlinkJurors is IBlinkJurors, ReentrancyGuard {
         Unstake memory u = pendingUnstake[msg.sender];
         if (u.amount == 0) revert NothingToWithdraw();
         if (block.timestamp < u.unlockAt) revert CooldownActive();
+        if (openVotes[msg.sender] > 0) revert OpenVotes();
         delete pendingUnstake[msg.sender];
         totalPending -= u.amount;
         token.safeTransfer(msg.sender, u.amount);
@@ -144,20 +163,28 @@ contract BlinkJurors is IBlinkJurors, ReentrancyGuard {
         return totalStaked() * priceSource.tokenPriceMicros() / 1e18 / 2;
     }
 
-    function notifyReward(uint256 busdAmount) external {
+    /// @dev Streams the amount over REWARD_STREAM_SECONDS, adding any unstreamed remainder and restarting the
+    /// period. With nothing staked the amount goes straight to the treasury, as does stream time that elapses
+    /// with nothing staked, so a later staker never collects a past window.
+    function notifyReward(uint256 busdAmount) external nonReentrant {
         if (msg.sender != markets && msg.sender != resolution) revert UnauthorizedCaller();
         if (busdAmount == 0) return; // a zero juror share must not block the caller's settlement
+        _accrue();
         if (collateral.balanceOf(address(this)) < rewardsOwed + busdAmount) revert RewardNotFunded();
-        rewardsOwed += busdAmount;
-        uint256 total = _totalStake.latest();
-        uint256 distributable = busdAmount + rewardCarry;
-        if (total == 0) {
-            rewardCarry = distributable;
-        } else {
-            rewardCarry = 0;
-            rewardPerTokenStored += Math.mulDiv(distributable, REWARD_PRECISION, total);
+        if (_totalStake.latest() == 0) {
+            _toTreasury(busdAmount);
+            return;
         }
+        rewardsOwed += busdAmount;
+        uint256 leftover = block.timestamp < periodFinish ? (periodFinish - block.timestamp) * rewardRate : 0;
+        rewardRate = (busdAmount * RATE_PRECISION + leftover) / REWARD_STREAM_SECONDS;
+        lastUpdateTime = block.timestamp;
+        periodFinish = block.timestamp + REWARD_STREAM_SECONDS;
         emit RewardNotified(msg.sender, busdAmount, rewardPerTokenStored);
+    }
+
+    function unstreamedRewards() external view returns (uint256) {
+        return block.timestamp < periodFinish ? (periodFinish - block.timestamp) * rewardRate / RATE_PRECISION : 0;
     }
 
     /// @dev Takes from stake first, then from a pending unstake so requesting an exit cannot dodge a slash.
@@ -189,7 +216,47 @@ contract BlinkJurors is IBlinkJurors, ReentrancyGuard {
         emit JurorRewarded(juror, tokenAmount);
     }
 
+    function lockVote(address juror) external {
+        if (msg.sender != resolution) revert UnauthorizedCaller();
+        openVotes[juror] += 1;
+        emit VoteLocked(juror, openVotes[juror]);
+    }
+
+    function unlockVote(address juror) external {
+        if (msg.sender != resolution) revert UnauthorizedCaller();
+        if (openVotes[juror] == 0) revert NoOpenVote();
+        openVotes[juror] -= 1;
+        emit VoteUnlocked(juror, openVotes[juror]);
+    }
+
+    /// @dev Moves the stream up to now: into the per-token accumulator, or to the treasury if nothing is staked.
+    /// Runs before every stake change.
+    function _accrue() private {
+        uint256 to = Math.min(block.timestamp, periodFinish);
+        uint256 from = lastUpdateTime;
+        if (to <= from) return;
+        lastUpdateTime = to;
+        uint256 streamed = (to - from) * rewardRate;
+        uint256 total = _totalStake.latest();
+        if (total > 0) {
+            rewardPerTokenStored += Math.mulDiv(streamed, REWARD_PRECISION / RATE_PRECISION, total);
+            return;
+        }
+        streamed += forfeitRemainder;
+        forfeitRemainder = streamed % RATE_PRECISION;
+        uint256 forfeited = streamed / RATE_PRECISION;
+        if (forfeited == 0) return;
+        rewardsOwed -= forfeited;
+        _toTreasury(forfeited);
+    }
+
+    function _toTreasury(uint256 amount) private {
+        collateral.safeTransfer(treasury, amount);
+        emit RewardsForfeited(amount);
+    }
+
     function _settle(address juror) private {
+        _accrue();
         uint256 delta = rewardPerTokenStored - userRewardPerTokenPaid[juror];
         if (delta == 0) return;
         rewards[juror] += Math.mulDiv(_stake[juror].latest(), delta, REWARD_PRECISION);
