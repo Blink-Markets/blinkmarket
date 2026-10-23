@@ -355,12 +355,19 @@ The 7-day window is far longer than any of these windows.
 ## Open Items (not done by this plan)
 
 1. **Unmapped outbox events.** `alert.deadline`, `market.creation_requested` and `market.creation_observed` are still stamped dispatched with no consumer. Task 3's retention now bounds them, but no one consumes them.
+   - 2026-10-23: superseded. These events belong to the human approval and resolution flows that the autonomous-market design removes.
 2. **Declared job types that are never enqueued:** `candidate.validate`, `market.deploy`, `budget.reconcile`, `chain.reconcile`, `tx.track`. `budget.reconcile` must exist before any paid model gateway.
+   - 2026-10-23: `candidate.validate`, `market.deploy` and `budget.reconcile` are superseded (platform discovery, admin deployment and platform model spend go away). `chain.reconcile` and `tx.track` are still relevant to the indexer.
 3. **Runtime-role refusal message.** It should say what to fix (`packages/adapters/src/runtime-role.ts`).
+   - 2026-10-23: still relevant. The check covers every service login, not only the signer.
 4. **Alerts.** No startup check that the alert sink is reachable. No chat-webhook format adapter: dropped while `ALERT_SINK=file` is used.
+   - 2026-10-23: still relevant (infrastructure alerts stay with the platform).
 5. **Pending finality stays visible.** A finality stall longer than about 70 minutes still dead-letters `tx.dispatch` and alerts. That is intended, because it is a real chain condition. The sweep keeps re-enqueueing it.
+   - 2026-10-23: superseded. The platform will no longer send transactions, so `tx.dispatch` goes away with the signer.
 6. **Shared limiter.** A shared rate limiter is still needed before running more than one API instance (Open Item 3 of the public-alpha plan).
+   - 2026-10-23: still relevant.
 7. **Parked minor findings from the task reviews:**
+   - 2026-10-23: Task 1 (`tx.dispatch`, `faucet.mint`) and Task 4 (signer caller tokens) are superseded; Task 2 (trusted proxy) and Task 3 (retention) are still relevant.
    - **Task 1:**
      - The anvil test's `faucet.mint` assertion checks rows created at claim time, not the rows the sweep re-enqueues.
      - No red run was captured.
