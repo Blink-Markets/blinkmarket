@@ -106,6 +106,9 @@ interface IBlinkMarkets {
     function cancelQuote(Quote calldata q) external;
     function incrementMakerEpoch() external;
     function makerEpoch(address maker) external view returns (uint256);
+    function hashQuote(Quote calldata q) external view returns (bytes32);
+    function consumed(bytes32 digest) external view returns (bool);
+    function cancelled(bytes32 digest) external view returns (bool);
     function getPosition(uint256 id, address account) external view returns (uint256 yesShares, uint256 noShares);
 
     // settlement

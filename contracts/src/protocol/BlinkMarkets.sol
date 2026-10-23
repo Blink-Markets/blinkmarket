@@ -8,9 +8,11 @@ import {Role, QuestionClass, MarketState, Outcome, Params, GenerationAddresses} 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-// Creation slice; trading and settlement complete IBlinkMarkets in Tasks 5 and 8.
-contract BlinkMarkets is ReentrancyGuard {
+// Settlement completes IBlinkMarkets in Task 8.
+contract BlinkMarkets is EIP712, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     error WrongChain();
@@ -32,6 +34,20 @@ contract BlinkMarkets is ReentrancyGuard {
     error CreationChallengePending();
     error InvalidState();
     error InvalidAddress();
+    error MarketNotOpen();
+    error MarketClosed();
+    error InvalidTaker();
+    error InvalidSide();
+    error InvalidQuantity();
+    error InvalidPrice();
+    error CapExceeded();
+    error InvalidQuoteTime();
+    error EpochMismatch();
+    error QuoteAlreadyConsumed();
+    error QuoteAlreadyCancelled();
+    error InvalidSignature();
+    error InsufficientMakerBalance();
+    error InvalidAmount();
 
     event TemplateRegistered(bytes32 indexed templateId, QuestionClass cls, bytes32 parserHash, string uri);
     event MarketCreated(
@@ -55,6 +71,22 @@ contract BlinkMarkets is ReentrancyGuard {
     event MarketProposed(uint256 indexed marketId);
     event MarketDisputed(uint256 indexed marketId);
     event MarketFinalized(uint256 indexed marketId, Outcome outcome);
+    event MakerDeposited(address indexed maker, uint256 amount);
+    event MakerWithdrawn(address indexed maker, uint256 amount);
+    event QuoteCancelled(bytes32 indexed digest);
+    event MakerEpochIncremented(address indexed maker, uint256 epoch);
+    event QuoteFilled(
+        uint256 indexed marketId,
+        bytes32 indexed digest,
+        address maker,
+        address indexed taker,
+        uint8 side,
+        uint64 quantity,
+        uint16 priceBps,
+        uint256 takerCost,
+        uint256 makerCost,
+        uint256 fee
+    );
 
     struct Template {
         QuestionClass cls;
@@ -62,7 +94,15 @@ contract BlinkMarkets is ReentrancyGuard {
         bool reviewed;
     }
 
+    struct Position {
+        uint256 yes;
+        uint256 no;
+    }
+
     uint256 public constant UNIT = 1_000_000;
+    bytes32 public constant QUOTE_TYPEHASH = keccak256(
+        "Quote(uint256 marketId,bytes32 specHash,address maker,address taker,uint8 side,uint64 quantity,uint16 priceBps,uint64 validAfter,uint64 expiresAt,uint256 nonce,uint256 epoch)"
+    );
     IBlinkRegistry public immutable registry;
     IBlinkJurors public immutable jurors;
     IERC20 public immutable collateral;
@@ -74,13 +114,20 @@ contract BlinkMarkets is ReentrancyGuard {
     mapping(bytes32 => Template) private templates;
     mapping(uint256 => IBlinkMarkets.Market) internal markets;
     mapping(uint256 => string) private specURIs;
+    mapping(address => uint256) public makerFree;
+    mapping(address => uint256) public makerEpoch;
+    mapping(bytes32 => bool) public consumed;
+    mapping(bytes32 => bool) public cancelled;
+    mapping(uint256 => uint256) public feePool;
+    mapping(uint256 => mapping(address => Position)) private positions;
+    mapping(uint256 => mapping(address => uint256)) public cumulativeTakerShares;
 
     modifier onlyResolution() {
         if (msg.sender != resolution) revert UnauthorizedCaller();
         _;
     }
 
-    constructor(GenerationAddresses memory a) {
+    constructor(GenerationAddresses memory a) EIP712("Blink RFQ", "0.2") {
         if (block.chainid != 84532) revert WrongChain();
         if (
             a.markets != address(this) || a.registry == address(0) || a.jurors == address(0)
@@ -169,6 +216,96 @@ contract BlinkMarkets is ReentrancyGuard {
 
     // shortcut: settlement accounting arrives in Task 8; no FINAL credits are reported in this slice.
     function finalizedCount() public view virtual returns (uint256) { return 0; }
+
+    function depositMaker(uint256 amount) external nonReentrant {
+        if (!registry.hasRole(msg.sender, Role.MAKER)) revert MissingRole();
+        if (amount == 0) revert InvalidAmount();
+        collateral.safeTransferFrom(msg.sender, address(this), amount);
+        makerFree[msg.sender] += amount;
+        emit MakerDeposited(msg.sender, amount);
+    }
+
+    // Free collateral remains withdrawable after role exit; filled pairs already hold both sides in escrow.
+    function withdrawMaker(uint256 amount) external nonReentrant {
+        if (amount == 0) revert InvalidAmount();
+        if (amount > makerFree[msg.sender]) revert InsufficientMakerBalance();
+        makerFree[msg.sender] -= amount;
+        collateral.safeTransfer(msg.sender, amount);
+        emit MakerWithdrawn(msg.sender, amount);
+    }
+
+    function hashQuote(IBlinkMarkets.Quote calldata q) public view returns (bytes32) {
+        return _hashTypedDataV4(keccak256(abi.encode(QUOTE_TYPEHASH, q)));
+    }
+
+    function fillQuote(IBlinkMarkets.Quote calldata q, bytes calldata signature) external nonReentrant {
+        IBlinkMarkets.Market storage m = _market(q.marketId);
+        if (m.state != MarketState.OPEN || block.timestamp < m.openAt) revert MarketNotOpen();
+        if (block.timestamp >= m.closeAt) revert MarketClosed();
+        if (q.taker != msg.sender || q.taker == q.maker) revert InvalidTaker();
+        if (!registry.hasRole(q.maker, Role.MAKER) || !registry.hasRole(msg.sender, Role.TAKER)) revert MissingRole();
+        if (q.specHash != m.specHash) revert InvalidSpec();
+        if (q.side > 1) revert InvalidSide();
+        Params memory p = registry.params();
+        if (q.quantity == 0 || q.quantity > p.maxFillShares) revert InvalidQuantity();
+        if (q.priceBps == 0 || q.priceBps >= 10_000) revert InvalidPrice();
+        if (
+            m.totalMintedPairs + q.quantity > m.maxPairs
+                || cumulativeTakerShares[q.marketId][msg.sender] + q.quantity > p.maxTakerShares
+        ) revert CapExceeded();
+        if (
+            !(q.validAfter <= block.timestamp && block.timestamp < q.expiresAt && q.expiresAt <= m.closeAt)
+                || q.expiresAt - q.validAfter > 60
+        ) revert InvalidQuoteTime();
+        if (q.epoch != makerEpoch[q.maker]) revert EpochMismatch();
+        bytes32 digest = hashQuote(q);
+        if (consumed[digest]) revert QuoteAlreadyConsumed();
+        if (cancelled[digest]) revert QuoteAlreadyCancelled();
+        (address recovered, ECDSA.RecoverError error,) = ECDSA.tryRecover(digest, signature);
+        if (error != ECDSA.RecoverError.NoError || recovered != q.maker) revert InvalidSignature();
+        uint256 notional = uint256(q.quantity) * UNIT;
+        uint256 takerCost = uint256(q.quantity) * q.priceBps * 100;
+        uint256 makerCost = notional - takerCost;
+        uint256 fee = takerCost * p.feeBps / 10_000;
+        if (makerFree[q.maker] < makerCost) revert InsufficientMakerBalance();
+        consumed[digest] = true;
+        makerFree[q.maker] -= makerCost;
+        m.escrowMicros += notional;
+        m.totalMintedPairs += q.quantity;
+        cumulativeTakerShares[q.marketId][msg.sender] += q.quantity;
+        feePool[q.marketId] += fee;
+        Position storage t = positions[q.marketId][msg.sender];
+        Position storage makerPosition = positions[q.marketId][q.maker];
+        if (q.side == 0) {
+            t.yes += q.quantity;
+            makerPosition.no += q.quantity;
+        } else {
+            t.no += q.quantity;
+            makerPosition.yes += q.quantity;
+        }
+        collateral.safeTransferFrom(msg.sender, address(this), takerCost + fee);
+        emit QuoteFilled(q.marketId, digest, q.maker, msg.sender, q.side, q.quantity, q.priceBps, takerCost, makerCost, fee);
+    }
+
+    function cancelQuote(IBlinkMarkets.Quote calldata q) external {
+        if (q.maker != msg.sender) revert InvalidTaker();
+        bytes32 digest = hashQuote(q);
+        if (consumed[digest]) revert QuoteAlreadyConsumed();
+        if (!cancelled[digest]) {
+            cancelled[digest] = true;
+            emit QuoteCancelled(digest);
+        }
+    }
+
+    function incrementMakerEpoch() external {
+        emit MakerEpochIncremented(msg.sender, ++makerEpoch[msg.sender]);
+    }
+
+    function getPosition(uint256 id, address account) external view returns (uint256 yesShares, uint256 noShares) {
+        _market(id);
+        Position storage p = positions[id][account];
+        return (p.yes, p.no);
+    }
 
     function open(uint256 id) external {
         IBlinkMarkets.Market storage m = _market(id);
