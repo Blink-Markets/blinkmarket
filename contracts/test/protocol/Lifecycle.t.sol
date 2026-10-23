@@ -20,6 +20,7 @@ abstract contract ProtocolScenario is ProtocolBase {
     BlinkJurors internal jurors;
     BlinkMarkets internal markets;
     BlinkResolution internal resolution;
+    BlinkGovernor internal gov;
     Params internal p;
     address internal creator;
     address internal maker;
@@ -29,6 +30,7 @@ abstract contract ProtocolScenario is ProtocolBase {
     address internal challenger;
     address internal j1;
     address internal j2;
+    address internal keeper;
     bytes32 internal templateId;
     uint256 internal serial;
 
@@ -55,6 +57,7 @@ abstract contract ProtocolScenario is ProtocolBase {
 
     function _setupGeneration(Params memory params) internal {
         p = params;
+        gov = new BlinkGovernor(token, 1 days, 3 days, 10e18, 4, 2 days);
         (registry, jurors, markets, resolution) = deployGeneration(p, address(0));
         creator = _role(actor("lifecycle creator"), Role.CREATOR);
         maker = _role(vm.addr(MAKER_KEY), Role.MAKER);
@@ -65,6 +68,8 @@ abstract contract ProtocolScenario is ProtocolBase {
         j1 = actor("lifecycle juror 1");
         j2 = actor("lifecycle juror 2");
         _identity(j1); _identity(j2);
+        keeper = actor("keeper");
+        _identity(keeper);
         vm.startPrank(j1);
         token.approve(address(jurors), type(uint256).max);
         jurors.stake(510e18);
@@ -90,7 +95,7 @@ abstract contract ProtocolScenario is ProtocolBase {
     function _open(uint256 id) internal {
         uint64 at = markets.getMarket(id).openAt;
         if (token.clock() < at) vm.warp(at);
-        markets.open(id);
+        vm.prank(keeper); markets.open(id);
     }
 
     function _quote(uint256 id, uint256 key, address buyer, uint8 side, uint64 qty)
@@ -116,7 +121,7 @@ abstract contract ProtocolScenario is ProtocolBase {
     function _unchallenged(uint256 id) internal {
         _propose(id);
         vm.warp(token.clock() + p.resultChallengeWindow[0]);
-        resolution.finalizeUnchallenged(id);
+        vm.prank(keeper); resolution.finalizeUnchallenged(id);
     }
 
     function _resultDispute(uint256 id) internal returns (uint256 dispute) {
@@ -136,12 +141,14 @@ abstract contract ProtocolScenario is ProtocolBase {
         vm.warp(r.commitEnd);
         vm.prank(j1); resolution.revealVote(dispute, choice1, EVIDENCE);
         vm.prank(j2); resolution.revealVote(dispute, choice2, EVIDENCE);
-        vm.warp(r.revealEnd); resolution.settleRound(dispute);
+        vm.warp(r.revealEnd);
+        vm.prank(keeper); resolution.settleRound(dispute);
     }
 
     function _finalize(uint256 dispute) internal {
         (, IBlinkResolution.Round memory r) = resolution.getDispute(dispute);
-        vm.warp(r.appealEnd); resolution.finalizeDispute(dispute);
+        vm.warp(r.appealEnd);
+        vm.prank(keeper); resolution.finalizeDispute(dispute);
     }
 
     function _creatorFinal(uint256 id, Outcome outcome, uint256 before, uint256 expectedCredit) internal {
@@ -157,7 +164,8 @@ abstract contract ProtocolScenario is ProtocolBase {
         vm.prank(creator); registry.requestRoleExit(Role.CREATOR);
         vm.warp(token.clock() + p.roleExitCooldown);
         vm.prank(creator); registry.withdrawRole(Role.CREATOR);
-        vm.expectRevert(BlinkResolution.InvalidState.selector); resolution.finalizeTimeout(id);
+        vm.expectRevert(BlinkResolution.InvalidState.selector);
+        vm.prank(keeper); resolution.finalizeTimeout(id);
         eq(markets.finalizedCount(), 1);
     }
 }
@@ -168,7 +176,7 @@ contract LifecycleTest is ProtocolScenario {
         _fill(id, MAKER_KEY, taker, 0, 10);
         _fill(id, MAKER2_KEY, taker, 1, 10);
         _unchallenged(id);
-        vm.prank(actor("keeper")); markets.distributeFees(id);
+        vm.prank(keeper); markets.distributeFees(id);
         vm.prank(taker); markets.redeem(id);
         vm.prank(maker); markets.redeem(id);
         vm.prank(maker2); markets.redeem(id);
@@ -185,19 +193,22 @@ contract LifecycleTest is ProtocolScenario {
         eq(busd.balanceOf(taker), 889900000);
         eq(busd.balanceOf(proposer), 890014250);
         eq(busd.balanceOf(challenger), 890e6);
-        eq(busd.balanceOf(actor("keeper")), 750);
-        eq(busd.balanceOf(treasury), 80030000);
+        eq(busd.balanceOf(keeper), 990000750);
+        eq(busd.balanceOf(treasury), 90030000);
         eq(busd.balanceOf(address(registry)), 600e6);
         eq(busd.balanceOf(address(markets)), 0);
         eq(busd.balanceOf(address(resolution)), 0);
         eq(markets.getMarket(id).escrowMicros, 0);
         uint256 total = busd.balanceOf(creator) + busd.balanceOf(maker) + busd.balanceOf(maker2)
             + busd.balanceOf(taker) + busd.balanceOf(proposer) + busd.balanceOf(challenger)
-            + busd.balanceOf(j1) + busd.balanceOf(j2) + busd.balanceOf(actor("keeper"))
+            + busd.balanceOf(j1) + busd.balanceOf(j2) + busd.balanceOf(keeper)
             + busd.balanceOf(treasury) + busd.balanceOf(address(registry)) + busd.balanceOf(address(jurors));
-        eq(total, 8 * faucet.CLAIM_BUSD());
+        eq(total, 9 * faucet.CLAIM_BUSD());
         eq(total, busd.totalSupply());
-        require(busd.balanceOf(j1) > 990e6 && busd.balanceOf(j2) > 990e6, "stream paid both jurors");
+        // The 30,000-micro stream splits 51/49; rate and claim flooring retain two micros.
+        eq(busd.balanceOf(j1), 990e6 + 15299);
+        eq(busd.balanceOf(j2), 990e6 + 14699);
+        eq(busd.balanceOf(address(jurors)), 2);
         eq(busd.balanceOf(address(jurors)), jurors.rewardsOwed());
     }
 
@@ -208,9 +219,11 @@ contract LifecycleTest is ProtocolScenario {
         vm.prank(proposer); resolution.appeal(dispute);
         (IBlinkResolution.Dispute memory d,) = resolution.getDispute(dispute);
         eq(d.currentRound, 1); eq(d.appealRound, 1); eq(d.lastBond, 10e6);
-        resolution.settleVote(dispute, 0, j1); resolution.settleVote(dispute, 0, j2);
+        vm.prank(keeper); resolution.settleVote(dispute, 0, j1);
+        vm.prank(keeper); resolution.settleVote(dispute, 0, j2);
         _round(dispute, 0, 0); _finalize(dispute);
-        resolution.settleVote(dispute, 1, j1); resolution.settleVote(dispute, 1, j2);
+        vm.prank(keeper); resolution.settleVote(dispute, 1, j1);
+        vm.prank(keeper); resolution.settleVote(dispute, 1, j2);
         eq(uint256(markets.getMarket(id).finalOutcome), uint256(Outcome.YES));
         eq(jurors.openVotes(j1) + jurors.openVotes(j2), 0);
         eq(busd.balanceOf(address(resolution)), 0);
@@ -227,7 +240,8 @@ contract LifecycleTest is ProtocolScenario {
         uint256 id = _create(100);
         vm.prank(challenger); uint256 dispute = resolution.challengeCreation(id, 1, EVIDENCE);
         _round(dispute, 1, 1); _finalize(dispute);
-        resolution.settleVote(dispute, 0, j1); resolution.settleVote(dispute, 0, j2);
+        vm.prank(keeper); resolution.settleVote(dispute, 0, j1);
+        vm.prank(keeper); resolution.settleVote(dispute, 0, j2);
         eq(uint256(markets.getMarket(id).state), uint256(MarketState.CANCELLED));
         eq(markets.openPayoutTotal(), 0); eq(markets.finalizedCount(), 0);
         eq(markets.getMarket(id).creationBond, 0);
@@ -241,8 +255,10 @@ contract LifecycleTest is ProtocolScenario {
         uint256 id = _create(100); _open(id);
         _fill(id, MAKER_KEY, taker, 0, 10);
         vm.warp(markets.getMarket(id).hardDeadline - 1);
-        vm.expectRevert(BlinkResolution.DeadlineViolation.selector); resolution.finalizeTimeout(id);
-        vm.warp(markets.getMarket(id).hardDeadline); resolution.finalizeTimeout(id);
+        vm.expectRevert(BlinkResolution.DeadlineViolation.selector);
+        vm.prank(keeper); resolution.finalizeTimeout(id);
+        vm.warp(markets.getMarket(id).hardDeadline);
+        vm.prank(keeper); resolution.finalizeTimeout(id);
         uint256 before = busd.balanceOf(taker);
         vm.prank(taker); markets.redeem(id);
         eq(busd.balanceOf(taker) - before, 5e6);
@@ -256,8 +272,9 @@ contract LifecycleTest is ProtocolScenario {
         vm.prank(challenger); uint256 dispute = resolution.challengeCreation(id, 1, EVIDENCE);
         _commit(dispute, j1, 1);
         uint256 before = busd.balanceOf(creator);
-        vm.warp(markets.getMarket(id).hardDeadline); resolution.finalizeTimeout(id);
-        resolution.settleVote(dispute, 0, j1);
+        vm.warp(markets.getMarket(id).hardDeadline);
+        vm.prank(keeper); resolution.finalizeTimeout(id);
+        vm.prank(keeper); resolution.settleVote(dispute, 0, j1);
         eq(jurors.openVotes(j1), 0);
         _creatorFinal(id, Outcome.INVALID, before, 0);
         vm.prank(challenger); registry.requestRoleExit(Role.CHALLENGER);
@@ -269,7 +286,8 @@ contract LifecycleTest is ProtocolScenario {
         uint256 id = _create(100);
         vm.prank(challenger); uint256 dispute = resolution.challengeCreation(id, 1, EVIDENCE);
         _round(dispute, 0, 0); _finalize(dispute);
-        resolution.settleVote(dispute, 0, j1); resolution.settleVote(dispute, 0, j2);
+        vm.prank(keeper); resolution.settleVote(dispute, 0, j1);
+        vm.prank(keeper); resolution.settleVote(dispute, 0, j2);
         eq(uint256(markets.getMarket(id).state), uint256(MarketState.OPEN));
         uint256 before = busd.balanceOf(creator);
         _unchallenged(id);
@@ -279,7 +297,6 @@ contract LifecycleTest is ProtocolScenario {
     function test_generationTwoImportsCredit() public {
         uint256 id = _create(200); _open(id); _unchallenged(id);
         (BlinkRegistry next,,,) = deployGeneration(p, address(registry));
-        BlinkGovernor gov = new BlinkGovernor(token, 1 days, 3 days, 10e18, 4, 2 days);
         vm.prank(creator); token.delegate(creator);
         vm.warp(token.clock() + 1);
         address[] memory targets = new address[](1); targets[0] = address(gov);
@@ -289,7 +306,7 @@ contract LifecycleTest is ProtocolScenario {
         vm.warp(gov.proposalSnapshot(proposal) + 1);
         vm.prank(creator); gov.castVote(proposal, 1);
         vm.warp(gov.proposalDeadline(proposal) + 1);
-        gov.execute(targets, values, calls, keccak256("adopt real generation two"));
+        vm.prank(keeper); gov.execute(targets, values, calls, keccak256("adopt real generation two"));
         require(gov.successor() == address(0), "adoption delay");
         vm.warp(gov.successorEffectiveAt());
         require(gov.successor() == address(next), "governance adopted real registry");
