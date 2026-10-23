@@ -39,7 +39,6 @@ interface IBlinkMarkets {
         bool feesDistributed;
         bytes32 templateId;
         bytes32 specHash;
-        string specURI;
         uint64 openAt;
         uint64 closeAt;
         uint64 proposalDeadline;
@@ -49,6 +48,22 @@ interface IBlinkMarkets {
         uint256 escrowMicros;
         uint256 creationBond; // held by markets; zero once returned or paid out
     }
+
+    event MarketCreated(
+        uint256 indexed marketId,
+        address indexed creator,
+        bytes32 indexed specHash,
+        string specURI,
+        bytes32 templateId,
+        QuestionClass cls,
+        bool replay,
+        uint64 openAt,
+        uint64 closeAt,
+        uint64 proposalDeadline,
+        uint64 hardDeadline,
+        uint64 maxPairs,
+        uint256 creationBond
+    );
 
     event QuoteFilled(
         uint256 indexed marketId,
@@ -70,6 +85,7 @@ interface IBlinkMarkets {
     function createMarket(CreateArgs calldata a) external returns (uint256 id);
     function open(uint256 id) external;
     function getMarket(uint256 id) external view returns (Market memory);
+    function specURI(uint256 id) external view returns (string memory);
     function maxPayout(uint256 id) external view returns (uint256);
     function openPayoutTotal() external view returns (uint256);
     function openPayoutByCreator(address creator) external view returns (uint256);
