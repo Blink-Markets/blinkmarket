@@ -23,3 +23,33 @@ pnpm replay
 constructor 檢查 collateral code/decimals，正式部署還必須以 manifest、ABI/runtime bytecode hash 與鏈上 getters 核對是正確 BlinkTestUSD，不能只用6位小數辨識資產。Getter 的 proposedOutcome / finalOutcome 必須搭配 state 判斷是否存在，不把 enum 預設值當已公布答案。
 
 沒有 Sepolia 部署、真實資產或外部安全審計。測試矩陣與限制見 [M0/M1 交付記錄](../docs/M0_M1_DELIVERY.md)。
+
+## P1 Task 4: market creation slice
+
+`protocol/BlinkMarkets.sol` adds permissionless templates, class-dependent creation windows,
+creator bonds and exposure limits, the global juror security bound, creator role locks,
+and resolution-only creation/result state hooks. `IBlinkMarkets.Market` keeps its URI in
+the separate `specURI(id)` getter; `MarketCreated` includes the URI.
+
+Spec uniqueness is per creator, keyed by `keccak256(abi.encode(creator, specHash))`
+in `usedSpecHashes`. Every market on an unreviewed template gets the extra review
+window until one market reaches OPEN through `open` or a rejected creation challenge.
+Cancellation does not review the template. Creation requires `openAt < closeAt`.
+
+Creation tests use the real registry and jurors, predicted resolution caller, and a
+test-only finalized-count stub. Run them with
+`node scripts/foundry.mjs forge test --root contracts --match-path test/protocol/MarketsCreation.t.sol`.
+They cover bond accounting, phase-in and credit, windows, security limits, cancellation,
+role locks, reward streaming, access control, and failure rollback.
+
+This is a partial P1 delivery: Task 5 adds trading, Tasks 6–7 provide real resolution,
+and Task 8 adds FINAL bond return, exposure release, creator unlock, credit and the
+finalized counter. Until Task 8, `finalizedCount()` returns zero and FINAL hooks only
+record state/outcome. An early rejected creation challenge sets OPEN with the original
+future `openAt`; trading must enforce that timestamp. No deployment was performed.
+
+Fix round 1: 30 focused tests (including 256 cancellation fuzz cases), all 121
+Solidity tests, and `pnpm check:contracts` passed; BlinkMarkets runtime is 9,693
+bytes. The alerts TypeScript suite is skipped per the controller's fix instructions;
+the controller verifies `pnpm check` on main. This worktree does not claim that
+repository-wide check passed.
