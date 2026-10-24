@@ -1,85 +1,185 @@
-# P1 自治協議合約交付
+# P1 autonomous protocol contracts delivery
 
-P1 提供 agent 自助運作的鏈上協議：身份與角色押金、建市挑戰、多 maker RFQ、完整抵押、分層結算、信用、Juror 押金與治理、自助 faucet。既有 v0.1 合約與鏈下服務仍保留；本階段沒有部署、簽署或廣播交易。P2 才接部署工具、正式參數、API／adapters／indexer 與新 ABI；P3 才提供自治 agent 演練。
+P1 delivers the on-chain protocol that agents run on their own:
+- identity and role stakes;
+- market-creation challenges;
+- multi-maker RFQ with full collateral;
+- layered settlement;
+- credit;
+- juror stakes and governance;
+- a self-serve faucet.
 
-## 合約與部署順序
+The existing v0.1 contracts and off-chain services remain in place. This stage involves no deployment, no signing and no broadcast transactions.
 
-所有 constructor 限定 Base Sepolia（84532）。先部署 `BlinkFaucet`（內部建立未修改的 `BlinkTestUSD` 與 `BlinkToken`）、`FixedPriceSource` 及使用 timestamp 快照的 `BlinkGovernor`。faucet 是兩種測試資產的 immutable minter。
+P2 adds the deployment tooling, the production parameters, the API, adapters and indexer, and the new ABI. P3 adds the autonomous agent drill.
 
-每一世代先預測同一 deployer 的四個 CREATE 地址，再依 nonce 順序部署：
+## Contracts and deployment order
 
-| 順序 | 合約 | 職責 |
+Every constructor is restricted to Base Sepolia (84532). The shared contracts are deployed first:
+- `BlinkFaucet`, which internally creates the unmodified `BlinkTestUSD` and `BlinkToken`;
+- `FixedPriceSource`;
+- `BlinkGovernor`, which uses timestamp snapshots.
+
+The faucet is the immutable minter of both test assets.
+
+For each generation, the four CREATE addresses of the same deployer are predicted first. The contracts are then deployed in nonce order:
+
+| Order | Contract | Responsibility |
 | --- | --- | --- |
-| n | `BlinkRegistry` | 身份、bUSD 角色押金、退出鎖、信用與前世代匯入、部署時固定的 Params |
-| n+1 | `BlinkJurors` | 平台幣押金快照、冷卻退出、vote locks、slash／reward、bUSD 七日串流 |
-| n+2 | `BlinkMarkets` | 題目模板、建市窗口與押金、maker 抵押、EIP-712 RFQ、費用、持倉與贖回 |
-| n+3 | `BlinkResolution` | 提案、建市／結果挑戰、commit/reveal、上訴、逐票結算與 hard deadline |
+| n | `BlinkRegistry` | identity, bUSD role stakes, exit locks, credit and import from the previous generation, Params fixed at deployment |
+| n+1 | `BlinkJurors` | platform-token stake snapshots, cooldown exits, vote locks, slash/reward, the seven-day bUSD stream |
+| n+2 | `BlinkMarkets` | question templates, creation windows and bonds, maker collateral, EIP-712 RFQ, fees, positions and redemption |
+| n+3 | `BlinkResolution` | proposals, creation and result challenges, commit/reveal, appeals, per-vote settlement and the hard deadline |
 
-每個 constructor 檢查自身預測地址，跨合約權限固定於 constructor。沒有 owner、admin、pause、initializer、bind 或 upgrade。結算 hooks 僅允許同世代 resolution 呼叫。治理只能提案 `adoptSuccessor`，通過並等待 adoption delay 後採用下一世代 registry，不能改舊市場規則、結果或託管資產。事故時平台能停止 API 轉發、公告與發布新世代，無法暫停鏈上合約。
+Each constructor checks its own predicted address, and cross-contract permissions are fixed in the constructors.
+- There is no owner, admin, pause, initializer, bind or upgrade.
+- Settlement hooks may only be called by the resolution contract of the same generation.
+- Governance can only propose `adoptSuccessor`. After the proposal passes and the adoption delay elapses, it adopts the next generation's registry. Governance cannot change an old market's rules, results or custodied assets.
+- During an incident, the platform can stop API relaying, publish announcements and release a new generation. It cannot pause the on-chain contracts.
 
-## 參數與資產單位
+## Parameters and asset units
 
-`Params` 存於 registry，部署後沒有 setter；改經濟參數就要部署新世代。測試值在 `ProtocolBase.defaultParams()`，不代表正式參數。bUSD 為 6 位小數、每對完整 YES／NO 以 `UNIT = 1_000_000` 完整抵押；平台幣為 18 位小數。BPS 分母為 10,000。
+`Params` lives in the registry and has no setter after deployment. Changing an economic parameter requires deploying a new generation.
 
-| 參數群 | 意義 |
+The test values are in `ProtocolBase.defaultParams()` and are not the production parameters.
+
+Units:
+- bUSD has 6 decimals. Each complete YES/NO pair is fully collateralized with `UNIT = 1_000_000`.
+- The platform token has 18 decimals.
+- The BPS denominator is 10,000.
+
+| Parameter group | Meaning |
 | --- | --- |
-| `registrationFee`、`minRoleStake`、`roleExitCooldown` | 不退還的註冊費、各業務角色 bUSD 最低押金與退出冷卻；有未完成義務不能提款 |
-| `feeBps`、五種 `*ShareBps`、`keeperTipBps` | taker 付款手續費；treasury／creator／resolution／juror／bounty 五份合計 10,000；keeper tip 從 resolution 份額扣除，分配捨入餘額歸 treasury |
-| `creationBondBps`、`proposerBondBps`、`challengeBondBps`、`jurorBondCutBps` | 押金以固定的 `maxPairs × UNIT` 計，不隨成交或未平倉量下降；losing bond 的 juror cut 以 bUSD 支付，上訴押金逐次加倍 |
-| `maxCreditDiscountBps`、`creditDiscountStepBps`、`creditMultiplierStepBps`、`maxCreditMultiplierBps`、`creatorExposureMultiple` | 信用折扣有下限、放寬 creator 曝險；信用不放大投票權重、不直接發錢 |
-| `creationWindow`、`firstUseExtraWindow`、`resultChallengeWindow`、`minResultChallengeWindow`、`challengeWindowStepSeconds` | 三類題目的建市與結果挑戰窗口；未通過審查的模板每個市場都有額外窗口；提案時信用決定該次結果窗口 |
-| `commitSeconds`、`revealSeconds`、`appealSeconds`、`maxRounds`、`quorumBps` | commit／reveal／上訴期限；最多四個上訴層級；tie 或無 quorum 在同層重開，`currentRound` 包含重開，`appealRound` 只計上訴 |
-| `nonRevealSlashBps`、`incoherentSlashBps`、`roleSlashBps`、`jurorUnstakeCooldown` | 未揭票、非一致投票與敗方業務押金的處罰；Juror 退出冷卻與 vote unlock 條件 |
-| `securityMultipleBps`、`maxMarketPairs`、`maxTakerShares`、`maxFillShares` | 建市／退出時的全域安全倍率、各市場／taker／成交上限；`openPayoutTotal × securityMultipleBps <= attackCostMicros × 10000` |
-| `creditHalfLife`、`creditUnitMicros`、`creditGainCap`、`creditLossMultiplier` | 以已定案最大賠付計信用，限制每次增益、按期減半並加重損失；不以成交量計分 |
-| `classCCreditThreshold`、`roundCreditThreshold`、`phaseInFinalizedMarkets` | C 類建市及各上訴層級的信用門檻；世代完成指定數量市場後啟用 |
-| `importDiscountBps`、`replayAllowed` | 前世代信用折扣匯入與部署層級 REPLAY 開關 |
+| `registrationFee`, `minRoleStake`, `roleExitCooldown` | Non-refundable registration fee, the minimum bUSD stake for each business role, and the exit cooldown. Withdrawal is blocked while obligations are outstanding. |
+| `feeBps`, the five `*ShareBps`, `keeperTipBps` | Fee on the taker's payment. The treasury, creator, resolution, juror and bounty shares sum to 10,000. The keeper tip is deducted from the resolution share. Distribution rounding remainders go to the treasury. |
+| `creationBondBps`, `proposerBondBps`, `challengeBondBps`, `jurorBondCutBps` | Bonds are computed on the fixed `maxPairs × UNIT`. They do not fall with fills or open interest. The juror cut of a losing bond is paid in bUSD. The appeal bond doubles with each appeal. |
+| `maxCreditDiscountBps`, `creditDiscountStepBps`, `creditMultiplierStepBps`, `maxCreditMultiplierBps`, `creatorExposureMultiple` | The credit discount has a floor and relaxes creator exposure. Credit neither amplifies voting weight nor pays money directly. |
+| `creationWindow`, `firstUseExtraWindow`, `resultChallengeWindow`, `minResultChallengeWindow`, `challengeWindowStepSeconds` | Creation and result-challenge windows for the three question classes. A template that has not passed review adds an extra window to every market. At proposal time, credit sets that proposal's result window. |
+| `commitSeconds`, `revealSeconds`, `appealSeconds`, `maxRounds`, `quorumBps` | Commit, reveal and appeal deadlines, and at most four appeal levels. A tie or a missing quorum reopens the same level. `currentRound` counts reopenings; `appealRound` counts only appeals. |
+| `nonRevealSlashBps`, `incoherentSlashBps`, `roleSlashBps`, `jurorUnstakeCooldown` | Penalties for not revealing, for incoherent votes and for the losing side's business stake. The juror exit cooldown and vote-unlock conditions. |
+| `securityMultipleBps`, `maxMarketPairs`, `maxTakerShares`, `maxFillShares` | The global security multiple checked at creation and exit, and the per-market, per-taker and per-fill limits: `openPayoutTotal × securityMultipleBps <= attackCostMicros × 10000`. |
+| `creditHalfLife`, `creditUnitMicros`, `creditGainCap`, `creditLossMultiplier` | Credit is computed on the maximum payout of finalized markets. Each gain is capped, credit halves every period, and losses weigh more. Fill volume does not score. |
+| `classCCreditThreshold`, `roundCreditThreshold`, `phaseInFinalizedMarkets` | Credit thresholds for class-C market creation and for each appeal level. They switch on after the generation has finalized the given number of markets. |
+| `importDiscountBps`, `replayAllowed` | Discounted credit import from the previous generation, and the deployment-level REPLAY switch. |
 
-`attackCostMicros` 是有效 Juror 總押金按價格折成 bUSD 後的一半。測試預設價格為每平台幣 1 bUSD、安全倍率 20,000；1,000 枚押金提供 500 bUSD attack cost，因此當下全域 open payout 上限為 250 bUSD。slash 可令這項關係暫時失效，見下方限制。
+`attackCostMicros` is half of the total active juror stake converted to bUSD at the price source.
 
-投票權重是 `min(snapshot stake, 目前 active stake + pending unstake)`；信用只作門檻，不放大權重。快照使用回合開始前一秒，晚加入的押金不算該回合。每回合開始時依當下 `finalizedCount` 固定信用門檻：未達 `phaseInFinalizedMarkets` 為 0，否則採該層 `roundCreditThreshold`；其他市場定案不會改變已開始回合的門檻（R41）。commit 仍以本人當下信用比較固定門檻，未保存歷史信用。建市 spec hash 依 creator 去重，不讓其他地址先占同一題目的 hash。
+Example with the test defaults:
+- the price is 1 bUSD per platform token and the security multiple is 20,000;
+- a stake of 1,000 tokens gives an attack cost of 500 bUSD;
+- so the global open payout is capped at 250 bUSD at that moment.
 
-建市必須滿足 `hardDeadline - proposalDeadline > resultChallengeWindow[cls] + maxRounds × (commitSeconds + revealSeconds + appealSeconds)`（R39）。每回合 `appealEnd = revealEnd + appealSeconds`，延遲 `settleRound` 不會延長上訴期限；若 `now + commitSeconds + revealSeconds >= hardDeadline`，上訴被拒絕，前回合結果仍可依其原定上訴期限定案。
+A slash can break this relation temporarily; see the limitations below.
 
-`fillQuote` 接受已註冊且具 MAKER 角色的 EOA 或 ERC-1271 合約錢包簽章，使用 OpenZeppelin 5.6.1 的 `SignatureChecker.isValidSignatureNowCalldata` 驗證。EOA 維持 65 bytes、low-s 的 ECDSA 規則；有程式碼的 maker 則以 staticcall 呼叫 `isValidSignature(digest, signature)`，只有回傳 ERC-1271 magic value `0x1626ba7e` 才接受，拒絕或 revert 均回報既有 `InvalidSignature()`。taker 綁定、完整抵押、費用、額度與以 digest 為鍵的重放防護維持原規則。
+Voting weight is `min(snapshot stake, current active stake + pending unstake)`. Credit is only a threshold and does not amplify weight.
 
-已揭票且未重開回合的平台幣獎懲，要等爭議定案後才結算，依最終選項判定一致與否（R40）。上訴翻案後，原回合的少數正確票不受非一致 slash，並按該回合最終選項的已揭票權重分配該層 pool；錯誤多數受 `incoherentSlashBps` 處罰。vote lock 保留至逐票結算。未揭票可在回合結束後先 slash；重開回合、timeout 與僅最後回合計信用的規則保留。
+The snapshot is taken one second before the round starts, so stake added later does not count for that round.
 
-## 信任假設
+Each round fixes its credit threshold at its start, from the `finalizedCount` at that moment:
+- below `phaseInFinalizedMarkets` the threshold is 0;
+- otherwise it is that level's `roundCreditThreshold`.
 
-「在公開列出的假設下，誠實是可證明的最佳策略」。最終安全假設是**快照內的可罰沒 Juror 押金為誠實多數**；押金無法無條件防止場外賄賂或 sybil。需要抗短期操縱、保守的平台幣價格，以及足夠的平台幣價值與流動性。攻擊會傷害市場信任與所押平台幣價值，是經濟假設，並非本機測試證明的價格保證。冷啟動押金少時，市場容量也必須小。詳見[核准設計 §5.12](superpowers/specs/2026-10-23-autonomous-market-design.md#512-信任假設必須公開寫明決定)。
+Other markets finalizing does not change the threshold of a round that has already started (R41). A commit still compares the juror's current credit with the fixed threshold; historical credit is not stored.
 
-## 測試網範圍
+Market-creation spec hashes are deduplicated per creator, so another address cannot claim the hash of the same question first.
 
-每地址每 24 小時可自助領取 1,000 bUSD 與 1,000 枚平台幣；地址可大量建立，faucet 不是抗 sybil 的資產發行。`FixedPriceSource` 是 immutable 固定測試價格，沒有真實流動性或抗操縱市場報價；測試幣沒有真實價值。尚未進行外部安全審計或主網經濟校準。
+Market creation must satisfy `hardDeadline - proposalDeadline > resultChallengeWindow[cls] + maxRounds × (commitSeconds + revealSeconds + appealSeconds)` (R39).
 
-## 已知限制
+For each round, `appealEnd = revealEnd + appealSeconds`; a late `settleRound` does not extend the appeal deadline. An appeal is rejected if `now + commitSeconds + revealSeconds >= hardDeadline`. The previous round's result can still finalize on its original appeal deadline.
 
-- ERC-1271 錢包的驗證答案在成交時讀取；錢包可以改變答案，因此先前有效的簽章不保證成交時仍有效。
-- timeout 前已 slash 的平台幣、某回合無人揭出最終選項時的 pool，以及分配捨入餘額可能留在 `jurors.undistributedSlashed`，沒有回收政策（Task 7 minor #4）。測試確認保留資產仍足額。
-- 每個 vote 的 slash／reward／信用／unlock，以及每個市場的 fee distribution，都需要 permissionless keeper 交易；沒有平台特權 keeper 自動代辦。定案後先結算同層所有 loser，再處理 coherent claims；最後回合已提早結算的未揭票者需在定案後再結算信用。
-- R17 只在 `createMarket` 與 `requestUnstake` 檢查全域安全界線；slash 不能被拒絕，可能令 attack cost 暫低於 open payout 所需值，直到市場關閉。invariant 檢查這兩種操作成功後沒有越界，沒有宣稱 slash 後仍永遠成立。
-- 精確 YES／NO 平手會重開，已揭票者不受 slash；約 50% 押金集團可持續拖延至 hardDeadline，再由 `finalizeTimeout` 成為 INVALID。challenger-side bonds 仍被沒收；未改 tie rule（minor #7／R38）。
-- R39 的建市預留涵蓋初始挑戰與各上訴層；重開回合仍可能消耗時間，keeper 延遲也可能錯過既定期限。不能宣稱任意延遲下都能正常定案。
-- R41 固定信用門檻但接受即時信用：本人其他回合延後結算的信用與時間衰減仍可改變 commit 資格；接近門檻者可能在 commit 窗口內因衰減失去資格。quorum 分母仍為快照總押金，誠實多數假設須涵蓋符合門檻且實際可參與的押金。
-- quorum 使用 committed weight，包含已 commit 卻未 reveal 的押金；non-revealing whale 可替少數已揭票者湊足 quorum，之後才受 slash（minor #2）。
-- sybil 自我爭議仍可付出 losing bond cut／role slash 來替其他地址累積信用；註冊費與不同地址不等同可信身份（minor #5）。
-- 重開／上訴的快照是呼叫當下前一秒；呼叫者可在允許時間內選擇快照時機（minor #3）。
-- 建市挑戰成立時，held creator bond 依 R9 付給原 challenger，challenger-side appellant 不分這筆 creator bond（minor #1）。
-- 衝突檢查使用當下持倉；本版持倉不能轉移、FINAL 前不能 redeem，爭議時也不能再 fill，所以無法靠移轉或提早贖回規避（minor #6）。未來若加入轉倉，必須重審。
-- `previousRegistry` 被信任為部署時指定的合約；部署者應使用治理已採用的世代並核對地址。信用匯入本身不查治理投票。
-- 零 Juror stake 時的 reward notify，以及 stream 經過零 stake 的時間，歸 treasury（R21），不贈送給下一位 staker。七日串流仍有整數捨入。
-- maker credit 延至 P2；現有鏈上訊號無法可靠區分 wash trading。P1 的成交量不增加 creator／maker／taker 信用。
+`fillQuote` accepts signatures from registered makers that hold the MAKER role, whether they are EOAs or ERC-1271 contract wallets. It verifies them with OpenZeppelin 5.6.1 `SignatureChecker.isValidSignatureNowCalldata`.
+- EOAs keep the 65-byte, low-s ECDSA rules.
+- For a maker with code, it staticcalls `isValidSignature(digest, signature)` and accepts only the ERC-1271 magic value `0x1626ba7e`. A rejection or a revert reports the existing `InvalidSignature()`.
+- Taker binding, full collateral, fees, limits and digest-keyed replay protection keep their existing rules.
 
-## 驗證
+Platform-token rewards and penalties for revealed votes in rounds that were not reopened are settled only after the dispute finalizes. Coherence is judged against the final option (R40).
+- After an appeal overturns a result, the original round's correct minority is not slashed for incoherence. It shares that level's pool by revealed weight on the round's final option.
+- The wrong majority is penalized by `incoherentSlashBps`.
+- Vote locks are kept until per-vote settlement.
+- Unrevealed votes can be slashed as soon as the round ends.
 
-`Lifecycle`、`ProtocolInvariant`、`ProtocolAdversarial` 與本次 `ProtocolFinalReview` 回歸使用 `ProtocolBase.deployGeneration` 連接四份真實合約；其中 token callback 對抗測試替換 collateral。其他單元測試包含 stub，例如 `Registry` 的 `StubReporter` 與 `ResolutionDispute` 可設定 finalized count 的 `DisputeMarkets`，不應視為跨市場整合證據。lifecycle 包含兩 maker 正常成交與全額 faucet 對帳、爭議上訴、建市挑戰成立、hard deadline INVALID、治理採用真實第二世代與非零信用匯入，以及建市爭議逾時／駁回後的 creator FINAL 帳務。
+The rules for reopened rounds, timeouts and crediting only the last round are unchanged.
 
-`ProtocolFinalReviewTest` 另驗證最短合法排程下的最晚提案／挑戰與所有上訴仍可在 hardDeadline 前定案、低價敗方持倉不能取得 INVALID 半額、延遲結算不延長上訴窗口、無法完成的上訴被拒、翻案後逐票平台幣／押金／lock 帳務，以及真實第三個市場在上訴 commit 期間定案的固定門檻與即時信用邊界。
+## Trust assumptions
 
-`ProtocolInvariantTest` 以獨立 ghost ledger 追蹤兩市場的 escrow、maker free、fees、creation／proposal／challenge／appeal bonds 與各地址持倉，並檢查 Juror token 及 bUSD reward 償付能力。隨機呼叫包含註冊、stake／unstake、建市、成交、提案、挑戰、commit／reveal、重開、逐票結算、上訴、時間推進、定案、分潤、贖回與領報酬。每輪結束強制定案、贖回與 vote unlock，避免只測未結清狀態。
+"Under publicly stated assumptions, honesty is the provably best strategy."
+- The final security assumption is that **the slashable juror stake inside the snapshot is an honest majority**. Stake cannot unconditionally prevent off-chain bribery or sybils.
+- The protocol needs a conservative platform-token price that resists short-term manipulation, and enough platform-token value and liquidity.
+- An attack harms market trust and the value of the staked platform tokens. This is an economic assumption, not a price guarantee proven by local tests.
+- During a cold start, when stake is small, market capacity must also be small.
 
-對抗測試覆蓋五個 token callback 路徑與 transfer failure rollback、白洗身份、51% 押金攻擊的淨 bUSD 收益界線，以及上列 Task 7 minor #1–#7。ABI 測試依 R6 掃描 privileged function names；Governor 既有測試已拒絕自身 `setVotingDelay` 等設定提案。
+See [the approved design §5.12](superpowers/specs/2026-10-23-autonomous-market-design.md#512-trust-assumptions-must-be-stated-publicly-decided).
+
+## Testnet scope
+
+- Each address can claim 1,000 bUSD and 1,000 platform tokens from the faucet every 24 hours. Addresses can be created in bulk, so the faucet is not sybil-resistant asset issuance.
+- `FixedPriceSource` is an immutable fixed test price. It has no real liquidity and is not a manipulation-resistant market quote.
+- The test tokens have no real value.
+- No external security audit or mainnet economic calibration has been done.
+
+## Known limitations
+
+- An ERC-1271 wallet's answer is read at fill time. A wallet can change its answer, so a signature that was valid earlier is not guaranteed to be valid at fill time.
+- Some assets may stay in `jurors.undistributedSlashed`, and there is no recovery policy for them (Task 7 minor #4). Tests confirm that the retained assets remain fully backed. The assets are:
+  - platform tokens slashed before a timeout;
+  - the pool of a round in which nobody revealed the final option;
+  - distribution rounding remainders.
+- Each vote's slash, reward, credit and unlock, and each market's fee distribution, needs a permissionless keeper transaction. No privileged platform keeper does this automatically.
+  - After finalization, all losers of a level are settled first, then coherent claims.
+  - Non-revealers of the last round who were settled early must have their credit settled again after finalization.
+- R17 checks the global security bound only in `createMarket` and `requestUnstake`. A slash cannot be refused, so it can push the attack cost below what the open payout needs until markets close. The invariant checks that neither operation succeeds out of bounds; it does not claim the bound always holds after a slash.
+- An exact YES/NO tie reopens the round, and revealed voters are not slashed.
+  - A cartel holding about 50% of the stake can keep stalling until hardDeadline, after which `finalizeTimeout` makes the market INVALID.
+  - Challenger-side bonds are still forfeited.
+  - The tie rule is unchanged (minor #7/R38).
+- R39's creation reserve covers the initial challenge and every appeal level. Reopened rounds can still use up time, and keeper delays can miss a deadline. The protocol cannot claim that markets finalize normally under arbitrary delays.
+- R41 fixes the credit threshold but accepts current credit.
+  - The juror's credit from other rounds settled late, and time decay, can still change commit eligibility.
+  - A juror near the threshold can lose eligibility to decay during the commit window.
+  - The quorum denominator is still the total snapshot stake, so the honest-majority assumption must cover the stake that meets the threshold and can actually take part.
+- Quorum uses committed weight, which includes stake that committed but did not reveal. A non-revealing whale can make up the quorum for a few revealed voters and is slashed only afterwards (minor #2).
+- A sybil self-dispute can still pay a losing bond cut or a role slash to build credit for other addresses. A registration fee and distinct addresses are not a trusted identity (minor #5).
+- The snapshot for a reopening or an appeal is one second before the call, so the caller can choose the snapshot moment within the allowed time (minor #3).
+- When a creation challenge is upheld, the held creator bond goes to the original challenger under R9. Challenger-side appellants do not share that creator bond (minor #1).
+- The conflict check uses current positions. In this version positions cannot be transferred, cannot be redeemed before FINAL, and cannot be filled further during a dispute, so transfer or early redemption cannot evade it (minor #6). Adding position transfers in the future requires a new review.
+- `previousRegistry` is trusted as the contract named at deployment. Deployers should use the generation adopted by governance and check the address. The credit import itself does not check the governance vote.
+- Reward notifications at zero juror stake, and stream time that passes at zero stake, go to the treasury (R21); they are not gifted to the next staker. The seven-day stream still has integer rounding.
+- Maker credit is deferred to P2, because existing on-chain signals cannot reliably tell wash trading apart. In P1, fill volume adds no creator, maker or taker credit.
+
+## Verification
+
+Which tests are integration evidence:
+- `Lifecycle`, `ProtocolInvariant`, `ProtocolAdversarial` and the `ProtocolFinalReview` regressions use `ProtocolBase.deployGeneration` to wire the four real contracts. The token-callback adversarial tests replace the collateral.
+- Other unit tests contain stubs, such as `StubReporter` in `Registry` and `DisputeMarkets` with a settable finalized count in `ResolutionDispute`. They should not be treated as cross-market integration evidence.
+
+The lifecycle covers:
+- normal fills by two makers with a full faucet reconciliation;
+- a dispute with appeals;
+- an upheld creation challenge;
+- a hard-deadline INVALID;
+- governance adopting a real second generation with a non-zero credit import;
+- the creator's FINAL accounting after a creation dispute times out or is dismissed.
+
+`ProtocolFinalReviewTest` additionally verifies:
+- under the shortest legal schedule, the latest proposal and challenge and every appeal can still finalize before hardDeadline;
+- a low-priced losing position cannot get the INVALID half payout;
+- a late settlement does not extend the appeal window;
+- an appeal that cannot complete is rejected;
+- per-vote platform-token, stake and lock accounting after an overturn;
+- the fixed-threshold and current-credit boundary when a real third market finalizes during an appeal's commit period.
+
+`ProtocolInvariantTest` uses an independent ghost ledger.
+- It tracks, for two markets: escrow, maker free balance, fees, creation/proposal/challenge/appeal bonds and every address's positions. It also checks the solvency of juror tokens and bUSD rewards.
+- Its random calls include registration, stake/unstake, market creation, fills, proposals, challenges, commit/reveal, reopening, per-vote settlement, appeals, time warps, finalization, fee distribution, redemption and reward claims.
+- Each run ends by forcing finalization, redemption and vote unlocks, so it does not test only unsettled state.
+
+The adversarial tests cover:
+- five token-callback paths and transfer-failure rollback;
+- identity laundering;
+- the net bUSD profit bound of a 51% stake attack;
+- the Task 7 minors #1–#7 listed above.
+
+The ABI test scans privileged function names per R6. The existing Governor tests already reject proposals that change its own settings, such as `setVotingDelay`.
 
 ```sh
 pnpm test:contracts
@@ -88,45 +188,58 @@ node --import tsx --test tests/protocol-artifacts.test.ts
 pnpm check:contracts
 ```
 
-2026-10-24 R39–R41 修正後本機實測（聚焦 7 suites、109/109 tests 通過，含兩個 60-committer gas 回歸）：
+Local results after the 2026-10-24 R39–R41 fixes. The focused run passed 7 suites and 109/109 tests, including two 60-committer gas regressions.
 
-| 指令 | 結果 |
+| Command | Result |
 | --- | --- |
-| `pnpm test:contracts` | 17 suites、247/247 tests 通過，0 fail／skip；v0.1 24、P1 223，其中本次新增 8 |
-| `pnpm test:contracts:seeds` | Ledger／Protocol 各以 0x01、0x02 執行，四次共 12/12 tests 通過；每個 invariant 128 runs × 64 calls、0 revert，八個 invariant campaigns 合計 65,536 calls |
-| `node --import tsx --test tests/protocol-artifacts.test.ts` | 1/1 test file 通過，內含編譯／EIP-170 與 ABI 特權名稱兩項命名檢查；此 host runner 以檔案彙總計數 |
-| `pnpm check:contracts` | 通過；八份具體 P1 runtime 全部低於 24,576 bytes，最大 `BlinkResolution` 20,528 bytes（`BlinkMarkets` 18,394） |
+| `pnpm test:contracts` | 17 suites, 247/247 tests pass, 0 fail/skip; v0.1 24, P1 223, of which 8 are new in this round |
+| `pnpm test:contracts:seeds` | Ledger and Protocol each run with 0x01 and 0x02; four runs, 12/12 tests pass. Each invariant runs 128 runs × 64 calls with 0 reverts; the eight invariant campaigns total 65,536 calls |
+| `node --import tsx --test tests/protocol-artifacts.test.ts` | 1/1 test file passes. It contains two named checks: compilation/EIP-170 and ABI privileged names. This host runner counts per file |
+| `pnpm check:contracts` | Passes. All eight concrete P1 runtimes are under 24,576 bytes; the largest is `BlinkResolution` at 20,528 bytes (`BlinkMarkets` 18,394) |
 
-最終驗證基準為 main `c500389`（R39–R41 修正合併後）：上列合約指令結果相同，完整 `pnpm check` 714/714 通過。每個任務都經過獨立審查，整個分支另做一次最終審查，最終審查的修正也經過範圍複審。P1 合約測試通過不代表 P2–P4 或自治服務演練完成。
+The final verification baseline is main `c500389`, after the R39–R41 fixes merged. The contract commands above gave the same results, and the full `pnpm check` passed 714/714.
 
-2026-10-24 P2 Task 13 合約錢包 maker 簽章增補：新增 `ContractWalletMakerTest` 的 8 項測試，涵蓋 ERC-1271 成交與 EOA 帳務／事件一致、錯誤簽署者、錢包拒絕／revert、透過錢包撤價與遞增 epoch、digest 重放防護、EOA high-s／64 bytes 簽章拒絕，以及錢包控制權。
+Every task was independently reviewed. The whole branch also had a final review, and the final review's fixes had a scoped re-review.
 
-| 指令 | 本次結果 |
+Passing P1 contract tests does not mean P2–P4 or the autonomous service drill are complete.
+
+2026-10-24 P2 Task 13 contract-wallet maker signature addendum: `ContractWalletMakerTest` adds 8 tests. They cover:
+- an ERC-1271 fill whose accounting and events match an EOA fill;
+- a wrong signer;
+- a wallet that rejects or reverts;
+- quote cancellation through the wallet and epoch increments;
+- digest replay protection;
+- rejection of EOA high-s and 64-byte signatures;
+- wallet control.
+
+| Command | Result this round |
 | --- | --- |
-| `pnpm check:contracts` | 通過 EIP-170 檢查；`BlinkMarkets` runtime 18,364 bytes，最大仍為 `BlinkResolution` 20,528 bytes |
-| `pnpm test:contracts` | 18 suites、255/255 tests 通過，0 fail／skip；既有測試未修改 |
-| `pnpm test:contracts:seeds` | Ledger／Protocol 各以 0x01、0x02 執行，四次共 12/12 tests 通過；八個 invariant campaigns 合計 65,536 calls、0 revert |
-| `node --import tsx --test tests/protocol-artifacts.test.ts` | 1/1 test file 通過，包含編譯／EIP-170 與 ABI 特權名稱檢查 |
+| `pnpm check:contracts` | Passes the EIP-170 check; `BlinkMarkets` runtime is 18,364 bytes, and the largest is still `BlinkResolution` at 20,528 bytes |
+| `pnpm test:contracts` | 18 suites, 255/255 tests pass, 0 fail/skip; existing tests unchanged |
+| `pnpm test:contracts:seeds` | Ledger and Protocol each run with 0x01 and 0x02; four runs, 12/12 tests pass; the eight invariant campaigns total 65,536 calls with 0 reverts |
+| `node --import tsx --test tests/protocol-artifacts.test.ts` | 1/1 test file passes, including the compilation/EIP-170 and ABI privileged-name checks |
 
-另以 solc 比對增補前後的完整 `BlinkMarkets` ABI 與儲存布局，確認皆未改變。本次僅完成 P2 Task 13；未執行完整 `pnpm check`、鏈下整合或部署演練，獨立審查待交接後進行。
+A solc comparison of the complete `BlinkMarkets` ABI and storage layout before and after the addendum confirms that neither changed.
 
-## 實作裁決對照
+This round completes only P2 Task 13. It did not run the full `pnpm check`, off-chain integration or a deployment drill. The independent task review approved it, and it merged to main as `3010c40`, where all 255 contract tests pass.
 
-本文件引用的裁決編號與 minor 編號來自 P1 實作期間的決策紀錄，該紀錄不保存在 repo。以下是行為相關的裁決：
+## Implementation rulings
 
-| 編號 | 決定 |
+The ruling numbers and minor numbers cited in this document come from the decision record kept during P1 implementation; that record is not stored in the repo. These are the rulings that affect behavior:
+
+| ID | Decision |
 | --- | --- |
-| §5.1 錢包中立（2026-10-24） | maker 可為 EOA 或 ERC-1271 合約錢包；`fillQuote` 依成交當下的簽章驗證結果決定是否接受，EOA 規則與 digest 重放防護不變 |
-| R6 | 特權函式名稱掃描用 `/owner\|admin\|pause\|initiali[sz]e\|upgrade\|^bind/i` 加大小寫敏感的 `/^set[A-Z]/`，排除 markets hooks `setProposed`／`setDisputed`；不掃 `allow`（ERC20 allowance）；Governor 由自身測試證明只能提案 `adoptSuccessor` |
-| R9 | `resolveCreation(id, upheld, challenger)`；建市挑戰成立時 held creator bond 付給原 challenger |
-| R17 | 全域安全界線只在 `createMarket` 與 `requestUnstake` 檢查；slash 不可拒絕，可能暫時越界 |
-| R21 | 零 Juror stake 時的 reward 與 stream 時間歸 treasury |
-| R29 | 任何函式都不迴圈 jurors；逐票結算 permissionless |
-| R32 | 費用分配取整後餘額歸 treasury；最終結果與提案不同或沒有提案時，resolution 份額給 jurors；keeper tip 一律給呼叫者 |
-| R34／R37 | 結果爭議只能揭 YES／NO；INVALID 只來自 hardDeadline 後的 `finalizeTimeout` |
-| R35 | 投票權重取快照押金與目前可 slash 押金的較小值 |
-| R38 | 平手與無 quorum 時同層重開，不改 tie rule |
-| R39 | 建市預留完整仲裁時間；`appealEnd` 固定為 `revealEnd + appealSeconds`；無法完成的上訴被拒 |
-| R40 | 平台幣獎懲依爭議最終結果判定（取代 R29 原本的逐回合判定） |
-| R41 | 每回合開始時固定信用門檻 |
-| minor #1–#7 | 即「已知限制」中標示的七項 Task 7 仲裁限制，每項都有對抗測試 |
+| §5.1 wallet neutrality (2026-10-24) | A maker may be an EOA or an ERC-1271 contract wallet. `fillQuote` accepts or rejects based on the signature check at fill time. EOA rules and digest replay protection are unchanged |
+| R6 | The privileged function-name scan uses `/owner\|admin\|pause\|initiali[sz]e\|upgrade\|^bind/i` plus the case-sensitive `/^set[A-Z]/`. It excludes the markets hooks `setProposed`/`setDisputed`, and it does not scan `allow` (ERC20 allowance). The Governor's own tests prove it can only propose `adoptSuccessor` |
+| R9 | `resolveCreation(id, upheld, challenger)`; when a creation challenge is upheld, the held creator bond goes to the original challenger |
+| R17 | The global security bound is checked only in `createMarket` and `requestUnstake`; a slash cannot be refused and may cross the bound temporarily |
+| R21 | Rewards and stream time at zero juror stake go to the treasury |
+| R29 | No function loops over jurors; per-vote settlement is permissionless |
+| R32 | Fee-distribution rounding remainders go to the treasury. When the final outcome differs from the proposal, or there is no proposal, the resolution share goes to jurors. The keeper tip always goes to the caller |
+| R34/R37 | A result dispute can only reveal YES/NO; INVALID comes only from `finalizeTimeout` after hardDeadline |
+| R35 | Voting weight is the smaller of the snapshot stake and the stake currently slashable |
+| R38 | Ties and missing quorums reopen the same level; the tie rule is unchanged |
+| R39 | Market creation reserves the full arbitration time; `appealEnd` is fixed at `revealEnd + appealSeconds`; an appeal that cannot complete is rejected |
+| R40 | Platform-token rewards and penalties are judged by the dispute's final outcome (replacing R29's original per-round judgment) |
+| R41 | Each round fixes its credit threshold at its start |
+| minor #1–#7 | The seven Task 7 arbitration limits marked under "Known limitations", each with an adversarial test |
