@@ -193,7 +193,7 @@ test(
   "real PostgreSQL: scheduler and role grants",
   { skip: !adminUrl, timeout: 30000 },
   () =>
-    withDatabase(async ({ owner, api, worker, agents }) => {
+    withDatabase(async ({ owner, worker }) => {
       await owner.query(marketFixture(3 * 86400 + 600));
       const scheduler = createWindowScheduler(postgresForecastStore(worker));
       assert.ok((await scheduler.scheduleOnce()) >= 4);

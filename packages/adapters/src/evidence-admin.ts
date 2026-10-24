@@ -98,7 +98,7 @@ export function evidenceAdmin(pool: Pool, objects: ImmutableObjectStore) {
         return { sourceId: id };
       });
     },
-    // Records the reviewed fetch policy that the worker's evidence.fetch job obeys.
+    // Records the reviewed fetch policy for source fetching.
     async enableFetch(input: unknown) {
       const data = parseFetchPolicy(input);
       return uow.run(async (context) => {

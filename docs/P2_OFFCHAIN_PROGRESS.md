@@ -60,7 +60,9 @@ it). The API has three modes: `scaffold`, `identity` and `markets`. The
 `/v1/admin/*` candidate, budget, resolution and creation-intent routes,
 `/v1/candidates*` and `/v1/markets/:id/resolution-reports` are gone. The worker
 registry holds only `forecast.schedule`, `evaluation.score`, `alert.deliver`,
-`alert.evaluate` and `operations.prune`. `allowlist-fetcher` and `network-policy` stay for P3.
+`alert.evaluate` and `operations.prune`. `allowlist-fetcher` and `network-policy` stay for P3. `GET /v1/evidence/:id` and
+`GET /v1/specs/:specHash` return 501 until Task 8 replaces them with
+`/v1/content/:hash`.
 
 Migration `0026_retire_platform_research.sql` is the only schema change. It marks
 the retired job types `DEAD` with `RETIRED_P2` (leases cleared and fenced, as in
