@@ -108,14 +108,20 @@ export function createIdentityService(
     throw new IdentityError(status, code, options);
   };
 
-  async function createChallenge(body: unknown): Promise<IdentityResponse> {
+  async function createChallenge(
+    body: unknown,
+    clientIp: string,
+  ): Promise<IdentityResponse> {
     const input = WalletChallengeRequest.safeParse(body);
     if (!input.success) return fail(400, "INVALID_REQUEST");
     const address = input.data.address.toLowerCase();
     const keyId = input.data.keyId?.toLowerCase() ?? null;
     return store.run(async (tx) => {
-      await tx.lockAddress(address);
-      if ((await tx.pendingChallenges(address)) >= MAX_PENDING_CHALLENGES)
+      await tx.lockAddress(address, clientIp);
+      if (
+        (await tx.pendingChallenges(address, clientIp)) >=
+        MAX_PENDING_CHALLENGES
+      )
         return fail(429, "RATE_LIMITED");
       const now = await tx.now();
       const id = crypto.id();
@@ -139,6 +145,7 @@ export function createIdentityService(
         address,
         action: input.data.action,
         targetKeyId: keyId,
+        clientIp,
         origin,
         nonceHash: crypto.hash(nonce),
         message,
@@ -230,10 +237,11 @@ export function createIdentityService(
       input.data.signature,
     );
     if (challenge.action === "revoke") {
-      const revoked = await store.run((tx) =>
-        tx.revokeKey(challenge.id, requestId),
-      );
-      if (revoked.status !== "OK") return outcomeError(revoked.status);
+      // A refusal throws inside the transaction, so nothing it wrote can commit.
+      const revoked = await store.run(async (tx) => {
+        const outcome = await tx.revokeKey(challenge.id, requestId);
+        return outcome.status === "OK" ? outcome : outcomeError(outcome.status);
+      });
       return {
         status: 200,
         body: {
@@ -245,17 +253,17 @@ export function createIdentityService(
     await requireRegistered(wallet, challenge.address);
     const keyId = crypto.id();
     const secret = crypto.nonce();
-    const issued = await store.run((tx) =>
-      tx.issueKey({
+    const issued = await store.run(async (tx) => {
+      const outcome = await tx.issueKey({
         challengeId: challenge.id,
         keyId,
         secretHash: crypto.hash(secret),
         operatorId: crypto.id(),
         agentId: crypto.id(),
         requestId,
-      }),
-    );
-    if (issued.status !== "OK") return outcomeError(issued.status);
+      });
+      return outcome.status === "OK" ? outcome : outcomeError(outcome.status);
+    });
     // The secret leaves the process only here, in this response.
     return {
       status: 200,
@@ -276,11 +284,11 @@ export function createIdentityService(
     /** Public: the address proves itself by signature, so there is no key to check. */
     async mutate(
       path: (typeof identityPaths)[number],
-      request: { body: unknown; requestId: string },
+      request: { body: unknown; requestId: string; clientIp: string },
     ): Promise<IdentityResponse> {
       if (!proof) throw new Error("WALLET_PROOF_NOT_CONFIGURED");
       return path === identityPaths[0]
-        ? createChallenge(request.body)
+        ? createChallenge(request.body, request.clientIp)
         : verify(request.body, request.requestId);
     },
   };

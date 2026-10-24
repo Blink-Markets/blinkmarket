@@ -102,8 +102,12 @@ receives an API key, with no invitation and no operator console.
 
 - `POST /v1/auth/wallet-challenges` (public) takes `{ address, action: "issue" |
   "revoke", keyId? }` and returns `{ challengeId, message, expiresAt }`. The TTL
-  is 300 s, at most 5 challenges are pending per address, and the limits are 30
-  per hour per client IP (trusted-proxy aware) and 10 per hour per address. The
+  is 300 s. The limits are 30 per hour per trusted client IP, and, per
+  (client IP, address) pair, 10 per hour and at most 5 pending challenges. They
+  are keyed by pair because asking for a challenge needs no proof of control: an
+  address-only key would let anyone lock a victim out of issue and revoke. The
+  IP allowance is charged first and stops the request, so a refused request
+  spends no address token. The
   message keeps the v1 text, adds `Action:`, and carries a `Key ID:` line only for
   revoke. The `Agent ID:` line is gone because no agent exists yet.
 - `POST /v1/auth/wallet-verifications` (public) takes `{ challengeId, signature }`.
@@ -174,6 +178,15 @@ lock wait cannot extend the 300 s challenge. The generated contract and
 `@blink/client` no longer claim an `Idempotency-Key` for the two wallet
 endpoints. The lock-wait expiry test is in `tests/postgres/identity.test.ts` and
 has not run here (no PostgreSQL).
+
+Fix round 2 (re-review): the address allowance and the pending cap are keyed by
+(client IP, address) and charged only after the IP allowance passes (migration
+column `client_ip`). A refused issue or revoke now throws inside the transaction,
+so nothing it wrote can commit, and the issue function reads the clock before its
+first write, so it never returns a refusal after writing. The PostgreSQL lock-wait
+tests run with connection and statement limits, observe the blocked backend and
+its blocker through `pg_blocking_pids`, and retry a setup that was too slow
+instead of counting it.
 
 Known limits: a lost issue response leaves an
 unrevocable key that counts toward the five until it expires; the in-process

@@ -27,6 +27,8 @@ export interface WalletChallenge {
   address: string;
   action: "issue" | "revoke";
   targetKeyId: string | null;
+  /** The trusted client IP that asked for the challenge. */
+  clientIp: string | null;
   origin: string;
   nonceHash: string;
   message: string;
@@ -63,9 +65,10 @@ export interface IdentityTransaction {
     key: string,
     result: IdentityResponse,
   ): Promise<void>;
-  /** Serializes challenge creation for one address until commit. */
-  lockAddress(address: string): Promise<void>;
-  pendingChallenges(address: string): Promise<number>;
+  /** Serializes challenge creation for one (address, client IP) until commit. */
+  lockAddress(address: string, clientIp: string): Promise<void>;
+  /** Unconsumed, unexpired challenges the client IP has open for the address. */
+  pendingChallenges(address: string, clientIp: string): Promise<number>;
   addChallenge(challenge: WalletChallenge): Promise<void>;
   challenge(id: string): Promise<WalletChallenge | null>;
   /** Spends one verification attempt; false when the challenge's budget is already used up. */

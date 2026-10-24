@@ -221,7 +221,7 @@ const contracts = [
     status: 201,
     idempotencyKey: false,
     description:
-      "Public; no API key. Not idempotent: every call creates a new challenge (valid 300 seconds, at most 5 pending per address, rate limited per client IP and per address).",
+      "Public; no API key. Not idempotent: every call creates a new challenge (valid 300 seconds). Limits: 30 per hour per client IP, and per (client IP, address) 10 per hour and 5 pending challenges.",
   }),
   operation(
     "POST",

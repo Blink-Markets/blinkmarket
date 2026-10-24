@@ -121,8 +121,19 @@ async function setup(
   app.log.level = "silent";
   const post = (path: string, body: unknown) =>
     app.inject({ method: "POST", url: path, payload: body as object });
-  const challenge = (address: string, action = "issue", keyId?: string) =>
-    post(challengePath, { address, action, ...(keyId ? { keyId } : {}) });
+  // `ip` is the client's address as the API sees it (no trusted proxy is configured here).
+  const challenge = (
+    address: string,
+    action = "issue",
+    keyId?: string,
+    ip?: string,
+  ) =>
+    app.inject({
+      method: "POST",
+      url: challengePath,
+      payload: { address, action, ...(keyId ? { keyId } : {}) },
+      ...(ip ? { remoteAddress: ip } : {}),
+    });
   type Signer = { signMessage(a: { message: string }): Promise<`0x${string}`> };
   // A challenge signed by `signer`: the payload a retry must send again, unchanged.
   async function payload(
@@ -372,6 +383,7 @@ test("signature from another address rejected", async () => {
           signature: await alice.signMessage({ message: c.message }),
         },
         requestId: "test",
+        clientIp: "127.0.0.1",
       }),
       { status: 400, code: "INVALID_WALLET_SIGNATURE" },
     );
@@ -630,7 +642,7 @@ test("same address keeps one agent across keys", async () => {
   }
 });
 
-test("rate limit per address", async () => {
+test("rate limit per address and client IP", async () => {
   const bucket = (capacity: number) => ({
     capacity,
     refillPerSecond: capacity / 3600,
@@ -668,6 +680,152 @@ test("rate limit per address", async () => {
   } finally {
     await byIp.close();
   }
+});
+
+const IP_A = "10.0.0.1";
+const IP_B = "10.0.0.2";
+
+test("one client cannot lock another client out of an address", async () => {
+  const bucket = (capacity: number) => ({
+    capacity,
+    refillPerSecond: capacity / 3600,
+    now: () => 0,
+  });
+  const s = await setup({
+    limits: { perIp: bucket(100), perAddress: bucket(2) },
+  });
+  try {
+    // IP A spends the address allowance for alice.
+    assert.equal(
+      (await s.challenge(alice.address, "issue", undefined, IP_A)).statusCode,
+      201,
+    );
+    assert.equal(
+      (await s.challenge(alice.address, "issue", undefined, IP_A)).statusCode,
+      201,
+    );
+    const refused = await s.challenge(alice.address, "issue", undefined, IP_A);
+    assert.equal(refused.statusCode, 429);
+    assert.equal(refused.json().code, "RATE_LIMITED");
+    // IP B is not affected: it can still ask for a challenge for the same address and use it.
+    const other = await s.challenge(alice.address, "issue", undefined, IP_B);
+    assert.equal(other.statusCode, 201, other.body);
+    const c = other.json();
+    const verified = await s.post(verifyPath, {
+      challengeId: c.challengeId,
+      signature: await alice.signMessage({ message: c.message }),
+    });
+    assert.equal(verified.statusCode, 200, verified.body);
+  } finally {
+    await s.close();
+  }
+});
+
+test("one client cannot fill another client's pending challenge slots", async () => {
+  const s = await setup();
+  try {
+    for (let i = 0; i < 5; i++)
+      assert.equal(
+        (await s.challenge(alice.address, "issue", undefined, IP_A)).statusCode,
+        201,
+      );
+    const full = await s.challenge(alice.address, "issue", undefined, IP_A);
+    assert.equal(full.statusCode, 429);
+    assert.equal(full.json().code, "RATE_LIMITED");
+    // Alice, from her own address, still gets a challenge and can revoke or issue.
+    const mine = await s.challenge(alice.address, "issue", undefined, IP_B);
+    assert.equal(mine.statusCode, 201, mine.body);
+    assert.equal(await s.count("identity.wallet_challenges"), 6);
+  } finally {
+    await s.close();
+  }
+});
+
+test("a request refused by the IP allowance spends no address token", async () => {
+  let ipClock = 0;
+  const s = await setup({
+    limits: {
+      perIp: { capacity: 1, refillPerSecond: 1, now: () => ipClock },
+      perAddress: { capacity: 2, refillPerSecond: 2 / 3600, now: () => 0 },
+    },
+  });
+  try {
+    const ask = () => s.challenge(alice.address, "issue", undefined, IP_A);
+    assert.equal((await ask()).statusCode, 201); // address tokens: 2 -> 1
+    assert.equal((await ask()).statusCode, 429); // IP-refused: must not touch the address bucket
+    assert.equal((await ask()).statusCode, 429);
+    ipClock = 10_000; // ms: the IP allowance has refilled
+    assert.equal((await ask()).statusCode, 201); // address tokens: 1 -> 0
+    ipClock = 20_000;
+    assert.equal((await ask()).statusCode, 429); // now the address bucket is the one that refuses
+    assert.equal(await s.count("identity.wallet_challenges"), 2);
+  } finally {
+    await s.close();
+  }
+});
+
+test("a refused issuance rolls back everything the transaction wrote", async () => {
+  // A store that commits when the work resolves and rolls back when it throws, as the real one does.
+  const events: string[] = [];
+  const challenge = {
+    id: "33333333-3333-4333-8333-333333333333",
+    address: alice.address.toLowerCase(),
+    action: "issue" as const,
+    targetKeyId: null,
+    clientIp: "127.0.0.1",
+    origin,
+    nonceHash: "00",
+    message: "m",
+    issuedAt: new Date(Date.now() - 1000),
+    expiresAt: new Date(Date.now() + 60_000),
+    consumedAt: null,
+  };
+  const tx = {
+    now: async () => new Date(),
+    challenge: async () => challenge,
+    spendAttempt: async () => true,
+    // The function wrote operator and agent rows, then found the challenge expired.
+    issueKey: async () => {
+      events.push("wrote operator and agent");
+      return { status: "EXPIRED" as const };
+    },
+  } as unknown as Parameters<
+    Parameters<ReturnType<typeof postgresIdentityStore>["run"]>[0]
+  >[0];
+  const store = {
+    async run<T>(work: (t: typeof tx) => Promise<T>) {
+      try {
+        const result = await work(tx);
+        events.push("commit");
+        return result;
+      } catch (error) {
+        events.push("rollback");
+        throw error;
+      }
+    },
+  };
+  const service = createIdentityService(
+    store as never,
+    identityCrypto,
+    origin,
+    {
+      verifier: fakeSignatureVerifier(),
+      reader: fakeProtocolReader({ accounts: [registered(alice.address)] }),
+    },
+  );
+  const signature = await alice.signMessage({ message: "m" });
+  await assert.rejects(
+    service.mutate("/v1/auth/wallet-verifications", {
+      body: { challengeId: challenge.id, signature },
+      requestId: "test",
+      clientIp: "127.0.0.1",
+    }),
+    { status: 409, code: "WALLET_CHALLENGE_EXPIRED" },
+  );
+  const writes = events.indexOf("wrote operator and agent");
+  assert.ok(writes >= 0);
+  assert.ok(events.indexOf("rollback", writes) > writes, events.join(","));
+  assert.ok(!events.slice(writes).includes("commit"), events.join(","));
 });
 
 test("verification attempts are bounded per challenge before the signature check", async () => {
@@ -882,6 +1040,7 @@ test("a service built without wallet proof refuses to serve it", async () => {
       bare.mutate("/v1/auth/wallet-challenges", {
         body: { address: alice.address, action: "issue" },
         requestId: "test",
+        clientIp: "127.0.0.1",
       }),
       /WALLET_PROOF_NOT_CONFIGURED/,
     );

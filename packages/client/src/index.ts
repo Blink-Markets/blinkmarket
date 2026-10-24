@@ -157,7 +157,7 @@ export function createBlinkClient(
   });
   return {
     // --- identity ---
-    /** Public and not idempotent: each call creates a new challenge (300 s, 5 pending per address). */
+    /** Public and not idempotent: each call creates a new challenge (300 s; limits are per client IP, and per client IP and address). */
     createWalletChallenge: (input: unknown) =>
       call("POST", "/v1/auth/wallet-challenges", { body: input }),
     /** Public and single use: sign the challenge message, then verify once to receive the key. */

@@ -79,30 +79,31 @@ export function identityTransaction(client: PoolClient): IdentityTransaction {
         [operatorId, scope, key, result.status, result.body],
       );
     },
-    async lockAddress(address) {
+    async lockAddress(address, clientIp) {
       await client.query(
         "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-        ["identity.challenge:" + address.toLowerCase()],
+        ["identity.challenge:" + clientIp + "|" + address.toLowerCase()],
       );
     },
-    async pendingChallenges(address) {
+    async pendingChallenges(address, clientIp) {
       const { rows } = await client.query<{ count: string }>(
         `SELECT count(*)::text AS count FROM identity.wallet_challenges
-        WHERE address=decode($1,'hex') AND consumed_at IS NULL AND expires_at > clock_timestamp()`,
-        [address.slice(2)],
+        WHERE address=decode($1,'hex') AND client_ip=$2 AND consumed_at IS NULL AND expires_at > clock_timestamp()`,
+        [address.slice(2), clientIp],
       );
       return Number(rows[0]!.count);
     },
     async addChallenge(c) {
       await client.query(
         `INSERT INTO identity.wallet_challenges
-        (id,address,action,target_key_id,chain_id,origin,nonce_hash,message,issued_at,expires_at)
-        VALUES ($1,decode($2,'hex'),$3,$4,84532,$5,decode($6,'hex'),$7,$8,$9)`,
+        (id,address,action,target_key_id,client_ip,chain_id,origin,nonce_hash,message,issued_at,expires_at)
+        VALUES ($1,decode($2,'hex'),$3,$4,$5,84532,$6,decode($7,'hex'),$8,$9,$10)`,
         [
           c.id,
           c.address.slice(2),
           c.action,
           c.targetKeyId,
+          c.clientIp,
           c.origin,
           c.nonceHash,
           c.message,
@@ -113,7 +114,7 @@ export function identityTransaction(client: PoolClient): IdentityTransaction {
     },
     async challenge(id) {
       const { rows } = await client.query<WalletChallenge>(
-        `SELECT id,'0x'||encode(address,'hex') AS address,action,target_key_id AS "targetKeyId",
+        `SELECT id,'0x'||encode(address,'hex') AS address,action,target_key_id AS "targetKeyId",client_ip AS "clientIp",
         origin,encode(nonce_hash,'hex') AS "nonceHash",message,
         issued_at AS "issuedAt",expires_at AS "expiresAt",consumed_at AS "consumedAt"
         FROM identity.wallet_challenges WHERE id=$1 AND action IN ('issue','revoke')`,

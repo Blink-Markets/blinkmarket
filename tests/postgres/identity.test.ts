@@ -97,6 +97,7 @@ test(
           await service.mutate(challengePath, {
             body: { address: signer.address, action: "issue" },
             requestId: "pg-test",
+            clientIp: "127.0.0.1",
           })
         ).body;
         return {
@@ -105,7 +106,11 @@ test(
         };
       };
       const verify = (body: { challengeId: string; signature: string }) =>
-        service.mutate(verifyPath, { body, requestId: "pg-test" });
+        service.mutate(verifyPath, {
+          body,
+          requestId: "pg-test",
+          clientIp: "127.0.0.1",
+        });
 
       // One challenge, eight simultaneous verifications: one key. The others are refused as used,
       // or as out of attempts when more than the budget arrive before the winner commits.
@@ -198,76 +203,114 @@ test(
   },
 );
 
-// Polls the database until `sql` returns a row with ok = true. The condition is the wait, not a
-// fixed delay, so the test does not depend on how fast the application runs.
-async function until(
-  owner: pg.Pool,
-  what: string,
-  sql: string,
-  params: unknown[] = [],
-  timeoutMs = 15_000,
-) {
+// Every database call below is bounded: connections time out, statements (lock waits included)
+// are cancelled by the server, and every wait loop has its own deadline. The statement limit
+// covers the intentional wait for the challenge to expire (WINDOW_SECONDS) with a wide margin.
+const LIMITS = { connectTimeoutMs: 10_000, statementTimeoutMs: 45_000 };
+const WINDOW_SECONDS = 8;
+const OBSERVE_BLOCKED_MS = 4_000;
+const EXPIRY_WAIT_MS = 15_000;
+const SETUP_ATTEMPTS = 3;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+type Outcome = { status: number; code: string };
+
+// Re-runs `check` until it is true or the deadline passes; false means the deadline passed.
+async function eventually(check: () => Promise<boolean>, timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if ((await owner.query<{ ok: boolean }>(sql, params)).rows[0]?.ok) return;
-    if (Date.now() > deadline) throw new Error("TIMEOUT_WAITING_FOR: " + what);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    if (await check()) return true;
+    if (Date.now() > deadline) return false;
+    await sleep(50);
   }
 }
 
-// Holds `lock` (a statement run in an open owner transaction) across the challenge's expiry while
-// a verification of `payload` waits behind it, then releases it and returns the verification's fate.
-async function verifyBehindLock(
+// One try: hold `lock` in an owner transaction, start the verification, and see it blocked behind
+// that very session while the challenge is still valid. Only then wait for the challenge to expire
+// and release the lock. Returns null when the setup was too slow (the challenge expired before the
+// wait was observed): such a try is never evidence, and it is released only after expiry, so it
+// leaves no state behind either.
+async function tryBehindLock(
   owner: pg.Pool,
   challengeId: string,
   lock: { sql: string; params: unknown[] },
-  verifyNow: () => Promise<{ status: number; code: string }>,
-) {
-  // Expires six seconds from now: long enough to reach the lock wait first, short enough to outwait.
+  startVerification: () => Promise<Outcome>,
+): Promise<Outcome | null> {
+  const expired = async () =>
+    (
+      await owner.query<{ ok: boolean }>(
+        "SELECT clock_timestamp() >= expires_at AS ok FROM identity.wallet_challenges WHERE id = $1",
+        [challengeId],
+      )
+    ).rows[0]!.ok;
   await owner.query(
     `UPDATE identity.wallet_challenges c
-    SET issued_at = t.t - interval '294 seconds', expires_at = t.t + interval '6 seconds'
+    SET issued_at = t.t - interval '${300 - WINDOW_SECONDS} seconds',
+        expires_at = t.t + interval '${WINDOW_SECONDS} seconds'
     FROM (SELECT clock_timestamp() AS t) t WHERE c.id = $1`,
     [challengeId],
   );
   const holder = await owner.connect();
+  let pending: Promise<Outcome> | undefined;
   try {
     await holder.query("BEGIN");
+    await holder.query("SET LOCAL idle_in_transaction_session_timeout = '30s'");
+    const pid = (
+      await holder.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
+    ).rows[0]!.pid;
     await holder.query(lock.sql, lock.params);
-    const pending = verifyNow();
-    // The verification is queued behind the lock, and the challenge is still valid at that moment.
-    await until(
-      owner,
-      "a backend waiting for a lock",
-      `SELECT count(*) > 0 AS ok FROM pg_stat_activity
-      WHERE datname = current_database() AND wait_event_type = 'Lock'`,
-      [],
-      5_000,
+    pending = startVerification();
+    // A backend waiting on a lock, blocked by exactly the holder session.
+    const blocked = await eventually(
+      async () =>
+        (
+          await owner.query<{ ok: boolean }>(
+            `SELECT count(*) > 0 AS ok FROM pg_stat_activity
+            WHERE datname = current_database() AND wait_event_type = 'Lock'
+            AND $1 = ANY(pg_blocking_pids(pid))`,
+            [pid],
+          )
+        ).rows[0]!.ok,
+      OBSERVE_BLOCKED_MS,
     );
-    await until(
-      owner,
-      "the challenge to be unexpired while queued",
-      "SELECT clock_timestamp() < expires_at AS ok FROM identity.wallet_challenges WHERE id = $1",
-      [challengeId],
-    );
-    await until(
-      owner,
-      "the challenge to expire",
-      "SELECT clock_timestamp() > expires_at AS ok FROM identity.wallet_challenges WHERE id = $1",
-      [challengeId],
+    // Validity is asserted once, right after the wait was seen.
+    const valid = blocked && !(await expired());
+    // Either way the lock is released only after expiry.
+    assert.ok(
+      await eventually(expired, EXPIRY_WAIT_MS),
+      "the challenge did not expire in time",
     );
     await holder.query("COMMIT");
-    return await pending;
+    const outcome = await pending;
+    return valid ? outcome : null;
   } finally {
     await holder.query("ROLLBACK").catch(() => undefined);
     holder.release();
+    // Settle the verification whatever happened above, now that the holder is gone.
+    await pending?.catch(() => undefined);
   }
+}
+
+async function behindLock(
+  owner: pg.Pool,
+  makeAttempt: () => Promise<{
+    challengeId: string;
+    lock: { sql: string; params: unknown[] };
+    start: () => Promise<Outcome>;
+  }>,
+) {
+  for (let attempt = 0; attempt < SETUP_ATTEMPTS; attempt++) {
+    const a = await makeAttempt();
+    const outcome = await tryBehindLock(owner, a.challengeId, a.lock, a.start);
+    if (outcome) return outcome;
+  }
+  throw new Error("SETUP_TOO_SLOW: the lock wait was never seen before expiry");
 }
 
 for (const action of ["issue", "revoke"] as const)
   test(
     `real PostgreSQL: a ${action} that waits behind a lock past expiry is refused and changes nothing`,
-    { timeout: 90_000 },
+    { timeout: 120_000 },
     async () => {
       await withDatabase(async ({ owner, pool }) => {
         const wallet = privateKeyToAccount(`0x${"1".padStart(64, "0")}`);
@@ -296,6 +339,7 @@ for (const action of ["issue", "revoke"] as const)
             await service.mutate(challengePath, {
               body: { address: wallet.address, ...body },
               requestId: "pg-test",
+              clientIp: "127.0.0.1",
             })
           ).body;
           return {
@@ -307,7 +351,11 @@ for (const action of ["issue", "revoke"] as const)
         };
         const verify = (payload: { challengeId: string; signature: string }) =>
           service
-            .mutate(verifyPath, { body: payload, requestId: "pg-test" })
+            .mutate(verifyPath, {
+              body: payload,
+              requestId: "pg-test",
+              clientIp: "127.0.0.1",
+            })
             .then(
               (r) => ({ status: r.status, code: "OK" }),
               (error: unknown) => {
@@ -320,31 +368,33 @@ for (const action of ["issue", "revoke"] as const)
             await owner.query<Record<string, string>>(
               `SELECT (SELECT count(*) FROM identity.api_keys)::text AS keys,
               (SELECT count(*) FROM identity.api_keys WHERE revoked_at IS NOT NULL)::text AS revoked,
+              (SELECT count(*) FROM identity.operators)::text AS operators,
               (SELECT count(*) FROM identity.agents)::text AS agents,
               (SELECT count(*) FROM identity.wallet_bindings)::text AS bindings,
               (SELECT count(*) FROM identity.wallet_challenges WHERE consumed_at IS NOT NULL)::text AS consumed`,
             )
           ).rows[0]!;
+        const expired = { status: 409, code: "WALLET_CHALLENGE_EXPIRED" };
 
         if (action === "issue") {
-          const payload = await proof({ action: "issue" });
           // Issuance serializes per address behind an advisory lock.
-          const outcome = await verifyBehindLock(
-            owner,
-            payload.challengeId,
-            {
-              sql: "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-              params: ["identity.wallet:" + wallet.address.toLowerCase()],
-            },
-            () => verify(payload),
-          );
-          assert.deepEqual(outcome, {
-            status: 409,
-            code: "WALLET_CHALLENGE_EXPIRED",
+          const outcome = await behindLock(owner, async () => {
+            const payload = await proof({ action: "issue" });
+            return {
+              challengeId: payload.challengeId,
+              lock: {
+                sql: "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                params: ["identity.wallet:" + wallet.address.toLowerCase()],
+              },
+              start: () => verify(payload),
+            };
           });
+          assert.deepEqual(outcome, expired);
+          // No operator, agent, binding or key was written, and nothing was consumed.
           assert.deepEqual(await counts(), {
             keys: "0",
             revoked: "0",
+            operators: "0",
             agents: "0",
             bindings: "0",
             consumed: "0",
@@ -355,29 +405,29 @@ for (const action of ["issue", "revoke"] as const)
         const issued = await service.mutate(verifyPath, {
           body: await proof({ action: "issue" }),
           requestId: "pg-test",
+          clientIp: "127.0.0.1",
         });
         const keyId = issued.body.keyId as string;
-        const payload = await proof({ action: "revoke", keyId });
-        const outcome = await verifyBehindLock(
-          owner,
-          payload.challengeId,
-          {
-            sql: "SELECT id FROM identity.api_keys WHERE id = $1 FOR UPDATE",
-            params: [keyId],
-          },
-          () => verify(payload),
-        );
-        assert.deepEqual(outcome, {
-          status: 409,
-          code: "WALLET_CHALLENGE_EXPIRED",
+        const outcome = await behindLock(owner, async () => {
+          const payload = await proof({ action: "revoke", keyId });
+          return {
+            challengeId: payload.challengeId,
+            lock: {
+              sql: "SELECT id FROM identity.api_keys WHERE id = $1 FOR UPDATE",
+              params: [keyId],
+            },
+            start: () => verify(payload),
+          };
         });
+        assert.deepEqual(outcome, expired);
         assert.deepEqual(await counts(), {
           keys: "1",
           revoked: "0",
+          operators: "1",
           agents: "1",
           bindings: "1",
           consumed: "1",
         });
-      });
+      }, LIMITS);
     },
   );

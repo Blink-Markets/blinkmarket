@@ -21,9 +21,12 @@ ALTER TABLE identity.wallet_challenges ALTER COLUMN action DROP DEFAULT;
 ALTER TABLE identity.wallet_challenges ADD COLUMN target_key_id UUID;
 -- Verification attempts spent so far; the application stops accepting attempts at its budget.
 ALTER TABLE identity.wallet_challenges ADD COLUMN attempts SMALLINT NOT NULL DEFAULT 0;
+-- The trusted client IP that asked. The pending-challenge cap is per (address, client IP), so
+-- nobody can use up an address's slots without being the same client.
+ALTER TABLE identity.wallet_challenges ADD COLUMN client_ip TEXT;
 ALTER TABLE identity.wallet_challenges
   ADD CONSTRAINT wallet_challenges_target_matches_action CHECK ((action = 'revoke') = (target_key_id IS NOT NULL));
-CREATE INDEX wallet_challenges_pending_by_address ON identity.wallet_challenges(address, expires_at)
+CREATE INDEX wallet_challenges_pending_by_address ON identity.wallet_challenges(address, client_ip, expires_at)
   WHERE consumed_at IS NULL;
 
 -- Retire every invite key. Self-serve keys do not exist yet, so all active keys are invite keys.
@@ -64,6 +67,8 @@ BEGIN
   END IF;
   v_name := '0x' || encode(c.address, 'hex');
   PERFORM pg_advisory_xact_lock(hashtextextended('identity.wallet:' || v_name, 0));
+  -- The last blocking wait is over: this read of the clock precedes every write, so no
+  -- non-OK result is ever returned after the operator, agent or key rows are written.
   v_now := clock_timestamp();
   IF c.expires_at <= v_now THEN
     RETURN QUERY SELECT 'EXPIRED'::TEXT, NULL::UUID, NULL::TIMESTAMPTZ; RETURN;
@@ -82,11 +87,6 @@ BEGIN
         WHERE k.agent_id = v_agent AND k.revoked_at IS NULL AND k.expires_at > v_now) >= 5 THEN
       RETURN QUERY SELECT 'KEY_LIMIT'::TEXT, NULL::UUID, NULL::TIMESTAMPTZ; RETURN;
     END IF;
-  END IF;
-  -- Last read of the clock before the credential is written.
-  v_now := clock_timestamp();
-  IF c.expires_at <= v_now THEN
-    RETURN QUERY SELECT 'EXPIRED'::TEXT, NULL::UUID, NULL::TIMESTAMPTZ; RETURN;
   END IF;
   v_expires := v_now + interval '30 days';
   INSERT INTO identity.api_keys (id, operator_id, agent_id, secret_hash, scopes, expires_at)

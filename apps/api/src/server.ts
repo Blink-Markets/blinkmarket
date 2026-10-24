@@ -270,19 +270,22 @@ export function buildApi(
               )
                 throw new IdentityError(400, "INVALID_REQUEST");
               if (contract.path === identityPaths[0]) {
+                // The client IP is charged first and stops the request; only an IP-approved request
+                // spends an address token. The address allowance is per (client IP, address): no
+                // proof of control is needed to ask for a challenge, so one client must not be able
+                // to use up an address's allowance for everyone else.
+                const byIp = challengesByIp.take(request.ip);
                 const wanted = WalletChallengeRequest.safeParse(request.body);
-                const taken = [
-                  challengesByIp.take(request.ip),
-                  // An unparsable body is refused by the service; it must not spend an address allowance.
-                  wanted.success
+                // An unparsable body is refused by the service; it must not spend an address token.
+                const byAddress =
+                  byIp.allowed && wanted.success
                     ? challengesByAddress.take(
-                        wanted.data.address.toLowerCase(),
+                        request.ip + "|" + wanted.data.address.toLowerCase(),
                       )
-                    : ({ allowed: true } as const),
-                ].find((t) => !t.allowed);
-                if (taken && !taken.allowed)
+                    : byIp;
+                if (!byAddress.allowed)
                   throw new IdentityError(429, "RATE_LIMITED", {
-                    retryAfterSeconds: taken.retryAfterSeconds,
+                    retryAfterSeconds: byAddress.retryAfterSeconds,
                   });
               } else {
                 const taken = verificationsByIp.take(request.ip);
@@ -294,6 +297,7 @@ export function buildApi(
               const result = await options.identity.mutate(contract.path, {
                 body: request.body,
                 requestId: request.id,
+                clientIp: request.ip,
               });
               reply.header("Cache-Control", "no-store");
               return reply
