@@ -151,7 +151,8 @@ contract ProtocolHandler is ProtocolScenario {
         uint256 dispute = disputeOf[id];
         (IBlinkResolution.Dispute memory d, IBlinkResolution.Round memory r) = resolution.getDispute(dispute);
         if (r.settled) {
-            if (token.clock() < r.appealEnd && action % 3 == 0 && d.appealRound + 1 < p.maxRounds) {
+            if (token.clock() < r.appealEnd && action % 3 == 0 && d.appealRound + 1 < p.maxRounds
+                && uint256(token.clock()) + p.commitSeconds + p.revealSeconds < markets.getMarket(id).hardDeadline) {
                 bool challengerWon = r.leadingChoice == 1;
                 address appellant = challengerWon ? (creationDispute[id] ? creator : proposer) : challenger;
                 vm.prank(appellant); resolution.appeal(dispute); ++appeals;
@@ -169,7 +170,7 @@ contract ProtocolHandler is ProtocolScenario {
             address who = action % 2 == 0 ? j1 : j2;
             if (!committed[dispute][d.currentRound][who]
                 && jurors.stakeAt(who, r.snapshotAt) != 0 && jurors.slashableStake(who) != 0
-                && registry.meetsThreshold(who, Role.JUROR, p.roundCreditThreshold[r.level])) {
+                && registry.creditOf(who, Role.JUROR) >= r.creditThreshold) {
                 uint8 choice = (action / 2) % 2;
                 _commit(dispute, who, choice);
                 committed[dispute][d.currentRound][who] = true;

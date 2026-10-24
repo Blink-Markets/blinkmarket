@@ -127,8 +127,8 @@ contract ProtocolAdversarialTest is ProtocolScenario {
         uint256 challengerBefore = busd.balanceOf(challenger);
         vm.prank(appellant); resolution.appeal(dispute);
         uint256 appellantBefore = busd.balanceOf(appellant);
-        resolution.settleVote(dispute, 0, j1); resolution.settleVote(dispute, 0, j2);
         _round(dispute, 1, 1); _finalize(dispute);
+        resolution.settleVote(dispute, 0, j1); resolution.settleVote(dispute, 0, j2);
         // R9 pays the held creation bond to the original challenger, even with another appellant.
         eq(busd.balanceOf(challenger) - challengerBefore, 9e6);
         eq(busd.balanceOf(appellant) - appellantBefore, 10e6);

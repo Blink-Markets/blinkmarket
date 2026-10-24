@@ -37,7 +37,11 @@ P1 提供 agent 自助運作的鏈上協議：身份與角色押金、建市挑�
 
 `attackCostMicros` 是有效 Juror 總押金按價格折成 bUSD 後的一半。測試預設價格為每平台幣 1 bUSD、安全倍率 20,000；1,000 枚押金提供 500 bUSD attack cost，因此當下全域 open payout 上限為 250 bUSD。slash 可令這項關係暫時失效，見下方限制。
 
-投票權重是 `min(snapshot stake, 目前 active stake + pending unstake)`；信用只作門檻，不放大權重。快照使用回合開始前一秒，晚加入的押金不算該回合。建市 spec hash 依 creator 去重，不讓其他地址先占同一題目的 hash。
+投票權重是 `min(snapshot stake, 目前 active stake + pending unstake)`；信用只作門檻，不放大權重。快照使用回合開始前一秒，晚加入的押金不算該回合。每回合開始時依當下 `finalizedCount` 固定信用門檻：未達 `phaseInFinalizedMarkets` 為 0，否則採該層 `roundCreditThreshold`；其他市場定案不會改變已開始回合的門檻（R41）。commit 仍以本人當下信用比較固定門檻，未保存歷史信用。建市 spec hash 依 creator 去重，不讓其他地址先占同一題目的 hash。
+
+建市必須滿足 `hardDeadline - proposalDeadline > resultChallengeWindow[cls] + maxRounds × (commitSeconds + revealSeconds + appealSeconds)`（R39）。每回合 `appealEnd = revealEnd + appealSeconds`，延遲 `settleRound` 不會延長上訴期限；若 `now + commitSeconds + revealSeconds >= hardDeadline`，上訴被拒絕，前回合結果仍可依其原定上訴期限定案。
+
+已揭票且未重開回合的平台幣獎懲，要等爭議定案後才結算，依最終選項判定一致與否（R40）。上訴翻案後，原回合的少數正確票不受非一致 slash，並按該回合最終選項的已揭票權重分配該層 pool；錯誤多數受 `incoherentSlashBps` 處罰。vote lock 保留至逐票結算。未揭票可在回合結束後先 slash；重開回合、timeout 與僅最後回合計信用的規則保留。
 
 ## 信任假設
 
@@ -49,10 +53,12 @@ P1 提供 agent 自助運作的鏈上協議：身份與角色押金、建市挑�
 
 ## 已知限制
 
-- timeout 前已 slash 的平台幣及分配捨入餘額可能留在 `jurors.undistributedSlashed`，沒有回收政策（Task 7 minor #4）。測試確認保留資產仍足額。
-- 每個 vote 的 slash／reward／信用／unlock，以及每個市場的 fee distribution，都需要 permissionless keeper 交易；沒有平台特權 keeper 自動代辦。先結算同層所有 loser，再處理 coherent claims；已提早結算的最後回合 vote 需在定案後再領信用。
+- timeout 前已 slash 的平台幣、某回合無人揭出最終選項時的 pool，以及分配捨入餘額可能留在 `jurors.undistributedSlashed`，沒有回收政策（Task 7 minor #4）。測試確認保留資產仍足額。
+- 每個 vote 的 slash／reward／信用／unlock，以及每個市場的 fee distribution，都需要 permissionless keeper 交易；沒有平台特權 keeper 自動代辦。定案後先結算同層所有 loser，再處理 coherent claims；最後回合已提早結算的未揭票者需在定案後再結算信用。
 - R17 只在 `createMarket` 與 `requestUnstake` 檢查全域安全界線；slash 不能被拒絕，可能令 attack cost 暫低於 open payout 所需值，直到市場關閉。invariant 檢查這兩種操作成功後沒有越界，沒有宣稱 slash 後仍永遠成立。
 - 精確 YES／NO 平手會重開，已揭票者不受 slash；約 50% 押金集團可持續拖延至 hardDeadline，再由 `finalizeTimeout` 成為 INVALID。challenger-side bonds 仍被沒收；未改 tie rule（minor #7／R38）。
+- R39 的建市預留涵蓋初始挑戰與各上訴層；重開回合仍可能消耗時間，keeper 延遲也可能錯過既定期限。不能宣稱任意延遲下都能正常定案。
+- R41 固定信用門檻但接受即時信用：本人其他回合延後結算的信用與時間衰減仍可改變 commit 資格；接近門檻者可能在 commit 窗口內因衰減失去資格。quorum 分母仍為快照總押金，誠實多數假設須涵蓋符合門檻且實際可參與的押金。
 - quorum 使用 committed weight，包含已 commit 卻未 reveal 的押金；non-revealing whale 可替少數已揭票者湊足 quorum，之後才受 slash（minor #2）。
 - sybil 自我爭議仍可付出 losing bond cut／role slash 來替其他地址累積信用；註冊費與不同地址不等同可信身份（minor #5）。
 - 重開／上訴的快照是呼叫當下前一秒；呼叫者可在允許時間內選擇快照時機（minor #3）。
@@ -64,7 +70,9 @@ P1 提供 agent 自助運作的鏈上協議：身份與角色押金、建市挑�
 
 ## 驗證
 
-所有多合約新測試使用 `ProtocolBase.deployGeneration`，連接四份真實合約。只有 token callback 對抗測試替換 collateral。lifecycle 包含兩 maker 正常成交與全額 faucet 對帳、爭議上訴、建市挑戰成立、hard deadline INVALID、治理採用真實第二世代與非零信用匯入，以及建市爭議逾時／駁回後的 creator FINAL 帳務。
+`Lifecycle`、`ProtocolInvariant`、`ProtocolAdversarial` 與本次 `ProtocolFinalReview` 回歸使用 `ProtocolBase.deployGeneration` 連接四份真實合約；其中 token callback 對抗測試替換 collateral。其他單元測試包含 stub，例如 `Registry` 的 `StubReporter` 與 `ResolutionDispute` 可設定 finalized count 的 `DisputeMarkets`，不應視為跨市場整合證據。lifecycle 包含兩 maker 正常成交與全額 faucet 對帳、爭議上訴、建市挑戰成立、hard deadline INVALID、治理採用真實第二世代與非零信用匯入，以及建市爭議逾時／駁回後的 creator FINAL 帳務。
+
+`ProtocolFinalReviewTest` 另驗證最短合法排程下的最晚提案／挑戰與所有上訴仍可在 hardDeadline 前定案、低價敗方持倉不能取得 INVALID 半額、延遲結算不延長上訴窗口、無法完成的上訴被拒、翻案後逐票平台幣／押金／lock 帳務，以及真實第三個市場在上訴 commit 期間定案的固定門檻與即時信用邊界。
 
 `ProtocolInvariantTest` 以獨立 ghost ledger 追蹤兩市場的 escrow、maker free、fees、creation／proposal／challenge／appeal bonds 與各地址持倉，並檢查 Juror token 及 bUSD reward 償付能力。隨機呼叫包含註冊、stake／unstake、建市、成交、提案、挑戰、commit／reveal、重開、逐票結算、上訴、時間推進、定案、分潤、贖回與領報酬。每輪結束強制定案、贖回與 vote unlock，避免只測未結清狀態。
 
@@ -75,17 +83,15 @@ pnpm test:contracts
 pnpm test:contracts:seeds
 node --import tsx --test tests/protocol-artifacts.test.ts
 pnpm check:contracts
-pnpm check:boundaries
 ```
 
-2026-10-24 本機實測：
+2026-10-24 R39–R41 修正後本機實測（聚焦 7 suites、109/109 tests 通過，含兩個 60-committer gas 回歸）：
 
 | 指令 | 結果 |
 | --- | --- |
-| `pnpm test:contracts` | 16 suites、239/239 tests 通過，0 fail／skip；v0.1 24、P1 215，其中本次新增 21 |
+| `pnpm test:contracts` | 17 suites、247/247 tests 通過，0 fail／skip；v0.1 24、P1 223，其中本次新增 8 |
 | `pnpm test:contracts:seeds` | Ledger／Protocol 各以 0x01、0x02 執行，四次共 12/12 tests 通過；每個 invariant 128 runs × 64 calls、0 revert，八個 invariant campaigns 合計 65,536 calls |
 | `node --import tsx --test tests/protocol-artifacts.test.ts` | 1/1 test file 通過，內含編譯／EIP-170 與 ABI 特權名稱兩項命名檢查；此 host runner 以檔案彙總計數 |
-| `pnpm check:contracts` | 通過；八份具體 P1 runtime 全部低於 24,576 bytes，最大 `BlinkResolution` 20,113 bytes（`BlinkMarkets` 18,324） |
-| `pnpm check:boundaries` | 通過 |
+| `pnpm check:contracts` | 通過；八份具體 P1 runtime 全部低於 24,576 bytes，最大 `BlinkResolution` 20,528 bytes（`BlinkMarkets` 18,394） |
 
-聚焦的 lifecycle／invariant／adversarial／settlement 回歸為 37/37 tests 通過。依 R31／dispatch，本 worktree 不執行完整 TypeScript `pnpm check`；由 controller 在 main 執行並完成獨立 review。本次只在 `ws/p1-t10` 提交，不 push。P1 合約測試通過不代表 P2–P4 或自治服務演練完成。
+驗證基準為已合併的 main `b1e4509`；controller 紀錄該版本完整 `pnpm check` 714/714 通過。本次 R39–R41 修正依 dispatch 在 `ws/p1-final` 驗證上列合約回歸，不重跑完整 `pnpm check`，不 push；獨立複審由 controller 接續。P1 合約測試通過不代表 P2–P4 或自治服務演練完成。

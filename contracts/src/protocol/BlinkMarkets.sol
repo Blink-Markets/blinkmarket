@@ -166,7 +166,8 @@ contract BlinkMarkets is EIP712, ReentrancyGuard {
         uint64 openAt = uint64(block.timestamp) + p.creationWindow[uint256(t.cls)] + (t.reviewed ? 0 : p.firstUseExtraWindow);
         if (
             !(openAt < a.closeAt && a.closeAt < a.proposalDeadline && a.proposalDeadline < a.hardDeadline)
-                || a.hardDeadline - a.proposalDeadline <= p.resultChallengeWindow[uint256(t.cls)]
+                || a.hardDeadline - a.proposalDeadline <= uint256(p.resultChallengeWindow[uint256(t.cls)])
+                    + uint256(p.maxRounds) * (uint256(p.commitSeconds) + p.revealSeconds + p.appealSeconds)
         ) revert InvalidSchedule();
         if (a.maxPairs == 0 || a.maxPairs > p.maxMarketPairs) revert InvalidCap();
         if (t.cls == QuestionClass.C_JUDGMENT && !registry.meetsThreshold(msg.sender, Role.CREATOR, p.classCCreditThreshold)) {
