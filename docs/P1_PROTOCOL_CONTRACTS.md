@@ -94,4 +94,24 @@ pnpm check:contracts
 | `node --import tsx --test tests/protocol-artifacts.test.ts` | 1/1 test file 通過，內含編譯／EIP-170 與 ABI 特權名稱兩項命名檢查；此 host runner 以檔案彙總計數 |
 | `pnpm check:contracts` | 通過；八份具體 P1 runtime 全部低於 24,576 bytes，最大 `BlinkResolution` 20,528 bytes（`BlinkMarkets` 18,394） |
 
-驗證基準為已合併的 main `b1e4509`；controller 紀錄該版本完整 `pnpm check` 714/714 通過。本次 R39–R41 修正依 dispatch 在 `ws/p1-final` 驗證上列合約回歸，不重跑完整 `pnpm check`，不 push；獨立複審由 controller 接續。P1 合約測試通過不代表 P2–P4 或自治服務演練完成。
+最終驗證基準為 main `c500389`（R39–R41 修正合併後）：上列合約指令結果相同，完整 `pnpm check` 714/714 通過。每個任務都經過獨立審查，整個分支另做一次最終審查，最終審查的修正也經過範圍複審。P1 合約測試通過不代表 P2–P4 或自治服務演練完成。
+
+## 實作裁決對照
+
+本文件引用的裁決編號與 minor 編號來自 P1 實作期間的決策紀錄，該紀錄不保存在 repo。以下是行為相關的裁決：
+
+| 編號 | 決定 |
+| --- | --- |
+| R6 | 特權函式名稱掃描用 `/owner\|admin\|pause\|initiali[sz]e\|upgrade\|^bind/i` 加大小寫敏感的 `/^set[A-Z]/`，排除 markets hooks `setProposed`／`setDisputed`；不掃 `allow`（ERC20 allowance）；Governor 由自身測試證明只能提案 `adoptSuccessor` |
+| R9 | `resolveCreation(id, upheld, challenger)`；建市挑戰成立時 held creator bond 付給原 challenger |
+| R17 | 全域安全界線只在 `createMarket` 與 `requestUnstake` 檢查；slash 不可拒絕，可能暫時越界 |
+| R21 | 零 Juror stake 時的 reward 與 stream 時間歸 treasury |
+| R29 | 任何函式都不迴圈 jurors；逐票結算 permissionless |
+| R32 | 費用分配取整後餘額歸 treasury；最終結果與提案不同或沒有提案時，resolution 份額給 jurors；keeper tip 一律給呼叫者 |
+| R34／R37 | 結果爭議只能揭 YES／NO；INVALID 只來自 hardDeadline 後的 `finalizeTimeout` |
+| R35 | 投票權重取快照押金與目前可 slash 押金的較小值 |
+| R38 | 平手與無 quorum 時同層重開，不改 tie rule |
+| R39 | 建市預留完整仲裁時間；`appealEnd` 固定為 `revealEnd + appealSeconds`；無法完成的上訴被拒 |
+| R40 | 平台幣獎懲依爭議最終結果判定（取代 R29 原本的逐回合判定） |
+| R41 | 每回合開始時固定信用門檻 |
+| minor #1–#7 | 即「已知限制」中標示的七項 Task 7 仲裁限制，每項都有對抗測試 |
