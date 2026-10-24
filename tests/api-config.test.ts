@@ -9,6 +9,7 @@ const identity = {
 const markets = {
   ...identity,
   SPEC_OBJECT_DIRECTORY: "/var/blink/specs",
+  SPEC_PUBLIC_ORIGIN: "https://blink.example",
   BLINK_DEPLOYMENT_ID: "local-anvil",
 };
 

@@ -5,8 +5,9 @@ export interface ServiceRequest {
   path: string; // contract path, e.g. "/v1/markets/:id"
   params: Record<string, string>; // validated + lowercased hex where the contract uses Address/Hash
   query: Record<string, unknown>; // parsed with the contract query schema (coerced)
-  body: unknown; // raw; services parse with the contract body schema
+  body: unknown; // raw; services parse with the contract body schema (a Uint8Array for raw-byte routes)
   authorization: string | undefined;
+  contentType?: string | undefined; // request Content-Type, for services that take raw bytes
   idempotencyKey: string | undefined;
   requestId: string;
   ip: string;

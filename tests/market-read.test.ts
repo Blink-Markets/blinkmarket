@@ -111,13 +111,9 @@ async function seedSpec(t: Awaited<ReturnType<typeof fixture>>) {
     new URL("../fixtures/replay/market-spec.json", import.meta.url),
   );
   const h = keccak256(bytes);
-  t.objects.set("memory:spec", bytes);
+  t.objects.set("local-object:" + h, bytes);
   await t.db.query(
     "UPDATE chain.markets SET spec_hash=decode($1,'hex') WHERE market_id=1",
-    [h.slice(2)],
-  );
-  await t.db.query(
-    "INSERT INTO markets.specs(hash,object_uri,public_uri) VALUES (decode($1,'hex'),'memory:spec','https://spec.invalid')",
     [h.slice(2)],
   );
   return { bytes, h };
@@ -163,7 +159,7 @@ test("detail parses archived spec; spec serves exact bytes and integrity failure
       404,
     );
     t.objects.set(
-      "memory:spec",
+      "local-object:" + h,
       new TextEncoder().encode(bytes.toString() + " "),
     );
     const broken = await t.app.inject("/v1/markets/1?deploymentId=d1");

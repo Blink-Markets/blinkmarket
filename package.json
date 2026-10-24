@@ -19,7 +19,6 @@
     "db:migrate": "node --import tsx scripts/migrate.ts",
     "ops:status": "node --import tsx scripts/ops-status.ts",
     "forecast:admin": "node --import tsx scripts/forecast-admin.ts",
-    "evidence:admin": "node --import tsx scripts/evidence-admin.ts",
     "manifest:validate": "node --import tsx scripts/validate-manifest.ts",
     "contracts:deploy": "node --import tsx scripts/deploy-contracts.ts",
     "manifest:verify": "node --import tsx scripts/verify-deployment.ts",

@@ -1,7 +1,7 @@
 import { buildApi } from "../../apps/api/src/server.js";
 import { createMarketReadService } from "../../packages/application/src/market-read.js";
 import { postgresMarketReadStore } from "../../packages/adapters/src/market-read-store.js";
-import { createSpecArchive } from "../../packages/adapters/src/spec-archive.js";
+import { verifiedArchive } from "../../packages/adapters/src/content-store.js";
 import { postgresIdentityStore } from "../../packages/adapters/src/identity-store.js";
 import { identityCrypto } from "../../packages/adapters/src/identity-crypto.js";
 import { authenticateIdentity } from "../../packages/application/src/identity.js";
@@ -30,7 +30,7 @@ export async function fixture(
     [hash(10).slice(2)],
   );
   const objects = new Map<string, Uint8Array>();
-  const archive = createSpecArchive({
+  const archive = verifiedArchive({
     async read(uri) {
       const bytes = objects.get(uri);
       if (!bytes) throw new Error("MISSING");

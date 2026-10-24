@@ -195,7 +195,7 @@ function baseProfile(dir: string, overrides: Record<string, string> = {}) {
     API_DATABASE_URL: "postgresql://api:fake@db.internal/blink",
     WALLET_BINDING_ORIGIN: "https://api.example.test",
     SPEC_OBJECT_DIRECTORY: "/data/specs",
-    SPEC_PUBLIC_ORIGIN: "https://api.example.test/specs",
+    SPEC_PUBLIC_ORIGIN: "https://api.example.test",
     EVIDENCE_OBJECT_DIRECTORY: "/data/evidence",
     BLINK_DEPLOYMENT_ID: "alpha-test",
     BASE_SEPOLIA_RPC_URL: "https://rpc.example.test/fake-token",

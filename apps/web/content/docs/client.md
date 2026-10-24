@@ -77,7 +77,6 @@ The client has 26 methods. Every `key` argument is optional and is sent as the `
 | `createCandidate(input, key?)` | `POST /v1/candidates` | candidate input, idempotency key | `candidateId`, `revision`, `state` |
 | `reviseCandidate(id, input, key?)` | `POST /v1/candidates/:id/revisions` | candidate ID, revision input, idempotency key | `candidateId`, `revision`, `state` |
 | `getCandidate(id)` | `GET /v1/candidates/:id` | candidate ID | `candidate` and its `revisions` |
-| `getEvidence(id)` | `GET /v1/evidence/:id` | evidence ID | evidence metadata |
 | `rejectCandidate(id, input, key?)` | `POST /v1/admin/candidates/:id/reject` | candidate ID, `{ expectedRevision, reasonCode, reason }`, idempotency key; admin key | `candidateId`, `revision`, `state` |
 
 ### Approval and creation tracking (admin)
@@ -127,7 +126,7 @@ If `requestQuote` is answered with a retryable 503 while the quote is still bein
 | `claimFaucet(input, key?)` | `POST /v1/faucet/claims` | `{ deploymentId }`, idempotency key | `claimId`, `intentId`, `state` (`QUEUED`); HTTP 202 |
 | `getMetrics(mode)` | `GET /v1/metrics?mode=...` | `"LIVE"` or `"REPLAY"` | event, missing and invalid counts, `brier`, and research spend: spent, reserved and unknown |
 
-The client has no method for `GET /v1/specs/{specHash}` or for the admin resolution-report operations in the [API reference](/docs/api).
+The client has no method for `/v1/content` or `/v1/suggestions`, or for the admin resolution-report operations in the [API reference](/docs/api).
 
 ## How is a signed quote checked?
 

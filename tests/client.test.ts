@@ -196,21 +196,6 @@ const cases: Case[] = [
     },
   },
   {
-    name: "getEvidence",
-    call: (c) => c.getEvidence(UUID),
-    method: "GET",
-    path: "/v1/evidence/" + UUID,
-    answer: {
-      evidenceId: UUID,
-      sourceUrl: "https://example.com/fixture-only",
-      observedAt: "2026-10-15T00:00:00.000Z",
-      publishedAt: null,
-      contentHash: HASH,
-      accessPolicy: "PRIVATE",
-      excerpt: null,
-    },
-  },
-  {
     name: "listForecastWindows",
     call: (c) => c.listForecastWindows(marketRef, { limit: 3, cursor: "c1" }),
     method: "GET",

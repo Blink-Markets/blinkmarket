@@ -38,3 +38,5 @@ export {
   decideEpisodeChanges,
   type AlertEvaluatePolicy,
 } from "./alert-evaluate.js";
+export { createContentService, contentPaths } from "./content.js";
+export { createSuggestionService, suggestionPaths } from "./suggestions.js";

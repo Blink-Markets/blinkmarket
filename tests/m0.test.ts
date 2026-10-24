@@ -13,11 +13,7 @@ import {
   generateOpenApi,
   Uint256,
 } from "../packages/schemas/src/index.js";
-import {
-  createSpecArchive,
-  encodeNewSpec,
-  verifySpecBytes,
-} from "../packages/adapters/src/spec-archive.js";
+import { verifiedArchive } from "../packages/adapters/src/content-store.js";
 import { buildApi } from "../apps/api/src/server.js";
 import { routes } from "../apps/api/src/routes.js";
 import { apiContracts } from "../packages/schemas/src/index.js";
@@ -38,26 +34,11 @@ export async function newSpec() {
     },
   };
 }
-test("spec freeze persists and returns exact bytes; whitespace tampering fails", async () => {
+test("archived bytes are returned exactly and tampering fails", async () => {
   const input = await newSpec();
-  const { bytes, hash } = encodeNewSpec(input, 0n);
   assert.equal(
     MarketSpecV011.parse(input).schemaVersion,
     "blink.market.v0.1.1",
-  );
-  assert.equal(verifySpecBytes(bytes, hash).mode, "REPLAY");
-  assert.throws(
-    () => verifySpecBytes(new Uint8Array([...bytes, 32]), hash),
-    /HASH_MISMATCH/,
-  );
-  assert.throws(
-    () =>
-      encodeNewSpec({ ...input, mode: "LIVE", challengeSeconds: 86400 }, 0n),
-    /PLACEHOLDER/,
-  );
-  assert.throws(
-    () => encodeNewSpec(input, BigInt(input.closeAt)),
-    /MARKET_CLOSED/,
   );
   assert.equal(
     ResolutionPolicy.safeParse({
@@ -66,26 +47,21 @@ test("spec freeze persists and returns exact bytes; whitespace tampering fails",
     }).success,
     false,
   );
-  let stored = new Uint8Array();
-  const archive = createSpecArchive({
-    async putIfAbsent(value) {
-      stored = value.slice();
+  // The hash covers exactly these bytes; reordering or reformatting would change it.
+  const bytes = new TextEncoder().encode(JSON.stringify(input, null, 2));
+  const hash = keccak256(bytes);
+  let stored = bytes.slice();
+  const archive = verifiedArchive({
+    async putIfAbsent() {
       return { uri: "memory:test" };
     },
     async read() {
       return stored.slice();
     },
   });
-  await archive.freeze(input, 0n);
   assert.deepEqual(await archive.read("memory:test", hash), bytes);
   stored[0] = 0;
   await assert.rejects(archive.read("memory:test", hash), /HASH_MISMATCH/);
-  const reordered = Object.fromEntries(Object.entries(input).reverse());
-  assert.equal(encodeNewSpec(reordered, 0n).hash, hash);
-  assert.notEqual(
-    keccak256(new TextEncoder().encode(JSON.stringify(input, null, 2))),
-    hash,
-  );
 });
 test("wire integers, deployment identity and template rejection", async () => {
   for (const bad of ["-1", "1.5", "NaN", "01", "x", (2n ** 256n).toString()])
@@ -175,13 +151,18 @@ test("file archive is content addressed, exclusive and rejects path escape", asy
   const dir = await mkdtemp(join(tmpdir(), "blink-m0-"));
   try {
     const store = fileObjectStore(dir);
-    const archive = createSpecArchive(store);
-    const frozen = await archive.freeze(await newSpec(), 0n);
-    assert.deepEqual(await archive.read(frozen.uri, frozen.hash), frozen.bytes);
-    assert.equal((await archive.freeze(await newSpec(), 0n)).uri, frozen.uri);
+    const archive = verifiedArchive(store);
+    const bytes = new TextEncoder().encode(JSON.stringify(await newSpec()));
+    const hash = keccak256(bytes);
+    const { uri } = await store.putIfAbsent(bytes, hash);
+    assert.deepEqual(
+      Buffer.from(await archive.read(uri, hash)),
+      Buffer.from(bytes),
+    );
+    assert.equal((await store.putIfAbsent(bytes, hash)).uri, uri);
     await assert.rejects(store.read("local-object:../../secrets"), /INVALID/);
     await assert.rejects(
-      store.putIfAbsent(new Uint8Array([0]), frozen.hash),
+      store.putIfAbsent(new Uint8Array([0]), hash),
       /HASH_MISMATCH/,
     );
   } finally {

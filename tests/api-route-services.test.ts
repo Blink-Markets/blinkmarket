@@ -261,7 +261,7 @@ test("a Uint8Array body is sent byte for byte with its content type", async () =
   const bytes = new TextEncoder().encode('{ "b" : 1,\n "a":2 }\n');
   const app = buildApi({
     services: [
-      fakeService(["/v1/specs/:specHash"], () => ({
+      fakeService(["/v1/content/:hash"], () => ({
         status: 200,
         body: bytes,
         contentType: "application/json",
@@ -270,7 +270,7 @@ test("a Uint8Array body is sent byte for byte with its content type", async () =
     ],
   });
   try {
-    const res = await app.inject(`/v1/specs/0x${"ab".repeat(32)}`);
+    const res = await app.inject(`/v1/content/0x${"ab".repeat(32)}`);
     assert.equal(res.statusCode, 200);
     assert.ok(Buffer.from(bytes).equals(res.rawPayload));
     assert.match(String(res.headers["content-type"]), /^application\/json/);
@@ -506,9 +506,8 @@ test("public reads are rate limited per IP; other routes are not", async () => {
     assert.equal((await get("/v1/metrics?mode=REPLAY")).statusCode, 429);
     // Another client, a non-public route and the health endpoints are unaffected.
     assert.equal((await get("/v1/markets", "10.0.0.2")).statusCode, 200);
-    const id = "00000000-0000-4000-8000-000000000001";
     for (let i = 0; i < 70; ++i)
-      assert.equal((await get(`/v1/evidence/${id}`)).statusCode, 501);
+      assert.equal((await get("/v1/admin/pause")).statusCode, 501);
     assert.equal((await get("/health/live")).statusCode, 200);
     // Tokens refill with the injected clock.
     clock += 1000;
