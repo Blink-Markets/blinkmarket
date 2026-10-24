@@ -10,7 +10,7 @@ import {
 import { z } from "zod";
 import { AdminMetricsResponse, HealthResponse } from "./health.ts";
 import { CreationChainStatus } from "./creation-status.ts";
-import { PublicDeployment } from "./deployment.ts";
+import { PublicDeployment } from "./deployment-v1.ts";
 import {
   CandidateInput,
   CandidateRevisionInput,

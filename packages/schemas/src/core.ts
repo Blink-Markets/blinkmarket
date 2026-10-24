@@ -13,7 +13,9 @@ export const Uint64 = DecimalInteger.pipe(
 );
 export const PositiveUint256 = Uint256.refine((v) => v !== "0");
 export const Address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
+export type Address = z.infer<typeof Address>;
 export const Hash = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
+export type Hash = z.infer<typeof Hash>;
 export const Mode = z.enum(["LIVE", "REPLAY"]);
 export const Outcome = z.enum(["YES", "NO", "INVALID"]);
 export const MarketState = z.enum(["OPEN", "PROPOSED", "DISPUTED", "FINAL"]);

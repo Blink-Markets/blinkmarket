@@ -42,6 +42,8 @@ export {
   blinkEventNames,
   type BlinkEventName,
 } from "./blink-abi.js";
+export { protocolAbi, type ProtocolContractName } from "./protocol-abi.js";
+export { viemSignatureVerifier } from "./signature-verifier.js";
 export { assertProductionClock } from "./business-clock.js";
 export {
   postgresJobQueue,
