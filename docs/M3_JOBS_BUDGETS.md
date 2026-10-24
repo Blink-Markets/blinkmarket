@@ -2,8 +2,6 @@
 
 This slice adds the durable job runtime and the USD research budget ledger that the later worker tasks (discovery, forecasters, keeper, faucet) depend on. It registers **no job handler and no outbox mapping yet**, ships **no real model provider**, and spends nothing: the only gateway is a deterministic fixture.
 
-中文摘要：加入可靠的工作佇列（租約、續租、fencing、重試、死信）、outbox 派送，以及以 USD 微單位計的研究預算帳本與有預算保護的模型呼叫；目前只有固定回應的假 gateway，沒有任何 handler，也不會花任何費用。
-
 ## What exists
 
 | Piece | Where |

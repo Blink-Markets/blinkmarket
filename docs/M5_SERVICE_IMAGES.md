@@ -1,7 +1,5 @@
 # M5 service images — Task A1 delivery
 
-中文摘要：API、Worker、Indexer、Signer 各有一個固定版本、非 root、只含自己 bundle 的容器映像；本機以 Compose 啟動 PostgreSQL、Anvil 與四個映像並驗證健康與就緒。煙霧測試以容器內簽章的 faucet 鑄幣驗證簽章路徑；預設煙霧測試約 74 秒（堆疊就緒與 faucet 鑄幣），`--market` 約 34 分鐘（預測窗口與證據時間規則）並含報價與買入，`--full` 約 96 分鐘並含 keeper 結算與贖回。
-
 This slice makes the four backend services container images that build reproducibly from the existing esbuild bundles and run locally. Nothing is deployed, published to a registry, signed or paid for; all keys are the public Anvil test keys.
 
 ## Images

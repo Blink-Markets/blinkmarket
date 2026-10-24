@@ -2,8 +2,6 @@
 
 `@blink/client` now has a typed method for every enabled endpoint, retries transient refusals with the same Idempotency-Key, and exports `verifySignedQuote`, the check a taker runs before it approves or sends anything. `examples/agent/run.ts` is an external agent that runs the whole flow on the local stack with it. Nothing here deploys, signs for anyone but the agent's own wallet, or contacts a network beyond a local Anvil (chain ID 84532) and the local API.
 
-中文摘要：`@blink/client` 補齊所有已啟用端點的型別化方法、同一 Idempotency-Key 的自動重試，以及送單前必做的 `verifySignedQuote`（11 種失敗碼）；`examples/agent/run.ts` 在本機堆疊上走完整個外部 agent 流程（綁錢包、預測、水龍頭、驗證報價、精確授權、fill、等待 FINAL、redeem）。
-
 ## What was added
 
 | Piece | Where | Behavior |

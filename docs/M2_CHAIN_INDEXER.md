@@ -2,8 +2,6 @@
 
 This slice adds the per-deployment indexer that scans the BlinkMarket contract's logs into `chain.events`, folds them into the rebuildable projections of migration 0007, survives reorgs and duplicate delivery, cross-checks the projections against contract reads, and publishes the freshness the RFQ gate needs (spec 14.2, design 04 "Indexer"). It is a second, independently enabled loop in `apps/indexer`; the opt-in creation receipt poller is unchanged. Nothing here signs, sends or reads private keys, and no migration was added (0007 and the existing grants were enough).
 
-中文摘要：每個 deployment 一個帶 fencing lease 的 indexer，把 BlinkMarket 事件折疊成可重建的 projection，偵測 reorg 並保留 tombstone，與合約讀值交叉核對，並以 `/health/chain-index` 提供 RFQ gate 所需的新鮮度；與既有的建市收據 poller 各自獨立開關。
-
 ## What it does
 
 | Piece | Where | Behavior |

@@ -1,7 +1,5 @@
 # M3 evaluation scores and public metrics
 
-中文摘要：新增精確 Brier 評分、FINAL 市場定期評估與依事件加權的公開統計，分離 LIVE／REPLAY 並保留缺失、污染及 INVALID 標記。
-
 Task 12 implements the evaluation slice only; it does not complete the whole M3 milestone.
 
 ## Delivered scope

@@ -2,8 +2,6 @@
 
 This slice connects an approved creation intent to a **real RPC-observed transaction, MarketCreated event and chain-assigned market ID**. It is an operator-invoked, read-only chain observer, not a continuously running indexer. The implementation is tested with mock RPC fixtures and actual receipts from isolated local Anvil contracts; no remote transaction was sent and no public deployment was created.
 
-中文摘要：建市意圖可以接收鏈上觀測結果，確認事件與交易一致後顯示 marketId。這階段是單筆交易追蹤工具，不是完整 Indexer，也不會簽署或廣播。
-
 ## Flow and states
 
 ```mermaid

@@ -1,18 +1,18 @@
-# 領域語言
+# Domain language
 
-產品規範以 Blink_MVP_v0.1_Base_Sepolia_Spec.md 為準；架構決策位於 docs/adr/。
+The product specification is Blink_MVP_v0.1_Base_Sepolia_Spec.md. Architecture decisions are in docs/adr/.
 
-- **Candidate**：尚待檢查與人工核准的問題；APPROVED 不表示链上已建市。
-- **MarketSpec**：人工核准後的精確 UTF-8 bytes；specHash 是 bytes 的 keccak256，不能重新 serialize 取代。
-- **Market**：deploymentId + 鏈上 marketId；模式是永久 LIVE 或 REPLAY。
-- **Forecast window**：market + horizonType + scheduledAt；相同 agent 只能一筆，撤回仍保留。
-- **Baseline**：独立的一次單模型預測，不加入兩個平台 forecaster 的平均。
-- **Quote**：maker 對指定 taker 的 EIP-712 報價；簽署不代表成交或鏈上資金保留。
-- **Complete set**：一份 YES + 一份 NO，全額抵押 1 bUSD；份數為整數。
-- **Reservation**：預留。分為真實研究成本、maker collateral、trader notional/gas，不能混用。
-- **Projection**：由 canonical events 重建的讀取資料；不是持倉真相來源。
-- **Economic intent**：一次經核准的經濟操作；交易重送或 replacement 不可建立第二次意圖。
-- **Finality**：PRECONFIRMED、INCLUDED、FINALIZED 有別；unknown 不等同失敗。
-- **INVALID**：YES / NO 每份各付 0.5 bUSD，不是退回購入價。
-- **Signer**：隔離金鑰與 policy 的程序；API key 不授權代替外部使用者提款。
-- **Public Alpha**：須滿足規格 §17.3。本 repo 已有M0/M1本機契約與帳本，尚未接線或部署公開Alpha。
+- **Candidate**: A question that still awaits checks and human approval. APPROVED does not mean the market has been created on-chain.
+- **MarketSpec**: The exact UTF-8 bytes after human approval. specHash is the keccak256 of those bytes and cannot be replaced by re-serializing.
+- **Market**: deploymentId plus the on-chain marketId. Its mode is permanently LIVE or REPLAY.
+- **Forecast window**: market + horizonType + scheduledAt. The same agent may submit only one forecast, and a withdrawn forecast is still kept.
+- **Baseline**: A separate single-model forecast, made once. It is not added to the average of the two platform forecasters.
+- **Quote**: An EIP-712 quote from a maker to a specified taker. Signing it does not mean a fill or an on-chain hold of funds.
+- **Complete set**: One YES plus one NO, fully collateralized with 1 bUSD. The number of sets is an integer.
+- **Reservation**: A hold. It is split into real research cost, maker collateral, and trader notional/gas, and these must not be mixed.
+- **Projection**: Read data rebuilt from canonical events. It is not the source of truth for positions.
+- **Economic intent**: One approved economic operation. Resending or replacing a transaction must not create a second intent.
+- **Finality**: PRECONFIRMED, INCLUDED and FINALIZED are distinct. Unknown is not the same as failed.
+- **INVALID**: Each YES and each NO pays 0.5 bUSD. It is not a refund of the purchase price.
+- **Signer**: The process that holds isolated keys and policy. An API key does not authorize it to withdraw on behalf of an external user.
+- **Public Alpha**: Must satisfy spec §17.3. This repo already has the M0/M1 local contracts and ledger, but has not wired up or deployed a public Alpha.

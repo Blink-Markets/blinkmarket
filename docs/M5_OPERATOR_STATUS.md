@@ -1,7 +1,5 @@
 # M5 operator status surface (A3)
 
-中文摘要：新增唯讀管理狀態 API 與單頁終端摘要，暫停操作僅輸出 ADMIN 錢包的未簽署 calldata。
-
 This delivery covers the A3 operator-status slice of public Alpha readiness. It does not complete M5 or authorize a deployment.
 
 The API registers these reads in trading mode:

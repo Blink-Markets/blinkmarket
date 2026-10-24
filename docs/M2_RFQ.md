@@ -2,8 +2,6 @@
 
 This slice turns on `trading` mode: `POST /v1/rfqs` prices a quote deterministically from the platform ensemble, refuses to quote on stale or gated state, reserves the maker's collateral under a row lock, has the restricted signer sign the EIP-712 quote, and answers idempotently. `GET /v1/quotes/:quoteId` reports a quote's state from canonical chain state. A worker reconciles every reservation against the indexer's cursor, including after a reorg. Nothing here sends a transaction: the taker approves and fills with their own wallet, and the maker key never leaves the signer process.
 
-中文摘要：開啟 `trading` 模式：RFQ 依雙模型 ensemble 確定性報價，在 maker 抵押池列鎖下預留資金，由受限 signer 簽 EIP-712 quote；worker 依 indexer 的 canonical cursor 對帳（含 reorg 後重新開啟），`/v1/config` 與 `canTrade` 如實反映可交易狀態。
-
 ## What was added
 
 | Piece | Where | Behavior |

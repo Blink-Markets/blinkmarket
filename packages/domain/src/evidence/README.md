@@ -1,9 +1,9 @@
-# 資料與證據
+# Data and evidence
 
-責任：來源擷取、不可覆寫 bytes、hash 與公開權限。
+Responsibility: Source fetching, bytes that cannot be overwritten, hashes and public permissions.
 
-資料 ownership：evidence / source_allowlists。
+Data ownership: evidence / source_allowlists
 
-狀態：模組位置與邊界已建立；use cases / repositories 尚未實作。
+Status: Module location and boundary are established; use cases / repositories are not yet implemented.
 
-後續 domain model 放此目錄；application use case 放 `packages/application/src/evidence/`，外部 adapter 放 `packages/adapters/src/evidence/`。其他模組不得直接寫入本模組資料表，跨模組更新經 application orchestration、同一 transaction 與 outbox 完成。
+Later domain models go in this directory; application use cases go in `packages/application/src/evidence/` and external adapters in `packages/adapters/src/evidence/`. Other modules must not write this module's tables directly; cross-module updates go through application orchestration, one transaction and the outbox.

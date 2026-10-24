@@ -1,7 +1,5 @@
 # M3 resolution reports and human role drafts
 
-中文摘要：新增結算報告與管理員分流、毛利率解析建議、期限提醒及唯讀未簽署角色交易草稿。
-
 This delivery completes Task 11's backend slice. It does not complete M3 as a whole or add the deferred admin web UI.
 
 ## Delivered scope

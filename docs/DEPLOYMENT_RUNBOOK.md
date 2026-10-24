@@ -1,7 +1,5 @@
 # Public Alpha deployment runbook
 
-中文摘要：本手冊列出 Base Sepolia Alpha 從空白基礎設施到就緒驗收的部署順序；所有對外操作、簽署、廣播、建置資源與支出均由使用者明確核准後執行。
-
 This runbook describes a provider-neutral deployment on Base Sepolia. It supports one small `linux/arm64` app VM for API, Worker and Indexer, plus a separate signer VM. PostgreSQL and private object storage may be self-hosted or selected later. It does not select providers, publish endpoints, or supply credentials. Start with [`deployments/base-sepolia/env.example`](../deployments/base-sepolia/env.example); every `<TO BE PROVIDED: …>` marker must be replaced in a protected, untracked runtime file.
 
 ## Guardrails and inputs

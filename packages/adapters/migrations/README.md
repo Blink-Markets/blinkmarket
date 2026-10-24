@@ -1,15 +1,15 @@
 # SQL migrations
 
-`0005_creation_tracking` 新增 indexer-only 寫入的建市觀測歷史與 projection，API 僅能查詢。`0006_creation_tracking_schedule` 為已驗證且已 pin txHash 的建市 projection 建立 durable polling schedule，並提供 lease/retry 恢復；不包含完整 block/event indexer。啟用 creation poller 前需套用 0006。
+`0005_creation_tracking` adds the market-creation observation history and projection, written only by the indexer; the API can only query them. `0006_creation_tracking_schedule` creates a durable polling schedule for verified market-creation projections whose txHash is pinned, and provides lease/retry recovery; it does not include a full block/event indexer. Apply 0006 before enabling the creation poller.
 
-0001_foundation 建立 domains、runtime roles 與 operations 基礎表；0002_identity 建立邀請與 wallet binding；0003_preparation 建立證據與候選；0004_approval 建立部署驗證、specs、approvals、creation_intents 與 active_slots，以及獨立部署登錄角色。Pending slot 釋放與鏈上確認留待後續 migration，不手動刪除。
+0001_foundation creates the domains, runtime roles and base operations tables; 0002_identity creates invitations and wallet binding; 0003_preparation creates evidence and candidates; 0004_approval creates deployment verification, specs, approvals, creation_intents and active_slots, plus a separate deployment-registry role. Releasing a pending slot and on-chain confirmation are left to a later migration; do not delete rows by hand.
 
 ```sh
 DATABASE_URL=postgresql://blink:local-only@127.0.0.1:5432/blink pnpm db:migrate
 ```
 
-沒有默认連線。使用可建schema/role的migration帳號；runtime users需另外設定登入憑證並授相應NOLOGIN group role，不共享migration帳號。Runner單一連線持session advisory lock，依序每檔BEGIN/COMMIT，記SHA-256；既有checksum改變即拒絕。失敗回滾該批，不自動DROP任何資料。
+There is no default connection. Use a migration account that can create schemas and roles. Runtime users need their login credentials set separately and must be granted the matching NOLOGIN group role; they do not share the migration account. The runner holds a session advisory lock on a single connection, runs each file in order inside BEGIN/COMMIT, and records its SHA-256; it rejects any change to the checksum of an applied file. A failure rolls back that batch, and nothing is ever dropped automatically.
 
-採forward migration；已套用的SQL檔不可修改，新增版本修正。NUMERIC domain明確檢查整數，避免欄位precision scale的自動rounding。Audit runtime僅INSERT/SELECT，trigger亦拒UPDATE/DELETE/TRUNCATE。
+Migrations are forward-only. An applied SQL file must not be modified; add a new version to fix it. The NUMERIC domains check explicitly for integers, to avoid the automatic rounding of a column's precision and scale. The audit runtime role has INSERT/SELECT only, and a trigger also rejects UPDATE/DELETE/TRUNCATE.
 
-pnpm test 以 PGlite engine 驗 DDL、grants、checksum、精度及身份交易。pnpm test:postgres 另需专用 PostgreSQL，測真實多 connection 的身份鎖競爭；不能把單 session 測試當成分散式併發驗收。backup/restore 與 outbox 重試整合仍待後續切片。
+pnpm test uses the PGlite engine to verify DDL, grants, checksums, precision and identity transactions. pnpm test:postgres also needs a dedicated PostgreSQL and tests identity lock contention across real multiple connections; a single-session test must not be taken as distributed concurrency acceptance. Backup/restore and outbox retry integration are left to later slices.

@@ -1,7 +1,5 @@
 # M5 demo script — Task A8 delivery
 
-中文摘要：依規格 §19 撰寫三分鐘展示分鏡，全程在本地 Alpha（pnpm alpha:local 與範例代理）上執行；歷史資料一律標示 REPLAY，不宣稱部署、真實市場或收益，錄影由使用者負責。
-
 A 3-minute storyboard for the Blink Market demo video, following spec §19 (30 s problem, 60 s data to forecast, 60 s RFQ trade and rights, 30 s REPLAY result and next steps). Everything shown runs on the local Alpha stack. Recording and publishing are the user's (decision D10); this document does not record, deploy or publish anything.
 
 ## Ground rules for the video

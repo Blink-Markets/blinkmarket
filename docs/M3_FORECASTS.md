@@ -1,7 +1,5 @@
 # M3 forecast windows, submissions and snapshots
 
-中文摘要：本階段完成資料庫時鐘約束的預測窗口與不可變提交、截止前後可見性、平台模型登錄與註記，以及固定雙模型快照；不代表整個 M3 已完成。
-
 ## Delivered scope
 
 Migration `0009_forecasts.sql` adds the platform-agent registry, DAILY/PRE_CLOSE windows, immutable submissions, append-only annotations and snapshots, and model-run provenance/lifecycle records. Windows deliberately have no foreign key to the rebuildable chain market projection. API, worker and forecast-admin grants are separate; workers cannot read submissions or snapshots.

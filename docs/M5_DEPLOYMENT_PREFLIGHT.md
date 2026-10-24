@@ -1,7 +1,5 @@
 # Base Sepolia deployment runbook and preflight (A6)
 
-中文摘要：新增 Base Sepolia 部署手冊與離線環境預檢，並明確保留需使用者核准的部署、簽署、廣播及對外操作。
-
 This delivery adds [the deployment runbook](DEPLOYMENT_RUNBOOK.md), a marker-only [Base Sepolia environment template](../deployments/base-sepolia/env.example), and `pnpm deploy:preflight <env-file>`. The preflight uses the API, Worker, Indexer and Signer config parsers offline and validates the required production profile. The mechanical test derives environment reads from every TypeScript file under the four service `src` trees and the TypeScript tool scripts called by runbook package commands.
 
 ## Rejection codes

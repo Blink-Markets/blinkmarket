@@ -1,7 +1,5 @@
 # M5 health and execution metrics — Task 16a
 
-中文摘要：新增公開健康狀態、管理員診斷與執行指標，並建立逐項驗收矩陣；本階段不代表公開 Alpha 完成。
-
 ## Delivered scope
 
 - `GET /v1/health` returns exactly `{status, tradingEnabled, reasons}` publicly,

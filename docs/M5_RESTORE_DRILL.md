@@ -1,7 +1,5 @@
 # M5 backup and restore drill — Task A5 delivery
 
-中文摘要：在本機 Alpha 最後一個市場仍開放、留有一張未成交報價（HELD reservation）時，以 PostgreSQL 17.6 映像的 pg_dump／pg_restore 備份並還原到全新資料庫；驗證投影、結構與備份及合約檢視一致、重放 canonical 事件，並確認在 reservation 對帳器於「新鮮」游標上完成對帳前報價一直關閉（對帳器在游標過時、落後或被關閉時拒絕判斷）。物件封存還原尚未納入（待 D3）。
-
 This is the §17.3 "backup restore succeeds" evidence, runnable locally and in CI. It builds
 on the local Alpha harness (`docs/M5_LOCAL_ALPHA.md`) and on `chain:rebuild --verify`. It
 deploys nothing, signs nothing and contacts no provider: the source is the harness's own

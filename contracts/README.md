@@ -1,13 +1,13 @@
-# Blink 合約
+# Blink contracts
 
-repo 同時保留兩套不可升級合約；鏈 ID 固定 84532，本機測試也使用此 ID。
+The repo keeps two non-upgradeable contract sets side by side. The chain ID is fixed at 84532, and local tests use the same ID.
 
-- **v0.1：** `src/BlinkMarket.sol` 與 `src/BlinkTestUSD.sol`。固定角色、maker free collateral、完整抵押成交、EIP-712、取消／epoch、內部持倉、提案／挑戰／仲裁／逾時／贖回。鏈下服務目前仍接這套 ABI；歷史 `alpha-2` 部署不代表 P1 已部署。見 [M0/M1 交付記錄](../docs/M0_M1_DELIVERY.md)。
-- **P1：** `src/protocol/`。註冊身份、自助角色押金、多 maker RFQ、信用、建市挑戰、快照 commit/reveal 仲裁、加倍押金上訴、手續費分配、七日 Juror 報酬串流、faucet 與下一世代治理。四合約以預測地址依序部署，彼此地址固定於 constructor。沒有 owner、admin、pause、初始化或升級入口；治理只能採用下一世代。完整交付、參數與已知限制見 [P1 交付記錄](../docs/P1_PROTOCOL_CONTRACTS.md)。P1 尚未部署；P2 才接部署工具與鏈下服務。
+- **v0.1:** `src/BlinkMarket.sol` and `src/BlinkTestUSD.sol`. Fixed roles, maker free collateral, fully collateralised fills, EIP-712, cancel/epoch, internal positions, proposal/challenge/arbitration/timeout/redeem. The off-chain services still use this ABI. The historical `alpha-2` deployment does not mean P1 is deployed. See the [M0/M1 delivery record](../docs/M0_M1_DELIVERY.md).
+- **P1:** `src/protocol/`. Registered identity, self-service role stakes, multi-maker RFQ, credit, market-creation challenge, snapshot commit/reveal arbitration, doubled-stake appeals, fee distribution, a seven-day juror reward stream, faucet and next-generation governance. The four contracts are deployed in order at predicted addresses, and their addresses are fixed in the constructors. There is no owner, admin, pause, initialiser or upgrade entry point; governance can only adopt the next generation. For the full delivery, parameters and known limitations see the [P1 delivery record](../docs/P1_PROTOCOL_CONTRACTS.md). P1 is not deployed yet; P2 adds the deployment tooling and the off-chain services.
 
-固定工具：Solidity 0.8.30、OpenZeppelin 5.6.1、Foundry 1.7.1、EVM Cancun、optimizer 200、viaIR。Foundry 經 npm 鎖版，無需全域安裝；第一次 native 編譯需下載固定 solc。
+Pinned tools: Solidity 0.8.30, OpenZeppelin 5.6.1, Foundry 1.7.1, EVM Cancun, optimizer 200, viaIR. Foundry is version-locked through npm and needs no global install; the first native compile downloads the pinned solc.
 
-在 repo root 執行：
+Run from the repo root:
 
 ```sh
 pnpm check:contracts
@@ -17,12 +17,12 @@ node --import tsx --test tests/protocol-artifacts.test.ts
 pnpm check:boundaries
 ```
 
-`check:contracts` 編譯兩套合約，在 `contracts/artifacts/` 產生 ABI、ABI hash、creation bytecode/hash，並檢查 runtime 不超過 EIP-170 的 24,576 bytes。產物不入版控。ABI 測試掃描所有具體 P1 合約（Governor 另以 proposal 限制測試）；只豁免 markets 的 `setProposed`、`setDisputed` 結算 hooks。
+`check:contracts` compiles both contract sets, writes the ABI, ABI hash, creation bytecode and its hash to `contracts/artifacts/`, and checks that runtime bytecode does not exceed the EIP-170 limit of 24,576 bytes. The artifacts are not committed. The ABI test scans every concrete P1 contract (the Governor is covered separately by its proposal-limit tests); only the settlement hooks `setProposed` and `setDisputed` on the markets are exempt.
 
-`test:contracts` 包含 v0.1、P1 單元／fuzz、真實世代 lifecycle、惡意 collateral 與獨立 ghost ledger invariants。`test:contracts:seeds` 對 `LedgerInvariantTest` 與 `ProtocolInvariantTest` 各跑 0x01／0x02，每個 invariant 為 128 runs × 64 operations；每輪強制完成剩餘市場、分潤、贖回與 vote unlock，檢查 escrow 歸零與償付能力。
+`test:contracts` covers v0.1, the P1 unit and fuzz tests, a real generation lifecycle, malicious collateral, and independent ghost-ledger invariants. `test:contracts:seeds` runs `LedgerInvariantTest` and `ProtocolInvariantTest` with seeds 0x01 and 0x02 each; every invariant runs 128 runs x 64 operations. Each run forces the remaining markets, fee shares, redemptions and vote unlocks to complete, then checks that escrow returns to zero and that the contracts are solvent.
 
-請透過 package scripts 或 `scripts/foundry.mjs` 執行，避免 npm 原 wrapper 未傳遞 child failure exit code。CI 已使用修正的 runner。v0.1 的 `pnpm replay` 仍可啟動自己的 loopback Anvil，執行三種歷史 REPLAY；它不是 P1 的自治 agent 演練。
+Run through the package scripts or `scripts/foundry.mjs`, so that the original npm wrapper does not swallow a child's failure exit code. CI already uses the fixed runner. The v0.1 `pnpm replay` can still start its own loopback Anvil and run the three historical REPLAY flows; it is not an autonomous-agent drill for P1.
 
-P1 的 `getDispute` 回傳目前回合；commitment 與 `settleVote(disputeId, round, juror)` 使用 `currentRound`（每次重開與上訴都遞增），`appealRound` 才是 quorum／信用參數索引。先結算同一 appeal level 的所有 loser，再領 coherent juror 的 token reward；最後回合信用需等 `finalizeDispute`。逾時後尚未結算的 vote 只解鎖。bUSD reward 需經七日串流，不能在 notify 當下領完。
+The P1 `getDispute` returns the current round. The commitment and `settleVote(disputeId, round, juror)` use `currentRound` (it increments on every reopen and appeal), while `appealRound` is the index for the quorum and credit parameters. Settle all losers of the same appeal level first, then claim the token reward of coherent jurors; credit for the final round waits for `finalizeDispute`. After a timeout, votes that are not yet settled are only unlocked. The bUSD reward goes through the seven-day stream and cannot be claimed in full at notify time.
 
-正式部署必須核對 manifest、ABI/runtime bytecode hash、地址 getters 與 collateral；不能只靠 6 位小數辨識資產。`proposedOutcome`／`finalOutcome` 必須搭配 state 判斷是否存在。測試參數不代表正式經濟參數，固定價格與 faucet 資產沒有真實價值，也尚未經外部安全審計。
+A real deployment must check the manifest, the ABI and runtime bytecode hashes, the address getters and the collateral; the 6-decimal precision alone is not enough to identify the asset. `proposedOutcome` and `finalOutcome` must be read together with the state to know whether they exist. The test parameters are not the production economic parameters. The fixed price and the faucet assets have no real value, and the contracts have not had an external security audit.

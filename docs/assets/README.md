@@ -1,10 +1,10 @@
-# 架構插圖來源
+# Architecture illustration source
 
-最終素材：`architecture-sketch-light.png`，嵌入根目錄 README。
+Final asset: `architecture-sketch-light.png`, embedded in the root README.
 
-使用內建 image_gen 工具（非 CLI）生成與定向修改；imagegen skill 用於手繪風格、檢查標籤／箭頭與將素材保存進 workspace。圖片只表示簡化目標架構，不代表服務已部署。原始生成稿留在工具的 generated_images 目錄，專案只保留白底定稿。
+The image was generated and edited with the built-in image_gen tool (not the CLI). The imagegen skill was used for the hand-drawn style, for checking labels and arrows, and for saving the asset into the workspace. The image shows only a simplified target architecture and does not mean the services are deployed. The original generated drafts stay in the tool's generated_images directory; the project keeps only the final white-background version.
 
-## 初始 prompt
+## Initial prompt
 
 ```text
 Use case: infographic-diagram.
@@ -17,7 +17,7 @@ Bottom footnote verbatim, clear readable: "M0/M1 built locally. Service integrat
 Constraints: fit complete drawing in canvas, no cropped nodes, no logos, no watermark, no code, no extra components, do not imply production deployment. Prioritize simple doodle explanation and readable labels over exhaustive detail.
 ```
 
-## 定稿修改 prompt
+## Final edit prompt
 
 ```text
 Edit this architecture illustration ONLY to replace the entire dark/gray/black background outside the diagram shapes with flat solid opaque WHITE paper (#FFFFFF). Remove all dark gradients, glows and shadows. Preserve every word, every node, every arrow direction, every icon, layout and hand-drawn sketch strokes exactly as in the original. Preserve soft colored highlighter accents within nodes and under labels. Make all text dark charcoal ink for high contrast on the new white paper background. No other additions or changes. This is a clean, simple hand-drawn doodle diagram on uniformly white paper for a GitHub README.

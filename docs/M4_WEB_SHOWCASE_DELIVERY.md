@@ -2,8 +2,6 @@
 
 This slice adds a **read-only, illustrated showcase site** in `apps/web` (Next.js 16 App Router, statically prerendered). It explains Blink and shows sample markets. It has no wallet, no trading, no positions and no live API calls. It is a slice of M4, not the whole milestone.
 
-中文摘要：`apps/web` 現在是唯讀展示站（首頁、市場、運作方式）加上文件系統（12 個 Markdown 頁面，見下方「Docs system」）。市場資料為 REPLAY 範例（虛構公司），不連錢包、不交易、不呼叫即時 API。M4 尚未完成。
-
 Design references: [spec](superpowers/specs/2026-10-08-web-showcase-design.md), [plan](superpowers/plans/2026-10-08-web-showcase.md), [approved mockup](superpowers/specs/assets/2026-10-08-web-showcase-mockup.html).
 
 ## Scope

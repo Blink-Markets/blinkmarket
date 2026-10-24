@@ -2,8 +2,6 @@
 
 This slice enables the public read endpoints of spec §10.2 from the chain projections (`chain.*`, migration 0007) and adds `POST /v1/transactions` hints with an indexer-side tracker that independently verifies them. Nothing here signs or sends a transaction, and trading stays disabled: `canTrade` is `false` unless a later task injects `hooks.canTrade`.
 
-中文摘要：公開讀取 API（市場列表／詳情／規格／持倉／結算／交易追蹤）改由鏈上投影資料提供；交易 hash 只是提示，由 indexer 端的追蹤器獨立向鏈上驗證，API 不採信呼叫者的任何狀態。
-
 ## What was added
 
 | Piece | Where | Behavior |

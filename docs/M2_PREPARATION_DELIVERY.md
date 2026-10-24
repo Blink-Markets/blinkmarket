@@ -4,8 +4,6 @@
 
 Implemented locally; not a complete M2 delivery. This slice follows the identity foundation and stops **before approval, deployment registration, market-creation intents or chain submission**. Those routes remain disabled rather than returning a pretend market or transaction.
 
-中文摘要：目前完成證據封存／權限與候選版本流程；規格核准、建市意圖及鏈上整合仍未完成。
-
 ## Data flow and boundaries
 
 ```mermaid

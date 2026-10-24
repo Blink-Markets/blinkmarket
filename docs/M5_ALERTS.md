@@ -1,7 +1,5 @@
 # M5 — Alert delivery (A4) and alert producers (A4b)
 
-中文摘要：完成告警的至少一次投遞、持續退避重試、安全輸出，以及 `alert.evaluate` 對預算、暫停、RPC、indexer 落後、keeper 逾時與 DEAD job 的真實條件產生者（OPEN／STILL_OPEN／CLEARED episode），並以不依賴 keeper 的本機演練驗證。
-
 This completes the A4 delivery slice and the A4b producers, not all of M5 or public Alpha readiness. Nothing was deployed, signed, broadcast or provisioned.
 
 The worker now delivers every `alert.*` outbox event through the `AlertSink` port and the `alert.deliver` job. Dispatch inserts the job and marks the outbox event dispatched in one transaction. Dispatched means queued, not delivered: only a successful sink response followed by a fenced queue acknowledgement sets the job to `SUCCEEDED`. Replaying an event preserves the unique `outbox:<event UUID>:alert.deliver` job key. The payload and webhook `Idempotency-Key` use `alert:<event UUID>` for receiver deduplication.

@@ -1,7 +1,5 @@
 # Acceptance evidence — spec §17
 
-中文摘要：逐項列出合約與服務驗收測試；本機證據不代表公開 Alpha 部署完成。
-
 Commands run from the repository root. Node suites use the installed Node 22 and
 `tsx`; contract suites use the pinned Foundry wrapper. Real PostgreSQL commands
 require `TEST_POSTGRES_ADMIN_URL` pointing to the dedicated local/CI administrator

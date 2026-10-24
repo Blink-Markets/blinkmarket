@@ -2,8 +2,6 @@
 
 This slice lets the research worker fetch an **approved official source URL** under a strict network policy, archive the original bytes with a content hash and record evidence. It covers spec §12.1 and the fetching half of §17.2 S06. It is the `evidence.fetch` job handler plus its adapters and the `enable-fetch` admin command; it does not decide what to fetch (Task 10's discovery worker enqueues jobs) and it never reads, parses or acts on document content. Tests use a fake resolver and a fake transport only; nothing in the suite touches the network.
 
-中文摘要：Worker 只能抓取人工核准過的官方 URL，且過 SSRF 檢查（只允許 HTTPS、白名單前綴、拒絕私有位址、限制大小與時間）；原始 bytes 以 hash 封存並寫入 evidence，抓取內容只當資料，不會被解析或執行。
-
 ## Flow
 
 ```mermaid

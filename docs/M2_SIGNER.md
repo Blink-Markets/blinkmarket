@@ -2,8 +2,6 @@
 
 This slice adds the private signer process that alone holds keys, the persisted sign-request protocol it serves, per-sender nonce allocation that never re-nonces an unknown transaction, gas caps, and a dispatcher that broadcasts only persisted artifacts and tracks receipts, replacements and reorgs. Nothing is wired into the API or the worker yet: the quote reservation check (Task 9) and the keeper, faucet and trader callers (Tasks 13 and 14) build on these seams, and the `tx.dispatch` handler is exported but not registered with `apps/worker`.
 
-中文摘要：這一階段完成唯一持有私鑰的受限 signer（持久化 sign request、角色 policy、確定性簽章、nonce 與 gas 上限）以及只廣播已持久化 artifact 的交易 dispatcher（receipt、replacement、reorg 追蹤）；尚未接上 API 與 worker。
-
 ## What was added
 
 | Piece | Where | Behavior |

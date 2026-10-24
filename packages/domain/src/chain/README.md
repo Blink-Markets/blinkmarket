@@ -1,9 +1,9 @@
-# 鏈上追蹤與投影
+# On-chain tracking and projection
 
-責任：canonical events、reorg 回退、reconciliation、交易狀態。
+Responsibility: Canonical events, reorg rollback, reconciliation and transaction status.
 
-資料 ownership：deployments / chain_transactions / chain_blocks / chain_events / positions_projection / chain_cursors。
+Data ownership: deployments / chain_transactions / chain_blocks / chain_events / positions_projection / chain_cursors
 
-狀態：模組位置與邊界已建立；use cases / repositories 尚未實作。
+Status: Module location and boundary are established; use cases / repositories are not yet implemented.
 
-後續 domain model 放此目錄；application use case 放 `packages/application/src/chain/`，外部 adapter 放 `packages/adapters/src/chain/`。其他模組不得直接寫入本模組資料表，跨模組更新經 application orchestration、同一 transaction 與 outbox 完成。
+Later domain models go in this directory; application use cases go in `packages/application/src/chain/` and external adapters in `packages/adapters/src/chain/`. Other modules must not write this module's tables directly; cross-module updates go through application orchestration, one transaction and the outbox.

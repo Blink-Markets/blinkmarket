@@ -1,9 +1,9 @@
-# 測試資產
+# Test assets
 
-責任：邀請地址額度、mint intent 與 gas 限制。
+Responsibility: Invited-address quotas, mint intents and gas limits.
 
-資料 ownership：faucet_claims。
+Data ownership: faucet_claims
 
-狀態：模組位置與邊界已建立；use cases / repositories 尚未實作。
+Status: Module location and boundary are established; use cases / repositories are not yet implemented.
 
-後續 domain model 放此目錄；application use case 放 `packages/application/src/faucet/`，外部 adapter 放 `packages/adapters/src/faucet/`。其他模組不得直接寫入本模組資料表，跨模組更新經 application orchestration、同一 transaction 與 outbox 完成。
+Later domain models go in this directory; application use cases go in `packages/application/src/faucet/` and external adapters in `packages/adapters/src/faucet/`. Other modules must not write this module's tables directly; cross-module updates go through application orchestration, one transaction and the outbox.

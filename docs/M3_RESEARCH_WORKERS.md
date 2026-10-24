@@ -1,7 +1,5 @@
 # M3 discovery, forecaster and baseline workers
 
-中文摘要：加入 discovery.scan、forecast.dispatch、forecast.run、baseline.run 四個 worker job，以固定回應的 fixture 模型與預算帳本，經公開 API 以平台 agent 身分建立候選與提交預測；沒有真實模型供應商，不代表整個 M3 已完成。
-
 ## Scope
 
 Platform agents act through the public HTTP API with their own invited keys (`@blink/client`), exactly like an external agent. The worker holds no write grant on candidate or forecast tables; it records its own bookkeeping and reads what it needs to build prompts. Model access is the `ModelGateway` port; the only implementation is the deterministic fixture gateway, so nothing here spends money or calls a network. Tests run the real API (`buildApi` with the real services over PGlite) on a loopback port and point the real client at it.

@@ -1,7 +1,5 @@
 # M5 local Alpha harness — Task 16b delivery
 
-中文摘要：本地 Alpha 以真实 PostgreSQL、Anvil 和服务组件验证三种 REPLAY 结算及投影恢复；外部代理步骤使用 Task 15 的示例代理，终局化走 worker 的 keeper 任务。
-
 This slice implements Task 16 Rules 1–3. The external-agent step runs Task 15's
 `examples/agent/run.ts` with one added bound on receipt waits (see below), and the normal
 and timeout scenarios are finalized by the worker's real `keeper.finalize` job, not

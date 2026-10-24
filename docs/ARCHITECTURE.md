@@ -1,73 +1,73 @@
-# 整體架構
+# Overall Architecture
 
-圖解導覽：[架構圖解與運行方式](ARCHITECTURE_GUIDE.md)，先看目前已實作範圍，再看完整系統與運行流程。
+For a diagram-based tour, see [Architecture Diagrams and How the System Runs](ARCHITECTURE_GUIDE.md). It covers the implemented scope first, then the full system and the runtime flows.
 
-細部介面與交易順序見 [細部設計](design/README.md)；決策以 [ADR 0002](adr/0002-protocol-boundaries.md) 為準。M0/M1 與 Tasks 1–16 的 backend 已實作，尚未部署；API/worker/indexer/signer 已有業務接線。見 [RFQ](M2_RFQ.md)、[Signer](M2_SIGNER.md)、[Indexer](M2_CHAIN_INDEXER.md)、[公開讀取](M2_PUBLIC_READS.md) 與 [本輪文件交付](ROADMAP.md)。本機驗證僅 REPLAY，沒有付費模型，LIVE 核准仍拒絕；[內部 trader](M3_INTERNAL_TRADER.md)、[SDK／example agent](M5_CLIENT_SDK.md)、[本機 Alpha harness](M5_LOCAL_ALPHA.md) 與 [health/metrics readiness](M5_HEALTH_METRICS.md) 已實作，不宣稱整個 M2/M3/M5 完成。
+For detailed interfaces and transaction order, see [Detailed design](design/README.md). Decisions follow [ADR 0002](adr/0002-protocol-boundaries.md). The backend for M0/M1 and Tasks 1–16 is implemented but not deployed. The API, worker, indexer and signer have business wiring. See [RFQ](M2_RFQ.md), [Signer](M2_SIGNER.md), [Indexer](M2_CHAIN_INDEXER.md), [public reads](M2_PUBLIC_READS.md) and [this round's documentation delivery](ROADMAP.md). Local verification covers REPLAY only, there is no paid model, and LIVE approval is still rejected. The [internal trader](M3_INTERNAL_TRADER.md), [SDK / example agent](M5_CLIENT_SDK.md), [local Alpha harness](M5_LOCAL_ALPHA.md) and [health/metrics readiness](M5_HEALTH_METRICS.md) are implemented. This page does not claim that all of M2/M3/M5 is complete.
 
-## 決策摘要
+## Decision summary
 
-採用 **TypeScript + Node.js 的模組化單體，按風險與工作型態拆程序**。API 使用 Fastify；Web 使用 Next.js / React；PostgreSQL 負責業務資料、transactional outbox 與持久工作；S3 相容儲存為正式快照儲存目標；Solidity + Foundry 實作鏈上帳本。M0/M1 已鎖定 viem 2.56.8，並用於spec hash、部署驗證與本機REPLAY。
+We use a **modular monolith in TypeScript + Node.js, split into processes by risk and kind of work**. The API uses Fastify. The Web uses Next.js / React. PostgreSQL holds business data, the transactional outbox and durable work. S3-compatible storage is the official target for snapshot storage. Solidity + Foundry implement the on-chain ledger. M0/M1 pin viem 2.56.8 and use it for the spec hash, deployment verification and local REPLAY.
 
-這個選擇平衡目前最多 5 個 LIVE 市場、单 maker、小團隊與 I/O 為主的負載。沒有壓測數據前，不聲稱 TypeScript 比 Go/Rust 快；它的價值是資料契約共用、較少跨語言維護與足夠的初期吞吐。合約內金額由 EVM 整數處理。
+This choice fits the current load: at most 5 LIVE markets, a single maker, a small team and an I/O-bound workload. We do not claim TypeScript is faster than Go/Rust, because there is no load-test data. Its value is a shared data contract, less cross-language maintenance and enough early throughput. Amounts inside the contracts are handled by EVM integers.
 
-## 系統與信任邊界
+## System and trust boundaries
 
 ```mermaid
 flowchart TB
-  Browser[Web / 外部 agent] --> API[API :3001]
-  Browser --> Wallet[使用者自己的錢包]
-  Wallet --> Chain[Base Sepolia 合約]
+  Browser[Web / external agent] --> API[API :3001]
+  Browser --> Wallet[User's own wallet]
+  Wallet --> Chain[Base Sepolia contracts]
   Web[Next.js :3000] --> API
   API --> App[Application use cases]
   Worker[Worker :3002] --> App
   App --> DB[(PostgreSQL)]
   App --> Objects[(S3 immutable bytes)]
-  Worker --> Models[受預算控制的模型 API]
-  Worker --> Fetch[受 allowlist 控制的 fetcher]
-  App -.結構化受限請求.-> Signer[Signer :3004 私有邊界]
-  Signer --> Policy[獨立重驗 policy / intent / nonce]
-  Policy --> Keys[分角色 secret]
-  Signer -.signed artifact.-> Submit[交易提交器 / taker]
+  Worker --> Models[Budget-controlled model API]
+  Worker --> Fetch[Allowlist-controlled fetcher]
+  App -.structured restricted request.-> Signer[Signer :3004 private boundary]
+  Signer --> Policy[Independent re-verification of policy / intent / nonce]
+  Policy --> Keys[Per-role secrets]
+  Signer -.signed artifact.-> Submit[Transaction submitter / taker]
   Submit --> Chain
   Chain --> Indexer[Indexer :3003]
   Indexer --> DB
 ```
 
-此圖包含已實作的 backend 與未部署的基礎設施目標。模型目前只有 deterministic fixture gateway；物件儲存使用本機 immutable archive，S3 adapter 尚未實作。Signer 已有 caller bearer 驗證、角色 policy、持久化 request 與 key-file 隔離；網路 ACL、mTLS、secret manager 與 at-rest encryption 仍屬部署工作。PostgreSQL 共用實例不代表共用 DB credential。Web 目前只顯示靜態樣本，未接 backend 資料。
+This diagram covers the implemented backend and the undeployed infrastructure targets. The only model today is a deterministic fixture gateway. Object storage uses a local immutable archive, and the S3 adapter is not implemented. The Signer has caller bearer verification, role policy, persisted requests and key-file isolation. Network ACL, mTLS, a secret manager and at-rest encryption are still deployment work. Sharing one PostgreSQL instance does not mean sharing DB credentials. The Web currently shows only static samples and is not connected to backend data.
 
-## 程序分工
+## Process responsibilities
 
-| 程序 | 工作 | 擴展／部署策略 |
+| Process | Work | Scaling / deployment strategy |
 | --- | --- | --- |
-| Web | 唯讀說明站、文件與虛構 REPLAY 樣本；交易／持倉／管理 UI 尚未實作 | 獨立部署，透過 API，無 DB／signer secrets |
-| API | 認證、驗證、讀取、同步 RFQ 與 command 接收 | 無狀態，多 instance 前先共用限流與 DB reservation |
-| Worker | discovery、forecast、成本對帳、keeper 與 mandate trader 排程 | 同一 codebase 的 job registry，按 job type/併發限額擴展 |
-| Indexer | event 拉取、reorg、projection、重啟 reconciliation | 每 deployment 單一 lease owner，擴容按 deployment 分片 |
-| Signer | maker quote、faucet、keeper 的受限簽署；trader worker 已接 exact approve／fill／redeem | 私有程序；已實作角色 key、caller token、nonce 鎖，部署隔離待完成 |
-| 合約 | 抵押、成交、持倉、最終結果與贖回 | 非升級；新版本新部署，不可改舊市場規則 |
+| Web | Read-only explainer site, docs and fictional REPLAY samples; trading / position / admin UI not implemented | Deployed separately, goes through the API, holds no DB / signer secrets |
+| API | Authentication, validation, reads, synchronous RFQ and command intake | Stateless; before running multiple instances, share rate limiting and DB reservations |
+| Worker | discovery, forecast, cost reconciliation, keeper and mandate trader scheduling | Job registry in the same codebase; scale by job type / concurrency limit |
+| Indexer | Event fetching, reorg, projection, restart reconciliation | One lease owner per deployment; scale out by sharding per deployment |
+| Signer | Restricted signing for maker quotes, faucet and keeper; the trader worker is wired for exact approve / fill / redeem | Private process; role keys, caller token and nonce lock are implemented; deployment isolation is pending |
+| Contracts | Collateral, fill, positions, final outcome and redemption | Non-upgradeable; a new version is a new deployment and cannot change the rules of old markets |
 
-初期 Web/API/Worker/Indexer 可共用一台小型應用主機；Signer 至少獨立程序與 OS/container 身份。caller 身份與每角色函式 allowlist 已實作；正式 Alpha 必須再落实網路 ACL 與獨立 secrets 管理；只分資料夾不形成安全隔離。手動管理與裁決錢包不放自動 signer。
+Early on, Web/API/Worker/Indexer can share one small application host. The Signer is at least a separate process with its own OS/container identity. Caller identity and a per-role function allowlist are implemented. The official Alpha must also put in place a network ACL and separate secrets management. Separate folders alone do not form security isolation. The manually managed admin and arbitration wallets are not placed in the automated signer.
 
-## 功能模組與 ownership
+## Functional modules and ownership
 
-| 模組 | 功能 | 核心資料／介面 |
+| Module | Function | Core data / interface |
 | --- | --- | --- |
-| identity | operator、agent、邀請 key、scope、wallet binding | api_keys、wallet_challenges |
-| evidence | 來源 allowlist、擷取、快照、hash、公開權限 | SourceFetcher、ImmutableObjectStore |
-| discovery | 每日掃描、結構化候選、revision、檢查 | candidates、candidate_revisions |
-| markets | 人工核准、凍結規格、部署 intent、題目讀取 | MarketSpec、markets |
-| forecasts | DAILY/PRE_CLOSE、內部兩模型、baseline、外部預測 | windows、forecasts、model_runs |
-| budgets | 問題／每日成本、預留、實際／未知用量 | cost_entries、UnitOfWork |
-| trading | RFQ、簡單平均價格、預留、mandate、quote 生命週期 | quotes、collateral/risk reservations |
-| chain | 交易狀態、nonce/replacement、events、reorg、持倉投影 | ChainReader、transactions、cursors |
-| resolution | 結果建議、auditor 工單、人工核對、keeper | reports、鏈上 outcome |
-| faucet | 邀請地址 mint、24h 額度、獨立 gas 預算 | claims、受限 mint intent |
-| analytics | Brier、缺失/INVALID、成本、延遲、外部採用 | 可重建 score/read models |
-| operations | jobs/outbox、idempotency、audit、告警與恢復 | 跨模組基礎设施 |
+| identity | operator, agent, invite key, scope, wallet binding | api_keys, wallet_challenges |
+| evidence | Source allowlist, fetch, snapshot, hash, public permission | SourceFetcher, ImmutableObjectStore |
+| discovery | Daily scan, structured candidates, revision, checks | candidates, candidate_revisions |
+| markets | Manual approval, frozen spec, deployment intent, question reads | MarketSpec, markets |
+| forecasts | DAILY/PRE_CLOSE, two internal models, baseline, external forecasts | windows, forecasts, model_runs |
+| budgets | Per-question / daily cost, reservation, actual / unknown usage | cost_entries, UnitOfWork |
+| trading | RFQ, simple average price, reservation, mandate, quote lifecycle | quotes, collateral/risk reservations |
+| chain | Transaction status, nonce/replacement, events, reorg, position projection | ChainReader, transactions, cursors |
+| resolution | Outcome suggestion, auditor tickets, manual check, keeper | reports, on-chain outcome |
+| faucet | Mint to invited addresses, 24h limit, separate gas budget | claims, restricted mint intent |
+| analytics | Brier, missing/INVALID, cost, latency, external adoption | Rebuildable score/read models |
+| operations | jobs/outbox, idempotency, audit, alerts and recovery | Cross-module infrastructure |
 
-管理頁不是第十三套領域邏輯：它呼叫相同模組的管理 use cases。Quote service 初期是 trading application module，無獨立微服務。每個 forecaster 是 job 類型／模型設定，不是獨立服務。
+The admin pages are not a thirteenth set of domain logic. They call the admin use cases of the same modules. The quote service is a trading application module at first, not a separate microservice. Each forecaster is a job type / model setting, not a separate service.
 
-## 程式依賴
+## Code dependencies
 
 ```mermaid
 flowchart LR
@@ -81,54 +81,54 @@ flowchart LR
   Client[client / web] --> Schemas
 ```
 
-- schemas：JSON wire contract，不依賴框架、DB 或 Node 特定 API。
-- domain：領域狀態與不變量，不能 import Fastify、Next、SQL 或 RPC client。
-- application：use case、跨模組協調、transaction 邊界；依賴 ports，不依賴 adapters。
-- adapters：PostgreSQL、viem、模型 provider、物件儲存的具體實作。
-- apps：注入實作、註冊 transport、管理程序生命週期，避免放業務規則。
-- runtime：最小 HTTP bootstrap；不演變成任意工具的共用資料夾。
-- client：對外契約與範例，不引用後端內部資料模型。
+- schemas: the JSON wire contract. It does not depend on a framework, DB or Node-specific API.
+- domain: domain state and invariants. It must not import Fastify, Next, SQL or an RPC client.
+- application: use cases, cross-module coordination, transaction boundaries. It depends on ports, not on adapters.
+- adapters: concrete implementations for PostgreSQL, viem, model providers and object storage.
+- apps: inject implementations, register transports and manage process lifecycle. They avoid holding business rules.
+- runtime: a minimal HTTP bootstrap. It must not grow into a shared folder for arbitrary tools.
+- client: the external contract and examples. It does not reference backend internal data models.
 
-`pnpm check:boundaries` 檢查 package dependency / 靜態 import 的基本方向；它不是私鑰隔離或完整 static analysis。API 以明確模式逐層啟用 identity、preparation、approval、markets、trading；未設定服務維持 fail-closed，不回假成功。markets/trading 已接公開讀取、forecast、resolution 與 evaluation；trading 另接 RFQ、faucet、公開 health 與 admin execution metrics；API `/health/ready` 使用相同 readiness 決策。Readiness 不是個別市場／taker 的成交保證，見 [健康與指標](M5_HEALTH_METRICS.md)。詳見 [身份交付](M2_IDENTITY_DELIVERY.md)、[公開讀取](M2_PUBLIC_READS.md)、[RFQ](M2_RFQ.md)。
+`pnpm check:boundaries` checks the basic direction of package dependencies and static imports. It is not private-key isolation and not a full static analysis. The API enables identity, preparation, approval, markets and trading layer by layer through explicit modes. Services that are not configured stay fail-closed and do not return fake success. markets/trading are wired to public reads, forecast, resolution and evaluation. trading is also wired to RFQ, faucet, public health and admin execution metrics. The API's `/health/ready` uses the same readiness decision. Readiness is not a fill guarantee for any single market or taker. See [Health and metrics](M5_HEALTH_METRICS.md). For details see [identity delivery](M2_IDENTITY_DELIVERY.md), [public reads](M2_PUBLIC_READS.md) and [RFQ](M2_RFQ.md).
 
-## 關鍵資料流
+## Key data flows
 
-### 候選 → 市場
+### Candidate → market
 
-allowlist 擷取 → 保存 bytes/hash → candidate revision → validation → 人工核准。核准 use case 在同一 DB transaction 寫 approval、spec record、deployment intent、audit 與 outbox。物件儲存先 put-if-absent，再提交 DB 引用；失敗留下可清理的孤立物件，不提供未保存 bytes 的規格。
+Allowlisted fetch → save bytes/hash → candidate revision → validation → manual approval. The approval use case writes the approval, spec record, deployment intent, audit and outbox in one DB transaction. Object storage does put-if-absent first, then the DB reference is committed. A failure leaves an orphaned object that can be cleaned up. A spec whose bytes were not saved is never served.
 
-建市由 ADMIN 人工錢包簽署；worker 追蹤該 intent 與 tx。APPROVED → DEPLOY_PENDING → 索引到 canonical MarketCreated 才 DEPLOYED。重試先查 specHash、nonce 與 receipt，不新增市場。
+Market creation is signed by the ADMIN manual wallet. The worker tracks that intent and tx. APPROVED → DEPLOY_PENDING → the market is DEPLOYED only after the canonical MarketCreated is indexed. A retry checks specHash, nonce and receipt first and does not create a new market.
 
-### 預測 → RFQ → 成交
+### Forecast → RFQ → fill
 
-window 開放 → 原子研究預算預留 → 模型／外部提交 → 截止後公開 → 合格固定雙模型平均。Baseline 分開，缺一模型時 ensemble 缺失；maker 沒有合格 snapshot 即拒絕報價。
+Window opens → atomic research budget reservation → model / external submission → publication after the deadline → qualified fixed two-model average. The baseline is kept separate. If one model is missing, the ensemble is missing. The maker rejects a quote when there is no qualified snapshot.
 
-RFQ 驗證身份／wallet／deployment／市場與 freshness → DB lock 下 maker collateral reservation → signer 重驗 → 回 EIP-712 quote。鏈上資金尚未鎖定；quote service 不替代合約驗證。外部 taker 本人 approve 與 fill；內部 trader 已有 mandate 與鎖下 notional 預留，經公開 RFQ 與受限 signer 執行精確 approve／fill，FINAL 後 redeem。僅支援每 deployment 一個 trader；edge 必須嚴格超過門檻（預設 500 bps），恰好等於不交易。Mandate 由 DB owner 設定，signer 不重驗 mandate 額度；gas 另由 signer role/day 帳控管，詳見 [限制](M3_INTERNAL_TRADER.md)。
+RFQ validates identity / wallet / deployment / market and freshness → maker collateral reservation under a DB lock → signer re-verification → return an EIP-712 quote. On-chain funds are not locked yet. The quote service does not replace contract verification. An external taker approves and fills in person. The internal trader has a mandate and a notional reservation taken under lock. It executes the exact approve / fill through the public RFQ and the restricted signer, and redeems after FINAL. Only one trader per deployment is supported. The edge must be strictly above the threshold (default 500 bps), and exactly equal means no trade. The mandate is set by the DB owner, and the signer does not re-verify the mandate limit. Gas is controlled separately by the signer's role/day accounting. See [limits](M3_INTERNAL_TRADER.md).
 
-Index canonical QuoteFilled → 同一 cursor 對帳 consumed、balance、reservation 與 position projection。簽署成功但回覆遺失也保留 reservation；到期不單憑本機時間釋放。
+Index the canonical QuoteFilled → reconcile consumed, balance, reservation and position projection on the same cursor. If signing succeeds but the reply is lost, the reservation is kept. An expiry does not release it on local time alone.
 
-### 結算 → 品質
+### Settlement → quality
 
-parser 建議 → RESULT_PROPOSER 人工核對提案 → CHALLENGER 可挑戰 → ARBITER 人工裁決／permissionless finalize → 鏈上 FINAL → 本人 redeem。hardDeadline 後只能 INVALID，暫停與撤銷交易資格不阻擋贖回。Keeper 不擁有裁決權。
+Parser suggestion → RESULT_PROPOSER manually checks and proposes → CHALLENGER may challenge → ARBITER manually resolves / permissionless finalize → on-chain FINAL → holder redeems in person. After hardDeadline the only outcome is INVALID. Pausing and revoking trading eligibility do not block redemption. The keeper has no power to decide.
 
-analytics 只以相同 event/horizon 的 LIVE YES/NO 算 Brier；INVALID、REPLAY、缺失與污染分列，不以窗口數增加獨立事件樣本。
+analytics computes Brier only from LIVE YES/NO on the same event/horizon. INVALID, REPLAY, missing and contaminated are listed separately. A larger number of windows does not add independent event samples.
 
-## 故障與一致性
+## Failure and consistency
 
-- PostgreSQL 是鏈下 append-only 記錄來源；合約帳本與結果以 canonical chain 為準。
-- 所有寫入 use case 有 operator + endpoint + idempotency key，payload hash 不同回 409。
-- Outbox 與业务異動同 transaction；queue 至少一次交付，handler 必須冪等，不宣稱 exactly-once。
-- Worker lease 有到期／重試／dead-letter 與人工重放；不可無限重試付費模型或經濟操作。
-- API 202 只表示接受 intent；UNKNOWN 不釋放風險，不用新 nonce 盲目重送。
-- Indexer 落後 >3 blocks 或 >10 秒無更新，任一成立即停止 RFQ 與內部 trader。
-- 保存 block/parent hash、reorg tombstone，回共同祖先撤回投影再重放；finalized tag 不支援時標 unknown。
-- 暫停只阻止新增交易；proposal/challenge/finalize/redeem 與 free collateral 提領保留合約規則。
-- UTC 全程使用明確時區；微單位／uint256 wire 用 decimal string、SQL NUMERIC、運算用 bigint。機率可用 [0,1] 有限 decimal，不拿 float 算資金。
-- 不重複 serialize spec 做 hash 驗證；原始 bytes 要能下載。
+- PostgreSQL is the source of the off-chain append-only record. The contract ledger and outcomes follow the canonical chain.
+- Every write use case has operator + endpoint + idempotency key. A different payload hash returns 409.
+- The outbox is in the same transaction as the business change. The queue delivers at least once, and handlers must be idempotent. We do not claim exactly-once.
+- Worker leases have expiry / retry / dead-letter and manual replay. Paid model calls and economic operations must not retry without limit.
+- An API 202 only means the intent was accepted. UNKNOWN does not release risk, and we do not resend blindly with a new nonce.
+- If the Indexer lags by more than 3 blocks or has no update for more than 10 seconds, either condition stops RFQ and the internal trader.
+- Save the block / parent hash and reorg tombstones. Go back to the common ancestor, withdraw the projection and replay. If the finalized tag is not supported, mark it unknown.
+- Pausing only blocks new trades. proposal / challenge / finalize / redeem and free collateral withdrawal keep the contract rules.
+- UTC is used throughout with explicit time zones. Micro-unit / uint256 wire values use decimal strings, SQL NUMERIC, and bigint for computation. A probability may be a finite decimal in [0,1]. Floats are never used to compute funds.
+- Do not re-serialize the spec to verify the hash. The original bytes must be downloadable.
 
-## 頁面分類（公開說明站已實作，操作 UI 待決定）
+## Page categories (the public explainer site is implemented; the operation UI is undecided)
 
-公開：市場列表、問題詳情（證據／預測／baseline／成本）、結算詳情、agent 接入。
-錢包：測試交易、持倉／贖回。管理：候選核准、工作失敗、預算、pause、結果與爭議工單。
+Public: market list, question detail (evidence / forecast / baseline / cost), settlement detail, agent onboarding.
+Wallet: test trading, positions / redemption. Admin: candidate approval, failed work, budget, pause, outcome and dispute tickets.
 
-研究機率、maker ask、實際成交價分開；LIVE/REPLAY 與測試資產標籤永久顯示。Web host 已提供 Next.js 唯讀說明站、文件與明確標示的虛構 REPLAY 市場樣本，不是 API 市場資料，也沒有交易／錢包／管理操作。API 與合約尚未部署，網站上沒有交易。
+The research probability, the maker ask and the actual fill price are kept separate. The LIVE/REPLAY and test-asset labels are always shown. The Web host provides a read-only Next.js explainer site, docs and clearly labeled fictional REPLAY market samples. These are not API market data, and there are no trading / wallet / admin operations. The API and contracts are not deployed, so the website has no trading.

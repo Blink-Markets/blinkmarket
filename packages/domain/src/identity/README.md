@@ -1,9 +1,9 @@
-# 身份與邀請
+# Identity and invitations
 
-責任：API key、scope、wallet binding；不授予資金轉出權。
+Responsibility: API keys, scopes and wallet binding; it grants no right to move funds out.
 
-資料 ownership：operators / agents / api_keys / wallet_challenges。
+Data ownership: operators / agents / api_keys / wallet_challenges
 
-狀態：M2.1 已加入 application 身份用例、ports 與 PostgreSQL/crypto adapters；API identity 模式可選接線。詳見 docs/M2_IDENTITY_DELIVERY.md。
+Status: M2.1 added the application identity use cases, ports and PostgreSQL/crypto adapters; the API identity mode is optionally wired. See docs/M2_IDENTITY_DELIVERY.md.
 
-後續 domain model 放此目錄；application use case 放 `packages/application/src/identity/`，外部 adapter 放 `packages/adapters/src/identity/`。其他模組不得直接寫入本模組資料表，跨模組更新經 application orchestration、同一 transaction 與 outbox 完成。
+Later domain models go in this directory; application use cases go in `packages/application/src/identity/` and external adapters in `packages/adapters/src/identity/`. Other modules must not write this module's tables directly; cross-module updates go through application orchestration, one transaction and the outbox.

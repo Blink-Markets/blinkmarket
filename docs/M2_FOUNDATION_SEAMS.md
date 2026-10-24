@@ -2,8 +2,6 @@
 
 This slice lands the shared seams that later M2/M3 workstreams build on in parallel without editing the same code paths: an API route-service registry, the chain index schema (migration 0007) with a business clock, the canonical Blink ABI module, test helpers, the new API modes and the full job-type list. It adds no business behavior: no route service is registered, nothing writes the new tables, no transaction is signed or sent, and trading stays disabled.
 
-中文摘要：這一階段只建立後續平行工作共用的接縫（API 路由服務註冊、鏈上索引資料表與業務時鐘 `blink.now()`、統一 ABI 模組、測試輔助與新的 API 模式），不新增任何業務行為，交易仍然關閉。
-
 ## What was added
 
 | Seam | Where | Behavior |

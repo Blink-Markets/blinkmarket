@@ -4,8 +4,6 @@ Follow-up: operator-driven receipt/MarketCreated tracking is now implemented sep
 
 Implemented locally, **REPLAY-only and opt-in**. An invited admin can approve a candidate and obtain one durable, unsigned `createMarket` transaction intent. This is not an on-chain deployment or a trading launch. No private key, automatic signer, broadcaster or market-created receipt is involved.
 
-中文摘要：人工核准已接上資料庫交易及未簽署建市資料；由管理員錢包自行檢查並送出。API 不會假造 marketId 或交易成功，也不會自動簽署。
-
 ## Flow
 
 ```mermaid

@@ -2,8 +2,6 @@
 
 This slice adds a guarded deployer that puts `BlinkTestUSD` and `BlinkMarket` on a chain, produces a release manifest, and verifies that manifest with the existing `verifyDeploymentOnChain` before it writes anything. It is **tooling only**. The tooling has been exercised against local Anvil started with `--chain-id 84532`; that local exercise did not use real role wallets, an RPC provider or keys. Since 2026-10-20 it has also deployed `alpha-2` on Base Sepolia; see `deployments/base-sepolia/alpha-2.manifest.json`.
 
-中文摘要：新增受保護的合約部署工具，部署 BlinkTestUSD 與 BlinkMarket、產生並用既有 verifier 驗證 release manifest；工具曾在本機 Anvil（chain ID 84532）驗證，並於 2026-10-20 部署 alpha-2 至 Base Sepolia。
-
 ## What the tool does
 
 | Piece | Where |

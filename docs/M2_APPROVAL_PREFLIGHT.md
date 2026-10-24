@@ -4,8 +4,6 @@
 
 This is an internal, locally tested prerequisite for approval, **not an enabled approval endpoint**. The previous identity/evidence/candidate slice was pushed as `a878b5d`. No deployment, approval record, capacity reservation, creation intent or outbox event is produced by this preflight.
 
-中文摘要：這一步完成核准政策與規格封存的前置銜接，不代表人工核准或建市已可使用。核准 API 仍回 501。
-
 ## Implemented rules
 
 `validateReplayApproval` lives in the domain package and accepts a candidate, approval request, trusted evidence snapshot and database-derived time. It has no database, network, signing or storage side effects.
