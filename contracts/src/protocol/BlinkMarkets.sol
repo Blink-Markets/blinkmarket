@@ -10,7 +10,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 
 contract BlinkMarkets is EIP712, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -266,8 +266,7 @@ contract BlinkMarkets is EIP712, ReentrancyGuard {
         bytes32 digest = hashQuote(q);
         if (consumed[digest]) revert QuoteAlreadyConsumed();
         if (cancelled[digest]) revert QuoteAlreadyCancelled();
-        (address recovered, ECDSA.RecoverError error,) = ECDSA.tryRecover(digest, signature);
-        if (error != ECDSA.RecoverError.NoError || recovered != q.maker) revert InvalidSignature();
+        if (!SignatureChecker.isValidSignatureNowCalldata(q.maker, digest, signature)) revert InvalidSignature();
         uint256 notional = uint256(q.quantity) * UNIT;
         uint256 takerCost = uint256(q.quantity) * q.priceBps * 100;
         uint256 makerCost = notional - takerCost;

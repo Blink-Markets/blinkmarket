@@ -41,6 +41,8 @@ P1 提供 agent 自助運作的鏈上協議：身份與角色押金、建市挑�
 
 建市必須滿足 `hardDeadline - proposalDeadline > resultChallengeWindow[cls] + maxRounds × (commitSeconds + revealSeconds + appealSeconds)`（R39）。每回合 `appealEnd = revealEnd + appealSeconds`，延遲 `settleRound` 不會延長上訴期限；若 `now + commitSeconds + revealSeconds >= hardDeadline`，上訴被拒絕，前回合結果仍可依其原定上訴期限定案。
 
+`fillQuote` 接受已註冊且具 MAKER 角色的 EOA 或 ERC-1271 合約錢包簽章，使用 OpenZeppelin 5.6.1 的 `SignatureChecker.isValidSignatureNowCalldata` 驗證。EOA 維持 65 bytes、low-s 的 ECDSA 規則；有程式碼的 maker 則以 staticcall 呼叫 `isValidSignature(digest, signature)`，只有回傳 ERC-1271 magic value `0x1626ba7e` 才接受，拒絕或 revert 均回報既有 `InvalidSignature()`。taker 綁定、完整抵押、費用、額度與以 digest 為鍵的重放防護維持原規則。
+
 已揭票且未重開回合的平台幣獎懲，要等爭議定案後才結算，依最終選項判定一致與否（R40）。上訴翻案後，原回合的少數正確票不受非一致 slash，並按該回合最終選項的已揭票權重分配該層 pool；錯誤多數受 `incoherentSlashBps` 處罰。vote lock 保留至逐票結算。未揭票可在回合結束後先 slash；重開回合、timeout 與僅最後回合計信用的規則保留。
 
 ## 信任假設
@@ -53,6 +55,7 @@ P1 提供 agent 自助運作的鏈上協議：身份與角色押金、建市挑�
 
 ## 已知限制
 
+- ERC-1271 錢包的驗證答案在成交時讀取；錢包可以改變答案，因此先前有效的簽章不保證成交時仍有效。
 - timeout 前已 slash 的平台幣、某回合無人揭出最終選項時的 pool，以及分配捨入餘額可能留在 `jurors.undistributedSlashed`，沒有回收政策（Task 7 minor #4）。測試確認保留資產仍足額。
 - 每個 vote 的 slash／reward／信用／unlock，以及每個市場的 fee distribution，都需要 permissionless keeper 交易；沒有平台特權 keeper 自動代辦。定案後先結算同層所有 loser，再處理 coherent claims；最後回合已提早結算的未揭票者需在定案後再結算信用。
 - R17 只在 `createMarket` 與 `requestUnstake` 檢查全域安全界線；slash 不能被拒絕，可能令 attack cost 暫低於 open payout 所需值，直到市場關閉。invariant 檢查這兩種操作成功後沒有越界，沒有宣稱 slash 後仍永遠成立。
@@ -96,12 +99,24 @@ pnpm check:contracts
 
 最終驗證基準為 main `c500389`（R39–R41 修正合併後）：上列合約指令結果相同，完整 `pnpm check` 714/714 通過。每個任務都經過獨立審查，整個分支另做一次最終審查，最終審查的修正也經過範圍複審。P1 合約測試通過不代表 P2–P4 或自治服務演練完成。
 
+2026-10-24 P2 Task 13 合約錢包 maker 簽章增補：新增 `ContractWalletMakerTest` 的 8 項測試，涵蓋 ERC-1271 成交與 EOA 帳務／事件一致、錯誤簽署者、錢包拒絕／revert、透過錢包撤價與遞增 epoch、digest 重放防護、EOA high-s／64 bytes 簽章拒絕，以及錢包控制權。
+
+| 指令 | 本次結果 |
+| --- | --- |
+| `pnpm check:contracts` | 通過 EIP-170 檢查；`BlinkMarkets` runtime 18,364 bytes，最大仍為 `BlinkResolution` 20,528 bytes |
+| `pnpm test:contracts` | 18 suites、255/255 tests 通過，0 fail／skip；既有測試未修改 |
+| `pnpm test:contracts:seeds` | Ledger／Protocol 各以 0x01、0x02 執行，四次共 12/12 tests 通過；八個 invariant campaigns 合計 65,536 calls、0 revert |
+| `node --import tsx --test tests/protocol-artifacts.test.ts` | 1/1 test file 通過，包含編譯／EIP-170 與 ABI 特權名稱檢查 |
+
+另以 solc 比對增補前後的完整 `BlinkMarkets` ABI 與儲存布局，確認皆未改變。本次僅完成 P2 Task 13；未執行完整 `pnpm check`、鏈下整合或部署演練，獨立審查待交接後進行。
+
 ## 實作裁決對照
 
 本文件引用的裁決編號與 minor 編號來自 P1 實作期間的決策紀錄，該紀錄不保存在 repo。以下是行為相關的裁決：
 
 | 編號 | 決定 |
 | --- | --- |
+| §5.1 錢包中立（2026-10-24） | maker 可為 EOA 或 ERC-1271 合約錢包；`fillQuote` 依成交當下的簽章驗證結果決定是否接受，EOA 規則與 digest 重放防護不變 |
 | R6 | 特權函式名稱掃描用 `/owner\|admin\|pause\|initiali[sz]e\|upgrade\|^bind/i` 加大小寫敏感的 `/^set[A-Z]/`，排除 markets hooks `setProposed`／`setDisputed`；不掃 `allow`（ERC20 allowance）；Governor 由自身測試證明只能提案 `adoptSuccessor` |
 | R9 | `resolveCreation(id, upheld, challenger)`；建市挑戰成立時 held creator bond 付給原 challenger |
 | R17 | 全域安全界線只在 `createMarket` 與 `requestUnstake` 檢查；slash 不可拒絕，可能暫時越界 |
