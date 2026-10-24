@@ -25,6 +25,27 @@ export function parseTrustedProxies(raw: string | undefined): string[] {
   });
 }
 
+// The public origin written into content URIs: canonical (no path or trailing slash), https, or
+// http only for a loopback host. Anything else would put an unusable or spoofable link in a URI.
+export function parseSpecPublicOrigin(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("INVALID_SPEC_PUBLIC_ORIGIN");
+  }
+  if (
+    raw !== url.origin ||
+    !(
+      url.protocol === "https:" ||
+      (url.protocol === "http:" &&
+        ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
+    )
+  )
+    throw new Error("INVALID_SPEC_PUBLIC_ORIGIN");
+  return url.origin;
+}
+
 export function apiConfig(env: NodeJS.ProcessEnv) {
   const mode = (env.BLINK_API_MODE ?? "scaffold") as ApiMode;
   if (!modes.includes(mode)) throw new Error("INVALID_API_MODE");
@@ -41,7 +62,9 @@ export function apiConfig(env: NodeJS.ProcessEnv) {
   }
   if (
     atLeast("markets") &&
-    (!env.BLINK_DEPLOYMENT_ID || !env.SPEC_OBJECT_DIRECTORY)
+    (!env.BLINK_DEPLOYMENT_ID ||
+      !env.SPEC_OBJECT_DIRECTORY ||
+      !env.SPEC_PUBLIC_ORIGIN)
   )
     throw new Error("MARKETS_CONFIGURATION_REQUIRED");
   return {
@@ -51,6 +74,9 @@ export function apiConfig(env: NodeJS.ProcessEnv) {
     databaseUrl: env.API_DATABASE_URL,
     walletOrigin: env.WALLET_BINDING_ORIGIN,
     specDirectory: env.SPEC_OBJECT_DIRECTORY,
+    specPublicOrigin: atLeast("markets")
+      ? parseSpecPublicOrigin(env.SPEC_PUBLIC_ORIGIN!)
+      : undefined,
     deploymentId: env.BLINK_DEPLOYMENT_ID,
     rpcUrl: env.BASE_SEPOLIA_RPC_URL,
     trustedProxies: parseTrustedProxies(env.API_TRUSTED_PROXIES),

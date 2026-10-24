@@ -38,6 +38,7 @@ test(
             BLINK_API_MODE: "markets",
             WALLET_BINDING_ORIGIN: "https://blink.example",
             SPEC_OBJECT_DIRECTORY: "/tmp",
+            SPEC_PUBLIC_ORIGIN: "https://blink.example",
             BLINK_DEPLOYMENT_ID: "test",
           },
         ],

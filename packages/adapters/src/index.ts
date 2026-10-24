@@ -1,10 +1,7 @@
 export { createUnitOfWork } from "./database.js";
 export { migrate, migratePostgres } from "./migrations.js";
-export {
-  createSpecArchive,
-  encodeNewSpec,
-  verifySpecBytes,
-} from "./spec-archive.js";
+export { postgresContentStore, verifiedArchive } from "./content-store.js";
+export { postgresSuggestionStore } from "./suggestion-store.js";
 export { fileObjectStore } from "./file-object-store.js";
 export { keccak256Hex } from "./content-hash.js";
 export {
@@ -18,7 +15,6 @@ export {
   assertIdentityRuntimeRole,
 } from "./identity-store.js";
 export { identityCrypto } from "./identity-crypto.js";
-export { evidenceAdmin } from "./evidence-admin.js";
 export {
   registerVerifiedDeployment,
   registerProtocolDeployment,

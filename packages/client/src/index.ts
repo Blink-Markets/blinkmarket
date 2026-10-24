@@ -163,9 +163,6 @@ export function createBlinkClient(
     /** Public and single use: sign the challenge message, then verify once to receive the key. */
     verifyWallet: (input: unknown) =>
       call("POST", "/v1/auth/wallet-verifications", { body: input }),
-    // --- evidence ---
-    getEvidence: (id: string) =>
-      call("GET", "/v1/evidence/:id", { params: { id } }),
     // --- config and markets ---
     getConfig: async () => ConfigResponse.parse(json(await send("/v1/config"))),
     listMarkets: (

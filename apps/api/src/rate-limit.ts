@@ -46,3 +46,54 @@ export function createTokenBucket(options: {
     },
   };
 }
+
+// In-process sliding-window log: at most `limit` accepted events in any trailing `windowSeconds`, per
+// key. A refused request is not counted, so it never extends its own wait. Use this for every
+// "N per hour/day" ceiling; the token bucket above is for a rate with a burst. One log holds at most
+// `limit` timestamps, and `maxKeys` bounds the number of logs (least recently used evicted).
+// ponytail: one API instance; a shared store if the API ever scales out.
+export function createWindowLimiter(options: {
+  limit: number;
+  windowSeconds: number;
+  now?: () => number;
+  maxKeys?: number;
+}) {
+  const { limit, windowSeconds, maxKeys = 10_000 } = options;
+  if (
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    !(windowSeconds > 0) ||
+    !Number.isFinite(windowSeconds) ||
+    !Number.isInteger(maxKeys) ||
+    maxKeys < 1
+  )
+    throw new Error("INVALID_RATE_LIMIT");
+  const now = options.now ?? (() => performance.now());
+  const windowMs = windowSeconds * 1000;
+  const logs = new Map<string, number[]>();
+  return {
+    take(
+      key: string,
+    ): { allowed: true } | { allowed: false; retryAfterSeconds: number } {
+      const at = now();
+      const known = logs.get(key);
+      logs.delete(key);
+      while (logs.size >= maxKeys) logs.delete(logs.keys().next().value!);
+      // An event leaves the window exactly one window after it was counted.
+      const log = (known ?? []).filter((t) => at - t < windowMs);
+      if (log.length >= limit) {
+        logs.set(key, log);
+        return {
+          allowed: false,
+          retryAfterSeconds: Math.max(
+            1,
+            Math.ceil((log[0]! + windowMs - at) / 1000),
+          ),
+        };
+      }
+      log.push(at);
+      logs.set(key, log);
+      return { allowed: true };
+    },
+  };
+}

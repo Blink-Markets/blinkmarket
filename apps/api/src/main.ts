@@ -8,6 +8,8 @@ import {
   createForecastService,
   createMarketReadService,
   createMetricsService,
+  createContentService,
+  createSuggestionService,
   authenticateIdentity,
 } from "@blink/application";
 import {
@@ -18,7 +20,9 @@ import {
   assertProductionClock,
   postgresForecastStore,
   fileObjectStore,
-  createSpecArchive,
+  verifiedArchive,
+  postgresContentStore,
+  postgresSuggestionStore,
   postgresMarketReadStore,
   postgresEvaluationStore,
   postgresHealthReader,
@@ -27,7 +31,7 @@ import {
 import { apiConfig, modeAtLeast } from "./config.js";
 
 // Task 5 replaces this with the reader over the indexed store. Until then the index counts as
-// stale, so no key is issued.
+// stale, so no key is issued and no upload or claim is accepted.
 const protocolReaderFor = (_pool: pg.Pool) => ({
   health: async () => ({
     headBlock: 0,
@@ -36,6 +40,8 @@ const protocolReaderFor = (_pool: pg.Pool) => ({
     stale: true,
   }),
   account: async () => null,
+  hasRole: async () => false,
+  marketBySpecHash: async () => null,
 });
 
 const config = apiConfig(process.env);
@@ -59,6 +65,10 @@ try {
     await assertProductionClock(pool, false);
     if (modeAtLeast(config.mode, "markets"))
       await pool.query("SELECT id FROM chain.transactions LIMIT 0");
+    if (modeAtLeast(config.mode, "markets")) {
+      await pool.query("SELECT hash FROM content.objects LIMIT 0");
+      await pool.query("SELECT id FROM suggestions.items LIMIT 0");
+    }
     await pool.query("SELECT id FROM identity.api_keys LIMIT 0");
     if (modeAtLeast(config.mode, "markets"))
       await pool.query("SELECT id FROM forecasts.windows LIMIT 0");
@@ -75,21 +85,24 @@ try {
             ).authenticate(authorization, "admin"),
         })
       : undefined;
+  const identity = pool
+    ? createIdentityService(
+        postgresIdentityStore(pool),
+        identityCrypto,
+        config.walletOrigin!,
+        {
+          verifier: rpcSignatureVerifier(config.rpcUrl),
+          reader: protocolReaderFor(pool),
+        },
+      )
+    : undefined;
   const app = buildApi(
-    pool
+    pool && identity
       ? {
           trustedProxies: config.trustedProxies,
           ...(health ? { health } : {}),
           assertReady: () => assertProductionClock(pool, false),
-          identity: createIdentityService(
-            postgresIdentityStore(pool),
-            identityCrypto,
-            config.walletOrigin!,
-            {
-              verifier: rpcSignatureVerifier(config.rpcUrl),
-              reader: protocolReaderFor(pool),
-            },
-          ),
+          identity,
           services: modeAtLeast(config.mode, "markets")
             ? [
                 ...(health
@@ -111,13 +124,27 @@ try {
                     ]
                   : []),
                 createMetricsService({ store: postgresEvaluationStore(pool) }),
+                createContentService({
+                  store: postgresContentStore(
+                    pool,
+                    fileObjectStore(config.specDirectory!),
+                  ),
+                  identity,
+                  reader: protocolReaderFor(pool),
+                  publicOrigin: config.specPublicOrigin!,
+                }),
+                createSuggestionService({
+                  store: postgresSuggestionStore(pool),
+                  identity,
+                  reader: protocolReaderFor(pool),
+                }),
                 createForecastService({
                   store: postgresForecastStore(pool),
                   crypto: identityCrypto,
                 }),
                 createMarketReadService({
                   store: postgresMarketReadStore(pool),
-                  archive: createSpecArchive(
+                  archive: verifiedArchive(
                     fileObjectStore(config.specDirectory!),
                   ),
                   identity: {

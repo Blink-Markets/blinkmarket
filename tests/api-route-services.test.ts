@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildApi } from "../apps/api/src/server.js";
-import { createTokenBucket } from "../apps/api/src/rate-limit.js";
+import {
+  createTokenBucket,
+  createWindowLimiter,
+} from "../apps/api/src/rate-limit.js";
 import { IdentityError } from "../packages/application/src/identity.js";
 import type { IdentityService } from "../packages/application/src/identity.js";
 import type {
@@ -261,7 +264,7 @@ test("a Uint8Array body is sent byte for byte with its content type", async () =
   const bytes = new TextEncoder().encode('{ "b" : 1,\n "a":2 }\n');
   const app = buildApi({
     services: [
-      fakeService(["/v1/specs/:specHash"], () => ({
+      fakeService(["/v1/content/:hash"], () => ({
         status: 200,
         body: bytes,
         contentType: "application/json",
@@ -270,7 +273,7 @@ test("a Uint8Array body is sent byte for byte with its content type", async () =
     ],
   });
   try {
-    const res = await app.inject(`/v1/specs/0x${"ab".repeat(32)}`);
+    const res = await app.inject(`/v1/content/0x${"ab".repeat(32)}`);
     assert.equal(res.statusCode, 200);
     assert.ok(Buffer.from(bytes).equals(res.rawPayload));
     assert.match(String(res.headers["content-type"]), /^application\/json/);
@@ -506,9 +509,8 @@ test("public reads are rate limited per IP; other routes are not", async () => {
     assert.equal((await get("/v1/metrics?mode=REPLAY")).statusCode, 429);
     // Another client, a non-public route and the health endpoints are unaffected.
     assert.equal((await get("/v1/markets", "10.0.0.2")).statusCode, 200);
-    const id = "00000000-0000-4000-8000-000000000001";
     for (let i = 0; i < 70; ++i)
-      assert.equal((await get(`/v1/evidence/${id}`)).statusCode, 501);
+      assert.equal((await get("/v1/admin/pause")).statusCode, 501);
     assert.equal((await get("/health/live")).statusCode, 200);
     // Tokens refill with the injected clock.
     clock += 1000;
@@ -551,6 +553,48 @@ test("token bucket: refill, Retry-After, burst cap and bounded memory", () => {
       () => createTokenBucket({ capacity: 1, refillPerSecond: 1, maxKeys }),
       /INVALID_RATE_LIMIT/,
     );
+});
+
+test("window limiter: at most N accepted per trailing window, refusals not counted", () => {
+  let clock = 0;
+  const limiter = createWindowLimiter({
+    limit: 3,
+    windowSeconds: 10,
+    now: () => clock,
+    maxKeys: 2,
+  });
+  assert.deepEqual(limiter.take("a"), { allowed: true });
+  clock = 4000;
+  assert.deepEqual(limiter.take("a"), { allowed: true });
+  clock = 5000;
+  assert.deepEqual(limiter.take("a"), { allowed: true });
+  // Retry-After: seconds until the oldest counted event (t=0) leaves the window.
+  clock = 6000;
+  assert.deepEqual(limiter.take("a"), { allowed: false, retryAfterSeconds: 4 });
+  // Refusing does not extend the wait: the refused call at t=6s was not counted.
+  clock = 10_000;
+  assert.deepEqual(limiter.take("a"), { allowed: true });
+  clock = 10_500;
+  assert.deepEqual(limiter.take("a"), { allowed: false, retryAfterSeconds: 4 });
+  // An event leaves the window exactly one window after it was counted.
+  clock = 14_000;
+  assert.deepEqual(limiter.take("a"), { allowed: true });
+  // Keys are independent, and maxKeys evicts the least recently used one.
+  assert.deepEqual(limiter.take("b"), { allowed: true });
+  assert.deepEqual(limiter.take("c"), { allowed: true });
+  assert.deepEqual(
+    limiter.take("a"),
+    { allowed: true },
+    "a was evicted and starts empty",
+  );
+  for (const bad of [
+    { limit: 0, windowSeconds: 1 },
+    { limit: 1.5, windowSeconds: 1 },
+    { limit: 1, windowSeconds: 0 },
+    { limit: 1, windowSeconds: Number.NaN },
+    { limit: 1, windowSeconds: 1, maxKeys: 0 },
+  ])
+    assert.throws(() => createWindowLimiter(bad), /INVALID_RATE_LIMIT/);
 });
 
 test("/v1/config can be supplied, with a public deployment and an explicit stage", async () => {

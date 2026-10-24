@@ -61,6 +61,7 @@ services:
       API_DATABASE_URL: ${ALPHA_API_DATABASE_URL:?set by images:smoke}
       WALLET_BINDING_ORIGIN: http://127.0.0.1:${ALPHA_API_PORT:-3001}
       SPEC_OBJECT_DIRECTORY: /data/specs
+      SPEC_PUBLIC_ORIGIN: http://127.0.0.1:${ALPHA_API_PORT:-3001}
       BLINK_DEPLOYMENT_ID: ${ALPHA_DEPLOYMENT_ID:?set by images:smoke}
       BASE_SEPOLIA_RPC_URL: http://anvil:8545
     ports:

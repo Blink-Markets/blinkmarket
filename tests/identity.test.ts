@@ -643,9 +643,9 @@ test("same address keeps one agent across keys", async () => {
 });
 
 test("rate limit per address and client IP", async () => {
-  const bucket = (capacity: number) => ({
-    capacity,
-    refillPerSecond: capacity / 3600,
+  const bucket = (limit: number) => ({
+    limit,
+    windowSeconds: 3600,
     now: () => 0,
   });
   const s = await setup({
@@ -686,9 +686,9 @@ const IP_A = "10.0.0.1";
 const IP_B = "10.0.0.2";
 
 test("one client cannot lock another client out of an address", async () => {
-  const bucket = (capacity: number) => ({
-    capacity,
-    refillPerSecond: capacity / 3600,
+  const bucket = (limit: number) => ({
+    limit,
+    windowSeconds: 3600,
     now: () => 0,
   });
   const s = await setup({
@@ -745,8 +745,8 @@ test("a request refused by the IP allowance spends no address token", async () =
   let ipClock = 0;
   const s = await setup({
     limits: {
-      perIp: { capacity: 1, refillPerSecond: 1, now: () => ipClock },
-      perAddress: { capacity: 2, refillPerSecond: 2 / 3600, now: () => 0 },
+      perIp: { limit: 1, windowSeconds: 10, now: () => ipClock },
+      perAddress: { limit: 2, windowSeconds: 3600, now: () => 0 },
     },
   });
   try {
@@ -863,7 +863,7 @@ test("verification attempts are bounded per challenge before the signature check
 
 test("verification attempts are bounded per client IP before the signature check", async () => {
   const s = await setup({
-    verifyLimit: { capacity: 2, refillPerSecond: 2 / 3600, now: () => 0 },
+    verifyLimit: { limit: 2, windowSeconds: 3600, now: () => 0 },
   });
   try {
     const first = await s.payload(alice, alice.address);
@@ -886,6 +886,46 @@ test("verification attempts are bounded per client IP before the signature check
       ),
       0,
     );
+  } finally {
+    await s.close();
+  }
+});
+
+test("the per-IP challenge limit holds over the whole hour, not only for a burst", async () => {
+  let clock = 0;
+  const s = await setup({
+    limits: {
+      perIp: { limit: 30, windowSeconds: 3600, now: () => clock },
+      perAddress: { limit: 1000, windowSeconds: 3600, now: () => clock },
+    },
+  });
+  try {
+    const ask = () => s.challenge(alice.address, "issue", undefined, IP_A);
+    // Thirty challenges over the first 24 minutes, then one more at 30 minutes.
+    for (let i = 0; i < 30; i++) {
+      clock = i * 48_000;
+      // Challenges pile up, so spread the address too (five pending per address and IP).
+      const res = await s.challenge(
+        "0x" + (i + 1).toString(16).padStart(40, "0"),
+        "issue",
+        undefined,
+        IP_A,
+      );
+      assert.equal(res.statusCode, 201, "request " + i + res.body);
+    }
+    clock = 30 * 60_000;
+    const limited = await ask();
+    assert.equal(
+      limited.statusCode,
+      429,
+      "a refilling bucket would admit this",
+    );
+    assert.equal(limited.json().code, "RATE_LIMITED");
+    // Retry-After is the time until the oldest counted request leaves the hour.
+    assert.equal(limited.headers["retry-after"], "1800");
+    // Once the first request is an hour old, one more fits.
+    clock = 3_600_000;
+    assert.equal((await ask()).statusCode, 201);
   } finally {
     await s.close();
   }

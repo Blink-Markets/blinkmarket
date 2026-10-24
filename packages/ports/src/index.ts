@@ -1,9 +1,9 @@
-import type { NewMarketSpec } from "@blink/schemas";
 export type * from "./identity.js";
 export * from "./jobs.js";
 export * from "./source-fetcher.js";
 export type * from "./chain-index.js";
 export type * from "./protocol-read.js";
+export * from "./content.js";
 export * from "./signature.js";
 
 // 邊界合約：實作留到後續 milestone；不公開 ORM 或私鑰。
@@ -12,10 +12,7 @@ export interface ImmutableObjectStore {
   read(uri: string): Promise<Uint8Array>;
 }
 export interface SpecArchive {
-  freeze(
-    spec: NewMarketSpec,
-    nowSeconds: bigint,
-  ): Promise<{ hash: string; uri: string; bytes: Uint8Array }>;
+  /** The stored bytes, accepted only if keccak256(bytes) is `hash`. */
   read(uri: string, hash: string): Promise<Uint8Array>;
 }
 declare const transactionBrand: unique symbol;

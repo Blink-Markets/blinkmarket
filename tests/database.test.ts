@@ -315,10 +315,10 @@ test("0026 retires research and approval objects", async () => {
       await db.query<{ name: string }>(
         `SELECT schemaname || '.' || tablename AS name FROM pg_tables
          WHERE schemaname || '.' || tablename IN ('forecasts.windows','forecasts.submissions',
-           'forecasts.annotations','evidence.sources','evidence.records','markets.deployments','markets.specs')`,
+           'forecasts.annotations','evidence.sources','evidence.records','markets.deployments')`,
       )
     ).rows;
-    assert.equal(kept.length, 7);
+    assert.equal(kept.length, 6);
     // The scoring view no longer depends on platform agents.
     assert.deepEqual(
       (

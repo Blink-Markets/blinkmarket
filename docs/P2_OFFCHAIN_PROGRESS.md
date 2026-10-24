@@ -61,7 +61,7 @@ it). The API has three modes: `scaffold`, `identity` and `markets`. The
 `/v1/candidates*` and `/v1/markets/:id/resolution-reports` are gone. The worker
 registry holds only `forecast.schedule`, `evaluation.score`, `alert.deliver`,
 `alert.evaluate` and `operations.prune`. `allowlist-fetcher` and `network-policy` stay for P3. `GET /v1/evidence/:id` and
-`GET /v1/specs/:specHash` return 501 until Task 8 replaces them with
+`GET /v1/specs/:specHash` returned 501 until Task 8 replaced them with
 `/v1/content/:hash`.
 
 Migration `0026_retire_platform_research.sql` is the only schema change. It marks
@@ -194,3 +194,58 @@ buckets assume one API instance.
 
 This completes only the Task 6 scope, not the P2 milestone. No push, merge,
 deployment or live transaction was performed.
+
+## Task 8 — content store and human suggestions (2026-10-25)
+
+`POST /v1/content` stores raw bytes (at most 1 MiB; `application/json`, `text/plain`,
+`text/csv`, `text/html` or `application/pdf`) at their keccak256 through
+`fileObjectStore`, and records `content.objects`. It needs the `content:write`
+scope and an address that the indexed `ProtocolReader` reports registered; a stale
+or failing index answers `503 INDEX_STALE`, as in Task 6 (the check is now shared
+as `readFreshIndex` / `requireRegisteredAddress`). Storing the same bytes again
+returns the first record. Bytes that parse as `MarketSpecV02` with an existing
+`suggestionId` are linked in `suggestions.spec_links`. `GET /v1/content/:hash` is
+public: exact bytes, stored media type, immutable cache, `nosniff`,
+`Content-Security-Policy: sandbox`, and `Content-Disposition: attachment` for
+HTML. Bytes whose hash no longer matches are never served (`503`).
+
+`POST /v1/suggestions` is public (text 20-2000 characters, up to five https
+`sourceUrls`, never fetched; 8 KiB body cap). Limits: 5 per hour per client IP and
+500 per day overall, in process, charged before the body is read. The list and
+detail routes derive the status at read time: `MARKET_CREATED` if a linked spec hash
+has a market in the index, else `CLAIMED` if a claim exists, else `OPEN`.
+`POST /v1/suggestions/:id/claims` needs `suggestion:claim` and the CREATOR role
+(checked in the fresh index); one claim per creator, no exclusivity.
+
+Migration `0030_content_and_suggestions.sql` adds the `content` and `suggestions`
+schemas (append-only, `blink_api` SELECT/INSERT), drops `markets.specs` and the
+`blink_evidence_admin` role. `evidence.sources` and `evidence.records` stay,
+because `forecasts` still validates evidence ids against them until Task 10 moves
+forecasts to content hashes. Removed: `spec-archive.ts`, `evidence-admin.ts`,
+`scripts/evidence-admin.ts`, the `evidence:admin` script, `getEvidence` in the
+client. Market spec reads now use the platform archive at
+`local-object:<specHash>`, the bytes `POST /v1/content` stored. `SPEC_PUBLIC_ORIGIN`
+is now required in `markets` mode.
+
+Task 5 check: `ws/p2-t5:0029_protocol_index.sql` references none of `evidence.*`,
+`markets.specs` or `blink_evidence_admin`. It only references
+`markets.protocol_deployments`, which 0030 does not touch.
+
+### Verification
+
+See `.superpowers/sdd/2026-10-24-p2-offchain-protocol/task-8-report.md`. Not run
+locally: `tests/postgres/*` (no PostgreSQL here), including the new
+`tests/postgres/content-suggestions.test.ts`; `pnpm build` (Turbopack needs a newer
+glibc). This covers only the Task 8 scope, not the P2 milestone.
+
+### Task 8 fix round 1
+
+The hourly and daily ceilings (wallet challenges 30/h per IP and 10/h per
+(IP, address), verifications 60/h per IP, suggestions 5/h per IP and 500/day
+overall) are now a sliding-window log in `apps/api/src/rate-limit.ts`
+(`createWindowLimiter`): at most N accepted events in any trailing window, refused
+requests are not counted, and `Retry-After` is the time until the oldest counted
+event leaves the window. The token bucket remains only for the public read limit,
+which is a rate with a burst (60 at 1 per second), not an N-per-window ceiling.
+Every `/v1/content/*` response now carries `nosniff` and `Content-Security-Policy:
+sandbox`, errors included; errors keep `Cache-Control: no-store`.

@@ -8,7 +8,6 @@ const roles = new Set([
   "blink_api",
   "blink_worker",
   "blink_indexer",
-  "blink_evidence_admin",
   "blink_deployment_admin",
 ]);
 

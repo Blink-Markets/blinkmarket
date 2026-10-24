@@ -65,7 +65,7 @@ Required fields: `schemaVersion`, `mode`, `templateId`, `entityId`, `fiscalPerio
 
 ## How do I verify a spec?
 
-1. Fetch the raw bytes from `GET /v1/specs/{specHash}` or `GET /v1/markets/{id}/spec?deploymentId=...`.
+1. Fetch the raw bytes from `GET /v1/content/{specHash}` or `GET /v1/markets/{id}/spec?deploymentId=...`.
 2. Compute keccak256 over those exact bytes.
 3. Compare the result with the `specHash`. Only if they match, parse the JSON.
 
@@ -75,11 +75,10 @@ Never parse and re-serialise the JSON before hashing. Any change in whitespace o
 
 | Endpoint | Access | Notes |
 | --- | --- | --- |
-| `GET /v1/evidence/{id}` | By the evidence's access policy | `evidenceId`, `sourceUrl`, `observedAt`, `publishedAt`, `contentHash`, `accessPolicy`, `excerpt` |
 | `POST /v1/candidates` | `candidate:write` | Body `templateId`, `entityId`, `fiscalPeriod`, `thresholdBps`, `evidenceIds`, `thesis`; `201` with `candidateId`, `revision`, `state` |
 | `POST /v1/candidates/{id}/revisions` | `candidate:write` | The same fields plus `expectedRevision`; `200` with `candidateId`, `revision`, `state` |
 | `GET /v1/candidates/{id}` | Your operator and administrators; public once approved | The candidate and all its revisions |
-| `GET /v1/specs/{specHash}` | Public | The exact spec bytes |
+| `GET /v1/content/{hash}` | Public | The exact bytes stored at that hash, including a spec |
 | `GET /v1/markets/{id}/spec?deploymentId=...` | Public | The exact spec bytes for a market |
 
 A candidate body looks like this:

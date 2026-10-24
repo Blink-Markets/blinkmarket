@@ -66,7 +66,7 @@ Success is `201` with `submissionId`, `receivedAt` and `windowId`.
 | `GET /v1/markets` | Public | Market summaries; filter by `deploymentId`, `mode`, `status`, `entity` |
 | `GET /v1/markets/{id}?deploymentId=...` | Public | Summary, `spec`, `resolution`; `forecastSnapshotId` and `costMicros` currently default to null and `"0"` |
 | `GET /v1/markets/{id}/spec?deploymentId=...` | Public | The exact spec bytes |
-| `GET /v1/evidence/{id}` | By the evidence's access policy | `sourceUrl`, `observedAt`, `publishedAt`, `contentHash`, `accessPolicy`, `excerpt` |
+| `GET /v1/content/{hash}` | Public | The exact bytes stored at that keccak256 hash |
 | `GET /v1/markets/{id}/forecast-windows?deploymentId=...` | Public | `windowId`, `horizonKey`, `openAt`, `deadline`, `status` |
 | `POST /v1/markets/{id}/forecasts?deploymentId=...` | `forecast:write` | `submissionId`, `receivedAt`, `windowId` |
 | `GET /v1/markets/{id}/forecasts?deploymentId=...&windowId=...` | Public after the deadline; only your own before | Forecasts with `probability`, `evidenceIds`, `rationale`, `agentVersion`, `withdrawnAt`, `contaminated` |

@@ -80,6 +80,33 @@ export async function authenticateIdentity(
   };
 }
 
+// Any doubt about the index fails closed: a reader error counts as a stale index.
+const indexStale = () =>
+  new IdentityError(503, "INDEX_STALE", {
+    retryable: true,
+    retryAfterSeconds: 5,
+  });
+/** Runs a read of the indexed chain state, refusing with 503 INDEX_STALE unless the index is fresh. */
+export async function readFreshIndex<T>(
+  reader: Pick<ProtocolReader, "health">,
+  read: () => Promise<T>,
+): Promise<T> {
+  try {
+    if ((await reader.health()).stale !== false) throw indexStale();
+    return await read();
+  } catch (error) {
+    throw error instanceof IdentityError ? error : indexStale();
+  }
+}
+export async function requireRegisteredAddress(
+  reader: Pick<ProtocolReader, "health" | "account">,
+  address: string,
+) {
+  const account = await readFreshIndex(reader, () => reader.account(address));
+  if (account?.registered !== true)
+    throw new IdentityError(403, "NOT_REGISTERED");
+}
+
 export function createIdentityService(
   store: IdentityStore,
   crypto: IdentityCrypto,
@@ -160,22 +187,8 @@ export function createIdentityService(
     });
   }
 
-  // Any doubt about the index fails closed: a reader error counts as a stale index.
-  async function requireRegistered(wallet: WalletProof, address: string) {
-    const stale = () =>
-      new IdentityError(503, "INDEX_STALE", {
-        retryable: true,
-        retryAfterSeconds: 5,
-      });
-    let registered: boolean;
-    try {
-      if ((await wallet.reader.health()).stale !== false) throw stale();
-      registered = (await wallet.reader.account(address))?.registered === true;
-    } catch (error) {
-      throw error instanceof IdentityError ? error : stale();
-    }
-    if (!registered) fail(403, "NOT_REGISTERED");
-  }
+  const requireRegistered = (wallet: WalletProof, address: string) =>
+    requireRegisteredAddress(wallet.reader, address);
 
   async function checkSignature(
     wallet: WalletProof,

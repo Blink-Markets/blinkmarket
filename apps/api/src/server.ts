@@ -6,10 +6,11 @@ import {
   IdempotencyHeaders,
   WalletChallengeRequest,
   type ConfigResponse,
+  type HttpContract,
 } from "@blink/schemas";
 import { modules } from "@blink/domain";
 import { routes } from "./routes.js";
-import { createTokenBucket } from "./rate-limit.js";
+import { createTokenBucket, createWindowLimiter } from "./rate-limit.js";
 import { isDatabaseUnavailable } from "./database-errors.js";
 import {
   IdentityError,
@@ -47,19 +48,24 @@ function sendIdentityError(
 }
 
 // Wallet challenges are public and cost a database row and a later chain read, so each client IP and
-// each address gets its own hourly allowance. In-process, like the public read limit (one API instance).
+// each address gets its own hourly ceiling: at most N in any trailing hour. In-process, like the
+// public read limit (one API instance).
 const HOUR_SECONDS = 3600;
+const DAY_SECONDS = 86_400;
 const defaultChallengeLimits = {
-  perIp: { capacity: 30, refillPerSecond: 30 / HOUR_SECONDS },
-  perAddress: { capacity: 10, refillPerSecond: 10 / HOUR_SECONDS },
+  perIp: { limit: 30, windowSeconds: HOUR_SECONDS },
+  perAddress: { limit: 10, windowSeconds: HOUR_SECONDS },
 };
-// Each verification reaches the chain through the signature check, so it has its own per-IP allowance
+// Each verification reaches the chain through the signature check, so it has its own per-IP ceiling
 // (a legitimate proof needs one or two) on top of the per-challenge attempt budget.
-const defaultVerificationLimit = {
-  capacity: 60,
-  refillPerSecond: 60 / HOUR_SECONDS,
+const defaultVerificationLimit = { limit: 60, windowSeconds: HOUR_SECONDS };
+// Human suggestions are public and need no key, so they are bounded per client IP and overall.
+const defaultSuggestionLimits = {
+  perIp: { limit: 5, windowSeconds: HOUR_SECONDS },
+  global: { limit: 500, windowSeconds: DAY_SECONDS },
 };
-type BucketOptions = Parameters<typeof createTokenBucket>[0];
+const GLOBAL_SUGGESTION_KEY = "all";
+type WindowOptions = Parameters<typeof createWindowLimiter>[0];
 
 // The database could not be reached: not a fault of the request, and the same request may be repeated.
 const databaseUnavailable = () =>
@@ -83,8 +89,12 @@ export function buildApi(
       now?: () => number;
     };
     trustedProxies?: readonly string[];
-    walletChallengeLimits?: { perIp: BucketOptions; perAddress: BucketOptions };
-    walletVerificationLimit?: BucketOptions;
+    walletChallengeLimits?: {
+      perIp: WindowOptions;
+      perAddress: WindowOptions;
+    };
+    walletVerificationLimit?: WindowOptions;
+    suggestionLimits?: { perIp: WindowOptions; global: WindowOptions };
   } = {},
 ) {
   // A contract path has exactly one owner: a built-in option or one route service.
@@ -112,11 +122,14 @@ export function buildApi(
   );
   const challengeLimits =
     options.walletChallengeLimits ?? defaultChallengeLimits;
-  const challengesByIp = createTokenBucket(challengeLimits.perIp);
-  const challengesByAddress = createTokenBucket(challengeLimits.perAddress);
-  const verificationsByIp = createTokenBucket(
+  const challengesByIp = createWindowLimiter(challengeLimits.perIp);
+  const challengesByAddress = createWindowLimiter(challengeLimits.perAddress);
+  const verificationsByIp = createWindowLimiter(
     options.walletVerificationLimit ?? defaultVerificationLimit,
   );
+  const suggestionLimits = options.suggestionLimits ?? defaultSuggestionLimits;
+  const suggestionsByIp = createWindowLimiter(suggestionLimits.perIp);
+  const suggestionsOverall = createWindowLimiter(suggestionLimits.global);
   // Reads of public data are unauthenticated; bound them per client IP (HEAD runs the same handlers).
   const publicReads = options.publicReadLimit
     ? createTokenBucket(options.publicReadLimit)
@@ -147,6 +160,40 @@ export function buildApi(
         details: {},
       });
     });
+  // Everything under /v1/content is untrusted upload bytes or a reply about them: nosniff and a sandbox
+  // CSP go on every such response, errors and early refusals included. The immutable cache header and
+  // the HTML attachment disposition belong to the stored-content response alone (content service).
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (!request.routeOptions.url?.startsWith("/v1/content")) return payload;
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Content-Security-Policy", "sandbox");
+    // Framework-level refusals (an unsupported Content-Type, an oversize body) set no cache header.
+    if (reply.statusCode >= 400) reply.header("Cache-Control", "no-store");
+    return payload;
+  });
+  // The client IP is charged first and stops the request; only an IP-approved request spends a token
+  // of the overall allowance, so one blocked client cannot use up everyone's suggestions. The charge
+  // comes before the body is read or validated.
+  app.addHook("onRequest", async (request, reply) => {
+    if (
+      request.method !== "POST" ||
+      request.routeOptions.url !== "/v1/suggestions"
+    )
+      return;
+    const taken = suggestionsByIp.take(request.ip);
+    const overall = taken.allowed
+      ? suggestionsOverall.take(GLOBAL_SUGGESTION_KEY)
+      : taken;
+    if (overall.allowed) return;
+    return sendIdentityError(
+      request,
+      reply,
+      new IdentityError(429, "RATE_LIMITED", {
+        retryable: true,
+        retryAfterSeconds: overall.retryAfterSeconds,
+      }),
+    );
+  });
   app.get(
     "/v1/config",
     async () =>
@@ -189,10 +236,41 @@ export function buildApi(
   app.get("/openapi.json", async () =>
     generateOpenApi([...builtIn, ...owners.keys()]),
   );
+  // Routes that take raw bytes live in their own scope, so their parsers (which keep the exact
+  // bytes, even for application/json) never replace the JSON parser of the other routes.
+  const mount = (
+    contract: HttpContract,
+    route: Parameters<typeof app.route>[0],
+  ) => {
+    const withLimit = {
+      ...route,
+      ...(contract.bodyLimit ? { bodyLimit: contract.bodyLimit } : {}),
+    } as typeof route;
+    const raw = contract.rawRequest;
+    if (!raw) return void app.route(withLimit);
+    void app.register(async (scope) => {
+      scope.removeAllContentTypeParsers();
+      scope.addContentTypeParser(
+        [...raw.mediaTypes],
+        { parseAs: "buffer", bodyLimit: raw.maxBytes },
+        (_request, body, done) => done(null, body),
+      );
+      // Refuse before the body is read when there is no credential to check.
+      scope.addHook("onRequest", async (request, reply) => {
+        if (!request.headers.authorization)
+          return sendIdentityError(
+            request,
+            reply,
+            new IdentityError(401, "UNAUTHORIZED"),
+          );
+      });
+      scope.route(withLimit);
+    });
+  };
   for (const contract of apiContracts) {
     const service = owners.get(contract.path);
     if (service) {
-      app.route({
+      mount(contract, {
         method: contract.method,
         url: contract.path,
         handler: async (request, reply) => {
@@ -203,6 +281,7 @@ export function buildApi(
               !params.success ||
               !query.success ||
               (contract.method === "POST" &&
+                contract.idempotencyKey !== false &&
                 !IdempotencyHeaders.safeParse(request.headers).success)
             )
               throw new IdentityError(400, "INVALID_REQUEST");
@@ -219,6 +298,7 @@ export function buildApi(
               query: query.data,
               body: request.body,
               authorization: request.headers.authorization,
+              contentType: request.headers["content-type"],
               idempotencyKey: typeof key === "string" ? key : undefined,
               requestId: request.id,
               ip: request.ip,
@@ -254,7 +334,7 @@ export function buildApi(
       });
       continue;
     }
-    app.route({
+    mount(contract, {
       method: contract.method,
       url: contract.path,
       handler: async (request, reply) => {
@@ -335,6 +415,7 @@ export function buildApi(
           contract.params.safeParse(request.params).success &&
           contract.query.safeParse(request.query).success &&
           (contract.method !== "POST" ||
+            contract.idempotencyKey === false ||
             IdempotencyHeaders.safeParse(request.headers).success) &&
           (!contract.body || contract.body.safeParse(request.body).success);
         if (!valid)
