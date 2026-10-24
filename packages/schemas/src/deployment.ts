@@ -1,94 +1,95 @@
 import { z } from "zod";
-import { Address, Hash, DeploymentId, Uint256 } from "./core.ts";
+import { Address, DeploymentId, Hash } from "./core.ts";
+import { GovernorSettings, ProtocolParams } from "./protocol-params.ts";
 
+// Manifest v2: shared contracts plus one generation of the P1 protocol. The v0.1 manifest
+// (alpha-2) is historical and lives in deployment-v1.ts.
 const NonZeroAddress = Address.refine((v) => !/^0x0{40}$/i.test(v));
-const NonZeroHash = Hash.refine((v) => !/^0x0{64}$/i.test(v));
-export const DeploymentManifest = z
+
+const ContractRecord = z.strictObject({
+  address: NonZeroAddress,
+  abiHash: Hash,
+  runtimeHash: Hash,
+  deployTx: Hash,
+  block: z.number().int().min(0),
+});
+
+export const ProtocolDeployment = z
   .strictObject({
-    status: z.literal("DEPLOYED"),
-    chainId: z.literal(84532),
+    schema: z.literal("blink.deployment/2"),
     deploymentId: DeploymentId,
-    // Inclusive replay lower bound: no later than either contract's deployment.
-    deploymentBlock: Uint256,
-    contracts: z.strictObject({
-      BlinkTestUSD: NonZeroAddress,
-      BlinkMarket: NonZeroAddress,
+    chainId: z.literal(84532),
+    deployer: NonZeroAddress,
+    treasury: NonZeroAddress,
+    shared: z.strictObject({
+      faucet: NonZeroAddress,
+      busd: NonZeroAddress,
+      token: NonZeroAddress,
+      priceSource: NonZeroAddress,
+      governor: NonZeroAddress,
+      anchor: NonZeroAddress,
     }),
-    artifacts: z.strictObject({
-      abiHashes: z.strictObject({
-        BlinkTestUSD: NonZeroHash,
-        BlinkMarket: NonZeroHash,
-      }),
-      bytecodeHashes: z.strictObject({
-        BlinkTestUSD: NonZeroHash,
-        BlinkMarket: NonZeroHash,
-      }),
-      compiler: z.literal("0.8.30"),
-      gitCommit: z.string().regex(/^[0-9a-f]{40}$/),
-      dependencies: z
-        .record(z.string(), z.string().min(1))
-        .refine((v) => Object.keys(v).length > 0),
+    generation: z.strictObject({
+      index: z.number().int().min(0),
+      registry: NonZeroAddress,
+      jurors: NonZeroAddress,
+      markets: NonZeroAddress,
+      resolution: NonZeroAddress,
+      previousRegistry: NonZeroAddress.nullable(),
     }),
-    roles: z.strictObject({
-      admin: NonZeroAddress,
-      resultProposer: NonZeroAddress,
-      challenger: NonZeroAddress,
-      arbiter: NonZeroAddress,
-      maker: NonZeroAddress,
-      faucetMinter: NonZeroAddress,
-    }),
-    parameters: z.strictObject({
-      collateralDecimals: z.literal(6),
-      quoteDefaultTtlSeconds: z.literal(30),
-      quoteMaxTtlSeconds: z.literal(60),
-      makerSpreadBps: z.literal(200),
-      maxFillShares: z.literal("100"),
-      maxMarketPairs: z.literal("10000"),
-      maxTakerShares: z.literal("500"),
-    }),
-    tradingEnabled: z.boolean(),
+    params: ProtocolParams,
+    governor: GovernorSettings,
+    tokenPriceMicros: z.number().int().positive(),
+    contracts: z.record(z.string().min(1), ContractRecord),
+    startBlock: z.number().int().min(0),
+    releaseCommit: z.string().regex(/^[0-9a-f]{40}$/),
   })
   .superRefine((m, ctx) => {
-    const roles = Object.values(m.roles).map((v) => v.toLowerCase());
-    if (new Set(roles).size !== roles.length)
+    const slots = [
+      ...Object.values(m.shared),
+      m.generation.registry,
+      m.generation.jurors,
+      m.generation.markets,
+      m.generation.resolution,
+      ...(m.generation.previousRegistry ? [m.generation.previousRegistry] : []),
+    ].map((v) => v.toLowerCase());
+    if (new Set(slots).size !== slots.length)
       ctx.addIssue({
         code: "custom",
-        message: "Role addresses must be distinct",
+        message: "Duplicate contract address across slots",
       });
-    const contracts = Object.values(m.contracts).map((v) => v.toLowerCase());
-    if (
-      new Set(contracts).size !== 2 ||
-      contracts.some((v) => roles.includes(v))
-    )
+    const recorded = Object.values(m.contracts).map((c) =>
+      c.address.toLowerCase(),
+    );
+    if (new Set(recorded).size !== recorded.length)
       ctx.addIssue({
         code: "custom",
-        message: "Invalid contract/role address overlap",
+        path: ["contracts"],
+        message: "Duplicate address in contracts",
       });
   });
-export type DeploymentManifest = z.infer<typeof DeploymentManifest>;
-// What /v1/config may publish. An explicit allowlist taken from the manifest's own member schemas
-// (omit() is unavailable on a refined object): new manifest fields stay private by default.
-const manifestShape = DeploymentManifest.shape;
-export const PublicDeployment = z.strictObject({
-  deploymentId: manifestShape.deploymentId,
-  chainId: manifestShape.chainId,
-  deploymentBlock: manifestShape.deploymentBlock,
-  contracts: manifestShape.contracts,
-  artifacts: manifestShape.artifacts.pick({
-    abiHashes: true,
-    bytecodeHashes: true,
-  }),
-  roles: manifestShape.roles,
-  parameters: manifestShape.parameters,
-});
-export type PublicDeployment = z.infer<typeof PublicDeployment>;
-export function requireDeployment(
+export type ProtocolDeployment = z.infer<typeof ProtocolDeployment>;
+
+export type ParsedProtocolDeployment =
+  { ok: true; manifest: ProtocolDeployment } | { ok: false; reason: string };
+
+/** Parses a manifest file; a v0.1 manifest (no `schema`, status DEPLOYED) is reported as historical. */
+export function parseProtocolDeployment(
   input: unknown,
-  expectedDeploymentId: string,
-  rpcChainId: number,
-): DeploymentManifest {
-  const result = DeploymentManifest.parse(input);
-  if (rpcChainId !== 84532 || result.deploymentId !== expectedDeploymentId)
-    throw new Error("DEPLOYMENT_MISMATCH");
-  return result;
+): ParsedProtocolDeployment {
+  if (
+    typeof input === "object" &&
+    input !== null &&
+    !("schema" in input) &&
+    "status" in input &&
+    "roles" in input
+  )
+    return { ok: false, reason: "HISTORICAL_V1_MANIFEST" };
+  const parsed = ProtocolDeployment.safeParse(input);
+  if (parsed.success) return { ok: true, manifest: parsed.data };
+  const issue = parsed.error.issues[0]!;
+  return {
+    ok: false,
+    reason: `INVALID_MANIFEST: ${issue.path.join(".") || "(root)"}: ${issue.message}`,
+  };
 }
