@@ -165,40 +165,9 @@ export function createBlinkClient(
         body: input,
         key,
       }),
-    // --- candidates, evidence and approval ---
-    createCandidate: (input: unknown, key?: string) =>
-      call("POST", "/v1/candidates", {
-        body: input,
-        key,
-      }),
-    reviseCandidate: (id: string, input: unknown, key?: string) =>
-      call("POST", "/v1/candidates/:id/revisions", {
-        params: { id },
-        body: input,
-        key,
-      }),
-    getCandidate: (id: string) =>
-      call("GET", "/v1/candidates/:id", { params: { id } }),
+    // --- evidence ---
     getEvidence: (id: string) =>
       call("GET", "/v1/evidence/:id", { params: { id } }),
-    rejectCandidate: (id: string, input: unknown, key?: string) =>
-      call("POST", "/v1/admin/candidates/:id/reject", {
-        params: { id },
-        body: input,
-        key,
-      }),
-    approveCandidate: (id: string, input: unknown, key?: string) =>
-      call("POST", "/v1/admin/candidates/:id/approve", {
-        params: { id },
-        body: input,
-        key,
-      }),
-    getCreationIntent: (id: string) =>
-      call("GET", "/v1/admin/creation-intents/:id", { params: { id } }),
-    getCreationChainStatus: (id: string) =>
-      call("GET", "/v1/admin/creation-intents/:id/chain-status", {
-        params: { id },
-      }),
     // --- config and markets ---
     getConfig: async () => ConfigResponse.parse(json(await send("/v1/config"))),
     listMarkets: (
@@ -206,7 +175,6 @@ export function createBlinkClient(
         deploymentId?: string;
         mode?: "LIVE" | "REPLAY";
         status?: "OPEN" | "CLOSED" | "PROPOSED" | "DISPUTED" | "FINAL";
-        entity?: string;
       } = {},
     ) => call("GET", "/v1/markets", { query }),
     // `mode` is part of the reference but not of the request: the market is `marketId` in a deployment.
@@ -269,12 +237,6 @@ export function createBlinkClient(
         query: { deploymentId: ref.deploymentId, ...page },
       }),
     // --- resolution, faucet and metrics ---
-    submitResolutionReport: (ref: MarketKey, input: unknown, key?: string) =>
-      call("POST", "/v1/markets/:id/resolution-reports", {
-        ...marketParams(ref),
-        body: input,
-        key,
-      }),
     getResolution: (ref: MarketKey) =>
       call("GET", "/v1/markets/:id/resolution", marketParams(ref)),
     claimFaucet: async (_input: unknown, _key?: string): Promise<never> => {

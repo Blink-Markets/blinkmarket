@@ -6,13 +6,11 @@ const identity = {
   API_DATABASE_URL: "postgresql://blink_api@127.0.0.1/blink",
   WALLET_BINDING_ORIGIN: "https://blink.example",
 };
-const approval = {
+const markets = {
   ...identity,
   SPEC_OBJECT_DIRECTORY: "/var/blink/specs",
-  SPEC_PUBLIC_ORIGIN: "https://blink.example",
-  EVIDENCE_OBJECT_DIRECTORY: "/var/blink/evidence",
+  BLINK_DEPLOYMENT_ID: "local-anvil",
 };
-const markets = { ...approval, BLINK_DEPLOYMENT_ID: "local-anvil" };
 
 const without = <T extends object>(env: T, name: keyof T) => {
   const copy = { ...env };
@@ -34,17 +32,15 @@ test("existing API modes keep their requirements", () => {
     apiConfig({ BLINK_API_MODE: "identity", ...identity }).mode,
     "identity",
   );
-  assert.throws(
-    () => apiConfig({ BLINK_API_MODE: "approval", ...identity }),
-    /APPROVAL_CONFIGURATION_REQUIRED/,
-  );
-  assert.equal(
-    apiConfig({ BLINK_API_MODE: "approval", ...approval }).mode,
-    "approval",
-  );
+  // The retired preparation and approval modes are no longer accepted.
+  for (const retired of ["preparation", "approval"])
+    assert.throws(
+      () => apiConfig({ BLINK_API_MODE: retired, ...markets }),
+      /INVALID_API_MODE/,
+    );
 });
 
-test("markets mode needs everything approval needs plus the deployment id", () => {
+test("markets mode needs the spec archive and the deployment id", () => {
   const config = apiConfig({ BLINK_API_MODE: "markets", ...markets });
   assert.equal(config.mode, "markets");
   assert.equal(config.deploymentId, "local-anvil");
@@ -62,7 +58,7 @@ test("markets mode needs everything approval needs plus the deployment id", () =
         BLINK_API_MODE: "markets",
         ...without(markets, "SPEC_OBJECT_DIRECTORY"),
       }),
-    /APPROVAL_CONFIGURATION_REQUIRED/,
+    /MARKETS_CONFIGURATION_REQUIRED/,
   );
   assert.throws(
     () =>

@@ -16,12 +16,6 @@ export interface ForecastInput {
   rationale: string;
   agentVersion: string;
 }
-export interface ForecastSnapshot {
-  snapshotId: string;
-  windowId: string;
-  deadline: Date;
-  probabilitySumMillionths: number;
-}
 export interface ForecastTransaction extends IdentityTransaction {
   windows(
     deploymentId: string,
@@ -63,10 +57,6 @@ export interface ForecastTransaction extends IdentityTransaction {
     { deploymentId: string; marketId: string; closeAt: Date }[]
   >;
   addWindow(window: Omit<ForecastWindow, "id">): Promise<boolean>;
-  latestSnapshot(
-    deploymentId: string,
-    marketId: string,
-  ): Promise<ForecastSnapshot | null>;
 }
 export interface ForecastStore {
   run<T>(work: (tx: ForecastTransaction) => Promise<T>): Promise<T>;

@@ -234,12 +234,6 @@ export function createWindowScheduler(store: ForecastStore) {
       }),
   };
 }
-export function createSnapshotReader(store: ForecastStore) {
-  return {
-    latest: (deploymentId: string, marketId: string) =>
-      store.run((tx) => tx.latestSnapshot(deploymentId, marketId)),
-  };
-}
 export function createForecastScheduleHandler(
   scheduler: ReturnType<typeof createWindowScheduler>,
 ) {

@@ -57,7 +57,6 @@ export function postgresMarketReadStore(pool: Pool): MarketReadStore {
       deploymentId: query.deploymentId ?? null,
       mode: query.mode ?? null,
       status: query.status ?? null,
-      entity: query.entity ?? null,
       ...(wallet ? { wallet } : {}),
     };
     const f = digest(filters),
@@ -74,10 +73,6 @@ export function postgresMarketReadStore(pool: Pool): MarketReadStore {
     if (query.status !== undefined)
       where.push(
         `(CASE WHEN m.state='OPEN' AND extract(epoch FROM blink.now())>=m.close_at THEN 'CLOSED' ELSE m.state END)=${bind(query.status)}`,
-      );
-    if (query.entity !== undefined)
-      where.push(
-        `EXISTS (SELECT 1 FROM markets.approvals a JOIN discovery.candidate_revisions r ON r.candidate_id=a.candidate_id AND r.revision=a.revision WHERE a.spec_hash=m.spec_hash AND a.deployment_id=m.deployment_id AND r.snapshot->>'entityId'=${bind(query.entity)})`,
       );
     const positionJoin = wallet
       ? ` JOIN chain.positions p ON p.deployment_id=m.deployment_id AND p.market_id=m.market_id AND p.account=decode(${bind(wallet.slice(2))},'hex')`

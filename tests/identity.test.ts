@@ -4,7 +4,7 @@ import { PGlite } from "@electric-sql/pglite";
 import type { Pool } from "pg";
 import { privateKeyToAccount } from "viem/accounts";
 import { migrate } from "../packages/adapters/src/migrations.js";
-import { identityAdmin } from "../packages/adapters/src/identity-admin.js";
+import { identityFixture } from "./helpers/identity-fixture.js";
 import { identityCrypto } from "../packages/adapters/src/identity-crypto.js";
 import {
   postgresIdentityStore,
@@ -47,12 +47,12 @@ async function setup() {
       };
     },
   } as unknown as Pool;
-  const admin = identityAdmin(pool);
+  const admin = identityFixture(pool);
   await db.exec("SET ROLE blink_identity_admin");
   const invited = await admin.invite({
     operatorName: "Researcher",
     agentName: "Agent A",
-    scopes: ["trade:quote", "candidate:write"],
+    scopes: ["forecast:write"],
     reason: "Local identity test",
   });
   const rotated = await admin.issue(invited.agentId, {
@@ -240,7 +240,7 @@ test("M2 identity: challenge, EOA binding and idempotent replay are atomic and n
     const openapi = (await s.app.inject("/openapi.json")).json();
     assert.equal(openapi.paths[challengePath].post["x-status"], "enabled");
     assert.equal(
-      openapi.paths["/v1/candidates"].post["x-status"],
+      openapi.paths["/v1/markets/{id}/forecasts"].post["x-status"],
       "not-implemented",
     );
     await assert.rejects(
@@ -363,21 +363,24 @@ test("M2 identity: auth/scope/expiry/revocation are checked again on cached requ
       ).statusCode,
       401,
     );
-    const candidate = {
-      templateId: "GM_LT_V1",
-      entityId: "fixture",
-      fiscalPeriod: "2026-Q3",
-      thresholdBps: 7000,
+    const forecastPath = "/v1/markets/1/forecasts?deploymentId=fixture";
+    const forecast = {
+      horizonKey: {
+        horizonType: "DAILY",
+        scheduledAt: "2026-10-15T00:00:00.000Z",
+      },
+      probability: 0.62,
       evidenceIds: ["00000000-0000-4000-8000-000000000001"],
-      thesis: "Scope validation fixture",
+      rationale: "Scope validation fixture",
+      agentVersion: "v1",
     };
     assert.equal(
-      (await s.post("/v1/candidates", candidate, "scope", s.rotated.apiKey))
+      (await s.post(forecastPath, forecast, "scope", s.rotated.apiKey))
         .statusCode,
       403,
     );
     assert.equal(
-      (await s.post("/v1/candidates", candidate, "authorized")).statusCode,
+      (await s.post(forecastPath, forecast, "authorized")).statusCode,
       501,
     );
     const c = (await s.post(challengePath, { address: alice.address })).json();

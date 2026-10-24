@@ -23,7 +23,7 @@ function start(service: string, env: Record<string, string>) {
 }
 
 test(
-  "real PostgreSQL: markets API, research worker and each independent indexer refuse a shifted clock",
+  "real PostgreSQL: markets API, worker and each independent indexer refuse a shifted clock",
   { timeout: 180000 },
   async () => {
     await withDatabase(async ({ name, owner, login }) => {
@@ -38,8 +38,6 @@ test(
             BLINK_API_MODE: "markets",
             WALLET_BINDING_ORIGIN: "https://blink.example",
             SPEC_OBJECT_DIRECTORY: "/tmp",
-            EVIDENCE_OBJECT_DIRECTORY: "/tmp",
-            SPEC_PUBLIC_ORIGIN: "https://blink.example",
             BLINK_DEPLOYMENT_ID: "test",
           },
         ],
@@ -47,7 +45,7 @@ test(
         [
           "indexer",
           "blink_indexer",
-          { INDEXER_CREATION_POLLING_ENABLED: "true" },
+          { CHAIN_INDEXER_ENABLED: "true", INDEXER_DEPLOYMENT_ID: "test" },
         ],
         ["indexer", "blink_indexer", { INDEXER_TX_TRACKING_ENABLED: "true" }],
       ] as const) {
@@ -84,7 +82,7 @@ test(
 );
 
 test(
-  "real PostgreSQL: worker and creation readiness re-check clocks on replacement pool sessions",
+  "real PostgreSQL: worker readiness re-checks the clock on replacement pool sessions",
   { timeout: 180000 },
   async () => {
     await withDatabase(async ({ name, owner, login }) => {
@@ -95,13 +93,6 @@ test(
           3002,
           { WORKER_ENABLED: "true" },
           "/health/ready",
-        ],
-        [
-          "indexer",
-          "blink_indexer",
-          31379,
-          { INDEXER_CREATION_POLLING_ENABLED: "true", INDEXER_PORT: "31379" },
-          "/health/creation-observer",
         ],
       ] as const) {
         const db = await login({ memberOf: [role] });

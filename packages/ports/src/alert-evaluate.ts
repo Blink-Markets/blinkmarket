@@ -1,15 +1,14 @@
 export const ALERT_FAMILIES = [
-  "budget",
   "pause",
   "rpc",
   "indexer_lag",
   "jobs_dead",
 ] as const;
 export type AlertFamily = (typeof ALERT_FAMILIES)[number];
-/** Conditions with no deployment column (budget gates, jobs, the RPC) live under this one scope. */
+/** Conditions with no deployment column (jobs, the RPC) live under this one scope. */
 export const GLOBAL_ALERT_SCOPE = "*";
 export const ALERT_SCOPE_FAMILIES = {
-  global: ["budget", "jobs_dead", "rpc"],
+  global: ["jobs_dead", "rpc"],
   deployment: ["pause", "indexer_lag"],
 } as const satisfies Record<string, readonly AlertFamily[]>;
 export type AlertState = "OPEN" | "STILL_OPEN" | "CLEARED";
@@ -28,13 +27,13 @@ export interface AlertFields {
 /** A condition that is true right now. Conditions that are not true are simply not observed. */
 export interface AlertObservation {
   family: AlertFamily;
-  /** `^[a-z_]{1,32}(:[a-z0-9_]{1,78})?$`: no free text, e.g. `global`, `market:7`, `role:maker`. */
+  /** `^[a-z_]{1,32}(:[a-z0-9_]{1,78})?$`: no free text, e.g. `global`, `market:7`. */
   subject: string;
   /** `^[A-Z0-9_]{1,64}$` */
   reason: string;
   fields?: AlertFields;
   /**
-   * A count that only grows an incident (DEAD jobs, closed question gates): re-announced at once
+   * A count that only grows an incident (DEAD jobs): re-announced at once
    * when `fields.count` grows, never on the hourly heartbeat.
    */
   monotonic?: boolean;

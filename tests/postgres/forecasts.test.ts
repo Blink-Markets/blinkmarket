@@ -3,12 +3,11 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { migrate } from "../../packages/adapters/src/migrations.js";
-import { identityAdmin } from "../../packages/adapters/src/identity-admin.js";
+import { identityFixture } from "../helpers/identity-fixture.js";
 import { identityCrypto } from "../../packages/adapters/src/identity-crypto.js";
 import { postgresForecastStore } from "../../packages/adapters/src/forecast-store.js";
 import {
   createForecastService,
-  createSnapshotReader,
   createWindowScheduler,
 } from "../../packages/application/src/forecasts.js";
 import { IdentityError } from "../../packages/application/src/identity.js";
@@ -27,7 +26,7 @@ async function withDatabase(
     owner: pg.Pool;
     api: pg.Pool;
     worker: pg.Pool;
-    agents: Awaited<ReturnType<ReturnType<typeof identityAdmin>["invite"]>>[];
+    agents: Awaited<ReturnType<ReturnType<typeof identityFixture>["invite"]>>[];
   }) => Promise<void>,
 ) {
   const name = "blink_t7_" + randomUUID().replaceAll("-", "");
@@ -60,7 +59,7 @@ async function withDatabase(
     const agents = [];
     for (let i = 0; i < 3; i++)
       agents.push(
-        await identityAdmin(owner).invite({
+        await identityFixture(owner).invite({
           operatorName: "fixture",
           agentName: "fixture",
           scopes: ["forecast:write"],
@@ -191,10 +190,10 @@ test(
 );
 
 test(
-  "real PostgreSQL: scheduler, snapshot and role grants",
+  "real PostgreSQL: scheduler and role grants",
   { skip: !adminUrl, timeout: 30000 },
   () =>
-    withDatabase(async ({ owner, api, worker, agents }) => {
+    withDatabase(async ({ owner, worker }) => {
       await owner.query(marketFixture(3 * 86400 + 600));
       const scheduler = createWindowScheduler(postgresForecastStore(worker));
       assert.ok((await scheduler.scheduleOnce()) >= 4);
@@ -211,50 +210,5 @@ test(
         worker.query("SELECT 1 FROM forecasts.submissions"),
         /permission denied/,
       );
-      // A closed window an hour ago, answered by both registered forecasters.
-      const windowId = randomUUID();
-      await owner.query(
-        `INSERT INTO forecasts.windows(id,deployment_id,market_id,horizon_type,scheduled_at,open_at,deadline)
-   SELECT $1,'test',1,'DAILY',d,d-interval '30 minutes',d FROM (SELECT blink.now()-interval '1 hour' AS d) stamp`,
-        [windowId],
-      );
-      const source = randomUUID(),
-        evidence = randomUUID();
-      await owner.query(
-        "INSERT INTO evidence.sources(id,entity_id,source_url) VALUES($1,'fixture','https://fixture.invalid/evidence')",
-        [source],
-      );
-      await owner.query(
-        "INSERT INTO evidence.records(id,source_id,operator_id,content_hash,object_uri,access_policy) VALUES($1,$2,$3,decode(repeat('55',32),'hex'),'fixture','PUBLIC')",
-        [evidence, source, agents[0]!.operatorId],
-      );
-      const reader = createSnapshotReader(postgresForecastStore(api));
-      assert.equal(await reader.latest("test", "1"), null);
-      for (const [i, role, probability] of [
-        [0, "FORECASTER_A", 0.6],
-        [1, "FORECASTER_B", 0.600001],
-      ] as const) {
-        await owner.query(
-          "INSERT INTO forecasts.platform_agents(agent_id,role,model,prompt_hash,policy_version) VALUES($1,$2,'fixture',decode(repeat('66',32),'hex'),'v1')",
-          [agents[i]!.agentId, role],
-        );
-        await owner.query(
-          `INSERT INTO forecasts.submissions(id,window_id,agent_id,operator_id,key_id,probability,evidence_ids,rationale,agent_version,received_at)
-   VALUES($1,$2,$3,$4,$5,$6,$7,'fixture','v1',blink.now()-interval '2 hours')`,
-          [
-            randomUUID(),
-            windowId,
-            agents[i]!.agentId,
-            agents[i]!.operatorId,
-            agents[i]!.keyId,
-            probability,
-            [evidence],
-          ],
-        );
-      }
-      const snapshot = await reader.latest("test", "1");
-      assert.equal(snapshot?.windowId, windowId);
-      assert.equal(snapshot?.probabilitySumMillionths, 1200001);
-      assert.deepEqual(await reader.latest("test", "1"), snapshot);
     }),
 );

@@ -193,7 +193,6 @@ export async function assertWorkerRuntimeRole(client: Db) {
 export async function assertJobsMigrationInstalled(client: Db) {
   try {
     await client.query("SELECT max_attempts FROM operations.jobs LIMIT 0");
-    await client.query("SELECT day FROM budgets.daily LIMIT 0");
   } catch (error) {
     const code = (error as { code?: string }).code;
     // 42703 undefined column, 42P01 undefined table, 3F000 undefined schema.

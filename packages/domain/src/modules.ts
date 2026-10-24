@@ -15,31 +15,17 @@ export const modules = [
     status: "planned",
   },
   {
-    id: "discovery",
-    title: "候選研究",
-    tables: ["candidates", "candidate_revisions"],
-    responsibility: "掃描、GM_LT_V1、驗證、修訂與人工審查",
-    status: "planned",
-  },
-  {
     id: "markets",
     title: "市場與規格",
     tables: ["market_specs", "markets"],
-    responsibility: "核准後凍結規格、建立市場 intent、LIVE/REPLAY 分離",
+    responsibility: "Spec bytes and hash, LIVE/REPLAY separation",
     status: "planned",
   },
   {
     id: "forecasts",
-    title: "預測與基準",
-    tables: ["forecast_windows", "forecasts", "model_runs"],
-    responsibility: "兩個內部 forecaster、獨立 baseline、外部 agent、窗口封存",
-    status: "planned",
-  },
-  {
-    id: "budgets",
-    title: "成本與預算",
-    tables: ["question_budgets", "daily_budgets", "cost_entries"],
-    responsibility: "USD 微單位、原子 reservation、unknown cost 保留",
+    title: "Forecasts",
+    tables: ["forecast_windows", "forecasts"],
+    responsibility: "Agent forecast submissions and sealed windows",
     status: "planned",
   },
   {
@@ -66,8 +52,8 @@ export const modules = [
   {
     id: "resolution",
     title: "結果與爭議",
-    tables: ["resolution_reports", "resolution_actions"],
-    responsibility: "證據報告與結果觀測；結果以鏈為準",
+    tables: [],
+    responsibility: "Outcome observation; the chain is authoritative",
     status: "planned",
   },
   {

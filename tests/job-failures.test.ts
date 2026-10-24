@@ -39,17 +39,17 @@ const ending = (
 test("a job that will not be retried ends the run at once naming its type and error code, and still fails for the worker", async () => {
   for (const [type, error, attempt, named] of [
     [
-      "evidence.fetch",
+      "forecast.schedule",
       new JobError("INVALID_JOB_PAYLOAD", false),
       1,
-      "evidence.fetch INVALID_JOB_PAYLOAD",
+      "forecast.schedule INVALID_JOB_PAYLOAD",
     ],
     // Job errors keep their code and retry policy in the worker.
     [
-      "forecast.run",
+      "operations.prune",
       new JobError("MODEL_REJECTED:POLICY", false),
       1,
-      "forecast.run MODEL_REJECTED:POLICY",
+      "operations.prune MODEL_REJECTED:POLICY",
     ],
     // Retryable, but on its last attempt: the queue dead-letters it.
     [
@@ -87,19 +87,19 @@ test("a retryable job failure followed by success does not fail the run", async 
   let calls = 0;
   const outcome = await ending(
     {
-      "evidence.fetch": async () => {
+      "forecast.schedule": async () => {
         if (++calls === 1) throw new JobError("MODEL_UNAVAILABLE", true);
       },
-      "forecast.run": failing(new JobError("ATTEMPT_UPDATE_CONFLICT", true)),
+      "operations.prune": failing(new JobError("ATTEMPT_UPDATE_CONFLICT", true)),
       "evaluation.score": failing(new Error("connect ECONNREFUSED")),
     },
     async (wrapped) => {
       await assert.rejects(
-        wrapped["evidence.fetch"]!(context(1)),
+        wrapped["forecast.schedule"]!(context(1)),
         /MODEL_UNAVAILABLE/,
       );
-      await wrapped["evidence.fetch"]!(context(2));
-      await assert.rejects(wrapped["forecast.run"]!(context(1)));
+      await wrapped["forecast.schedule"]!(context(2));
+      await assert.rejects(wrapped["operations.prune"]!(context(1)));
       await assert.rejects(wrapped["evaluation.score"]!(context(2)));
     },
   );
@@ -112,13 +112,13 @@ test("worker reports job codes and honors the handler's retry flag", async () =>
   assert.equal(jobError.code, "MODEL_REJECTED:POLICY");
   assert.equal(jobError.retryable, false);
   const failed = await ending(
-    { "forecast.run": failing(jobError) },
+    { "operations.prune": failing(jobError) },
     async (wrapped) => {
-      await wrapped["forecast.run"]!(context(1));
+      await wrapped["operations.prune"]!(context(1));
       await never();
     },
   );
-  assert.match(failed, /forecast\.run MODEL_REJECTED:POLICY/);
+  assert.match(failed, /operations\.prune MODEL_REJECTED:POLICY/);
   assert.doesNotMatch(failed, /INTERNAL_ERROR/);
 });
 
@@ -126,18 +126,18 @@ test("retryable job failures are named, counted once per kind, in a later failur
   const outcome = await ending(
     {
       "evaluation.score": failing(new JobError("MODEL_UNAVAILABLE", true)),
-      "forecast.run": failing(new Error("connect ECONNREFUSED")),
+      "operations.prune": failing(new Error("connect ECONNREFUSED")),
     },
     async (wrapped) => {
       for (const attempt of [1, 2])
         await assert.rejects(wrapped["evaluation.score"]!(context(attempt)));
-      await assert.rejects(wrapped["forecast.run"]!(context(1)));
+      await assert.rejects(wrapped["operations.prune"]!(context(1)));
       throw new Error("ALPHA_SCORE_FAILED");
     },
   );
   assert.equal(
     outcome,
-    "Error: ALPHA_SCORE_FAILED; recorded: evaluation.score MODEL_UNAVAILABLE (retryable) x2, forecast.run INTERNAL_ERROR: connect ECONNREFUSED (retryable)",
+    "Error: ALPHA_SCORE_FAILED; recorded: evaluation.score MODEL_UNAVAILABLE (retryable) x2, operations.prune INTERNAL_ERROR: connect ECONNREFUSED (retryable)",
   );
 });
 
@@ -146,7 +146,7 @@ test("a non-retryable job failure is reported and dead-lettered with its actual 
   try {
     const queue = postgresJobQueue(s.pool);
     const { jobId } = await queue.enqueue({
-      type: "forecast.run",
+      type: "operations.prune",
       dedupeKey: "forecast",
       payload: {},
     });
@@ -155,7 +155,7 @@ test("a non-retryable job failure is reported and dead-lettered with its actual 
       const worker = startWorker({
         queue,
         handlers: reportJobFailures(life, {
-          "forecast.run": failing(new JobError("MODEL_REJECTED:POLICY", false)),
+          "operations.prune": failing(new JobError("MODEL_REJECTED:POLICY", false)),
         }),
         workerId: "w",
         pollIntervalMs: 5,
@@ -165,7 +165,7 @@ test("a non-retryable job failure is reported and dead-lettered with its actual 
     }).catch((error: unknown) => String(error));
     assert.equal(
       outcome,
-      "Error: LIFECYCLE_ABORTED during scenario dispute: external agent: ALPHA_JOB_FAILED: forecast.run MODEL_REJECTED:POLICY",
+      "Error: LIFECYCLE_ABORTED during scenario dispute: external agent: ALPHA_JOB_FAILED: operations.prune MODEL_REJECTED:POLICY",
     );
     // The queue dead-letters it as it always did.
     const { rows } = await s.pool.query(
@@ -186,7 +186,7 @@ test("a job the real worker retries is recorded, not failed, until its last atte
   try {
     const queue = postgresJobQueue(s.pool);
     await queue.enqueue({
-      type: "evidence.fetch",
+      type: "forecast.schedule",
       dedupeKey: "fetch",
       payload: {},
     });
@@ -194,7 +194,7 @@ test("a job the real worker retries is recorded, not failed, until its last atte
       const worker = startWorker({
         queue,
         handlers: reportJobFailures(life, {
-          "evidence.fetch": failing(new JobError("MODEL_UNAVAILABLE", true)),
+          "forecast.schedule": failing(new JobError("MODEL_UNAVAILABLE", true)),
         }),
         workerId: "w",
         pollIntervalMs: 5,
@@ -212,7 +212,7 @@ test("a job the real worker retries is recorded, not failed, until its last atte
     }).catch((error: unknown) => String(error));
     assert.match(
       outcome,
-      /^Error: ALPHA_AGENT_FAILED; recorded: evidence\.fetch MODEL_UNAVAILABLE \(retryable\)( x\d+)?$/,
+      /^Error: ALPHA_AGENT_FAILED; recorded: forecast\.schedule MODEL_UNAVAILABLE \(retryable\)( x\d+)?$/,
     );
   } finally {
     await s.db.close();
@@ -223,10 +223,10 @@ test("a job aborted because the harness stopped its worker does not fail the run
   const stopped = new AbortController();
   stopped.abort();
   const ended = await ending(
-    { "forecast.run": failing(new JobError("JOB_ABORTED", false)) },
+    { "operations.prune": failing(new JobError("JOB_ABORTED", false)) },
     async (wrapped) => {
       await assert.rejects(
-        wrapped["forecast.run"]!({
+        wrapped["operations.prune"]!({
           ...context(3, 3),
           signal: stopped.signal,
         }),

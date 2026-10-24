@@ -176,52 +176,6 @@ test("episode lifecycle: OPEN once, no duplicate across ticks, STILL_OPEN after 
   }
 });
 
-test("alert.budget fires from the daily gate and a closed question gate", async () => {
-  const w = await world();
-  try {
-    await w.sql(
-      `INSERT INTO budgets.daily(day,gate_closed_reason) VALUES((blink.now() AT TIME ZONE 'UTC')::date,'OVERRUN');
-       INSERT INTO budgets.questions(question_key,cap_usd_micros,gate_closed_reason) VALUES('private question text',1000,'OVERRUN')`,
-    );
-    await w.run();
-    const budget = await w.alerts("budget");
-    assert.deepEqual(budget.map((a) => a.subject).sort(), [
-      "daily",
-      "questions",
-    ]);
-    const bySubject = Object.fromEntries(budget.map((a) => [a.subject, a]));
-    assert.equal(bySubject.daily.reason, "OVERRUN");
-    assert.equal(bySubject.questions.reason, "QUESTION_GATE_CLOSED");
-    assert.equal(bySubject.questions.count, "1");
-    assert.equal(JSON.stringify(budget).includes("private question"), false);
-    // The daily cap used up without any gate reason is reported with its own code.
-    await w.sql(
-      "UPDATE budgets.daily SET gate_closed_reason=NULL,cap_usd_micros=1; UPDATE budgets.questions SET gate_closed_reason=NULL",
-    );
-    await w.sql(
-      `INSERT INTO budgets.reservations(id,day,question_key,run_id,provider,model,max_usd_micros,state)
-       VALUES($1,(blink.now() AT TIME ZONE 'UTC')::date,'private question text',$2,'p','m',5,'RESERVED')`,
-      [randomUUID(), randomUUID()],
-    );
-    await w.run();
-    const after = await w.alerts("budget");
-    assert.deepEqual(
-      after
-        .slice(2)
-        .map((a) => [a.subject, a.state, a.reason])
-        .sort(),
-      [["questions", "CLEARED", "QUESTION_GATE_CLOSED"]],
-    );
-    // Gate cleared and the cap raised above the reservation: the daily episode ends too.
-    await w.sql("UPDATE budgets.daily SET cap_usd_micros=20000000");
-    await w.run();
-    const last = (await w.alerts("budget")).at(-1);
-    assert.deepEqual([last.subject, last.state], ["daily", "CLEARED"]);
-  } finally {
-    await w.close();
-  }
-});
-
 test("alert.pause fires from the indexed global and per-market pause projection", async () => {
   const w = await world();
   try {
@@ -434,7 +388,7 @@ test("alert.evaluate runs with infrastructure configuration only", async () => {
       alertEvaluateConfig({ BLINK_DEPLOYMENT_ID: DEPLOYMENT }),
       { jobLock: false },
     );
-    await deadJob(w, "evidence.fetch", 5);
+    await deadJob(w, "forecast.schedule", 5);
     await scheduleAlertEvaluate(w.t.pool);
     await scheduleAlertEvaluate(w.t.pool);
     const queue = postgresJobQueue(w.t.pool);
@@ -455,7 +409,7 @@ test("alert.evaluate runs with infrastructure configuration only", async () => {
 test("without a configured deployment every enabled deployment is evaluated", async () => {
   const w = await world({ deploymentIds: null });
   try {
-    await deadJob(w, "evidence.fetch", 5);
+    await deadJob(w, "forecast.schedule", 5);
     await w.run();
     assert.equal((await w.alerts("jobs_dead")).length, 1);
   } finally {
@@ -491,7 +445,7 @@ test("a failed observation neither clears nor emits anything", async () => {
 test("the episode row and its outbox alert commit together", async () => {
   const w = await world();
   try {
-    await deadJob(w, "evidence.fetch", 5);
+    await deadJob(w, "forecast.schedule", 5);
     // The alert cannot be written, so the episode must not be either.
     await w.sql("REVOKE INSERT ON operations.outbox FROM blink_worker");
     await assert.rejects(w.run());
@@ -525,11 +479,11 @@ test("alert_episodes is readable and writable by the worker login only", async (
 test("episode alerts reach delivery through a closed allow-list: codes and numbers only", async () => {
   const w = await world();
   try {
-    await deadJob(w, "evidence.fetch", 5);
+    await deadJob(w, "forecast.schedule", 5);
     await w.run();
     // A hostile or buggy row cannot smuggle text through the projection.
     await w.t.pool.query(
-      "INSERT INTO operations.outbox(id,event_type,aggregate_id,event_version,payload) VALUES($1,'alert.budget','hostile',1,$2)",
+      "INSERT INTO operations.outbox(id,event_type,aggregate_id,event_version,payload) VALUES($1,'alert.hostile','hostile',1,$2)",
       [
         randomUUID(),
         {
@@ -540,7 +494,7 @@ test("episode alerts reach delivery through a closed allow-list: codes and numbe
           reason: "lower case reason https://secret.example",
           since: "yesterday",
           count: "12 apples",
-          jobTypes: ["evidence.fetch", "https://secret.example", 7],
+          jobTypes: ["forecast.schedule", "https://secret.example", 7],
           error: "stack trace",
           evidence: "private",
           apiKey: "key",
@@ -568,17 +522,17 @@ test("episode alerts reach delivery through a closed allow-list: codes and numbe
         reason: "DEAD_JOBS",
         since: "s",
         count: "1",
-        jobTypes: ["evidence.fetch"],
+        jobTypes: ["forecast.schedule"],
       },
     );
-    const hostile = payloads.find((p) => p.type === "alert.budget")!;
+    const hostile = payloads.find((p) => p.type === "alert.hostile")!;
     assert.deepEqual(Object.keys(hostile).sort(), [
       "dedupeKey",
       "deploymentId",
       "jobTypes",
       "type",
     ]);
-    assert.deepEqual(hostile.jobTypes, ["evidence.fetch"]);
+    assert.deepEqual(hostile.jobTypes, ["forecast.schedule"]);
     assert.equal(JSON.stringify(payloads).includes("secret"), false);
     // The projection is closed for any input.
     assert.deepEqual(
@@ -614,7 +568,7 @@ test("episode transitions are decided from the stored state only", () => {
     reason: "DEAD_JOBS",
   };
   const base = {
-    evaluated: ["jobs_dead", "budget"] as const,
+    evaluated: ["jobs_dead"] as const,
     now,
     policy,
     rpc: null,
@@ -630,6 +584,20 @@ test("episode transitions are decided from the stored state only", () => {
       observations: [seen],
     }).map((c) => c.emit?.state),
     ["OPEN"],
+  );
+  // A new reason inside an open episode is announced, but at most every 10 minutes.
+  const reasoned = { ...seen, reason: "OTHER_REASON" };
+  assert.deepEqual(
+    decideEpisodeChanges({
+      ...base,
+      episodes: [ep({ lastAlertAt: new Date(now.getTime() - 11 * 60_000) })],
+      observations: [reasoned],
+    }).map((c) => [c.emit?.state, c.reason]),
+    [["STILL_OPEN", "OTHER_REASON"]],
+  );
+  assert.deepEqual(
+    decideEpisodeChanges({ ...base, episodes: [ep()], observations: [reasoned] }),
+    [],
   );
   // The clear is limited to the families that were evaluated.
   assert.deepEqual(
@@ -773,10 +741,10 @@ test("old inactive episodes are pruned in the evaluation tick, recent ones are k
 test("jobs_dead is active for DEAD jobs of the last 24 hours, re-alerts on growth, has no heartbeat, and clears when the window empties", async () => {
   const w = await world();
   try {
-    await deadJob(w, "evidence.fetch", 25 * 3600); // too old to count
+    await deadJob(w, "forecast.schedule", 25 * 3600); // too old to count
     await w.run();
     assert.deepEqual(await w.alerts("jobs_dead"), []);
-    await deadJob(w, "evidence.fetch", 60);
+    await deadJob(w, "forecast.schedule", 60);
     await w.run();
     await w.run();
     let dead = await w.alerts("jobs_dead");
@@ -790,7 +758,7 @@ test("jobs_dead is active for DEAD jobs of the last 24 hours, re-alerts on growt
     dead = await w.alerts("jobs_dead");
     assert.deepEqual(states(dead), ["OPEN", "STILL_OPEN"]);
     assert.equal(dead[1].count, "2");
-    assert.deepEqual(dead[1].jobTypes, ["evaluation.score", "evidence.fetch"]);
+    assert.deepEqual(dead[1].jobTypes, ["evaluation.score", "forecast.schedule"]);
     // No hourly heartbeat while the count is unchanged.
     await w.clock(3 * 3600);
     await w.run();
@@ -804,78 +772,6 @@ test("jobs_dead is active for DEAD jobs of the last 24 hours, re-alerts on growt
     dead = await w.alerts("jobs_dead");
     assert.equal(dead.at(-1).state, "CLEARED");
     assert.equal(dead.filter((a) => a.state === "CLEARED").length, 1);
-  } finally {
-    await w.close();
-  }
-});
-
-test("closed question gates alert on growth only: OPEN 0 to n, STILL_OPEN when n grows, no heartbeat, CLEARED at 0", async () => {
-  const w = await world();
-  try {
-    const gate = (key: string) =>
-      w.sql(
-        "INSERT INTO budgets.questions(question_key,cap_usd_micros,gate_closed_reason) VALUES($1,1000,'OVERRUN')",
-        [key],
-      );
-    await gate("q1");
-    await w.run();
-    await gate("q2");
-    await w.run();
-    await w.run();
-    await w.clock(3 * 3600);
-    await w.run();
-    const q = (await w.alerts("budget")).filter(
-      (a) => a.subject === "questions",
-    );
-    assert.deepEqual(states(q), ["OPEN", "STILL_OPEN"]);
-    assert.deepEqual(
-      q.map((a) => a.count),
-      ["1", "2"],
-    );
-    await w.sql("UPDATE budgets.questions SET gate_closed_reason=NULL");
-    await w.run();
-    assert.deepEqual(
-      states(
-        (await w.alerts("budget")).filter((a) => a.subject === "questions"),
-      ),
-      ["OPEN", "STILL_OPEN", "CLEARED"],
-    );
-  } finally {
-    await w.close();
-  }
-});
-
-test("a reason change inside an open episode is announced as STILL_OPEN with the new reason, at most every 10 minutes", async () => {
-  const w = await world();
-  try {
-    await w.sql(
-      "INSERT INTO budgets.daily(day,gate_closed_reason) VALUES((blink.now() AT TIME ZONE 'UTC')::date,'OVERRUN')",
-    );
-    await w.run();
-    await w.sql(
-      "UPDATE budgets.daily SET gate_closed_reason=NULL,cap_usd_micros=1",
-    );
-    await w.sql(
-      `INSERT INTO budgets.questions(question_key,cap_usd_micros) VALUES('q',1000);
-       INSERT INTO budgets.reservations(id,day,question_key,run_id,provider,model,max_usd_micros,state)
-       VALUES('${randomUUID()}',(blink.now() AT TIME ZONE 'UTC')::date,'q','${randomUUID()}','p','m',5,'RESERVED')`,
-    );
-    await w.run();
-    assert.deepEqual(
-      states((await w.alerts("budget")).filter((a) => a.subject === "daily")),
-      ["OPEN"],
-    );
-    await w.clock(11 * MINUTE);
-    await w.run();
-    await w.run();
-    const daily = (await w.alerts("budget")).filter(
-      (a) => a.subject === "daily",
-    );
-    assert.deepEqual(states(daily), ["OPEN", "STILL_OPEN"]);
-    assert.deepEqual(
-      daily.map((a) => a.reason),
-      ["OVERRUN", "DAILY_CAP_REACHED"],
-    );
   } finally {
     await w.close();
   }
@@ -900,15 +796,11 @@ test("global conditions alert once per tick under one global scope, not once per
     await w.sql(
       "INSERT INTO markets.deployments(id,manifest,market_address) VALUES('second','{}',decode(repeat('12',20),'hex'))",
     );
-    await w.sql(
-      "INSERT INTO budgets.daily(day,gate_closed_reason) VALUES((blink.now() AT TIME ZONE 'UTC')::date,'OVERRUN')",
-    );
-    await deadJob(w, "evidence.fetch", 10);
+    await deadJob(w, "forecast.schedule", 10);
     for (let n = 0; n < 3; n++) await w.run();
     for (const [family, subject] of [
       ["jobs_dead", "jobs"],
       ["rpc", "rpc"],
-      ["budget", "daily"],
     ] as const) {
       const sent = (await w.alerts(family)).filter(
         (a) => a.subject === subject,
@@ -925,22 +817,18 @@ test("a failing family is unknown and logged by code only; the other families st
   const errors: string[] = [];
   const w = await world({ onError: (code) => errors.push(code) });
   try {
-    await w.sql(
-      "INSERT INTO budgets.daily(day,gate_closed_reason) VALUES((blink.now() AT TIME ZONE 'UTC')::date,'OVERRUN')",
-    );
+    await w.sql("UPDATE chain.markets SET paused=true");
     await w.run();
-    await w.sql("UPDATE budgets.daily SET gate_closed_reason=NULL");
-    await w.sql("REVOKE SELECT ON budgets.questions FROM blink_worker");
-    await deadJob(w, "evidence.fetch", 10);
+    await w.sql("UPDATE chain.markets SET paused=false");
+    await w.sql("REVOKE SELECT ON chain.maker_state FROM blink_worker");
+    await deadJob(w, "forecast.schedule", 10);
     await w.run();
-    assert.deepEqual(
-      states((await w.alerts("budget")).filter((a) => a.subject === "daily")),
-      ["OPEN"],
-    );
+    // The pause family could not be judged: its open episode neither clears nor changes.
+    assert.deepEqual(states(await w.alerts("pause")), ["OPEN"]);
     assert.deepEqual(states(await w.alerts("jobs_dead")), ["OPEN"]);
     assert.ok(errors.length > 0);
     for (const code of errors) assert.match(code, /^[A-Z0-9_:a-z]{1,80}$/);
-    assert.equal(errors.join().includes("budgets"), false);
+    assert.equal(errors.join().includes("maker_state"), false);
   } finally {
     await w.close();
   }
@@ -998,7 +886,7 @@ test("indexer_lag: exactly 3 blocks behind is healthy, 4 is lag, a missing curso
 test("a subject pruned after 30 quiet days reopens with a delivered OPEN and no identity collision", async () => {
   const w = await world();
   try {
-    await deadJob(w, "evidence.fetch", 60);
+    await deadJob(w, "forecast.schedule", 60);
     await w.run();
     await w.clock(25 * 3600);
     await w.run();
@@ -1014,7 +902,7 @@ test("a subject pruned after 30 quiet days reopens with a delivered OPEN and no 
       ).rows[0].n,
       0,
     );
-    await deadJob(w, "evidence.fetch", 10);
+    await deadJob(w, "forecast.schedule", 10);
     await w.run();
     await w.run();
     assert.deepEqual(states(await w.alerts("jobs_dead")), [

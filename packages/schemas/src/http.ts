@@ -1,23 +1,12 @@
 import {
-  AdminCandidatesResponse,
-  CandidateStatus,
   AdminPauseResponse,
-  AdminResolutionsResponse,
   AdminJobsResponse,
   JobState,
-  AdminBudgetsResponse,
 } from "./operator-status.ts";
 import { z } from "zod";
 import { AdminMetricsResponse, HealthResponse } from "./health.ts";
-import { CreationChainStatus } from "./creation-status.ts";
 import { PublicDeployment } from "./deployment-v1.ts";
-import {
-  CandidateInput,
-  CandidateRevisionInput,
-  CandidateRecord,
-  EvidenceMetadata,
-  CandidateApprovalRequest,
-} from "./preparation.ts";
+import { EvidenceMetadata } from "./evidence.ts";
 import {
   WalletChallengeRequest,
   WalletChallengeResponse,
@@ -67,8 +56,6 @@ export const ConfigResponse = z.strictObject({
   stage: z.enum([
     "architecture",
     "m2-identity",
-    "m2-preparation",
-    "m2-approval",
     "m2-markets",
     "m2-trading",
   ]),
@@ -143,7 +130,6 @@ const Forecast = z.strictObject({
   withdrawnAt: Time.nullable(),
   contaminated: z.boolean(),
 });
-const Candidate = CandidateRecord;
 const Resolution = z.strictObject({
   ...Ref,
   proposedOutcome: Outcome.nullable(),
@@ -218,48 +204,14 @@ function operation<
 }
 const contracts = [
   operation("GET", "/v1/admin/pause", AdminPauseResponse, { access: "admin" }),
-  operation("GET", "/v1/admin/resolutions", AdminResolutionsResponse, {
-    access: "admin",
-  }),
   operation("GET", "/v1/admin/jobs", AdminJobsResponse, {
     access: "admin",
     query: z.strictObject({ state: JobState.default("DEAD") }),
   }),
-  operation("GET", "/v1/admin/budgets", AdminBudgetsResponse, {
-    access: "admin",
-  }),
-  operation("GET", "/v1/admin/candidates", AdminCandidatesResponse, {
-    access: "admin",
-    query: z.strictObject({ status: CandidateStatus.optional() }),
-  }),
   operation("GET", "/v1/admin/metrics", AdminMetricsResponse, {
     access: "admin",
   }),
-  operation(
-    "GET",
-    "/v1/admin/creation-intents/:id/chain-status",
-    CreationChainStatus,
-    { access: "admin" },
-  ),
   operation("GET", "/v1/specs/:specHash", MarketSpec),
-  operation(
-    "GET",
-    "/v1/admin/creation-intents/:id",
-    z.strictObject({
-      creationIntentId: Id,
-      approvalId: Id,
-      deploymentId: DeploymentId,
-      state: z.literal("AWAITING_ADMIN_SIGNATURE"),
-      chainId: z.literal(84532),
-      to: Address,
-      requiredSender: Address,
-      value: z.literal("0"),
-      specHash: Hash,
-      specUri: z.url(),
-      calldata: z.string().regex(/^0x[0-9a-f]+$/),
-    }),
-    { access: "admin" },
-  ),
   operation("POST", "/v1/auth/wallet-challenges", WalletChallengeResponse, {
     body: WalletChallengeRequest,
     access: "invited-key",
@@ -274,59 +226,6 @@ const contracts = [
       access: "invited-key",
     },
   ),
-  operation(
-    "POST",
-    "/v1/candidates",
-    Candidate.pick({ candidateId: true, revision: true, state: true }),
-    {
-      body: CandidateInput,
-      access: "candidate:write",
-      status: 201,
-    },
-  ),
-  operation(
-    "GET",
-    "/v1/candidates/:id",
-    z.strictObject({ candidate: Candidate, revisions: z.array(Candidate) }),
-    { access: "owner/admin; approved public" },
-  ),
-  operation(
-    "POST",
-    "/v1/candidates/:id/revisions",
-    Candidate.pick({ candidateId: true, revision: true, state: true }),
-    {
-      body: CandidateRevisionInput,
-      access: "candidate:write",
-    },
-  ),
-  operation(
-    "POST",
-    "/v1/admin/candidates/:id/approve",
-    z.strictObject({
-      approvalId: Id,
-      specHash: Hash,
-      creationIntentId: Id,
-      state: z.literal("DEPLOY_PENDING"),
-    }),
-    {
-      body: CandidateApprovalRequest,
-      access: "admin",
-      status: 202,
-    },
-  ),
-  operation(
-    "POST",
-    "/v1/admin/candidates/:id/reject",
-    Candidate.pick({ candidateId: true, revision: true, state: true }),
-    {
-      body: z.strictObject({
-        expectedRevision: z.number().int().positive(),
-        reasonCode: Text,
-        reason: Text,
-      }),
-      access: "admin",
-    },
-  ),
   operation("GET", "/v1/markets", list(Summary), {
     query: ListQuery.extend({
       deploymentId: DeploymentId.optional(),
@@ -334,7 +233,6 @@ const contracts = [
       status: z
         .enum(["OPEN", "CLOSED", "PROPOSED", "DISPUTED", "FINAL"])
         .optional(),
-      entity: z.string().optional(),
     }),
   }),
   operation(
@@ -343,8 +241,6 @@ const contracts = [
     Summary.extend({
       spec: MarketSpec,
       resolution: Resolution,
-      forecastSnapshotId: Id.nullable(),
-      costMicros: Uint256,
     }),
   ),
   operation("GET", "/v1/markets/:id/spec", MarketSpec),
@@ -421,57 +317,6 @@ const contracts = [
     ),
     { query: ListQuery.extend({ deploymentId: DeploymentId }) },
   ),
-  operation(
-    "POST",
-    "/v1/markets/:id/resolution-reports",
-    z.strictObject({ reportId: Id, state: z.literal("RECEIVED") }),
-    {
-      body: z.strictObject({
-        outcome: Outcome,
-        evidenceIds: EvidenceIds,
-        reason: Text.trim().min(1),
-      }),
-      access: "report:write",
-      status: 202,
-    },
-  ),
-  operation(
-    "GET",
-    "/v1/admin/resolution-reports",
-    list(z.strictObject({
-      reportId: Id,
-      deploymentId: DeploymentId,
-      marketId: PositiveUint256,
-      agentId: Id,
-      operatorId: Id,
-      outcome: Outcome,
-      evidenceIds: EvidenceIds,
-      reason: Text,
-      createdAt: Time,
-      state: z.enum(["RECEIVED", "TRIAGED", "DISMISSED", "ACTIONED"]),
-      stateReason: Text,
-    })),
-    {
-      access: "admin",
-      query: ListQuery.extend({
-        deploymentId: DeploymentId,
-        marketId: PositiveUint256.optional(),
-        state: z.enum(["RECEIVED", "TRIAGED", "DISMISSED", "ACTIONED"]).optional(),
-      }),
-    },
-  ),
-  operation(
-    "POST",
-    "/v1/admin/resolution-reports/:id/triage",
-    z.strictObject({ reportId: Id, state: z.enum(["TRIAGED", "DISMISSED", "ACTIONED"]) }),
-    {
-      access: "admin",
-      body: z.strictObject({
-        state: z.enum(["TRIAGED", "DISMISSED", "ACTIONED"]),
-        reason: Text.trim().min(1),
-      }),
-    },
-  ),
   operation("GET", "/v1/markets/:id/resolution", Resolution),
   operation(
     "GET",
@@ -482,9 +327,6 @@ const contracts = [
       missingCount: Uint256,
       invalidCount: Uint256,
       brier: z.number().min(0).max(1).nullable(),
-      spentUsdMicros: Uint256,
-      reservedUsdMicros: Uint256,
-      unknownUsdMicros: Uint256,
     }),
     { query: z.strictObject({ mode: Mode }) },
   ),

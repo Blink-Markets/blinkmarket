@@ -4,7 +4,7 @@ import {
   assertChainIndexInstalled,
   postgresChainIndexStore,
 } from "../packages/adapters/src/chain-index-store.js";
-import { assertCreationTrackingRuntimeRole } from "../packages/adapters/src/creation-tracking-schedule.js";
+import { assertIndexerRuntimeRole } from "../packages/adapters/src/runtime-role.js";
 import { rebuildChainProjection } from "../packages/application/src/chain-indexer.js";
 
 const args = process.argv.slice(2);
@@ -27,7 +27,7 @@ const pool = new pg.Pool({
   statement_timeout: 60000,
 });
 try {
-  await assertCreationTrackingRuntimeRole(pool);
+  await assertIndexerRuntimeRole(pool);
   await assertChainIndexInstalled(pool);
   const report = await rebuildChainProjection(
     postgresChainIndexStore(pool),

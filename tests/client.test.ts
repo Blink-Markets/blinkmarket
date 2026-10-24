@@ -112,12 +112,6 @@ const resolution = {
   hardDeadline: "2025-05-10T00:00:00.000Z",
   chainCursor: cursor,
 };
-const report = {
-  outcome: "YES",
-  evidenceIds: [UUID],
-  reason: "the release says so",
-};
-const reportAnswer = { reportId: UUID, state: "RECEIVED" };
 const horizonKey = {
   horizonType: "DAILY",
   scheduledAt: "2026-10-15T00:00:00.000Z",
@@ -129,6 +123,11 @@ const forecast = {
   rationale: "fixture rationale",
   agentVersion: "v1",
 } as const;
+const forecastAnswer = {
+  submissionId: UUID,
+  receivedAt: "2026-10-15T00:00:01.000Z",
+  windowId: UUID,
+};
 const page = (item: unknown) => ({ items: [item], nextCursor: null });
 const marketRef = { deploymentId: DEPLOYMENT, marketId: MARKET };
 
@@ -168,7 +167,6 @@ const cases: Case[] = [
         deploymentId: DEPLOYMENT,
         mode: "REPLAY",
         status: "OPEN",
-        entity: "acme",
         limit: 5,
         cursor: "next",
       }),
@@ -178,7 +176,6 @@ const cases: Case[] = [
       deploymentId: DEPLOYMENT,
       mode: "REPLAY",
       status: "OPEN",
-      entity: "acme",
       limit: "5",
       cursor: "next",
     },
@@ -194,8 +191,6 @@ const cases: Case[] = [
       ...summary,
       spec,
       resolution,
-      forecastSnapshotId: null,
-      costMicros: "0",
     },
   },
   {
@@ -318,25 +313,6 @@ const cases: Case[] = [
     }),
   },
   {
-    name: "submitResolutionReport",
-    call: (c) =>
-      c.submitResolutionReport(
-        marketRef,
-        { outcome: "YES", evidenceIds: [UUID], reason: "the release says so" },
-        "report-key",
-      ),
-    method: "POST",
-    path: `/v1/markets/${MARKET}/resolution-reports`,
-    query: { deploymentId: DEPLOYMENT },
-    body: {
-      outcome: "YES",
-      evidenceIds: [UUID],
-      reason: "the release says so",
-    },
-    answer: { reportId: UUID, state: "RECEIVED" },
-    status: 202,
-  },
-  {
     name: "getResolution",
     call: (c) => c.getResolution(marketRef),
     method: "GET",
@@ -356,9 +332,6 @@ const cases: Case[] = [
       missingCount: "0",
       invalidCount: "0",
       brier: 0.25,
-      spentUsdMicros: "0",
-      reservedUsdMicros: "0",
-      unknownUsdMicros: "0",
     },
   },
   {
@@ -414,42 +387,16 @@ for (const c of cases) {
   });
 }
 
-test("the identity-and-preparation helpers keep their endpoints", async () => {
-  const server = await scripted((seen) => ({
-    status: 404,
-    body: apiError("NOT_FOUND", false),
-  }));
-  try {
-    const client = createBlinkClient(server.origin, API_KEY);
-    for (const call of [
-      () => client.getCandidate(UUID),
-      () => client.getCreationIntent(UUID),
-      () => client.getCreationChainStatus(UUID),
-    ])
-      await assert.rejects(call, BlinkApiError);
-    assert.deepEqual(
-      server.seen.map((s) => s.path),
-      [
-        "/v1/candidates/" + UUID,
-        "/v1/admin/creation-intents/" + UUID,
-        "/v1/admin/creation-intents/" + UUID + "/chain-status",
-      ],
-    );
-  } finally {
-    await server.close();
-  }
-});
-
 test("a POST without a key gets a fresh UUID per call; a given key is sent as it is", async () => {
   const server = await scripted(() => ({
     status: 202,
-    body: reportAnswer,
+    body: forecastAnswer,
   }));
   try {
     const client = createBlinkClient(server.origin, API_KEY);
-    await client.submitResolutionReport(marketRef, report);
-    await client.submitResolutionReport(marketRef, report);
-    await client.submitResolutionReport(marketRef, report, "my-own-key");
+    await client.submitForecast(marketRef, forecast);
+    await client.submitForecast(marketRef, forecast);
+    await client.submitForecast(marketRef, forecast, "my-own-key");
     const keys = server.seen.map((s) => s.headers["idempotency-key"]);
     assert.match(String(keys[0]), /^[0-9a-f-]{36}$/);
     assert.match(String(keys[1]), /^[0-9a-f-]{36}$/);
@@ -465,16 +412,16 @@ test("a malformed key or a body that breaks the contract never leaves the proces
   try {
     const client = createBlinkClient(server.origin, API_KEY);
     await assert.rejects(
-      client.submitResolutionReport(marketRef, report, "has space"),
+      client.submitForecast(marketRef, forecast, "has space"),
     );
     await assert.rejects(
-      client.submitResolutionReport(marketRef, report, "x".repeat(129)),
+      client.submitForecast(marketRef, forecast, "x".repeat(129)),
     );
     await assert.rejects(
-      client.submitResolutionReport(marketRef, { ...report, outcome: "OTHER" }),
+      client.submitForecast(marketRef, { ...forecast, probability: 2 }),
     );
     await assert.rejects(
-      client.submitResolutionReport(marketRef, { ...report, reason: "" }),
+      client.submitForecast(marketRef, { ...forecast, rationale: "" }),
     );
     await assert.rejects(
       client.getTransaction({ deploymentId: DEPLOYMENT, txHash: "0x12" }),
@@ -501,7 +448,7 @@ test("a retryable refusal is retried with the same key and the same body, waitin
             headers: { "Retry-After": "2" },
             body: apiError("REQUEST_IN_PROGRESS", true),
           }
-        : { body: reportAnswer },
+        : { body: forecastAnswer },
   );
   try {
     const client = createBlinkClient(server.origin, API_KEY, {
@@ -511,8 +458,8 @@ test("a retryable refusal is retried with the same key and the same body, waitin
     });
     // No key given: the client picks one and keeps it for every attempt.
     assert.deepEqual(
-      await client.submitResolutionReport(marketRef, report),
-      reportAnswer,
+      await client.submitForecast(marketRef, forecast),
+      forecastAnswer,
     );
     assert.equal(server.seen.length, 3);
     const keys = new Set(server.seen.map((s) => s.headers["idempotency-key"]));
@@ -538,7 +485,7 @@ test("without Retry-After the wait grows, and the answer after the last attempt 
       },
     });
     await assert.rejects(
-      client.submitResolutionReport(marketRef, report, "stuck"),
+      client.submitForecast(marketRef, forecast, "stuck"),
       (error) =>
         error instanceof BlinkApiError &&
         error.status === 503 &&
@@ -556,7 +503,7 @@ test("without Retry-After the wait grows, and the answer after the last attempt 
         sleep: async (milliseconds) => {
           slept.push(milliseconds);
         },
-      }).submitResolutionReport(marketRef, report, "once"),
+      }).submitForecast(marketRef, forecast, "once"),
       BlinkApiError,
     );
     assert.deepEqual([server.seen.length, slept.length], [1, 0]);
@@ -587,11 +534,11 @@ test("a business refusal is final, and reads are retried too", async () => {
   };
   try {
     await assert.rejects(
-      createBlinkClient(
-        noQuote.origin,
-        API_KEY,
-        options,
-      ).submitResolutionReport(marketRef, report, "k"),
+      createBlinkClient(noQuote.origin, API_KEY, options).submitForecast(
+        marketRef,
+        forecast,
+        "k",
+      ),
       (error) =>
         error instanceof BlinkApiError &&
         error.body.details["reason"] === "CAP_EXCEEDED",
@@ -614,13 +561,13 @@ test("the default policy really waits, and never longer than ten seconds", async
           headers: { "Retry-After": "0" },
           body: apiError("INDEXER_LAG", true),
         }
-      : { body: reportAnswer },
+      : { body: forecastAnswer },
   );
   try {
     const started = Date.now();
-    await createBlinkClient(server.origin, API_KEY).submitResolutionReport(
+    await createBlinkClient(server.origin, API_KEY).submitForecast(
       marketRef,
-      report,
+      forecast,
       "k",
     );
     assert.equal(server.seen.length, 2);
@@ -636,14 +583,14 @@ test("the default policy really waits, and never longer than ten seconds", async
           headers: { "Retry-After": "3600" },
           body: apiError("INDEXER_LAG", true),
         }
-      : { body: reportAnswer },
+      : { body: forecastAnswer },
   );
   try {
     await createBlinkClient(slow.origin, API_KEY, {
       sleep: async (milliseconds) => {
         slept.push(milliseconds);
       },
-    }).submitResolutionReport(marketRef, report, "k");
+    }).submitForecast(marketRef, forecast, "k");
     assert.deepEqual(slept, [10_000]);
   } finally {
     await slow.close();

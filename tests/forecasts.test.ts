@@ -7,7 +7,6 @@ import { postgresForecastStore } from "../packages/adapters/src/forecast-store.j
 import {
   createForecastService,
   createWindowScheduler,
-  createSnapshotReader,
   createForecastScheduleHandler,
   ForecastScheduleError,
 } from "../packages/application/src/forecasts.js";
@@ -135,78 +134,6 @@ test("forecast submit is immutable, idempotent, audited and matches the wire con
   }
 });
 
-test("snapshot requires both fixed forecasters and revalidates annotations and age", async () => {
-  const s = await setup();
-  try {
-    await s.t.setRole(null);
-    for (const [agent, role] of [
-      [s.a, "FORECASTER_A"],
-      [s.b, "FORECASTER_B"],
-    ] as const)
-      await s.t.db.query(
-        "INSERT INTO forecasts.platform_agents(agent_id,role,model,prompt_hash,policy_version) VALUES($1,$2,'fixture',decode(repeat('66',32),'hex'),'v1')",
-        [agent.agentId, role],
-      );
-    const baseline = await inviteAgent(s.t, {
-      name: "baseline",
-      scopes: ["forecast:write"],
-    });
-    await s.t.db.query(
-      "INSERT INTO forecasts.platform_agents(agent_id,role,model,prompt_hash,policy_version) VALUES($1,'BASELINE','fixture',decode(repeat('66',32),'hex'),'v1')",
-      [baseline.agentId],
-    );
-    await s.t.setRole("blink_api");
-    assert.equal((await s.post("baseline", baseline)).statusCode, 201);
-    const a = await s.post("a");
-    assert.equal(a.statusCode, 201, a.body);
-    const reader = createSnapshotReader(s.store);
-    await s.t.db.exec("SET blink.test_clock_offset_seconds='601'");
-    assert.equal(await reader.latest("test", "1"), null);
-    await s.t.db.exec("SET blink.test_clock_offset_seconds='0'");
-    const b = await s.post("b", s.b, { ...s.body, probability: 0.600001 });
-    assert.equal(b.statusCode, 201, b.body);
-    assert.equal(
-      await reader.latest("test", "1"),
-      null,
-      "unclosed window is not eligible",
-    );
-    await s.t.db.exec("SET blink.test_clock_offset_seconds='601'");
-    const snapshot = await reader.latest("test", "1");
-    assert.ok(snapshot);
-    assert.equal(snapshot.probabilitySumMillionths, 1200001);
-    assert.deepEqual(await reader.latest("test", "1"), snapshot);
-    assert.equal(await reader.latest("other", "1"), null);
-    await s.t.db.exec("SET blink.test_clock_offset_seconds='87000'");
-    assert.deepEqual(
-      await reader.latest("test", "1"),
-      snapshot,
-      "exactly 24 hours remains eligible",
-    );
-    await s.t.db.exec("SET blink.test_clock_offset_seconds='87001'");
-    assert.equal(
-      await reader.latest("test", "1"),
-      null,
-      "unannotated snapshots older than 24 hours expire",
-    );
-    await s.t.db.exec("SET blink.test_clock_offset_seconds='601'");
-    await s.t.setRole(null);
-    await s.t.db.query(
-      "INSERT INTO forecasts.annotations(id,submission_id,kind,reason,actor) VALUES($1,$2,'WINDOW_CONTAMINATED','test','fixture')",
-      [randomUUID(), a.json().submissionId],
-    );
-    await s.t.setRole("blink_api");
-    assert.equal(
-      await reader.latest("test", "1"),
-      null,
-      "stored snapshot is invalidated by later annotations",
-    );
-    await s.t.db.exec("SET blink.test_clock_offset_seconds='87001'");
-    assert.equal(await reader.latest("test", "1"), null);
-  } finally {
-    await s.close();
-  }
-});
-
 test("DB deadlines, evidence ownership, visibility, pagination and scheduler permissions", async () => {
   const s = await setup();
   try {
@@ -302,10 +229,6 @@ test("DB deadlines, evidence ownership, visibility, pagination and scheduler per
       s.t.db.query("SELECT * FROM forecasts.submissions"),
       /permission denied/,
     );
-    await assert.rejects(
-      s.t.db.query("SELECT * FROM forecasts.snapshots"),
-      /permission denied/,
-    );
     const scheduler = createWindowScheduler(s.store);
     assert.ok((await scheduler.scheduleOnce()) > 0);
     assert.equal(await scheduler.scheduleOnce(), 0);
@@ -364,7 +287,7 @@ test("DB deadlines, evidence ownership, visibility, pagination and scheduler per
   }
 });
 
-test("forecast admin registers fixed agents and appends audited annotations under its role", async () => {
+test("forecast admin appends audited annotations under its role", async () => {
   const { forecastAdmin, assertForecastAdminRole } =
     await import("../packages/adapters/src/forecast-admin.js");
   const { assertIdentityRuntimeRole } =
@@ -373,25 +296,16 @@ test("forecast admin registers fixed agents and appends audited annotations unde
   try {
     const submission = await s.post("admin-fixture");
     const admin = forecastAdmin(s.t.pool);
-    const registration = {
-      agentId: s.a.agentId,
-      role: "FORECASTER_A" as const,
-      model: "fixture",
-      promptHash: "0x" + "66".repeat(32),
-      policyVersion: "v1",
-      reason: "Reviewed fixture",
-    };
     await assert.rejects(
-      admin.registerPlatformAgent(registration),
+      admin.annotate({
+        submissionId: submission.json().submissionId,
+        kind: "WITHDRAWN",
+        reason: "Reviewed withdrawal",
+      }),
       /permission denied/,
     );
     await s.t.db.exec("RESET ROLE; SET ROLE blink_forecast_admin");
     await assertForecastAdminRole(s.t.pool);
-    await admin.registerPlatformAgent(registration);
-    await assert.rejects(
-      admin.registerPlatformAgent({ ...registration, agentId: s.b.agentId }),
-      /unique/,
-    );
     await assert.rejects(
       admin.annotate({
         submissionId: submission.json().submissionId,
@@ -411,7 +325,7 @@ test("forecast admin registers fixed agents and appends audited annotations unde
           "SELECT * FROM operations.audit_log WHERE action LIKE 'forecast.%' AND action<>'forecast.submitted'",
         )
       ).rows.length,
-      2,
+      1,
     );
     await s.t.db.exec(
       "CREATE ROLE forecast_mixed; GRANT blink_api,blink_forecast_admin TO forecast_mixed; SET ROLE forecast_mixed",
@@ -470,45 +384,6 @@ test("forecast rejection is atomic for absent windows, closed markets, invalid i
       (await s.t.db.query("SELECT * FROM operations.idempotency_records")).rows
         .length,
       0,
-    );
-  } finally {
-    await s.close();
-  }
-});
-
-test("model run grants allow lifecycle updates while keeping configuration immutable", async () => {
-  const s = await setup();
-  try {
-    await s.t.setRole("blink_worker");
-    const id = randomUUID();
-    await s.t.db.query(
-      "INSERT INTO forecasts.model_runs(id,agent_id,window_id,purpose,model,prompt_hash,sampling,tool_policy,input_hash,data_cutoff,state) VALUES($1,$2,$3,'FORECAST','fixture',decode(repeat('66',32),'hex'),'{}','fixture',decode(repeat('77',32),'hex'),blink.now(),'STARTED')",
-      [id, s.a.agentId, s.windowId],
-    );
-    await s.t.db.query(
-      "UPDATE forecasts.model_runs SET state='FAILED',provider_request_id='fixture',reservation_id=$2,updated_at=blink.now() WHERE id=$1",
-      [id, randomUUID()],
-    );
-    await assert.rejects(
-      s.t.db.query(
-        "UPDATE forecasts.model_runs SET model='changed' WHERE id=$1",
-        [id],
-      ),
-      /permission denied/,
-    );
-    await assert.rejects(
-      s.t.db.query("DELETE FROM forecasts.model_runs WHERE id=$1", [id]),
-      /permission denied/,
-    );
-    await s.t.setRole("blink_api");
-    assert.equal(
-      (
-        await s.t.db.query<{ state: string }>(
-          "SELECT state FROM forecasts.model_runs WHERE id=$1",
-          [id],
-        )
-      ).rows[0]!.state,
-      "FAILED",
     );
   } finally {
     await s.close();

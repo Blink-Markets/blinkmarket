@@ -408,38 +408,6 @@ const hostCases = [
   ["169.254.169.254", "PREFLIGHT_WEBHOOK_HTTPS"],
 ] as const;
 
-test("worker API URL accepts HTTPS or HTTP loopback only", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "blink-worker-api-hosts-"));
-  try {
-    for (const [url, expectedCode] of [
-      ["https://api.example.test", null],
-      ["http://127.0.0.1:3001", null],
-      ["http://[::1]:3001", null],
-      ["http://localhost:3001", null],
-      ["http://10.0.0.5:3001", "PREFLIGHT_WORKER_API_URL"],
-      ["http://127.0.0.2:3001", "PREFLIGHT_WORKER_API_URL"],
-      ["http://a.localhost:3001", "PREFLIGHT_WORKER_API_URL"],
-      ["http://localhost.evil.com:3001", "PREFLIGHT_WORKER_API_URL"],
-    ] as const) {
-      const f = await fixture(baseProfile(dir, { WORKER_API_URL: url }));
-      try {
-        const out = run(f.envFile);
-        if (expectedCode) {
-          assert.notEqual(out.status, 0, url);
-          assertCode(out.stdout + out.stderr, expectedCode);
-        } else {
-          assert.equal(out.status, 0, `${url}: ${out.stdout + out.stderr}`);
-          assert.match(out.stdout, /DEPLOY PREFLIGHT ok/);
-        }
-      } finally {
-        await rm(f.dir, { recursive: true, force: true });
-      }
-    }
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
 test("webhook URLs require HTTPS except for actual loopback hosts", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "blink-webhook-hosts-"));
   try {

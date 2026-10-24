@@ -1,5 +1,5 @@
 import { createTestDatabase, inviteAgent } from "./database.js";
-import { poolAs } from "./research.js";
+import { poolAs } from "./pool-as.js";
 import { seedDeployment, seedChain, testManifest } from "./protocol-fixture.js";
 export const DEPLOYMENT = "status-test";
 export async function statusWorld() {

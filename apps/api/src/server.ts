@@ -14,10 +14,6 @@ import {
   IdentityError,
   identityPaths,
   type IdentityService,
-  preparationPaths,
-  type PreparationService,
-  approvalPaths,
-  type ApprovalService,
   type RouteService,
   type HealthService,
 } from "@blink/application";
@@ -61,15 +57,8 @@ export function buildApi(
   options: {
     identity?: IdentityService;
     health?: HealthService;
-    preparation?: PreparationService;
-    approval?: ApprovalService;
     services?: RouteService[];
-    stage?:
-      | "architecture"
-      | "m2-identity"
-      | "m2-preparation"
-      | "m2-approval"
-      | "m2-markets";
+    stage?: "architecture" | "m2-identity" | "m2-markets";
     config?: () => Promise<ConfigResponse>;
     assertReady?: () => Promise<void>;
     publicReadLimit?: {
@@ -80,13 +69,9 @@ export function buildApi(
     trustedProxies?: readonly string[];
   } = {},
 ) {
-  if ((options.preparation || options.approval) && !options.identity)
-    throw new Error("IDENTITY_REQUIRED");
   // A contract path has exactly one owner: a built-in option or one route service.
   const builtIn = new Set<string>([
     ...(options.identity ? identityPaths : []),
-    ...(options.preparation ? preparationPaths : []),
-    ...(options.approval ? approvalPaths : []),
   ]);
   const contractPaths = new Set(apiContracts.map((c) => c.path));
   const owners = new Map<string, RouteService>();
@@ -100,13 +85,7 @@ export function buildApi(
     }
   const stage =
     options.stage ??
-    (options.approval
-      ? "m2-approval"
-      : options.preparation
-        ? "m2-preparation"
-        : options.identity
-          ? "m2-identity"
-          : "architecture");
+    (options.identity ? "m2-identity" : "architecture");
   const app = createService(
     "api",
     stage,
@@ -260,84 +239,6 @@ export function buildApi(
         if (options.identity) {
           try {
             if (
-              options.approval &&
-              approvalPaths.includes(
-                contract.path as (typeof approvalPaths)[number],
-              )
-            ) {
-              reply.header("Cache-Control", "no-store");
-              const params = contract.params.safeParse(request.params);
-              if (
-                !params.success ||
-                !contract.query.safeParse(request.query).success
-              )
-                throw new IdentityError(400, "INVALID_REQUEST");
-              if (contract.path === approvalPaths[2]) {
-                const bytes = await options.approval.spec(
-                  String(params.data.specHash).toLowerCase(),
-                );
-                return reply.type("application/json").send(Buffer.from(bytes));
-              }
-              const id = String(params.data.id).toLowerCase();
-              if (contract.path === approvalPaths[3])
-                return await options.approval.chainStatus(
-                  id,
-                  request.headers.authorization,
-                );
-              if (contract.path === approvalPaths[1])
-                return await options.approval.intent(
-                  id,
-                  request.headers.authorization,
-                );
-              const result = await options.approval.approve(id, {
-                authorization: request.headers.authorization,
-                idempotencyKey:
-                  typeof request.headers["idempotency-key"] === "string"
-                    ? request.headers["idempotency-key"]
-                    : undefined,
-                body: request.body,
-                requestId: request.id,
-              });
-              if (
-                "code" in result.body &&
-                result.body.code === "REQUEST_IN_PROGRESS"
-              )
-                reply.header("Retry-After", "1");
-              return reply
-                .code(result.status)
-                .send(
-                  result.status >= 400
-                    ? { ...result.body, requestId: request.id }
-                    : result.body,
-                );
-            }
-            if (
-              options.preparation &&
-              preparationPaths.includes(
-                contract.path as (typeof preparationPaths)[number],
-              )
-            ) {
-              reply.header("Cache-Control", "no-store");
-              const result = await options.preparation.handle(contract.path, {
-                authorization: request.headers.authorization,
-                idempotencyKey:
-                  typeof request.headers["idempotency-key"] === "string"
-                    ? request.headers["idempotency-key"]
-                    : undefined,
-                params: request.params,
-                query: request.query,
-                body: request.body,
-                requestId: request.id,
-              });
-              return reply
-                .code(result.status)
-                .send(
-                  result.status >= 400
-                    ? { ...result.body, requestId: request.id }
-                    : result.body,
-                );
-            }
-            if (
               contract.path === identityPaths[0] ||
               contract.path === identityPaths[1]
             ) {
@@ -366,20 +267,14 @@ export function buildApi(
             }
             const scope = (
               {
-                "candidate:write": "candidate:write",
                 "forecast:write": "forecast:write",
                 "trade:quote + wallet": "trade:quote",
-                "report:write": "report:write",
                 admin: "admin",
               } as Record<string, ApiScope>
             )[contract.access];
             if (
               scope ||
-              [
-                "verified-wallet",
-                "taker/admin",
-                "owner/admin; approved public",
-              ].includes(contract.access)
+              ["verified-wallet", "taker/admin"].includes(contract.access)
             ) {
               await options.identity.authenticate(
                 request.headers.authorization,

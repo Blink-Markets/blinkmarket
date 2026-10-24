@@ -118,7 +118,7 @@ function scriptedQueue(
 
 const leasedJob: LeasedJob = {
   id: "00000000-0000-4000-8000-000000000001",
-  type: "evidence.fetch",
+  type: "forecast.schedule",
   payload: {},
   attempt: 1,
   maxAttempts: 3,
@@ -139,7 +139,7 @@ test("a failed heartbeat aborts the handler and nothing is acknowledged", async 
     const worker = startWorker({
       queue: scriptedQueue(leasedJob, heartbeat, calls),
       handlers: {
-        "evidence.fetch": ({ signal }) =>
+        "forecast.schedule": ({ signal }) =>
           new Promise<void>((_resolve, reject) => {
             signal.addEventListener(
               "abort",
@@ -194,7 +194,7 @@ test("an acknowledgement waits for a heartbeat still in flight and obeys its res
           calls,
         ),
         handlers: {
-          "evidence.fetch": async () => {
+          "forecast.schedule": async () => {
             await handlerGate;
             if (handler === "throws") throw new Error("boom");
           },
@@ -244,7 +244,7 @@ test("a heartbeat that never settles is a lost lease after one lease period", as
       },
       calls,
     ),
-    handlers: { "evidence.fetch": () => handlerGate },
+    handlers: { "forecast.schedule": () => handlerGate },
     workerId: "w",
     ...timing,
     leaseMs: 60,
@@ -263,7 +263,7 @@ test("a heartbeat that never settles is a lost lease after one lease period", as
 test("a successful handler heartbeats while it runs and then completes the job", () =>
   withDb(async (s, queue) => {
     const { jobId } = await queue.enqueue({
-      type: "evidence.fetch",
+      type: "forecast.schedule",
       dedupeKey: "ok",
       payload: { n: 1 },
     });
@@ -278,7 +278,7 @@ test("a successful handler heartbeats while it runs and then completes the job",
         },
       },
       handlers: {
-        "evidence.fetch": async ({ job, signal }) => {
+        "forecast.schedule": async ({ job, signal }) => {
           seenPayload = job.payload;
           await new Promise((resolve) => setTimeout(resolve, 80));
           assert.equal(signal.aborted, false);
@@ -298,7 +298,7 @@ test("a successful handler heartbeats while it runs and then completes the job",
 test("a non-retryable JobError dead-letters the job", () =>
   withDb(async (s, queue) => {
     const { jobId } = await queue.enqueue({
-      type: "evidence.fetch",
+      type: "forecast.schedule",
       dedupeKey: "dead",
       payload: {},
     });
@@ -306,7 +306,7 @@ test("a non-retryable JobError dead-letters the job", () =>
     const worker = startWorker({
       queue,
       handlers: {
-        "evidence.fetch": async () => {
+        "forecast.schedule": async () => {
           throw new JobError("SOURCE_REJECTED", false);
         },
       },
@@ -327,14 +327,14 @@ test("a non-retryable JobError dead-letters the job", () =>
 test("any other error is retried as INTERNAL_ERROR", () =>
   withDb(async (s, queue) => {
     const { jobId } = await queue.enqueue({
-      type: "evidence.fetch",
+      type: "forecast.schedule",
       dedupeKey: "boom",
       payload: {},
     });
     const worker = startWorker({
       queue,
       handlers: {
-        "evidence.fetch": async () => {
+        "forecast.schedule": async () => {
           throw new Error("secret detail must not leak");
         },
       },
@@ -372,13 +372,13 @@ test("only job types with a handler are leased, and an empty map never polls", a
       payload: {},
     });
     const mine = await queue.enqueue({
-      type: "evidence.fetch",
+      type: "forecast.schedule",
       dedupeKey: "mine",
       payload: {},
     });
     const worker = startWorker({
       queue,
-      handlers: { "evidence.fetch": async () => {} },
+      handlers: { "forecast.schedule": async () => {} },
       workerId: "w",
       ...timing,
     });
@@ -393,13 +393,13 @@ test("only job types with a handler are leased, and an empty map never polls", a
 test("stop() lets the current job finish and claims nothing new", () =>
   withDb(async (s, queue) => {
     const first = await queue.enqueue({
-      type: "evidence.fetch",
+      type: "forecast.schedule",
       dedupeKey: "first",
       payload: {},
       runAt: new Date(Date.now() - 2000),
     });
     const second = await queue.enqueue({
-      type: "evidence.fetch",
+      type: "forecast.schedule",
       dedupeKey: "second",
       payload: {},
       runAt: new Date(Date.now() - 1000),
@@ -412,7 +412,7 @@ test("stop() lets the current job finish and claims nothing new", () =>
     const worker = startWorker({
       queue,
       handlers: {
-        "evidence.fetch": async () => {
+        "forecast.schedule": async () => {
           started = true;
           await gate;
         },
@@ -433,7 +433,7 @@ test("stop() lets the current job finish and claims nothing new", () =>
 test("aborting the worker's own signal cancels the running handler", () =>
   withDb(async (s, queue) => {
     const { jobId } = await queue.enqueue({
-      type: "evidence.fetch",
+      type: "forecast.schedule",
       dedupeKey: "shutdown",
       payload: {},
     });
@@ -443,7 +443,7 @@ test("aborting the worker's own signal cancels the running handler", () =>
     const worker = startWorker({
       queue,
       handlers: {
-        "evidence.fetch": ({ signal }) =>
+        "forecast.schedule": ({ signal }) =>
           new Promise<void>((_resolve, reject) => {
             started = true;
             signal.addEventListener(
@@ -475,10 +475,10 @@ test("schedulePeriodic enqueues one job per time bucket", () =>
   withDb(async (s, queue) => {
     const start = new Date(1_700_000_000_000);
     const payload = { scope: "all" };
-    await schedulePeriodic(queue, "budget.reconcile", 60_000, payload, start);
+    await schedulePeriodic(queue, "operations.prune", 60_000, payload, start);
     await schedulePeriodic(
       queue,
-      "budget.reconcile",
+      "operations.prune",
       60_000,
       payload,
       new Date(start.getTime() + 30_000),
@@ -486,7 +486,7 @@ test("schedulePeriodic enqueues one job per time bucket", () =>
     assert.deepEqual(await queue.stats(), { queued: 1, leased: 0, dead: 0 });
     await schedulePeriodic(
       queue,
-      "budget.reconcile",
+      "operations.prune",
       60_000,
       payload,
       new Date(start.getTime() + 45_000),
@@ -498,7 +498,7 @@ test("schedulePeriodic enqueues one job per time bucket", () =>
       )
     ).rows.map((r) => r.dedupe_key);
     assert.deepEqual(keys, [
-      `budget.reconcile:{"scope":"all"}:28333333`,
-      `budget.reconcile:{"scope":"all"}:28333334`,
+      `operations.prune:{"scope":"all"}:28333333`,
+      `operations.prune:{"scope":"all"}:28333334`,
     ]);
   }));

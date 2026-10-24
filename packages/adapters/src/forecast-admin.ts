@@ -14,42 +14,6 @@ export async function assertForecastAdminRole(pool: Pool) {
 export function forecastAdmin(pool: Pool) {
   const uow = createUnitOfWork(pool);
   return {
-    async registerPlatformAgent(input: {
-      agentId: string;
-      role: "FORECASTER_A" | "FORECASTER_B" | "BASELINE";
-      model: string;
-      promptHash: string;
-      policyVersion: string;
-      reason: string;
-    }) {
-      if (
-        !uuid.test(input.agentId) ||
-        !["FORECASTER_A", "FORECASTER_B", "BASELINE"].includes(input.role) ||
-        !text(input.model) ||
-        !text(input.policyVersion) ||
-        !text(input.reason) ||
-        !/^0x[0-9a-f]{64}$/i.test(input.promptHash)
-      )
-        throw new Error("INVALID_PLATFORM_AGENT");
-      return uow.run(async (ctx) => {
-        const db = uow.client(ctx);
-        await db.query(
-          "INSERT INTO forecasts.platform_agents(agent_id,role,model,prompt_hash,policy_version) VALUES($1,$2,$3,decode($4,'hex'),$5)",
-          [
-            input.agentId,
-            input.role,
-            input.model,
-            input.promptHash.slice(2),
-            input.policyVersion,
-          ],
-        );
-        await db.query(
-          "INSERT INTO operations.audit_log(id,actor,action,resource,reason,request_id) VALUES($1,current_user,'forecast.platform_agent_registered',$2,$3,$4)",
-          [randomUUID(), input.agentId, input.reason, randomUUID()],
-        );
-        return { agentId: input.agentId, role: input.role };
-      });
-    },
     async annotate(input: {
       submissionId: string;
       kind: "WITHDRAWN" | "OUTCOME_ALREADY_PUBLIC" | "WINDOW_CONTAMINATED";

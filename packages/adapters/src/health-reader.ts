@@ -7,17 +7,11 @@ import { createUnitOfWork } from "./database.js";
 
 const DEFAULT_ALERT_STALL_MS = 15 * 60_000;
 
-// The conditions behind INDEXER_LAG and BUDGET_GATE_CLOSED. alert.evaluate
+// The condition behind INDEXER_LAG. alert.evaluate
 // judges the same SQL, so an alert and a health reason can never disagree.
 export const INDEXER_MAX_LAG_BLOCKS = 3;
 export const INDEXER_FRESH_SQL = `(NOT (${indexerStaleSql("c")}) AND gate_reason IS NULL AND head_number-block_number<=${INDEXER_MAX_LAG_BLOCKS})`;
 export const INDEXER_LAGGING_SQL = `head_number-block_number>${INDEXER_MAX_LAG_BLOCKS}`;
-/** Today's budgets.daily row `d`, when its gate is closed or its cap is used up. */
-export const DAILY_BUDGET_CLOSED_SQL = `d.day=(blink.now() AT TIME ZONE 'UTC')::date AND (d.gate_closed_reason IS NOT NULL OR d.cap_usd_micros <= COALESCE((
-               SELECT SUM(CASE r.state WHEN 'RECONCILED' THEN r.actual_usd_micros WHEN 'RELEASED' THEN 0 ELSE r.max_usd_micros END)
-               FROM budgets.reservations r WHERE r.day=d.day),0))`;
-export const QUESTION_GATES_CLOSED_SQL =
-  "SELECT count(*)::text AS count FROM budgets.questions WHERE gate_closed_reason IS NOT NULL";
 type Count = { name: string; count: string };
 export function postgresHealthReader(
   pool: Pool,
@@ -56,12 +50,6 @@ export function postgresHealthReader(
              UNION ALL SELECT 'QUEUED',count(*)::text FROM operations.jobs WHERE state='QUEUED'`,
           )
         ).rows;
-        const budget = (
-          await db.query<{ daily_closed: boolean; questions_closed: string }>(
-            `SELECT EXISTS(SELECT 1 FROM budgets.daily d WHERE ${DAILY_BUDGET_CLOSED_SQL}) AS daily_closed,
-           (${QUESTION_GATES_CLOSED_SQL}) AS questions_closed`,
-          )
-        ).rows[0]!;
         // Undelivered (counted from creation) after the threshold, with or without a recorded error, so a
         // hung first attempt counts too: informational only.
         const alerts = (
@@ -78,8 +66,6 @@ export function postgresHealthReader(
         if (!deployment?.enabled || !manifest.success)
           reasons.push("SERVICE_NOT_READY");
         if (!fresh) reasons.push("INDEXER_LAG");
-        // Research budgets are reported; question-specific gates do not close infrastructure readiness.
-        if (budget.daily_closed) reasons.push("BUDGET_GATE_CLOSED");
         return {
           reasons,
           details: {
@@ -88,10 +74,6 @@ export function postgresHealthReader(
               blockNumber: cursor?.block_number ?? null,
               headNumber: cursor?.head_number ?? null,
               fresh,
-            },
-            budgetGates: {
-              dailyClosed: budget.daily_closed,
-              questionsClosed: budget.questions_closed,
             },
             alerts: {
               stalled: alerts.count !== "0",
