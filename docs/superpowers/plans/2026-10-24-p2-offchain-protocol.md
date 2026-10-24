@@ -12,19 +12,19 @@
 
 ## Global Constraints
 
-- **No platform keys** ("平台不持有任何市場角色的私鑰", §2.1.3; Signer "移除", §5.10):
+- **No platform keys** ("The platform holds no private key for any market role", §2.1.3; Signer "Removed", §5.10):
   - No platform process (api, worker, indexer, web) reads, stores or is configured with a private key, mnemonic or key file.
   - No platform process signs or broadcasts a transaction. `scripts/deploy-contracts.ts` is an operator tool, not a running process; it keeps its explicit `--broadcast` guard.
-- **No forged quotes** ("平台可以拒絕轉發（審查），但不能偽造或修改報價", §5.5): the relay stores and returns maker-signed quote fields and signature bytes unchanged. The API never prices a quote.
-- **Migrations** ("已套用的 migration 不可修改，只新增", §6):
+- **No forged quotes** ("The platform may refuse to relay (censorship), but cannot forge or modify a quote", §5.5): the relay stores and returns maker-signed quote fields and signature bytes unchanged. The API never prices a quote.
+- **Migrations** ("applied migrations must not be modified, only added", §6):
   - Never edit or delete a file in `packages/adapters/migrations/`.
   - New files use the numbers assigned per task below. 0021 stays absent; the runner does not require contiguous numbers.
   - Every `DROP` names its objects. Never `CASCADE`. Revoke grants before dropping roles.
   - No production database exists (the API was never deployed), so retired tables are dropped, not archived.
-- **History** ("`alpha-2` 部署紀錄與 manifest 保留為歷史", §6): keep `deployments/base-sepolia/alpha-2.manifest.json` byte-identical. v0.1 delivery docs only gain a one-line historical notice.
-- **Off-chain credit** ("鏈下信用…只影響鏈下用途…不影響任何資金規則", §5.7): forecaster credit, consensus and maker stats are read models only.
-- **Human suggestions** (§5.4): "不需註冊身份；以速率限制與基本驗證防垃圾"; "建議本身不形成任何鏈上權利"; "建議者不分潤".
-- **REPLAY** (§5.11): "REPLAY 改為部署層級的標記…REPLAY 的統計仍與 LIVE 永久分開".
+- **History** ("the `alpha-2` deployment record and manifest are kept as history", §6): keep `deployments/base-sepolia/alpha-2.manifest.json` byte-identical. v0.1 delivery docs only gain a one-line historical notice.
+- **Off-chain credit** ("Off-chain credit: … only affects off-chain uses … does not affect any rule about funds", §5.7): forecaster credit, consensus and maker stats are read models only.
+- **Human suggestions** (§5.4): "No registered identity is needed; rate limits and basic validation guard against spam"; "A suggestion by itself creates no on-chain right"; "The suggester gets no fee share".
+- **REPLAY** (§5.11): "REPLAY becomes a deployment-level flag … REPLAY statistics stay permanently separate from LIVE".
 - **P1 values, verbatim:**
   - `Role` CREATOR=0, MAKER=1, TAKER=2, FORECASTER=3, PROPOSER=4, CHALLENGER=5, JUROR=6
   - `QuestionClass` A_COMPUTABLE=0, B_VERIFIABLE=1, C_JUDGMENT=2
@@ -36,9 +36,9 @@
   - Quote type `Quote(uint256 marketId,bytes32 specHash,address maker,address taker,uint8 side,uint64 quantity,uint16 priceBps,uint64 validAfter,uint64 expiresAt,uint256 nonce,uint256 epoch)`
   - Taker pays `takerCost + floor(takerCost × feeBps / 10000)`
 - **Access:** reads are public. A write that acts for an identity needs an API key issued by wallet proof, plus the matching role in the indexed current generation, checked at request time.
-- **Wallets** (§5.1 錢包中立, approved 2026-10-24):
-  - "身份可以是 EOA，也可以是支援 ERC-1271 的合約錢包". On-chain fills and every off-chain signature check (wallet proof, quote relay, forecasts) accept both, and off-chain checks also accept ERC-6492.
-  - "平台不替 agent 建立、注資或託管錢包".
+- **Wallets** (§5.1 Wallet neutrality, approved 2026-10-24):
+  - "An identity can be an EOA, or a contract wallet that supports ERC-1271". On-chain fills and every off-chain signature check (wallet proof, quote relay, forecasts) accept both, and off-chain checks also accept ERC-6492.
+  - "The platform does not create, fund or custody wallets for agents".
   - Off-chain checks go through the Task 3 `SignatureVerifier`. No source under `apps/` or `packages/*/src` calls `recoverMessageAddress` or `recoverTypedDataAddress` directly; test fakes may.
 - **Index freshness:** the index is stale when the indexed block's timestamp trails the chain head by more than `INDEX_STALE_SECONDS = 30`. Every identity-acting write then fails with `503 INDEX_STALE`.
 - **Boundaries and build:**
@@ -156,7 +156,7 @@ export class SignatureCheckUnavailable extends Error {} // RPC failure; callers 
 
 ### Task 1: Retire the platform signing and execution stack
 
-Removes everything that signs, sends or prices on the platform's behalf. Spec §5.10, §6 "Signer 與 dispatcher", "單一 maker 定價", "平台 agent" (keeper, faucet, trader).
+Removes everything that signs, sends or prices on the platform's behalf. Spec §5.10, §6 "Signer and dispatcher", "Single-maker pricing", "Platform agents" (keeper, faucet, trader).
 
 **Files:**
 - Delete:
@@ -208,7 +208,7 @@ Removes everything that signs, sends or prices on the platform's behalf. Spec §
 
 ### Task 2: Retire platform research, manual creation and invitations
 
-Spec §6 "建市核准流程", "平台 agent" (discovery, platform-forecaster, baseline), "邀請制身份" (operator management).
+Spec §6 "Market approval flow", "Platform agents" (discovery, platform-forecaster, baseline), "Invite-only identity" (operator management).
 
 **Files:**
 - Delete:
@@ -256,12 +256,12 @@ Spec §6 "建市核准流程", "平台 agent" (discovery, platform-forecaster, b
 
 ### Task 13: Contract-wallet maker signatures in BlinkMarkets
 
-Spec §5.1 錢包中立. This amends a P1 contract. Generation 1 is not deployed yet, so the change is free now; after deployment it would need a new generation. It runs in parallel with Tasks 1 and 2, which share no files with it, and Task 3 starts after it merges.
+Spec §5.1 Wallet neutrality. This amends a P1 contract. Generation 1 is not deployed yet, so the change is free now; after deployment it would need a new generation. It runs in parallel with Tasks 1 and 2, which share no files with it, and Task 3 starts after it merges.
 
 **Files:**
 - Modify:
   - `contracts/src/protocol/BlinkMarkets.sol`: only the signature check in `fillQuote`
-  - `docs/P1_PROTOCOL_CONTRACTS.md`: the fill rules, `## 已知限制` and `## 實作裁決對照`, which gets a row citing §5.1 錢包中立
+  - `docs/P1_PROTOCOL_CONTRACTS.md`: the fill rules, `## Known limitations` and `## Implementation rulings`, which gets a row citing §5.1 Wallet neutrality
 - Create: `contracts/test/protocol/MockErc1271Wallet.sol`, `contracts/test/protocol/ContractWalletMaker.t.sol`.
 
 **Interfaces:**
@@ -362,7 +362,7 @@ Fixes every shared name later tasks use. Spec §5.0 (presets), §5.10 (anchor), 
 
 ### Task 4: Generation deploy tooling (local only)
 
-Spec §5.1 世代, §5.9. This task never broadcasts to a public network.
+Spec §5.1 Generation, §5.9. This task never broadcasts to a public network.
 
 **Files:**
 - Create: `packages/adapters/src/protocol-deployer.ts`, `packages/adapters/migrations/0027_protocol_deployments.sql`, `tests/anvil/protocol-deploy.test.ts`.
@@ -456,7 +456,7 @@ Spec §5.10 Indexer, §7 (reorg, canonical cursor). Replaces the v0.1 single-con
 
 ### Task 6: Self-serve wallet identity
 
-Spec §5.1 "API 存取改為自助：身份以錢包簽章證明控制權後自動取得 API key，取代邀請制". An identity is a wallet address. `identity.operators` survives only as an internal one-to-one container, created with the agent, so existing foreign keys keep working; no person manages it.
+Spec §5.1 "API access becomes self-service: an identity proves control of its wallet with a signature and automatically receives an API key, replacing the invite-only scheme". An identity is a wallet address. `identity.operators` survives only as an internal one-to-one container, created with the agent, so existing foreign keys keep working; no person manages it.
 
 **Files:**
 - Modify:
@@ -506,7 +506,7 @@ Spec §5.1 "API 存取改為自助：身份以錢包簽章證明控制權後自�
 
 ### Task 7: Resolution, juror, credit and fee read models; public read API
 
-Spec §2.1.4 "手續費依參數分配，信用依結果變動，兩者都可由鏈上事件獨立重算，並與合約狀態一致", §5.10 Indexer.
+Spec §2.1.4 "Fees are distributed by parameters and credit changes with outcomes, and both can be recomputed independently from on-chain events and match the contract state", §5.10 Indexer.
 
 **Files:**
 - Modify:
@@ -557,7 +557,7 @@ Spec §2.1.4 "手續費依參數分配，信用依結果變動，兩者都可由
 
 ### Task 8: Content store and human suggestions
 
-Spec §5.4, §5.10 ("證據與 spec bytes 以內容 hash 定址，任何人都可鏡像"), §5.3 (A class archived bytes).
+Spec §5.4, §5.10 ("Evidence and spec bytes are addressed by content hash, and anyone can mirror them"), §5.3 (A class archived bytes).
 
 **Files:**
 - Create:
@@ -585,7 +585,7 @@ Spec §5.4, §5.10 ("證據與 spec bytes 以內容 hash 定址，任何人都�
     - Limits: 5 per hour per client IP and 500 per day globally, else `429`. The body cap is 8 KiB.
     - Returns `{ id }`.
   - `GET /v1/suggestions?status=OPEN|CLAIMED|MARKET_CREATED`, `GET /v1/suggestions/:id`. The status is derived at read time: `MARKET_CREATED` if any linked spec hash has a market, else `CLAIMED` if any claim exists, else `OPEN`.
-  - `POST /v1/suggestions/:id/claims`: requires `suggestion:claim` and the CREATOR role, one claim per creator. Claims are informational and give no exclusivity (§5.4 "任何 Creator agent 可認領").
+  - `POST /v1/suggestions/:id/claims`: requires `suggestion:claim` and the CREATOR role, one claim per creator. Claims are informational and give no exclusivity (§5.4 "Any Creator agent can claim one").
   - Migration 0030: `content.objects(hash PK, size, media_type, uploader, created_at)`, `suggestions.items`, `suggestions.claims`, `suggestions.spec_links`.
 
 - [ ] **Step 1: Write the failing tests.**
@@ -612,7 +612,7 @@ Spec §5.4, §5.10 ("證據與 spec bytes 以內容 hash 定址，任何人都�
 
 ### Task 9: RFQ relay, protocol tx tracking, SDK and the taker example
 
-Spec §5.5, §5.9 ("Indexer 落後時停止 RFQ 轉發"), §5.2 Maker credit, §7 (`@blink/client`, `examples/agent`).
+Spec §5.5, §5.9 ("When the indexer lags, RFQ forwarding stops"), §5.2 Maker credit, §7 (`@blink/client`, `examples/agent`).
 
 **Maker credit decision:** an off-chain informational read model only. It counts quotes relayed, quotes filled and quotes cancelled before expiry. It has no fund or limit effect and is never computed on chain, because quotes that bypass the relay are invisible to it, so no wash-resistant signal exists (`docs/P1_PROTOCOL_CONTRACTS.md`).
 
@@ -690,7 +690,7 @@ Spec §5.5, §5.9 ("Indexer 落後時停止 RFQ 轉發"), §5.2 Maker credit, §
 
 ### Task 10: Signed forecasts, window anchoring, automatic contamination and consensus
 
-Spec §5.10 ("預測必須由 agent 簽章…定期把窗口內預測的 Merkle root 放上鏈，由任何人觸發"), §5.7 (Forecaster credit, "平台顯示的共識機率按 Forecaster 信用加權"), §7 (windows, sealed submission, `OUTCOME_ALREADY_PUBLIC`, Brier, LIVE/REPLAY).
+Spec §5.10 ("Forecasts must be signed by the agent … periodically put the Merkle root of the forecasts in a window on-chain, triggered by anyone"), §5.7 (Forecaster credit, "The consensus probability the platform displays is weighted by Forecaster credit"), §7 (windows, sealed submission, `OUTCOME_ALREADY_PUBLIC`, Brier, LIVE/REPLAY).
 
 **Files:**
 - Create:
@@ -829,7 +829,7 @@ Spec §2.1.3. P3 adds `pnpm alpha:autonomous` with independent role agents; this
   - `docs/{ARCHITECTURE,ARCHITECTURE_GUIDE,DATA_MODEL,DEVELOPMENT,DEPLOYMENT_RUNBOOK,OPERATIONS,VERIFICATION,ACCEPTANCE_MATRIX,M2_PUBLIC_READS,M2_CHAIN_INDEXER}.md`
   - `contracts/README.md`, `packages/adapters/migrations/README.md`, `examples/agent/README.md`
   - the historical notice line at the top of each v0.1 delivery doc listed in the inventory
-  - `apps/web/content/docs/*.md` and `apps/web/app/how-it-works/page.tsx`: a notice that the role pages describe v0.1 and P3 rewrites them, with a link to the design. The API reference regenerates from schemas. No new capability claims (§3 反目標).
+  - `apps/web/content/docs/*.md` and `apps/web/app/how-it-works/page.tsx`: a notice that the role pages describe v0.1 and P3 rewrites them, with a link to the design. The API reference regenerates from schemas. No new capability claims (§3 anti-goals).
   - `tests/{web-docs-content,web-openapi-index}.test.ts`
 
 **Interfaces:**
@@ -843,7 +843,7 @@ Spec §2.1.3. P3 adds `pnpm alpha:autonomous` with independent role agents; this
   - signed forecasts, roots and anchoring
   - the consensus formula and the maker-stats decision
   - deploy tooling (local only, no deployment performed)
-  - ERC-8004 (§5.1 【實作者】): not adopted in P2; the identity is the `BlinkRegistry` address; to be evaluated in a later generation, with no added privileges
+  - ERC-8004 (§5.1 [Implementer]): not adopted in P2; the identity is the `BlinkRegistry` address; to be evaluated in a later generation, with no added privileges
   - the A class archived-bytes rule: the content store provides storage. Jurors treat a proposal whose `evidenceHash` bytes cannot be fetched from any mirror as unsupported; P3 agent docs state it.
   - wallet neutrality (§5.1):
     - EOA and ERC-1271 wallets both work (for example Coinbase smart accounts), and off-chain checks also accept ERC-6492.

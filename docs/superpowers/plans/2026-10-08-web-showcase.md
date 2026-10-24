@@ -1,5 +1,7 @@
 # Web Showcase Site Implementation Plan
 
+_Status: completed — the showcase site shipped on 2026-10-09 (f3ac5a5, 57e7a7e); see docs/M4_WEB_SHOWCASE_DELIVERY.md._
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the placeholder `apps/web` root route with a read-only, illustrated showcase site (`/`, `/markets`, `/how-it-works`, `/docs`, `/docs/api`) in the mono-color two-ink style, with a masked word-by-word hero and scroll-driven reveals.
@@ -1816,7 +1818,7 @@ Create `docs/M4_WEB_SHOWCASE_DELIVERY.md` with:
 - the screenshots checked;
 - limitations: static sample data, API index shows default contract status, no market detail or trading pages, M4 not complete.
 
-Update `docs/ROADMAP.md` M4 row to: `進行中：唯讀展示站` with the delivery link. In `README.md` Technology table, change the Web row note "currently a host scaffold, not a product UI" to "read-only showcase site; no trading UI yet".
+Update `docs/ROADMAP.md` M4 row to: `In progress: read-only showcase site` with the delivery link. In `README.md` Technology table, change the Web row note "currently a host scaffold, not a product UI" to "read-only showcase site; no trading UI yet".
 
 - [ ] **Step 7: Commit and push** (per AGENTS.md stage checkpoints)
 

@@ -1,5 +1,7 @@
 # Remaining Milestones (M2 completion, M3, M5 tooling) Implementation Plan
 
+_Status: historical — Tasks 1-17 closed on 2026-10-16 (e5eec28); the team-operated roles it built are replaced by the 2026-10-23 direction change (docs/ROADMAP.md). Current design: docs/superpowers/specs/2026-10-23-autonomous-market-design.md._
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Status:** Complete on 2026-10-16. Tasks 1–17 are merged on `main` and each passed its task review; the whole-branch review's two Important findings (the trader's open cap, unthrottled health endpoints) and six of its Minors were fixed and re-reviewed. Everything is verified locally (`pnpm check`, `pnpm build`, the service bundles, `pnpm alpha:local`, the Anvil and PostgreSQL suites) and in CI; nothing is deployed. Parked findings moved to the Open Items of [`2026-10-15-public-alpha-readiness.md`](2026-10-15-public-alpha-readiness.md).
@@ -26,7 +28,7 @@
 - Migrations 0001–0006 are frozen. Each task uses only its assigned migration number (table below).
 - Each task ends with `pnpm check` passing. Tasks that touch `packages/schemas`, `packages/domain` or `packages/client` also run `pnpm build`. Tasks that add service code also run `pnpm build:services && pnpm test:service-build`. Tasks with Anvil tests run `pnpm test:anvil`.
 - Real-PostgreSQL concurrency tests go in `tests/postgres/<task>.test.ts` and require `TEST_POSTGRES_ADMIN_URL`; CI runs them. Local runs may skip them only when the variable is unset, and the task report must say so.
-- Each task writes one delivery record, `docs/<MILESTONE>_<NAME>.md` (English with a one-line 中文摘要, like `docs/M2_CREATION_TRACKING.md`), listing scope, verification commands with results, and remaining limits. Tasks do not edit `docs/ROADMAP.md` (the controller does).
+- Each task writes one delivery record, `docs/<MILESTONE>_<NAME>.md` (English with a one-line Chinese summary, like `docs/M2_CREATION_TRACKING.md`), listing scope, verification commands with results, and remaining limits. Tasks do not edit `docs/ROADMAP.md` (the controller does).
 - Branch per task: `ws/t<N>-<slug>`. Commit there; do not push; do not merge.
 
 | Migration | Owner |
@@ -451,7 +453,7 @@ export function fixtureModelGateway(options: { provider?: string; rates: Record<
 
 ### Task 3: Allowlisted evidence fetcher (SSRF-safe)
 
-**Goal:** Fetch an approved source URL with strict SSRF defenses (design 05 "Evidence 與來源"), archive the original bytes with a hash and record evidence, as a job handler. Covers spec §12.1 and §17.2 S06 for fetching.
+**Goal:** Fetch an approved source URL with strict SSRF defenses (design 05 "Evidence and sources"), archive the original bytes with a hash and record evidence, as a job handler. Covers spec §12.1 and §17.2 S06 for fetching.
 
 **Depends on:** nothing (runs parallel to Task 1). The job handler signature follows Task 2's `JobHandler` (`(ctx: {job: {payload}, signal}) => Promise<void>`); define a local structural type if Task 2 is not merged yet, and the controller reconciles it at merge.
 
@@ -708,7 +710,7 @@ export function createForecastScheduleHandler(scheduler): JobHandler; // structu
 
 ### Task 8: Restricted signer, nonce manager and transaction dispatcher
 
-**Goal:** Implement the private signer process (design 04 "Signer 內部協定", ADR 0002 §4): persisted sign requests, role-scoped policies, deterministic idempotent signing of EIP-712 maker quotes and of keeper/faucet/trader transactions, nonce allocation that never re-nonces unknown transactions, gas caps, and a dispatcher that broadcasts only persisted artifacts and tracks receipts, replacements and reorgs.
+**Goal:** Implement the private signer process (design 04 "Signer internal protocol", ADR 0002 §4): persisted sign requests, role-scoped policies, deterministic idempotent signing of EIP-712 maker quotes and of keeper/faucet/trader transactions, nonce allocation that never re-nonces unknown transactions, gas caps, and a dispatcher that broadcasts only persisted artifacts and tracks receipts, replacements and reorgs.
 
 **Depends on:** Task 1 (0007, `blink-abi.ts`, Anvil helper). It uses Task 2's job queue only through a structural `JobHandler` type for `tx.dispatch`.
 
@@ -947,7 +949,7 @@ export function createQuoteReconciler(store: TradingStore): { reconcileOnce(depl
 
 ### Task 14: Internal trader under a mandate
 
-**Goal:** Spec §9.3 and §12.3: a deterministic internal trader with its own small EOA that buys only when its own probability beats the ask by more than 500 bps (spec §12.3 「超過」; strictly greater), within mandate limits, through the restricted signer.
+**Goal:** Spec §9.3 and §12.3: a deterministic internal trader with its own small EOA that buys only when its own probability beats the ask by more than 500 bps (spec §12.3 "exceeds"; strictly greater), within mandate limits, through the restricted signer.
 
 **Depends on:** Tasks 9 and 13 merged.
 
@@ -972,7 +974,7 @@ export function createQuoteReconciler(store: TradingStore): { reconcileOnce(depl
 
 ### Task 15: Client SDK and external agent example
 
-**Goal:** Spec §17.3 "外部 client 範例" and §14.3: a typed client for every enabled endpoint with mandatory quote verification, and an example agent that runs the external flow on the local stack.
+**Goal:** Spec §17.3 "external client example" and §14.3: a typed client for every enabled endpoint with mandatory quote verification, and an example agent that runs the external flow on the local stack.
 
 **Depends on:** Tasks 6, 7, 9, 13 merged.
 

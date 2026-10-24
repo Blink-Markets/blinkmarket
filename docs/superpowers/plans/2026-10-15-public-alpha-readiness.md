@@ -1,5 +1,7 @@
 # Public Alpha Readiness (M5, with the M4 decision) Implementation Plan
 
+_Status: historical — Track A completed on 2026-10-17 (a4ba2ee); Track B deferred on 2026-10-23 (1856911) until the autonomous-market vision is done. Current design: docs/superpowers/specs/2026-10-23-autonomous-market-design.md._
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Status:** Track A approved by the user on 2026-10-17, with D1 = (a), D7 = (a) and D8 = (b) as recommended. A2 is deferred until an API is deployed (it is optional and needs a mockup); A7 waits for D6. Track B is not approved: it still needs the user's answers to D3–D6, D9 and D10 and an explicit go-ahead for each outward-facing action. For those choices the user prefers free or the cheapest options while the project is experimental.
@@ -28,7 +30,7 @@ Each decision names the tasks it blocks. Recommendations are mine. None of the v
 
 | # | Decision | Options | Recommendation | Blocks |
 | --- | --- | --- | --- | --- |
-| D1 | Functional web UI (spec §13: trading area, positions, admin page) | (a) keep the site read-only; Alpha trading is agent-only through the SDK; (b) build it now; (c) after the first external feedback | (a) for this plan, then (c). The previous plan recorded the user's choice of a read-only explainer, and §17.3's "UI 明示測試資產…" can be met on read-only pages | Track C |
+| D1 | Functional web UI (spec §13: trading area, positions, admin page) | (a) keep the site read-only; Alpha trading is agent-only through the SDK; (b) build it now; (c) after the first external feedback | (a) for this plan, then (c). The previous plan recorded the user's choice of a read-only explainer, and §17.3's requirement that the UI state that the assets are test assets can be met on read-only pages | Track C |
 | D2 | If D1 = (b): how a human taker authenticates for RFQ | (a) wallet sign-in → HttpOnly/Secure/SameSite session cookie + CSRF (needs web and API on one site); (b) the invited user pastes their API key, kept in memory only | (a) if web and API share a site; otherwise (b) for Alpha only | Track C |
 | D3 | Hosting: app host (API/worker/indexer), private signer host, managed PostgreSQL, private S3-compatible bucket with versioning/retention, region | user's choice of providers | One region, no Kubernetes (`docs/OPERATIONS.md`); signer on a separate host/identity | B1, A6 values |
 | D4 | Base Sepolia RPC primary and backup | providers that serve historical state at `deploymentBlock − 1` and a `finalized` tag | two independent providers | B1, B3 |
@@ -47,7 +49,7 @@ Recorded 2026-10-22:
 - The user deferred the remaining hosting details (D3: whether the existing Oracle Always Free tenancy has room) and the API domain (D6). A domain of about 4 USD per year is under consideration; check its renewal price before buying.
 - The API needs an HTTPS hostname, because `@blink/client` and `WALLET_BINDING_ORIGIN` require https. `SPEC_PUBLIC_ORIGIN` is written into every market's spec URI, so changing the hostname later breaks old links.
 
-Recorded 2026-10-23 (direction change; see `docs/ROADMAP.md` 方向調整 and the draft `docs/superpowers/specs/2026-10-23-autonomous-market-design.md`, not yet approved):
+Recorded 2026-10-23 (direction change; see the "Direction change (2026-10-23)" section of `docs/ROADMAP.md` and the draft `docs/superpowers/specs/2026-10-23-autonomous-market-design.md`, not yet approved):
 - The user deferred all deployment work until the autonomous-market vision is done. Parked: B1, B2's remaining human-role wallet import, B4, B5, B6, B7, plus A2 (live site data) and A7 (feedback entry, waits for D6). D3 and D6 stay open but are not being pursued. B3 stays done; `alpha-2` is kept as history and is no longer the target deployment.
 - The team-operated role model is superseded: D5's four human roles (ADMIN, RESULT_PROPOSER, CHALLENGER, ARBITER), the fixed maker, and the platform forecasters and baseline behind D7/D8 will be replaced by roles that any registered agent chooses for itself. Platform-only machinery (internal trader and its mandates, the platform signer, platform forecasters, the faucet worker) is expected to be removed, not fixed.
 - Open Items below, re-triaged against the new direction:
@@ -62,7 +64,7 @@ Recorded 2026-10-23 (direction change; see `docs/ROADMAP.md` 方向調整 and th
 - Container images: pinned base image (exact version, digest recorded in the runbook when built), non-root user, no dev dependencies, one service per image.
 - The public site keeps saying what is true at each moment: before B4 it says nothing is deployed; after B4 it says Base Sepolia testnet, test assets with no value, no early exit, trusted resolution roles, INVALID pays 0.5 per share.
 - Visual changes to the site need an approved mockup artifact first. Copy-only changes do not.
-- Each task writes its delivery record `docs/M5_<NAME>.md` (English with a one-line 中文摘要) and does not edit `docs/ROADMAP.md`. The controller owns the roadmap.
+- Each task writes its delivery record `docs/M5_<NAME>.md` (English with a one-line Chinese summary) and does not edit `docs/ROADMAP.md`. The controller owns the roadmap.
 
 ## Review Focus
 
@@ -109,7 +111,7 @@ These run after the previous plan's final review. They can run in parallel: A1 �
 
 ### Task A3: Operator status surface
 
-**Goal:** The spec §13 "管理頁" needs, served without a web admin UI: candidate review queue, approvals, failed jobs, budgets, pause state, resolution and dispute queue.
+**Goal:** The spec §13 "admin page" needs, served without a web admin UI: candidate review queue, approvals, failed jobs, budgets, pause state, resolution and dispute queue.
 
 **Files:** add admin read contracts in `packages/schemas` (`GET /v1/admin/candidates?status=`, `GET /v1/admin/jobs?state=DEAD`, `GET /v1/admin/budgets`, `GET /v1/admin/pause`), application services, store queries, and `scripts/ops-status.ts` (`pnpm ops:status`, a one-screen summary using an admin key). Add tests and `docs/M5_OPERATOR_STATUS.md`.
 
@@ -129,14 +131,14 @@ These run after the previous plan's final review. They can run in parallel: A1 �
 **Rules:**
 1. At-least-once delivery with a dedupe key per alert.
 2. A sink failure retries with backoff and never marks the alert delivered.
-3. Deadline alerts come from a scheduler tick that does not depend on the keeper process (`docs/OPERATIONS.md`: "期限告警不依賴 keeper 單一 process").
+3. Deadline alerts come from a scheduler tick that does not depend on the keeper process (`docs/OPERATIONS.md`: "deadline alerts do not depend on the keeper as a single process").
 4. Webhook payloads contain no secrets or private evidence.
 
 **Drill:** the local harness triggers each alert once.
 
 ### Task A4b: Alert producers (added 2026-10-17 after the A4 review)
 
-**Why:** the A4 review found that only `alert.deadline` has a producer. Spec §17.3 requires 「budget、pause、RPC 故障、keeper 超時告警可演練」. Delivery of injected events does not meet that. Each family must fire from its real condition.
+**Why:** the A4 review found that only `alert.deadline` has a producer. Spec §17.3 requires "budget, pause, RPC failure and keeper timeout alerts can be drilled". Delivery of injected events does not meet that. Each family must fire from its real condition.
 
 **Goal:** a periodic worker job `alert.evaluate` that detects each condition, opens an alert episode, re-alerts while it stays open, and sends a CLEARED alert when it ends. All of these go through the A4 outbox → `alert.deliver` path.
 
@@ -154,7 +156,7 @@ These run after the previous plan's final review. They can run in parallel: A1 �
    - `alert.budget`:
      - the daily research gate, using the same SQL as health-reader `BUDGET_GATE_CLOSED`, with the reason taken from `gate_closed_reason`;
      - any closed question gate;
-     - signer gas-cap refusals: `signing.sign_requests` rows with `state = 'REJECTED'` and `reject_code` in (`GAS_CAP_EXCEEDED`, `GAS_DAILY_CAP_EXCEEDED`) in the last 24 hours, with role as the subject (spec: 「超過即停止並告警」).
+     - signer gas-cap refusals: `signing.sign_requests` rows with `state = 'REJECTED'` and `reject_code` in (`GAS_CAP_EXCEEDED`, `GAS_DAILY_CAP_EXCEEDED`) in the last 24 hours, with role as the subject (spec: "stop and alert when exceeded").
    - `alert.pause`:
      - the indexed global and per-market pause projection, with the same query as the A3 operator-status `pause()`; subject `global` or `market:<id>`;
      - a closed maker-pool gate; subject `pool`, reason `gate_reason`.
@@ -165,7 +167,7 @@ These run after the previous plan's final review. They can run in parallel: A1 �
      - Without an RPC configured, this family is not evaluated, and the docs say so.
    - `alert.keeper_overdue`: a non-FINAL market whose finalize is due (the keeper's own due predicate) and has stayed due for more than 600 chain-seconds (configurable). Subject `market:<id>`. This is separate from `alert.deadline`, which warns before a deadline.
    - `alert.jobs_dead`: the DEAD job count is above 0. The payload carries the count and job types only.
-3. **Keeper independence.** `alert.evaluate` runs whenever the worker runs, including when execution and the keeper are not configured (`docs/OPERATIONS.md`: 「期限告警不依賴 keeper 單一 process」).
+3. **Keeper independence.** `alert.evaluate` runs whenever the worker runs, including when execution and the keeper are not configured (`docs/OPERATIONS.md`: "deadline alerts do not depend on the keeper as a single process").
 4. **Payload hygiene.**
    - The payload allow-list carries `deploymentId`, `family`, `state`, `subject`, `reason`, `since`, and numeric/block fields only.
    - `reason` and codes must match `^[A-Z0-9_]{1,64}$`.
@@ -182,7 +184,7 @@ These run after the previous plan's final review. They can run in parallel: A1 �
 
 ### Task A5: Backup and restore drill
 
-**Goal:** The §17.3 "備份恢復成功" evidence, runnable locally and in CI: dump a deployment database, restore into a fresh one, replay canonical chain events, reconcile reservations, and reopen quoting only after reconciliation.
+**Goal:** The §17.3 "backup restore succeeds" evidence, runnable locally and in CI: dump a deployment database, restore into a fresh one, replay canonical chain events, reconcile reservations, and reopen quoting only after reconciliation.
 
 **Files:** `scripts/restore-drill.ts` (`pnpm drill:restore`), `tests/alpha/restore-drill.test.ts`, `docs/M5_RESTORE_DRILL.md`. It builds on Task 16's `chain:rebuild --verify` and the local Alpha harness.
 

@@ -1,5 +1,7 @@
 # Docs System Implementation Plan
 
+_Status: completed — the docs system shipped on 2026-10-09 (0093a3c, 2466208); see the "Docs system" section of docs/M4_WEB_SHOWCASE_DELIVERY.md._
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace `apps/web`'s `/docs` and `/docs/api` with a Claude-Code-style technical docs system: Markdown-sourced pages for humans (topic sidebar, on-page TOC, Copy page menu, copyable code and agent prompts, light/dark toggle) plus an agent track (`/docs/agents`, raw `.md` for every page, `/llms.txt`).

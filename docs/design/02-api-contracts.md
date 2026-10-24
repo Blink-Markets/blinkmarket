@@ -1,68 +1,70 @@
-# 02 — API 與資料契約
+# 02 — API and Data Contracts
 
-實作差異：`GET /v1/quotes/:quoteId` 只回已簽署 envelope，未簽署時回 404，不回 SIGN_UNKNOWN。RFQ 的 SIGN_UNKNOWN 以同 key、同 body 重送 POST 恢復。市場詳情的 `forecastSnapshotId`／`costMicros` hooks 尚未接線，目前是 null／`"0"`；metrics 的預算總數為全平台，不依 mode 分攤。見 [RFQ 限制](../M2_RFQ.md) 與 [evaluation](../M3_EVALUATION.md)。
+_Status: historical — v0.1 team-operated design baseline (2026-09-22), largely retired by the autonomous-market redesign of 2026-10-23 (§6). Current design: docs/superpowers/specs/2026-10-23-autonomous-market-design.md._
 
-M2.3a 增加 admin-only `GET /v1/admin/creation-intents/:id/chain-status`，回傳有 observedAt/headHash 的歷史觀測快照，不在 GET 時觸發 RPC。即使 CONFIRMED 也不代表不可 reorg；細節見 [建市追蹤](../M2_CREATION_TRACKING.md)。
+Implementation differences: `GET /v1/quotes/:quoteId` returns only a signed envelope. When unsigned it returns 404, not SIGN_UNKNOWN. An RFQ SIGN_UNKNOWN is recovered by resending the POST with the same key and the same body. The market detail hooks `forecastSnapshotId` / `costMicros` are not wired yet and are currently null / `"0"`. The metrics budget total is platform-wide and is not split by mode. See [RFQ limits](../M2_RFQ.md) and [evaluation](../M3_EVALUATION.md).
 
-所有 endpoint prefix /v1。identity 模式啟用 wallet auth；preparation 模式另啟用候選／證據流程；approval 模式再啟用人工核准、管理員建市意圖查詢與公開原始 spec bytes，見 [M2 核准交付](../M2_APPROVAL_DELIVERY.md)。markets 模式已接公開市場／持倉／結算／交易追蹤、forecast、resolution reports 與 metrics；trading 模式另接 RFQ、faucet、公開 `GET /v1/health` 與 admin-only `GET /v1/admin/metrics`。Health 回 `{status, tradingEnabled, reasons}`，ready 為 200、否則 503；admin key 另加 details，無效／非 admin key 回 401／403。API `/health/ready` 使用同一決策；較早模式維持 not-ready。Admin metrics 提供 execution latency、持久化狀態／錯誤計數與 role/day gas，不是公開 evaluation metrics，見 [健康與指標](../M5_HEALTH_METRICS.md)。未啟用的路徑仍 fail-closed。正式 OpenAPI 由 apiContracts 產生，實際可用性依 runtime 模式與 readiness；見 [公開讀取](../M2_PUBLIC_READS.md)、[RFQ](../M2_RFQ.md) 與 [keeper/faucet](../M3_KEEPER_FAUCET.md)。API 尚未部署。
+M2.3a adds the admin-only `GET /v1/admin/creation-intents/:id/chain-status`. It returns a historical observation snapshot with observedAt/headHash and does not trigger an RPC on GET. Even CONFIRMED does not mean the transaction cannot be reorged. For details see [creation tracking](../M2_CREATION_TRACKING.md).
 
-## ID / 型別 / 版本
+All endpoints use the prefix /v1. Identity mode enables wallet auth. Preparation mode also enables the candidate/evidence flow. Approval mode adds manual approval, admin creation-intent queries and public original spec bytes, see [M2 approval delivery](../M2_APPROVAL_DELIVERY.md). Markets mode wires public markets / positions / settlement / transaction tracking, forecast, resolution reports and metrics. Trading mode also wires RFQ, faucet, the public `GET /v1/health` and the admin-only `GET /v1/admin/metrics`. Health returns `{status, tradingEnabled, reasons}`. Ready is 200, otherwise 503. An admin key adds details. An invalid or non-admin key gets 401 / 403. API `/health/ready` uses the same decision. Earlier modes stay not-ready. Admin metrics provide execution latency, persisted state / error counts and role/day gas. They are not the public evaluation metrics, see [health and metrics](../M5_HEALTH_METRICS.md). Paths that are not enabled still fail closed. The official OpenAPI is generated from apiContracts. Actual availability depends on the runtime mode and readiness. See [public reads](../M2_PUBLIC_READS.md), [RFQ](../M2_RFQ.md) and [keeper/faucet](../M3_KEEPER_FAUCET.md). The API is not deployed yet.
 
-- deploymentId：不透明 release ID；同一鏈可存在多部署。marketId：鏈上 uint256 十進位字串，從1開始。DB market UUID 叫 marketRecordId，只供內部 FK。
-- GET /markets/:id 及其子路徑要求 query deploymentId；POST 相同子路徑也以 query 指定。RFQ body 及其他跨部署寫入 body 要求 deploymentId。缺少回400，與持有 quote/manifest 不一致回409 DEPLOYMENT_MISMATCH。
-- GET /markets 可跨部署，回 items 各含 deploymentId/marketId/mode；accounts positions、transactions 查詢亦要求 deploymentId。未部署的 /config 回 deployment=null、tradingEnabled=false。
-- 身份與業務記錄以 UUID，不把 UUID 放進鏈上 marketId。證據／candidate／forecast IDs 不要求十進位。
-- 所有鏈整數／份數／微單位 wire 都是無前導零十進位字串，量級驗證到 uint64/uint256。Quote side 為 "0"/"1"，RFQ side 為 "YES"/"NO"，只在共用 mapper 轉換。
-- Probability 為有限 JSON number、0..1、最多6位小數；過多精度拒絕，不默默截斷。DB NUMERIC(7,6)，定價轉整數 millionths 後計算，避免 float 的 ceil 誤差。
-- timestamp JSON 使用 UTC ISO-8601 Z；供合約簽署的秒數為 decimal string。enum、金額、address、hash 皆有共享 schema。地址解析驗證後 DB 存20 bytes，hash存32 bytes，API回hex。
-- 未知 body 欄位拒絕，query filter 有 allowlist；content-type=application/json；預設 body 上限64KiB。Evidence 原文透過受控 storage pipeline，不塞 POST 任意 blob。
-- List 回 {items,nextCursor}；limit預設20最大100。cursor封裝排序 createdAt/id、filter hash，防串用篩選條件；依 endpoint 權限再過濾。
+## ID / types / versions
 
-上一輪「opaque market ID」設計已被此部署明確的規則取代，見 ADR0002。共享 schema 已使用 deploymentId + chain decimal marketId；`@blink/client` 已補齊型別化端點回應、runtime validation、同 key 重試、spec hash 與 signed quote 驗證；仍是 private workspace package，未發布 npm。外部 agent 範例僅接本機 RPC，見 [SDK 交付](../M5_CLIENT_SDK.md)。
+- deploymentId: an opaque release ID. One chain can have multiple deployments. marketId: the on-chain uint256 as a decimal string, starting from 1. The DB market UUID is called marketRecordId and is used only as an internal FK.
+- GET /markets/:id and its subpaths require the query deploymentId. POST on the same subpaths also names it in the query. The RFQ body and other cross-deployment writes require deploymentId in the body. If missing, return 400. If it is inconsistent with the held quote/manifest, return 409 DEPLOYMENT_MISMATCH.
+- GET /markets can span deployments, and each item carries deploymentId/marketId/mode. The accounts positions and transactions queries also require deploymentId. /config for an undeployed system returns deployment=null, tradingEnabled=false.
+- Identity and business records use UUIDs. A UUID is never put into the on-chain marketId. Evidence / candidate / forecast IDs are not required to be decimal.
+- All on-chain integers / share counts / micro-unit values on the wire are decimal strings without leading zeros, with magnitude validated to uint64/uint256. Quote side is "0"/"1" and RFQ side is "YES"/"NO", converted only in the shared mapper.
+- Probability is a finite JSON number, 0..1, with at most 6 decimal places. Excess precision is rejected and not silently truncated. The DB uses NUMERIC(7,6). Pricing converts to integer millionths before computing, to avoid float ceil errors.
+- JSON timestamps use UTC ISO-8601 Z. The seconds signed for the contract are decimal strings. Enum, amount, address and hash all have shared schemas. After validation, an address is stored in the DB as 20 bytes and a hash as 32 bytes. The API returns hex.
+- Unknown body fields are rejected, and query filters have an allowlist. content-type=application/json. The default body limit is 64KiB. Evidence full text goes through a controlled storage pipeline, and POST does not carry arbitrary blobs.
+- A list returns {items,nextCursor}. limit defaults to 20 and is at most 100. The cursor encapsulates the sort key createdAt/id and a filter hash, to prevent reuse with other filters. Results are filtered again by endpoint permission.
 
-## 身份
+The earlier "opaque market ID" design is explicitly replaced by this deployment-aware rule, see ADR0002. The shared schemas already use deploymentId + chain decimal marketId. `@blink/client` now has typed endpoint responses, runtime validation, same-key retry, and spec hash and signed quote verification. It is still a private workspace package and not published to npm. The external agent example connects only to a local RPC, see [SDK delivery](../M5_CLIENT_SDK.md).
 
-API key：256-bit 隨機 secret，只顯示一次；key ID 可見、secret hash 保存，伺服器恆時比較。key 綁 operator/agent/scopes/expiresAt/revokedAt；預設有效30天、可撤銷，部署 policy 可缩短。邀請發 key 是受稽核管理操作，初期不提供公開 self-signup。
+## Identity
 
-Wallet challenge：已認證 key 請求 address，伺服器產生 nonce、固定 domain、chainId84532、issuedAt、expiresAt（5分鐘）、keyId/agentId；訊息表明「只綁定身份，不授權交易／提款」。只接受伺服器保存的精確 challenge bytes。EOA簽章驗證、nonce在同交易消耗、wallet binding寫入；v0.1 外部 client採EOA，智慧帳戶驗證另行擴充。Challenge本身沒有 approve/fill 語意。
+API key: a 256-bit random secret, shown only once. The key ID is visible and the secret hash is stored. The server compares in constant time. A key is bound to operator/agent/scopes/expiresAt/revokedAt. It is valid for 30 days by default and revocable, and a deployment policy may shorten it. Issuing a key by invitation is an audited admin operation. There is no public self-signup at first.
 
-驗證 key → scope → resource owner → wallet → rate limit → idempotency → schema/use case。無效 key401、無權403；private candidate/quote不向他人揭露存在性，回404。每次冪等重送仍重新驗證當前權限，不因曾成功而繞過撤銷。
+Wallet challenge: an authenticated key requests an address. The server generates a nonce, a fixed domain, chainId 84532, issuedAt, expiresAt (5 minutes) and keyId/agentId. The message states "binds identity only; does not authorize trading or withdrawals". Only the exact challenge bytes stored by the server are accepted. EOA signature verification is done, the nonce is consumed in the same transaction, and the wallet binding is written. In v0.1 the external client uses an EOA, and smart-account verification is added separately. The challenge itself has no approve/fill meaning.
 
-管理操作以受限 admin key/session；Web後續若使用cookie，必須HttpOnly/Secure/SameSite與CSRF。API bearer key不存公開前端bundle。鏈上 ADMIN 簽署由人的錢包完成，不把 API admin 等同鏈上簽章權。
+Verification order: key → scope → resource owner → wallet → rate limit → idempotency → schema/use case. An invalid key gets 401 and a missing permission gets 403. A private candidate/quote does not reveal its existence to others and returns 404. Every idempotent resend re-verifies the current permission. A past success does not bypass revocation.
+
+Admin operations use a restricted admin key/session. If the Web later uses cookies, they must be HttpOnly/Secure/SameSite with CSRF protection. The API bearer key is not stored in the public frontend bundle. An on-chain ADMIN signature is made by a person's wallet. API admin is not treated as the on-chain signing authority.
 
 ## Idempotency
 
-所有 POST 必須 Idempotency-Key（1..128 可列印ASCII）。scope=(operatorId, HTTP method+已解析的部署/資源路徑, key)，payload hash含正規化後全部語義 body/query。JSON key order不影響 hash；這個正規化只用於 HTTP request，不用於 spec bytes。
+Every POST must carry an Idempotency-Key (1..128 printable ASCII). scope=(operatorId, HTTP method + resolved deployment/resource path, key). The payload hash covers all semantic body/query content after normalization. JSON key order does not affect the hash. This normalization applies only to the HTTP request and not to spec bytes.
 
-第一次寫 IN_PROGRESS；業務DB交易成功後保存狀態碼／回應或intent reference。相同payload完成後回原結果；處理中409 REQUEST_IN_PROGRESS + Retry-After；不同payload409 IDEMPOTENCY_CONFLICT。RFQ過期重送仍回同一份已過期quote，不自動產生新價格。
+The first write is IN_PROGRESS. After the business DB transaction succeeds, the status code / response or the intent reference is saved. The same payload after completion returns the original result. While in progress it returns 409 REQUEST_IN_PROGRESS + Retry-After. A different payload returns 409 IDEMPOTENCY_CONFLICT. An RFQ resend after expiry still returns the same expired quote and does not automatically produce a new price.
 
-有外部副作用的 IN_PROGRESS 不以 lease 過期直接重做；由 intent/sign request/provider ID 查明。v0.1 不自動刪除 mutation keys，避免晚到重試重放。業務拒絕也保存終局結果；暫時性失敗是否可續作依 intent state，不開新意圖。
+An IN_PROGRESS with external side effects is not redone just because a lease expired. It is resolved by looking up the intent / sign request / provider ID. v0.1 does not delete mutation keys automatically, to avoid replay by late retries. A business rejection also stores its final result. Whether a transient failure can be continued depends on the intent state, and no new intent is opened.
 
-## 核心寫入
+## Core writes
 
-| Endpoint | Request 的業務欄位 | 成功回應 |
+| Endpoint | Business fields of the request | Success response |
 | --- | --- | --- |
 | POST /candidates | templateId/entityId/fiscalPeriod/thresholdBps/evidenceIds/thesis | 201 candidateId/revision/state=DRAFT |
 | POST /admin/candidates/:id/approve | expectedRevision/spec/budgetMicros/reason | 202 approvalId/specHash/creationIntentId/state=DEPLOY_PENDING |
 | POST /admin/candidates/:id/reject | expectedRevision/reasonCode/reason | 200 candidateId/revision/state=REJECTED |
 | POST /markets/:id/forecasts | horizonKey/probability/evidenceIds/rationale/agentVersion | 201 submissionId/receivedAt/windowId |
 | POST /rfqs | deploymentId/marketId/side/quantity/maxCostMicros | 200 signed quote envelope |
-| POST /transactions | deploymentId/txHash/action/quoteId（fill必填） | 202 trackingId/status=UNKNOWN |
+| POST /transactions | deploymentId/txHash/action/quoteId (required for fill) | 202 trackingId/status=UNKNOWN |
 | POST /markets/:id/resolution-reports | outcome/evidenceIds/reason | 202 reportId/state=RECEIVED |
 | POST /faucet/claims | deploymentId | 202 claimId/intentId/state=QUEUED |
 
-approval 的 spec 先驗證與凍結才回202；202是「已提交部署意圖」，不是鏈上市場已存在。forecast時間由DB接收當刻產生，不接受client supplied receivedAt；horizonKey={horizonType,scheduledAt}，完整唯一性還包含deployment/market。
+The approval spec is validated and frozen before the 202 is returned. The 202 means "deployment intent submitted". It does not mean the on-chain market exists. The forecast time is generated by the DB at the moment of receipt, and a client-supplied receivedAt is not accepted. horizonKey={horizonType,scheduledAt}. Full uniqueness also includes deployment/market.
 
-transactions 只接受txHash提示，獨立查 RPC 的 chain/from/to/function/log；不能以使用者 body 將交易標記 INCLUDED。保護 body/query 日誌免洩敏感資料。
+transactions accepts only a txHash hint and independently queries the RPC for chain/from/to/function/log. A user body can never mark a transaction INCLUDED. Protect body/query logs from leaking sensitive data.
 
-## RFQ envelope 範例結構
+## RFQ envelope example structure
 
 ```text
 {
   deploymentId, quoteId, marketId, mode,
   chainId: 84532, verifyingContract,
   domain: {name: "Blink RFQ", version: "0.1", chainId: 84532, verifyingContract},
-  types: {Quote: [固定11欄位]},
+  types: {Quote: [fixed 11 fields]},
   message: {marketId,specHash,maker,taker,side,quantity,priceBps,validAfter,expiresAt,nonce,epoch},
   signature,
   takerCostMicros, makerCostMicros, expiresAt,
@@ -72,45 +74,45 @@ transactions 只接受txHash提示，獨立查 RPC 的 chain/from/to/function/lo
 }
 ```
 
-這是欄位示意，不是假簽章回應。所有message整數用字串。Client從固定ABI/domain重新encode/hash/recover，核對wallet/manifest/市場spec/成本/maxCost/side/quantity/expiry；不能盲送server calldata。Approve只給本筆額度；approve後quote過期需以新idempotency key重新詢價、重新確認價格。
+This illustrates the fields and is not a fake signed response. All message integers are strings. The client re-encodes, re-hashes and recovers from the fixed ABI/domain, and checks wallet / manifest / market spec / cost / maxCost / side / quantity / expiry. It must not blindly send the server calldata. Approve covers only this quote's amount. If the quote expires after approve, the client must request a new quote with a new idempotency key and reconfirm the price.
 
-NO_QUOTE以409回錯誤envelope，details.reason包含具體原因；明確的STALE_FORECAST/INDEXER_LAG等可直接作code，不填虛構價格。
+NO_QUOTE returns an error envelope with 409, and details.reason holds the specific reason. A clear STALE_FORECAST / INDEXER_LAG and similar can be used directly as the code. No made-up price is filled in.
 
-## 讀取模型
+## Read model
 
-市場詳情回 specHash/specURI/mode、storedState/effectiveState、paused、schedule、resolution、forecastSummary、costSummary、chainCursor、canTrade/reasons。reason只作當下提示，fill仍以合約驗證。
+Market detail returns specHash/specURI/mode, storedState/effectiveState, paused, schedule, resolution, forecastSummary, costSummary, chainCursor, canTrade/reasons. A reason is only a hint for the current moment. A fill is still validated by the contract.
 
-forecast窗口未截止：未認證訪客回空items+windowStatus=OPEN；認證agent只回自身，不回其他人count/平均/理由。截止後才公開，withdrawn/contaminated保留標記。
+While the forecast window is not closed: an unauthenticated visitor gets empty items + windowStatus=OPEN. An authenticated agent gets only its own forecasts, and not the count, average or rationale of others. They become public only after the close. Withdrawn / contaminated markers are kept.
 
-positions回yesShares/noShares、payoutMicros（未FINAL為null）、pending intents、chainCursor；UNKNOWN不加確定份數。resolution回proposal/challenge/finalization的actor/evidence/tx reference，區分proposedOutcome/finalOutcome。
+positions returns yesShares/noShares, payoutMicros (null before FINAL), pending intents and chainCursor. UNKNOWN adds no definite share count. resolution returns the actor / evidence / tx reference of the proposal / challenge / finalization, and distinguishes proposedOutcome from finalOutcome.
 
-GET spec傳回儲存原bytes與Content-Type application/json，ETag=specHash、不可動態重新serialize或注入欄位。Evidence metadata依accessPolicy，無全文權限只回允許摘錄及來源，不返回private object URI/presigned URL給未授權人。
+GET spec returns the stored original bytes with Content-Type application/json and ETag=specHash. It must not be re-serialized dynamically or have fields injected. Evidence metadata follows accessPolicy. A caller without full-text permission gets only the permitted excerpt and source, and no private object URI / presigned URL is returned to an unauthorized party.
 
 ## Error mapping
 
-共通 {code,message,requestId,retryable,details}；details只含可公開資料，不回stack/provider credentials。
+Common shape {code,message,requestId,retryable,details}. details holds only public data, and never a stack or provider credentials.
 
-| HTTP | code 類別 | Client 行為 |
+| HTTP | code category | Client behavior |
 | --- | --- | --- |
-| 400 | INVALID_REQUEST / INVALID_SPEC | 修正输入 |
-| 401 / 403 | UNAUTHORIZED / SCOPE_DENIED / WALLET_NOT_VERIFIED | 重新認證或補綁定，不重送交易 |
-| 404 | NOT_FOUND | 檢查部署/資源；不洩private資源 |
-| 409 | IDEMPOTENCY_CONFLICT / REQUEST_IN_PROGRESS / DEPLOYMENT_MISMATCH / TX_PENDING | 核對原intent，必要時poll |
-| 409 | MARKET_CLOSED / TRADING_PAUSED / QUOTE_EXPIRED / QUOTE_CANCELLED / QUOTE_CONSUMED | 停止或明確重新詢價，不盲重試fill |
-| 409 | DUPLICATE_CANDIDATE / FORECAST_WINDOW_CLOSED / FORECAST_ALREADY_SUBMITTED | 保留原提交，不以新key繞過 |
-| 409 | BUDGET_EXHAUSTED / PRICE_LIMIT_EXCEEDED / INSUFFICIENT_MAKER_BALANCE / NO_QUOTE / STALE_FORECAST | 等條件改變後建立新請求 |
-| 429 | RATE_LIMITED | 遵守Retry-After |
-| 503 | INDEXER_LAG / CHAIN_UNAVAILABLE / SERVICE_NOT_READY | 可重試讀取；寫入先查intent |
-| 500 | INTERNAL_ERROR | requestId追蹤；不能推論交易失敗 |
+| 400 | INVALID_REQUEST / INVALID_SPEC | fix the input |
+| 401 / 403 | UNAUTHORIZED / SCOPE_DENIED / WALLET_NOT_VERIFIED | re-authenticate or complete the binding, do not resend the transaction |
+| 404 | NOT_FOUND | check the deployment/resource; do not leak private resources |
+| 409 | IDEMPOTENCY_CONFLICT / REQUEST_IN_PROGRESS / DEPLOYMENT_MISMATCH / TX_PENDING | check the original intent, poll if needed |
+| 409 | MARKET_CLOSED / TRADING_PAUSED / QUOTE_EXPIRED / QUOTE_CANCELLED / QUOTE_CONSUMED | stop or explicitly request a new quote, do not blindly retry the fill |
+| 409 | DUPLICATE_CANDIDATE / FORECAST_WINDOW_CLOSED / FORECAST_ALREADY_SUBMITTED | keep the original submission, do not bypass with a new key |
+| 409 | BUDGET_EXHAUSTED / PRICE_LIMIT_EXCEEDED / INSUFFICIENT_MAKER_BALANCE / NO_QUOTE / STALE_FORECAST | wait for the condition to change, then create a new request |
+| 429 | RATE_LIMITED | obey Retry-After |
+| 503 | INDEXER_LAG / CHAIN_UNAVAILABLE / SERVICE_NOT_READY | reads can be retried; for writes, check the intent first |
+| 500 | INTERNAL_ERROR | trace by requestId; do not infer that the transaction failed |
 
-rate limit初值沿用規格：讀60/IP/min；RFQ2/key/sec burst5，未到期quote<=5/taker；尚未到期但sign未知亦算配額。水平擴容前需同DB計數/鎖，不能每pod各給一次額度。
+Initial rate limits follow the spec: reads 60/IP/min; RFQ 2/key/sec with burst 5, and at most 5 unexpired quotes per taker. A quote that is not yet expired but whose signing state is unknown also counts toward the quota. Before scaling out horizontally, counting/locking against the same DB is required. Each pod must not grant its own separate quota.
 
-## Spec v0.1.1 設計
+## Spec v0.1.1 design
 
-沿用v0.1欄位，增加固定 resolutionPolicy：
-- hardDeadlineOutcome="INVALID"。
-- unfinalizedProposalAtHardDeadline="INVALID"。
-- invalidPayoutRule="HALF_PER_SIDE_NOT_PURCHASE_REFUND"。
-- authorityModel="TEAM_OPERATED_WHITELISTED_ROLES"。
+It keeps the v0.1 fields and adds a fixed resolutionPolicy:
+- hardDeadlineOutcome="INVALID".
+- unfinalizedProposalAtHardDeadline="INVALID".
+- invalidPayoutRule="HALF_PER_SIDE_NOT_PURCHASE_REFUND".
+- authorityModel="TEAM_OPERATED_WHITELISTED_ROLES".
 
-版本字串改 blink.market.v0.1.1；已有v0.1 fixture仍保留且不能改其hash後假稱同一文件。核准時deterministic serializer只執行一次，persist該UTF-8 bytes、keccak256、長度、schemaVersion。後續只讀原檔。沒有真實部署，M0可直接將新建市切到v0.1.1並保留舊版reader/schema測試。
+The version string changes to blink.market.v0.1.1. The existing v0.1 fixture is kept, and its hash must not be changed and then called the same document. At approval, the deterministic serializer runs only once and persists those UTF-8 bytes, the keccak256, the length and the schemaVersion. Later steps only read the original file. There is no real deployment, so M0 can switch new market creation directly to v0.1.1 and keep the legacy reader/schema tests.

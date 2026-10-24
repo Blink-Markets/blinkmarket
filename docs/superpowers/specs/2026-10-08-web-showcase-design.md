@@ -1,144 +1,146 @@
-# Web 展示站設計（M4 前置：唯讀介紹站）
+# Web showcase site design (M4 precursor: read-only introduction site)
 
-> 日期：2026-10-08
-> 範圍：`apps/web` 的唯讀展示頁面。本站**不提供任何交易、錢包或寫入操作**。
-> 狀態：設計已核准，待寫實作計畫。
+_Status: completed — implemented on 2026-10-09 (f3ac5a5, 57e7a7e; delivery record docs/M4_WEB_SHOWCASE_DELIVERY.md); the visual system was later extended by the docs system and the market detail pages. Current design: docs/superpowers/specs/2026-10-23-autonomous-market-design.md._
 
-## 1. 目標與限制
+> Date: 2026-10-08
+> Scope: the read-only showcase pages of `apps/web`. This site **offers no trading, wallet or write operations**.
+> Status: design approved; implementation plan still to be written.
 
-Blink 主要使用者是 agent，不是人類交易者。網站負責讓訪客、評審與 agent 開發者看懂產品、設計與接入方式，並瀏覽「熱門市場」範例。
+## 1. Goals and limits
 
-- 頁面：`/`、`/markets`、`/how-it-works`、`/docs`、`/docs/api`。不做市場詳情、交易、持倉、管理頁。
-- 語言：英文。
-- 市場資料：靜態範例，全部 `mode: "REPLAY"`、虛構公司、GM_LT_V1 題型，並標示 `SAMPLE · REPLAY`。不接 API、不引用真實公司數據。
-- 全站常駐測試網提示；不得暗示已部署 Sepolia 或已開放交易（規格 §2.2、§13）。
-- 不新增 npm 依賴。不使用 Tailwind。樣式用 CSS Modules + `globals.css` tokens。
-- 只做淺色模式。
+Blink's main users are agents, not human traders. The website lets visitors, reviewers and agent developers understand the product, its design and how to connect, and browse example "trending markets".
 
-成功判定：
+- Pages: `/`, `/markets`, `/how-it-works`, `/docs`, `/docs/api`. No market detail, trading, positions or admin pages.
+- Language: English.
+- Market data: static examples, all `mode: "REPLAY"`, fictional companies, the GM_LT_V1 question type, labelled `SAMPLE · REPLAY`. No API connection and no real company data.
+- A permanent testnet notice on every page; the site must not suggest that Sepolia is deployed or that trading is open (spec §2.2, §13).
+- No new npm dependencies. No Tailwind. Styles use CSS Modules + `globals.css` tokens.
+- Light mode only.
 
-1. 五個路由皆可 `pnpm build` 成功並以 Server Component 為主渲染。
-2. 首頁 hero 逐字遮罩動畫與 trail 展開可運作；`prefers-reduced-motion: reduce` 時直接呈現最終畫面。
-3. 捲動揭露在支援 `animation-timeline: view()` 的瀏覽器用 CSS，其他瀏覽器以 IntersectionObserver 退回；JS 失效時內容仍可見。
-4. 375px 寬無水平捲動；桌面與手機截圖目視通過。
-5. `pnpm check`、`pnpm build` 通過。
+Success criteria:
 
-## 2. 視覺系統（取自 mono-color skill 的規則）
+1. All five routes build with `pnpm build` and render mainly as Server Components.
+2. The home page hero's word-by-word mask animation and the trail reveal work; with `prefers-reduced-motion: reduce` the final screen is shown directly.
+3. Scroll reveal uses CSS in browsers that support `animation-timeline: view()` and falls back to IntersectionObserver elsewhere; content stays visible when JS fails.
+4. No horizontal scroll at 375px width; desktop and phone screenshots pass visual inspection.
+5. `pnpm check` and `pnpm build` pass.
 
-只借用規則，不複製 skill `examples/` 內任何圖像（其授權禁止商用）。
+## 2. Visual system (rules taken from the mono-color skill)
 
-| Token | 值 | 角色 |
+Only the rules are borrowed. No image from the skill's `examples/` is copied (its license forbids commercial use).
+
+| Token | Value | Role |
 | --- | --- | --- |
-| `--paper` | `#FAFAF7` | 全站底色（Neutral White substrate） |
-| `--cobalt` | `#2148B8` | 主油墨：插畫主體、網點、細線、連結、資料條 |
-| `--terracotta` | `#C65F38` | 強調油墨：只用於「trail」——hero 強調字、手繪路徑、機率標記 |
-| `--ink` | `#242321` | 內文與標籤（為可讀性刻意偏離兩色限制；插畫與圖形仍嚴守兩色） |
-| `--rule` | `#24232133` | 細分隔線（ink 密度變化，不算新色） |
+| `--paper` | `#FAFAF7` | Site background (Neutral White substrate) |
+| `--cobalt` | `#2148B8` | Primary ink: illustration subjects, halftone dots, thin lines, links, data bars |
+| `--terracotta` | `#C65F38` | Accent ink: used only for the "trail": the hero emphasis word, the hand-drawn path, probability markers |
+| `--ink` | `#242321` | Body text and labels (a deliberate departure from the two-colour limit for readability; illustrations and graphics still keep strictly to two colours) |
+| `--rule` | `#24232133` | Thin divider lines (a density variation of ink, not a new colour) |
 
-規則：
+Rules:
 
-- 插畫只能使用 cobalt、terracotta 與紙色；深淺用網點密度與透明度表現，不加漸層、陰影、霓虹、3D。
-- 每個插畫指定一個主體物件（佔畫面 45–80%），至少一處讓紙色切入主體（knockout／網點淡出）。
-- 唯一手繪記號家族：terracotta 手繪路徑（略帶抖動的 path）。其他地方不使用額外塗鴉風格。
-- 不做卡片網格；資訊用「格線資訊表」排版（細線分隔、tabular numerals）。
-- 留白積極：每個區塊保留大量空白，主要元素對齊左側隱形邊線或 2–3 欄網格；每個區塊只安排一個刻意打破對齊的元素。
-- 字體：Geist（display：粗、字距收緊；body）＋ Geist Mono（標籤、數字、狀態）。經 `next/font` 載入。display 與 microcopy 約 10:1。
-- 文案語氣：簡潔、觀察式、事實清楚；不使用銷售語、hype 或 CTA 按鈕式文案（連結以文字連結呈現）。
+- Illustrations may use only cobalt, terracotta and the paper colour. Light and dark are shown through halftone density and opacity. No gradients, shadows, neon or 3D.
+- Each illustration has one subject object (45-80% of the frame), and at least one place where the paper colour cuts into the subject (knockout / halftone fade).
+- The only hand-drawn mark family is the terracotta hand-drawn path (a slightly wobbly path). No other doodle style is used anywhere else.
+- No card grids. Information is laid out as a "grid information table" (thin line dividers, tabular numerals).
+- Generous white space: every block keeps a lot of empty space, and the main elements align to an invisible left edge or a 2-3 column grid. Each block has only one element that deliberately breaks the alignment.
+- Fonts: Geist (display: bold, tight letter-spacing; body) + Geist Mono (labels, numbers, status), loaded through `next/font`. Display to microcopy is about 10:1.
+- Copy tone: concise, observational, factually clear. No sales language, hype or CTA-button style copy (links appear as text links).
 
-## 2.1 Blink 視覺母題（2026-10-09 依模擬頁核准）
+## 2.1 Blink visual motif (approved on 2026-10-09 from the mockup page)
 
-核准的視覺基準：`docs/superpowers/specs/assets/2026-10-08-web-showcase-mockup.html`（第 2 版）。
+Approved visual baseline: `docs/superpowers/specs/assets/2026-10-08-web-showcase-mockup.html` (version 2).
 
-- 名稱意義：blink＝一個瞬間、一張快照，對應證據快照、帶時間戳的預測窗口、凍結的規格 hash。
-- 眼睛字標：杏仁形 cobalt 眼＋實心虹膜＋terracotta 小反光，置於「Blink」字前；約每 6 秒眨一次（scaleY 1 → 0.08 → 1）。
-- 統一出場語言「睜眼」：所有揭露（`data-reveal`、hero 節點）以 `clip-path: inset(50% 0 50% 0)` 從水平中線上下撐開，取代淡入上滑。
-- 開場睜眼：hero 先出現 terracotta 眼縫線，再以橢圓 clip-path 從該線撐開，之後才逐字升起。
-- 光圈區塊（Aperture）：hero 之後的全寬 cobalt 區塊。進入視窗時先見 terracotta 縫線，隨捲動以 `ellipse()` clip-path 從縫線撐開；右側網點虹膜隨捲動輕微縮放與旋轉。文案：`A blink is a snapshot` / `Every forecast records what an agent knew, and when.` / `Evidence is kept as original bytes. Forecasts land inside fixed, timestamped windows. Specs are frozen by hash, and withdrawn forecasts stay on the record.`
-- 光圈區塊內的紙色網點（`ht-paper-30`、`ht-paper-60`）是紙色 knockout，不算新油墨。
-- 全部動作僅在 `prefers-reduced-motion: no-preference` 下啟用；否則顯示張開後的最終狀態。
+- Meaning of the name: blink = a moment, a snapshot. It maps to the evidence snapshot, the timestamped forecast window and the frozen spec hash.
+- Eye wordmark: an almond-shaped cobalt eye + a solid iris + a small terracotta highlight, placed before the word "Blink"; it blinks about every 6 seconds (scaleY 1 → 0.08 → 1).
+- Unified entrance language, "eye opening": every reveal (`data-reveal`, hero nodes) opens up and down from the horizontal midline with `clip-path: inset(50% 0 50% 0)`, instead of a fade-in slide-up.
+- Opening eye: the hero first shows a terracotta eye-slit line, then opens from that line with an elliptical clip-path, and only then do the words rise one by one.
+- Aperture block: a full-width cobalt block after the hero. On entering the viewport, a terracotta slit line is seen first, and the block opens from the slit with an `ellipse()` clip-path as the page scrolls; the halftone iris on the right scales and rotates slightly with scrolling. Copy:`A blink is a snapshot` / `Every forecast records what an agent knew, and when.` / `Evidence is kept as original bytes. Forecasts land inside fixed, timestamped windows. Specs are frozen by hash, and withdrawn forecasts stay on the record.`
+- The paper-colour dots inside the aperture block (`ht-paper-30`, `ht-paper-60`) are paper-colour knockouts, not a new ink.
+- All motion is enabled only under `prefers-reduced-motion: no-preference`; otherwise the final opened state is shown.
 
-## 3. 動畫
+## 3. Animation
 
-不加套件：CSS scroll-driven animations、IntersectionObserver、Web Animations API。
+No packages are added: CSS scroll-driven animations, IntersectionObserver, the Web Animations API.
 
-### 3.1 Hero（`components/home/Hero.tsx` Server Component＋`HeroTrail.tsx` client 量測）
+### 3.1 Hero (`components/home/Hero.tsx` Server Component + `HeroTrail.tsx` client measurement)
 
-1. 文字：`every forecast` / `leaves a trail`，`trail` 為 terracotta。
-2. 每個字包在 `overflow: clip` 的遮罩中，自下方升起；間隔約 220ms，緩動 `cubic-bezier(.2,.7,.1,1)`，無彈跳。
-3. 全部出現後停頓約 600ms，`trail` 文字淡出並收成同尺寸 terracotta 色塊。
-4. 色塊高度收窄成線，接續成手繪 trail path（`stroke-dashoffset` 畫出），依序串起四個網點節點插畫：證據紙（evidence）、預測刻度盤（forecast）、報價票根（quote）、結算印章（resolution）。
-5. reduced-motion：直接渲染最終狀態（文字、`trail` 文字保留、路徑與節點完整）。
-6. 文字動畫為 `@media (prefers-reduced-motion: no-preference)` 內的 CSS keyframes，靜態樣式即最終畫面。trail 路徑由 `HeroTrail`（client）於執行時量測底線、文案區塊與節點中心後產生（`trail-geometry.ts` 純函式），保證從底線接出、繞開文案並穿過每個節點；resize 與字體載入後重算。無 JS 時不顯示路徑，其餘完整。
+1. Text: `every forecast` / `leaves a trail`, with `trail` in terracotta.
+2. Each word is wrapped in an `overflow: clip` mask and rises from below; the interval is about 220ms, the easing is `cubic-bezier(.2,.7,.1,1)`, with no bounce.
+3. After everything has appeared, pause for about 600ms; the `trail` text fades out and collapses into a terracotta block of the same size.
+4. The block narrows in height into a line, which continues as a hand-drawn trail path (drawn with `stroke-dashoffset`), linking the four halftone node illustrations in order: evidence paper (evidence), forecast dial (forecast), quote stub (quote) and resolution stamp (resolution).
+5. reduced-motion: render the final state directly (the text, with the `trail` text kept, and the full path and nodes).
+6. The text animation is CSS keyframes inside `@media (prefers-reduced-motion: no-preference)`, and the static style is the final screen. The trail path is generated by `HeroTrail` (client) at runtime after measuring the underline, the copy block and the node centres (the pure function `trail-geometry.ts`). It is guaranteed to start from the underline, avoid the copy and pass through every node; it is recomputed on resize and after fonts load. Without JS the path is not shown and everything else is complete.
 
-### 3.2 捲動揭露（`components/motion/Reveal`）
+### 3.2 Scroll reveal (`components/motion/Reveal`)
 
-- 預設樣式可見。支援 `animation-timeline: view()` 時，以 CSS 做 opacity／translate 進場。
-- 不支援時，一個小型 client 元件以 IntersectionObserver 加上 `is-visible` class。
-- trail 路徑在 `/` 流程預告與 `/how-it-works` 隨捲動畫出（view timeline 驅動 `stroke-dashoffset`；退回時進場一次畫完）。
-- reduced-motion 時全部停用。
+- The default style is visible. Where `animation-timeline: view()` is supported, CSS handles the opacity/translate entrance.
+- Where it is not supported, a small client component adds the `is-visible` class with IntersectionObserver.
+- The trail path is drawn with scrolling in the `/` flow preview and in `/how-it-works` (a view timeline drives `stroke-dashoffset`; in the fallback it is drawn in full once on entry).
+- All of it is disabled under reduced-motion.
 
-## 4. 頁面內容
+## 4. Page content
 
-### 4.1 共用
+### 4.1 Shared
 
-- `SiteHeader`：`Blink` 字標、Markets、How it works、Docs、GitHub（`https://github.com/Blink-Markets/blinkmarket`）。
-- `TestnetStrip`（mono 小字常駐）：`BASE SEPOLIA TESTNET · TEST ASSETS HAVE NO VALUE · NO TRADING ON THIS SITE`。
-- `SiteFooter`：專案現況一句話＋repo 連結。
+- `SiteHeader`: the `Blink` wordmark, Markets, How it works, Docs, GitHub (`https://github.com/Blink-Markets/blinkmarket`).
+- `TestnetStrip` (small permanent mono text): `BASE SEPOLIA TESTNET · TEST ASSETS HAVE NO VALUE · NO TRADING ON THIS SITE`.
+- `SiteFooter`: a one-sentence project status + a repo link.
 
 ### 4.2 `/`
 
-1. Hero（§3.1）＋一句產品說明＋mono 狀態行（例如 `M0–M2 built locally · no public deployment`）。
-2. What Blink is：三段——off-chain research & coordination、on-chain funds & outcomes、separate signing & sync（依 README 架構段落改寫）。
-3. Trending markets：取 4 筆範例（§5），格線資訊表，連到 `/markets`。
-4. The loop：Define → Forecast → Quote → Resolve → Evaluate 五步預告，trail 隨捲動畫出，連到 `/how-it-works`。
-5. For agents：`GET /v1/markets` curl 範例（host 使用 `<API_BASE_URL>` 佔位，不虛構網域）＋連到 `/docs`。
-6. Where it stands：依 `docs/ROADMAP.md` 列出 M0–M5 狀態。
+1. Hero (§3.1) + a one-sentence product description + a mono status line (for example `M0–M2 built locally · no public deployment`).
+2. What Blink is: three paragraphs: off-chain research & coordination, on-chain funds & outcomes, separate signing & sync (rewritten from the README architecture section).
+3. Trending markets: take 4 examples (§5), shown as a grid information table, linking to `/markets`.
+4. The loop: a preview of the five steps Define → Forecast → Quote → Resolve → Evaluate, with the trail drawn on scroll, linking to `/how-it-works`.
+5. For agents: a `GET /v1/markets` curl example (the host uses the `<API_BASE_URL>` placeholder, with no invented domain) + a link to `/docs`.
+6. Where it stands: list the M0–M5 status from `docs/ROADMAP.md`.
 
 ### 4.3 `/markets`
 
-- 頁首註明 `Sample data · REPLAY only · not live markets`。
-- 約 6 筆範例。欄位（規格 §13.1）：question、mode（LIVE/REPLAY 標籤）、forecast probability（cobalt 資料條＋terracotta 標記）、updated、outcome status。
-- 不做篩選或排序（YAGNI）。
+- The page header states `Sample data · REPLAY only · not live markets`.
+- About 6 examples. Columns (spec §13.1): question, mode (LIVE/REPLAY label), forecast probability (cobalt data bar + terracotta marker), updated, outcome status.
+- No filtering or sorting (YAGNI).
 
 ### 4.4 `/how-it-works`
 
-1. 五章捲動敘事（Define / Forecast / Quote / Resolve / Evaluate），每章一張 SVG 插畫＋2–4 句說明，內容依 README「How It Works」與規格。
-2. Architecture & trust boundaries：鏈下研究、鏈上資金、Private signer、Indexer 的責任區分（SVG 圖）。
-3. Worked example：買 100 YES @ 6,000 bps → taker 60 bUSD＋maker 40 bUSD＝100 bUSD 抵押；YES／NO／INVALID 三種支付（INVALID 每份 0.5 bUSD）。
-4. Not in v0.1：依規格 §0.2 精簡列出。
+1. A five-chapter scroll narrative (Define / Forecast / Quote / Resolve / Evaluate), each chapter with one SVG illustration + 2-4 sentences, with content taken from the README "How It Works" and the spec.
+2. Architecture & trust boundaries: the division of responsibility between off-chain research, on-chain funds, the private signer and the indexer (SVG diagram).
+3. Worked example: buy 100 YES @ 6,000 bps → taker 60 bUSD + maker 40 bUSD = 100 bUSD collateral; the three payouts YES / NO / INVALID (INVALID pays 0.5 bUSD per share).
+4. Not in v0.1: a short list taken from spec §0.2.
 
 ### 4.5 `/docs`
 
-- Concepts：依 `CONTEXT.md` 詞彙改寫為英文（Market、MarketSpec、Forecast window、Baseline、Quote、Complete set、Finality、INVALID）。
-- Connecting an agent：邀請制寫入、wallet challenge 認證（`/v1/auth/wallet-challenges`、`/v1/auth/wallet-verifications`）、取得題目、提交預測的步驟。
-- Current limits：API 未對外部署、無 Sepolia 部署、交易／RFQ／signer 尚未接線。
+- Concepts: rewritten in English from the `CONTEXT.md` glossary (Market, MarketSpec, Forecast window, Baseline, Quote, Complete set, Finality, INVALID).
+- Connecting an agent: the steps for invite-only writes, wallet challenge authentication (`/v1/auth/wallet-challenges`, `/v1/auth/wallet-verifications`), getting questions and submitting forecasts.
+- Current limits: the API is not deployed externally, there is no Sepolia deployment, and trading / RFQ / signer are not yet wired.
 
 ### 4.6 `/docs/api`
 
-- 建置時呼叫 `@blink/schemas` 的 `generateOpenApi()`（`artifacts/openapi.json` 被 gitignore，CI 中不存在），由 `content/openapi-index.ts` 的純函式抽出 method、path、`x-status`、`x-planned-access` 並依 `/v1/` 後第一段分組。web 需新增 workspace 依賴 `@blink/schemas`。
-- 頁首註明顯示的是預設契約狀態，而非運行中服務。
+- At build time, call `generateOpenApi()` from `@blink/schemas` (`artifacts/openapi.json` is gitignored and does not exist in CI). Pure functions in `content/openapi-index.ts` extract method, path, `x-status` and `x-planned-access` and group by the first segment after `/v1/`. The web app needs a new workspace dependency on `@blink/schemas`.
+- The page header states that what is shown is the default contract state, not a running service.
 
-## 5. 範例市場資料（`content/sample-markets.ts`）
+## 5. Sample market data (`content/sample-markets.ts`)
 
-型別：
+Type:
 
 ```ts
 type SampleMarket = {
   id: string;            // "sample-01" …
-  mode: "REPLAY";        // 範例一律 REPLAY
-  entity: string;        // 虛構公司名
-  fiscalPeriod: string;  // "FY2025Q3"；問題文字由 marketQuestion() 依 GM_LT_V1 產生
+  mode: "REPLAY";        // examples are always REPLAY
+  entity: string;        // fictional company name
+  fiscalPeriod: string;  // "FY2025Q3"; the question text is produced by marketQuestion() from GM_LT_V1
   thresholdBps: number;
-  forecastBps: number;   // 0–10000，平台 forecaster 平均（範例值）
+  forecastBps: number;   // 0–10000, platform forecaster average (example value)
   updatedAt: string;     // YYYY-MM-DD
-  state: "OPEN" | "CLOSED" | "PROPOSED" | "DISPUTED" | "FINAL"; // 同 schemas effectiveState
-  outcome: "YES" | "NO" | "INVALID" | null;                    // 僅 FINAL 有值
+  state: "OPEN" | "CLOSED" | "PROPOSED" | "DISPUTED" | "FINAL"; // same as schemas effectiveState
+  outcome: "YES" | "NO" | "INVALID" | null;                    // only FINAL has a value
 };
 ```
 
-資料原則：虛構公司、`example.com` 類來源、不聲稱任何事前預測紀錄。
+Data principles: fictional companies, `example.com`-style sources, and no claim of any prior forecast record.
 
-## 6. 檔案結構
+## 6. File structure
 
 ```
 apps/web/
@@ -150,22 +152,22 @@ apps/web/
   content/sample-markets.ts, content/openapi-index.ts
 ```
 
-- 刪除 `apps/web/app/route.ts`：它佔用 `/` 與首頁衝突，且僅為暫時 JSON 佔位；repo 內無其他引用。
-- 開始實作前須閱讀 `apps/web/node_modules/next/dist/docs/` 中相關指南（Next 16 有破壞性變更，見 `apps/web/AGENTS.md`）。
+- Delete `apps/web/app/route.ts`: it occupies `/` and conflicts with the home page, and it is only a temporary JSON placeholder; nothing else in the repo references it.
+- Before starting implementation, read the relevant guides in `apps/web/node_modules/next/dist/docs/` (Next 16 has breaking changes; see `apps/web/AGENTS.md`).
 
-## 7. 測試與驗證
+## 7. Testing and verification
 
-- `tests/web-sample-markets.test.ts`、`tests/web-openapi-index.test.ts`、`tests/web-trail-geometry.test.ts`（node test runner，分檔以利平行實作；trail 測試固定路徑穿過每個點、決定性、窄螢幕退回路線）：
-  - 所有範例市場 `mode === "REPLAY"`、`forecastBps` 在 0–10000、id 唯一。
-  - `openapi-index` 對 `generateOpenApi()` 產生的條目數等於 paths × methods 數；缺 vendor extension 時顯示 `unspecified`。
-- `pnpm check`、`pnpm build`。
-- 啟動 `pnpm --filter @blink/web dev`，桌面與 375px 截圖目視檢查；以 reduced-motion 模擬確認最終狀態。
+- `tests/web-sample-markets.test.ts`, `tests/web-openapi-index.test.ts`, `tests/web-trail-geometry.test.ts` (node test runner, split into files to allow parallel implementation; the trail tests fix that the path passes through every point, is deterministic, and falls back to a fallback route on narrow screens):
+  - Every sample market has `mode === "REPLAY"`, `forecastBps` within 0–10000, and a unique id.
+  - The number of `openapi-index` entries produced from `generateOpenApi()` equals the number of paths × methods; a missing vendor extension shows `unspecified`.
+- `pnpm check`, `pnpm build`.
+- Start `pnpm --filter @blink/web dev`, and inspect desktop and 375px screenshots by eye; confirm the final state by simulating reduced-motion.
 
-## 8. 執行方式
+## 8. Execution
 
-使用多個子代理平行實作：
+Implement in parallel with several subagents:
 
-- T0 基礎（先完成）：tokens、layout、字體、TestnetStrip、header／footer、Reveal、HalftoneDefs、刪除 `route.ts`。
-- T0 後平行：T1 Hero 動畫；T2 插畫組件；T3 `/markets`＋範例資料＋測試；T4 `/how-it-works`；T5 `/docs`＋`/docs/api`＋OpenAPI 索引＋測試。
-- T1、T4 會使用 T2 的插畫組件；實作計畫須先固定各插畫組件的檔名與 props 介面（例如 `{ className?: string }`），讓平行任務只依賴介面。
-- 最後：組裝首頁、整合驗證、更新進度文件、commit 與 push。
+- T0 foundation (done first): tokens, layout, fonts, TestnetStrip, header/footer, Reveal, HalftoneDefs, delete `route.ts`.
+- In parallel after T0: T1 hero animation; T2 illustration components; T3 `/markets` + sample data + tests; T4 `/how-it-works`; T5 `/docs` + `/docs/api` + OpenAPI index + tests.
+- T1 and T4 use the T2 illustration components; the implementation plan must first fix the file name and props interface of each illustration component (for example `{ className?: string }`), so that parallel tasks depend only on the interface.
+- Last: assemble the home page, integration verification, update the progress document, commit and push.

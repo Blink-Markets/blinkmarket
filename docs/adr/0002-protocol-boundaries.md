@@ -1,45 +1,47 @@
-# ADR 0002 — 固定部署身份、角色與復原邊界
+# ADR 0002 — Fixed deployment identity, roles and recovery boundaries
 
-狀態：採用。原始決策日期：2026-09-22；當時工作包 A/B/C 尚待實作，後續範圍見 [整體架構](../ARCHITECTURE.md) 與 [驗收矩陣](../ACCEPTANCE_MATRIX.md)，不代表已部署。
+Status: adopted. Original decision date: 2026-09-22; work packages A/B/C were still to be implemented at that time. For the later scope see the [architecture](../ARCHITECTURE.md) and the [acceptance matrix](../ACCEPTANCE_MATRIX.md); this does not mean anything is deployed.
+
+_Status: partially superseded — sections 2 (fixed roles), 4 (restricted signer) and 6 (manual ADMIN pause) are replaced by sections 5.9, 5.10 and 6 of the 2026-10-23 spec (no admin, no pause, no platform signer, immutable roles removed); the last sentence of section 7 (EOA-only wallet verification) is replaced by the wallet-neutral ERC-1271 change (6140708). Sections 1, 3 and 5 still stand (spec section 7 keeps the spec bytes/hash rules and the chain indexer's reorg handling). Current design: docs/superpowers/specs/2026-10-23-autonomous-market-design.md._
 
 ## 1. Market ID
 
-上一輪DATA_MODEL將API path ID設為opaque UUID，原規格RFQ與合約則使用十進位marketId，容易使client直接把錯ID傳入calldata。
+The previous round's DATA_MODEL made the API path ID an opaque UUID, while the original spec's RFQ and the contracts use a decimal marketId, which makes it easy for a client to put the wrong ID straight into calldata.
 
-採deploymentId + decimal chain marketId對外定位；DB UUID改叫marketRecordId。單市場query與跨部署command明確帶deploymentId；不得默認換到active deployment。這是未发布骨架的設計修正，尚無API client需要migration。
+Markets are located externally by deploymentId + decimal chain marketId; the DB UUID is renamed marketRecordId. Single-market queries and cross-deployment commands carry deploymentId explicitly; they must not default to the active deployment. This is a design correction to an unpublished skeleton, and no API client needs a migration yet.
 
-## 2. 固定角色
+## 2. Fixed roles
 
-原規格明定不可輪替。五個chain業務角色採constructor immutable address，無grant/revoke/renounceRole。Taker allowlist可由ADMIN更新，但不等於角色管理。Token faucet minter也固定；換角色需新部署。
+The original spec states explicitly that roles cannot be rotated. The five on-chain business roles use constructor-immutable addresses, with no grant/revoke/renounceRole. The taker allowlist can be updated by ADMIN, but that is not role management. The token faucet minter is also fixed; changing a role requires a new deployment.
 
-標準ECDSA/SafeERC20等library仍使用；不為固定地址檢查引入帶動態管理入口的完整角色框架。已有介面尚無角色管理函式，因此不移除任何已發布能力。
+Standard libraries such as ECDSA and SafeERC20 are still used; a full role framework with dynamic management entry points is not introduced just to check fixed addresses. The existing interfaces have no role-management functions, so no published capability is removed.
 
-## 3. 精確規格 bytes 與補充欄位
+## 3. Exact spec bytes and the supplementary field
 
-原規格§6要求hardDeadline未finalize則INVALID寫入MarketSpec，但§5.2 JSON模板沒有明確欄位。採v0.1.1新增固定resolutionPolicy，完整承諾此既有規則。舊v0.1原bytes/hash不覆寫，serializer只用於新檔首次產生。
+Section 6 of the original spec requires that, if hardDeadline passes without finalization, INVALID is written into the MarketSpec, but the JSON template in section 5.2 has no explicit field for it. v0.1.1 adds a fixed resolutionPolicy that fully commits this existing rule. The original bytes/hash of the old v0.1 are not overwritten; the serializer is used only the first time a new file is produced.
 
-這是落實既有語意的文件schema修訂，不修改payout、權限或期限。新 schema 已實作於 `packages/schemas/src/core.ts`，交付與驗證見 [M0/M1](../M0_M1_DELIVERY.md)；原始「待 A2」狀態僅屬決策時點。
+This is a document-schema revision that implements existing semantics; it does not change payout, permissions or deadlines. The new schema is implemented in `packages/schemas/src/core.ts`; for delivery and verification see [M0/M1](../M0_M1_DELIVERY.md). The original "waiting for A2" status applies only to the time of the decision.
 
-## 4. Signer 的唯一性
+## 4. Signer uniqueness
 
-HTTP timeout與DB lease不代表簽署未發生；sign request、artifact、economic intent、transaction nonce分別有id與唯一約束。Signer不接受任意calldata；每次重載受信intent/policy並自行編碼。廣播只使用已持久化artifact。
+An HTTP timeout or a DB lease does not mean signing did not happen; the sign request, artifact, economic intent and transaction nonce each have their own id and uniqueness constraint. The signer does not accept arbitrary calldata; each time it reloads the trusted intent/policy and encodes it itself. Broadcasting uses only persisted artifacts.
 
-M0的RestrictedSigner port是概念草案，A4需以此協定取代；不保留可能允許caller自行傳授權payload的模糊空間。
+The M0 RestrictedSigner port is a conceptual draft, and A4 must replace it with this protocol; no vague room is kept in which a caller could supply its own authorization payload.
 
-## 5. Chain 觀測可撤回
+## 5. Chain observations can be withdrawn
 
-v0.1可用最新canonical INCLUDED回應交易與暫時accounting，附block hash與確認層級。Reorg需先停報價，恢復受影響quote/reservation/projection後再重新開啟。只在provider實際提供finalized證據時標FINALIZED。
+v0.1 can use the latest canonical INCLUDED response transactions and provisional accounting, with the block hash and confirmation level attached. After a reorg, quoting must stop first; reopen it only after the affected quotes/reservations/projections are recovered. Mark FINALIZED only when the provider actually supplies finalized evidence.
 
-依原規格停報價門檻：>3blocks或>10秒未更新，任一成立。Readiness分新交易gate與救援能力；停報價不應讓keeper無法finalize。
+The quoting-stop threshold follows the original spec: more than 3 blocks or more than 10 seconds without an update, either one. Readiness separates the new-transaction gate from rescue capability; stopping quotes must not stop the keeper from finalizing.
 
-## 6. 人工 pause 的限制
+## 6. Limits of manual pause
 
-保持上一輪人工ADMIN錢包設計，公告提前時立刻停鏈下報價、通知ADMIN發鏈上pause。這無法保證同一瞬間阻止已簽quote成交；v0.1明示此延遲。
+The previous round's manual ADMIN wallet design is kept: when an announcement comes early, off-chain quoting stops immediately and ADMIN is notified to issue the on-chain pause. This cannot guarantee that an already signed quote is stopped from filling at the same instant; v0.1 states this delay explicitly.
 
-不為了補此延遲偷偷加第二ADMIN、自動無限制管理key或改合約角色。未來若需自動鏈上pause，需要另立權限設計決策。
+To make up for this delay, no second ADMIN, no automatic unrestricted admin key and no change to the contract roles is added in secret. If an automatic on-chain pause is needed in the future, a separate permission design decision is required.
 
-## 7. 初期運作參數
+## 7. Initial operating parameters
 
-API body64KiB、EOA wallet binding challenge5分鐘、probability6位decimal、REPLAY challenge120秒、job lease60秒/heartbeat20秒等是細部工程初值，不是新增產品保證。部署時記policy version；硬性鏈上參數與原規格不可由環境變數繞過。
+An API body of 64 KiB, an EOA wallet binding challenge of 5 minutes, probability with 6 decimal places, a REPLAY challenge of 120 seconds, a job lease of 60 seconds / heartbeat of 20 seconds, and similar values are detailed engineering initial values, not new product guarantees. Record the policy version at deployment; hard on-chain parameters and the original spec cannot be bypassed through environment variables.
 
-外部智慧帳戶wallet驗證尚未設計；v0.1 client路徑先以EOA完成，公開接入文件必須明示限制。
+Wallet verification for external smart accounts is not designed yet; the v0.1 client path is completed with EOAs first, and the public onboarding documentation must state this limit.

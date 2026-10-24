@@ -12,14 +12,14 @@
 
 ## Global Constraints
 
-- "新合約沒有 admin、owner、固定角色地址、pause 或 allowlist 管理函式；任何狀態轉移都只依賴註冊身份、押金、時間與合約參數。" (spec §2.1.1) No `onlyOwner`, no `initialize`, no one-shot `bind`; cross-contract addresses are constructor arguments checked against `address(this)`.
-- "所有經濟參數…在部署時寫死於合約，部署後不可改；改參數等於新部署。" (§5.0) Parameters live in one immutable `Params` struct stored by `BlinkRegistry` at construction, with no setter.
-- "合約不可升級、沒有 pause" (§5.9). "治理…不能修改既有市場的規則、結果或託管資金。" (§5.9)
+- "The new contracts have no admin, owner, fixed role address, pause or allowlist management function; every state transition depends only on registered identity, stake, time and contract parameters." (spec §2.1.1) No `onlyOwner`, no `initialize`, no one-shot `bind`; cross-contract addresses are constructor arguments checked against `address(this)`.
+- "All economic parameters … are hard-coded in the contracts at deployment and cannot change afterwards; changing a parameter means a new deployment." (§5.0) Parameters live in one immutable `Params` struct stored by `BlinkRegistry` at construction, with no setter.
+- "The contracts are not upgradeable and have no pause" (§5.9). "Governance … cannot modify the rules, outcome or escrowed funds of an existing market." (§5.9)
 - bUSD for collateral, fees, registration fee and creation/proposal/challenge bonds; platform token only for juror stake and governance (§5.0).
-- "所有押金需求都以最大賠付計" where max payout is `maxPairs × 1 bUSD`, fixed at creation, never lowered (§5.6).
-- "權重 = 快照時的可罰沒押金（信用不放大權重…）" (§5.6). Credit never multiplies voting weight.
-- "只有超過 hardDeadline 仍未定案才 INVALID" (§5.6); INVALID pays 0.5 bUSD per YES and per NO share (v0.1, kept).
-- "信用不直接發錢，只降低成本、放寬上限" and "不來自成交量或未平倉量" (§5.7).
+- "All bond and stake requirements are computed on the maximum payout" where max payout is `maxPairs × 1 bUSD`, fixed at creation, never lowered (§5.6).
+- "weight = the slashable stake at snapshot time (credit does not amplify weight …)" (§5.6). Credit never multiplies voting weight.
+- "Only a market still unresolved after hardDeadline becomes INVALID" (§5.6); INVALID pays 0.5 bUSD per YES and per NO share (v0.1, kept).
+- "credit does not pay money directly; it only lowers costs and relaxes caps" and "not from trading volume or open interest" (§5.7).
 - Keep from v0.1 (§7): complete sets fully collateralised, integer shares, `UNIT = 1_000_000`, EIP-712 quotes with consumed/cancel/epoch replay protection, quote TTL ≤ 60 s, redeem only after FINAL, `block.chainid == 84532` check in every constructor.
 - Do not modify `contracts/src/BlinkMarket.sol`, `contracts/src/BlinkTestUSD.sol`, their interfaces or tests; `BlinkTestUSD` is reused unchanged as bUSD with the faucet as its minter.
 - Every deployed runtime bytecode ≤ 24,576 bytes (EIP-170), checked in `scripts/check-contracts.mjs`.
@@ -403,7 +403,7 @@ Credit rules (decided here):
 - [ ] **Step 5: Write `docs/P1_PROTOCOL_CONTRACTS.md`** (Traditional Chinese, matching other delivery docs):
   - The contract set and its deployment order.
   - The `Params` meaning.
-  - The trust assumption from spec §5.12 in its approved wording ("在公開列出的假設下，誠實是可證明的最佳策略").
+  - The trust assumption from spec §5.12 in its approved wording ("Under the publicly listed assumptions, honesty is the provably best strategy").
   - Testnet limits: faucet, fixed price, no real token value.
   - Not deployed; P2 wires it.
   - Test commands and counts.

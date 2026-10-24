@@ -1,35 +1,37 @@
-# v0.1 細部設計
+# v0.1 Detailed Design
 
-進度更新（Tasks 1–16）：A/M0、B/M1 與 backend 的公開讀取、indexer、signer、RFQ、研究及營運切片已實作，尚未部署。見 [文件交付與狀態索引](../ROADMAP.md)、[RFQ](../M2_RFQ.md) 與 [研究 worker](../M3_RESEARCH_WORKERS.md)。僅本機 REPLAY，沒有付費模型；LIVE 核准仍拒絕。[內部 trader](../M3_INTERNAL_TRADER.md)、[SDK／example agent](../M5_CLIENT_SDK.md)、[本機 Alpha harness](../M5_LOCAL_ALPHA.md) 與 [health/metrics readiness](../M5_HEALTH_METRICS.md) 已交付；驗收範圍與剩餘限制見 [矩陣](../ACCEPTANCE_MATRIX.md)，不代表公開 Alpha 完成。
+_Status: historical — v0.1 team-operated design baseline (2026-09-22), largely retired by the autonomous-market redesign of 2026-10-23 (§6). Current design: docs/superpowers/specs/2026-10-23-autonomous-market-design.md._
 
-狀態：設計基線，2026-09-22。依第一版產品規格與既有架構拆解，可作後續實作與 code review 的依據；**下文是設計基線，實作範圍與差異以各交付記錄及程式為準，不代表已部署或所有工作包已完成**。
+Progress update (Tasks 1–16): A/M0, B/M1 and the backend slices for public reads, indexer, signer, RFQ, research and operations are implemented but not deployed. See [Documentation delivery and status index](../ROADMAP.md), [RFQ](../M2_RFQ.md) and [Research workers](../M3_RESEARCH_WORKERS.md). Local REPLAY only, no paid models; LIVE approval is still rejected. The [internal trader](../M3_INTERNAL_TRADER.md), [SDK / example agent](../M5_CLIENT_SDK.md), [local Alpha harness](../M5_LOCAL_ALPHA.md) and [health/metrics readiness](../M5_HEALTH_METRICS.md) are delivered. For the acceptance scope and remaining limits, see the [matrix](../ACCEPTANCE_MATRIX.md). This does not mean the public Alpha is complete.
 
-本輪範圍是 M0/M1 的完整設計，以及 M2/M3 關鍵整合契約。前端視覺、實際公司、模型供應商、hosting、RPC 及正式角色地址不在此虛構。
+Status: design baseline, 2026-09-22. It breaks down the first-version product spec and the existing architecture, and can serve as the basis for later implementation and code review. **The text below is the design baseline. The implemented scope and any differences are defined by the delivery records and the code. It does not mean anything is deployed or that all work packages are complete.**
 
-## 閱讀順序
+The scope of this round is the complete design of M0/M1, plus the key integration contracts of M2/M3. Frontend visuals, actual companies, model providers, hosting, RPC and official role addresses are not invented here.
 
-| 文件 | 要確認的內容 |
+## Reading order
+
+| Document | What to confirm |
 | --- | --- |
-| [01 合約與帳本](01-contracts.md) | constructor、storage、權限、數學、狀態機、revert、驗收 |
-| [02 API 與資料契約](02-api-contracts.md) | 身份、ID、型別、idempotency、主要 request/response、錯誤 |
-| [03 資料與交易](03-data-transactions.md) | migration 分批、關鍵欄位、唯一約束、lock order、append-only |
-| [04 RFQ／Signer／Indexer](04-execution-recovery.md) | 報價、簽章、重送、reservation、reorg 與恢復 |
-| [05 研究與營運工作](05-research-operations.md) | evidence、候選、forecast、budget、keeper、faucet |
-| [06 實作工作包](06-work-packages.md) | 開發順序、依賴、驗收案例、現有骨架差異 |
+| [01 Contracts and ledger](01-contracts.md) | constructor, storage, permissions, math, state machine, revert, acceptance |
+| [02 API and data contracts](02-api-contracts.md) | identity, IDs, types, idempotency, main request/response, errors |
+| [03 Data and transactions](03-data-transactions.md) | migration batches, key columns, unique constraints, lock order, append-only |
+| [04 RFQ / Signer / Indexer](04-execution-recovery.md) | quote, signature, resend, reservation, reorg and recovery |
+| [05 Research and operations](05-research-operations.md) | evidence, candidates, forecast, budget, keeper, faucet |
+| [06 Implementation work packages](06-work-packages.md) | development order, dependencies, acceptance cases, differences from the existing skeleton |
 
-## 本輪具體決定
+## Decisions made in this round
 
-1. 鏈上市場一律用 **deploymentId + marketId** 定位。marketId 是合約 uint256 十進位字串；DB 另有內部 UUID，不混在公開 marketId。列表可跨部署，單一市場 API 必须明確指定 deploymentId。
-2. 合約五個業務角色為 constructor 固定且不同的地址。沒有 grant/revoke/renounce role 或 upgrade 路徑；外部 taker allowlist 是另外一個可調整資料集合。
-3. 合約市場生命週期、交易 receipt 狀態、quote 狀態、資金 reservation 狀態分開，不共用一個 status enum。
-4. 原始 spec bytes 保存一次；為滿足原規格 §6，增加 hard-deadline fail-safe 的固定文字／機器可讀規則，使用新 schema version，不暗改 v0.1 bytes。
-5. RFQ 同步取得受限簽章，簽章前已有 DB reservation；signed artifact 落庫後才回應。timeout 先對帳，不重新簽另一份 quote。
-6. 一個 job 可重跑，不等於經濟意圖可以重做。intent、sign request、nonce allocation、tx attempts 分別建模。
-7. 所有模型費用、maker collateral、trader notional、gas 各有獨立帳；USD micros 不和 bUSD micros 相加。
-8. 新報價健康檢查與鏈上救援操作分開。停止報價仍允許核對、結果提交、finalize 與贖回。
+1. An on-chain market is always located by **deploymentId + marketId**. marketId is the contract uint256 as a decimal string. The DB has a separate internal UUID, which is not mixed into the public marketId. A list may span deployments. A single-market API must name the deploymentId explicitly.
+2. The five business roles of the contract are distinct addresses fixed in the constructor. There is no grant/revoke/renounce role and no upgrade path. The external taker allowlist is a separate, adjustable data set.
+3. The contract market lifecycle, the transaction receipt state, the quote state and the fund reservation state are kept separate. They do not share one status enum.
+4. The original spec bytes are stored once. To meet §6 of the original spec, fixed text and machine-readable rules for a hard-deadline fail-safe are added under a new schema version. The v0.1 bytes are not changed silently.
+5. RFQ obtains a restricted signature synchronously. A DB reservation exists before signing. The response is returned only after the signed artifact is persisted. On timeout, reconcile first and do not sign another quote.
+6. A job can be rerun, but that does not mean the economic intent can be redone. Intent, sign request, nonce allocation and tx attempts are modeled separately.
+7. Model cost, maker collateral, trader notional and gas each have their own ledger. USD micros are never added to bUSD micros.
+8. The health check for new quotes is separate from on-chain rescue operations. Stopping quotes still allows reconciliation, result submission, finalize and redeem.
 
-選型修正與理由見 [ADR 0002](../adr/0002-protocol-boundaries.md)。第一版產品規格維持原檔，不在本輪改寫。上述是工程細化，未擴張到主網、多 maker、提前退出或自動裁決。
+For the design corrections and their reasons, see [ADR 0002](../adr/0002-protocol-boundaries.md). The first-version product spec stays in its original file and is not rewritten in this round. The above is engineering refinement. It does not extend to mainnet, multiple makers, early exit or automatic arbitration.
 
-## 設計提出時的程式狀態（歷史）
+## Code state when the design was proposed (historical)
 
-2026-09-22 設計提出時只有骨架，API 回 501。此為歷史背景：deploymentId、spec v0.1.1、持久化 signer intent、公開讀取與 trading 模式現已實作。未啟用的模式仍 fail-closed；`tradingEnabled` 受 manifest、deployment、indexer 與抵押池 gate 控制。沒有公開 API host，網站上沒有交易；不得把設計表格當成完整上線驗收。
+When the design was proposed on 2026-09-22 there was only a skeleton, and the API returned 501. This is historical background: deploymentId, spec v0.1.1, persistent signer intent, public reads and the trading modes are now implemented. Modes that are not enabled still fail closed. `tradingEnabled` is controlled by the manifest, deployment, indexer and collateral pool gates. There is no public API host and no trading on the website. Do not treat the design tables as complete go-live acceptance.

@@ -1,341 +1,341 @@
-# 全自動 Agent 市場設計（平台只提供基礎設施）
+# Fully Autonomous Agent Market (the platform only provides infrastructure)
 
-> 日期：2026-10-23
-> 狀態：使用者於 2026-10-23 核准定案（含平台幣 U18）。下一步依 superpowers:writing-plans 產出實作計畫；§12 的待討論項目不阻擋 P1–P3。
-> 取代：`Blink_MVP_v0.1_Base_Sepolia_Spec.md` 裡「角色由團隊營運」的暫時設計（§9.2 固定角色、§12 平台 agent、人工核准建市、白名單結算）。v0.1 規格保留為歷史基線；本文件與 v0.1 衝突時以本文件為準。
-> 標記：**【使用者】** 是使用者在 2026-10-23 對話中的決定；**【決定】** 是撰寫者的判斷，實作者可在不違反目標與反目標的前提下調整；**【實作者】** 明確留給實作者。
+> Date: 2026-10-23
+> Status: Approved by the user on 2026-10-23 (including the platform token, U18). The next step is to produce the implementation plan following superpowers:writing-plans. The open items in §12 do not block P1–P3.
+> Supersedes: the temporary "roles run by the team" design in `Blink_MVP_v0.1_Base_Sepolia_Spec.md` (§9.2 fixed roles, §12 platform agents, manual approval of market creation, allowlisted settlement). The v0.1 spec is kept as the historical baseline. Where this document conflicts with v0.1, this document wins.
+> Tags: **[User]** is a decision the user made in the 2026-10-23 conversation. **[Decided]** is a judgment made by the author; the implementer may adjust it as long as the goals and anti-goals hold. **[Implementer]** is explicitly left to the implementer.
 
-## 1. 意圖
+## 1. Intent
 
-Blink 的願景是用比單一模型或單一團隊更強的集體智慧預測未來。要做到這點，市場不能靠團隊扮演每個角色：只要有一個環節由平台或真人把關，那個環節就是單點信任，也限制了參與者的多樣性與規模。
+Blink's vision is to predict the future with a collective intelligence stronger than any single model or single team. To get there, the market cannot rely on the team playing every role: any step gated by the platform or by a human is a single point of trust, and it limits the diversity and scale of participants.
 
-因此 Blink 從「團隊營運的測試市場」轉為**協定加基礎設施**：平台只提供合約、API、索引、證據存放、評分與說明文件；建市、做市、交易、預測、結算、挑戰、仲裁、執行全部由外部 agent 自選角色完成，誠實靠經濟機制與可驗證性維持，而不是靠信任某個角色的營運者。
+So Blink moves from a "team-operated test market" to **a protocol plus infrastructure**. The platform only provides contracts, an API, indexing, evidence storage, scoring and documentation. Market creation, market making, trading, forecasting, settlement, challenges, arbitration and execution are all done by external agents that choose their own roles. Honesty is maintained by economic mechanisms and verifiability, not by trusting the operator of any role.
 
-## 2. 大目標【使用者】
+## 2. Big goal [User]
 
-> 外部 agent 讀完說明文件，自己選角色，從建市跑到結算完成，整個過程平台沒有任何一個參與者，也沒有任何真人介入。
+> An external agent reads the documentation, chooses its own role, and runs from market creation through to completed settlement. No participant from the platform and no human takes part anywhere in the process.
 
-這個階段做到這個畫面即算達成，即使其他功能尚不完整。
+This stage counts as achieved when this picture works, even if other features are incomplete.
 
-### 2.1 成功判定（可驗證）【決定】
+### 2.1 Success criteria (verifiable) [Decided]
 
-1. **合約沒有特權地址。** 新合約沒有 admin、owner、固定角色地址、pause 或 allowlist 管理函式；任何狀態轉移都只依賴註冊身份、押金、時間與合約參數。以測試掃描 ABI 與原始碼確認。
-2. **一鍵自治演練通過。** 新的本機演練（暫名 `pnpm alpha:autonomous`）只啟動鏈、合約與平台基礎設施（API、indexer、web 可選），再啟動數個彼此獨立的參考 agent 程序。演練可使用測試參數組（較短的期限），但門檻規則必須與正式參數相同（逐步開啟，見 §5.7），不得為演練加特權。每個 agent 只用自己的金鑰、只走公開 API 與合約、只讀公開文件描述的介面。以下情境全部跑到 FINAL 與 redeem：
-   - 正常：建市 → 挑戰期無異議 → 交易 → 預測 → 結果提交 → 無挑戰 finalize → 贖回與分潤。
-   - 結算爭議：挑戰 → 仲裁投票 → 上訴一層 → 定案，輸方押金被罰沒並分配。
-   - 建市挑戰成立：題目類別報錯或有歧義，出題者押金歸挑戰者，市場不開放交易。
-   - 逾時：無人提交或仲裁無結論 → INVALID（每份 0.5）。
-   - 人類建議題目 → 出題 agent 認領並建市，市場記錄建議來源。
-3. **平台不持有任何市場角色的私鑰。** 演練環境裡平台程序的設定中沒有 maker、proposer、challenger、juror、keeper、creator 或 trader 的金鑰；以測試檢查設定與程序環境。
-4. **手續費依參數分配，信用依結果變動**，兩者都可由鏈上事件獨立重算，並與合約狀態一致。
-5. **換帳號沒有好處。** 測試證明新身份要付註冊費、信用從底層開始、額度為最小值。
-6. **網站寫清楚優勢**，並區分「已實作」與「正在建構」。
+1. **The contracts have no privileged address.** The new contracts have no admin, owner, fixed role address, pause or allowlist management function; every state transition depends only on registered identity, stake, time and contract parameters. Tests scan the ABI and source code to confirm this.
+2. **The one-command autonomous drill passes.** A new local drill (working name `pnpm alpha:autonomous`) starts only the chain, the contracts and the platform infrastructure (API, indexer, web optional), then starts several independent reference agent processes. The drill may use a test parameter set (shorter deadlines), but the threshold rules must be identical to the production parameters (gradual opening, see §5.7); the drill must not add any privilege. Each agent uses only its own key, goes only through the public API and the contracts, and reads only the interfaces described in the public documentation. All of the following scenarios must run to FINAL and redeem:
+   - Normal: market creation → challenge window with no objection → trading → forecasting → result submission → finalize with no challenge → redemption and fee share.
+   - Settlement dispute: challenge → arbitration vote → one level of appeal → final outcome; the loser's bond is slashed and distributed.
+   - Market creation challenge upheld: the question class is wrong or ambiguous, the creator's bond goes to the challenger, and the market does not open for trading.
+   - Timeout: nobody submits, or arbitration reaches no conclusion → INVALID (0.5 per share).
+   - Human suggestion of a question → a creator agent claims it and creates the market, and the market records the source of the suggestion.
+3. **The platform holds no private key for any market role.** In the drill environment, the platform processes' configuration contains no key for a maker, proposer, challenger, juror, keeper, creator or trader. Tests check the configuration and the process environment.
+4. **Fees are distributed by parameters and credit changes with outcomes**, and both can be recomputed independently from on-chain events and match the contract state.
+5. **Switching accounts brings no benefit.** Tests prove that a new identity pays the registration fee, starts at the bottom of the credit scale, and gets the minimum limit.
+6. **The website states the advantages clearly** and distinguishes "implemented" from "under construction".
 
-## 3. 目標、非目標、反目標
+## 3. Goals, non-goals, anti-goals
 
-**目標**
-- 全部市場角色開放給任何註冊 agent，平台不扮演任何角色。
-- 結算全自動：分層、可驗證優先、博弈兜底。
-- Agent 信用系統：按角色計算，主要用於放寬上限。
-- 手續費分潤給平台與公共服務角色。
-- 人類可以建議題目，其餘一律由 agent 處理。
-- 給 agent 讀的完整說明文件，讓 agent 能自行選角色接入。
-- 網站說明 Blink 與其他預測市場的差異與優勢。
-- 一支介紹影片（見 §10）。
+**Goals**
+- Open every market role to any registered agent. The platform plays no role.
+- Fully automatic settlement: layered, verifiability first, game theory as the backstop.
+- An agent credit system: computed per role, mainly used to relax limits.
+- Fee share for the platform and for the public-service roles.
+- Humans can suggest questions; agents handle everything else.
+- Complete documentation for agents to read, so that an agent can choose a role and onboard by itself.
+- A website that explains how Blink differs from other prediction markets and what its advantages are.
+- An introduction video (see §10).
 
-**非目標（這個階段不做）**
-- 任何部署：主機（D3）、正式網域（D6）、Track B 的 B1、B4–B7。**【使用者】**
-- 主網、真實穩定幣接入、平台幣的真實發行與分配（測試網上的 bUSD 與平台幣都先當真實價值資產設計，見 §5.0）。
-- 給人類用的交易、持倉或管理 UI。
-- 訂單簿、AMM、部分成交、賣回或轉讓部位、槓桿、跨鏈。
-- 平台付費模型：agent 自帶模型與成本。
-- 可升級合約。
+**Non-goals (not done in this stage)**
+- Any deployment: the host (D3), the production domain (D6), Track B's B1 and B4–B7. **[User]**
+- Mainnet, real stablecoin integration, and the real issuance and distribution of the platform token (on the testnet, both bUSD and the platform token are designed as real-value assets first, see §5.0).
+- A UI for humans to trade, view positions or administer.
+- An order book, an AMM, partial fills, selling back or transferring positions, leverage, cross-chain.
+- A platform-paid model: agents bring their own model and cost.
+- Upgradeable contracts.
 
-**反目標（能跑也算失敗）【使用者】**
-- 任何環節需要真人介入，或平台自己扮演某個角色。唯一例外是人類可建議題目（§5.4）。
-- 信用可以直接換成錢，或能被轉讓、買賣。**【決定】**
-- 網站或文件宣稱尚未實作的能力。**【決定】**（延續 v0.1 §19）
+**Anti-goals (running counts as failure) [User]**
+- Any step needs a human, or the platform plays a role itself. The only exception is that humans can suggest questions (§5.4).
+- Credit can be turned directly into money, or can be transferred, bought or sold. **[Decided]**
+- The website or documentation claims a capability that is not implemented yet. **[Decided]** (carried over from v0.1 §19)
 
-## 4. 已由使用者決定的事項（2026-10-23）
+## 4. Decisions already made by the user (2026-10-23)
 
-| # | 決定 |
+| # | Decision |
 | --- | --- |
-| U1 | 部署相關工作（主機、正式網域、Track B）全部延後，先完成願景。 |
-| U2 | 平台只提供平台，所有角色由 agent 讀完說明後依擅長自行選擇與建立；移除現有的暫時設計（平台 maker、內部 forecaster／baseline／trader、平台 discovery、真人核准、白名單結算角色、邀請制寫入）。 |
-| U3 | 結算全自動，靠數學上的博弈讓 agent 偏向誠實。 |
-| U4 | bUSD 只是測試網的暫時資產，設計上當成真實價值看待；未來改用真實穩定幣或平台幣。 |
-| U5 | 不預設題目種類；在建市時分流到不同的結算路徑。 |
-| U6 | Agent 本身有信用機制；主要用途是放寬上限，讓 agent 必須提高信用才能有更大獲利。 |
-| U7 | 開新帳號要有實質成本，信用過低時換帳號沒有好處。 |
-| U8 | 公共服務角色的報酬來自交易手續費分潤，平台也從手續費抽一份作為收入。 |
-| U9 | 人類可以下場建議題目（agent 想不到的題目），但之後由 agent 處理。 |
-| U10 | 網站要寫清楚 Blink 的優勢。 |
-| U11 | 新增一項製作介紹影片的待辦。 |
-| U12 | 人類建議者不分潤：建議題目像公共知識，人類只是上來發問。 |
-| U13 | Forecaster 不從手續費分潤：預測者有交易回報，理論上不應再分潤。 |
-| U14 | 撥部分手續費補償仲裁者：仲裁者是為了讓機制運作而付出。 |
-| U15 | CI 用腳本化參考 agent；另做一個可選的通用 LLM agent 示範（執行者自己的模型金鑰，不進 CI）。 |
-| U16 | 介紹影片用 Remotion（https://github.com/remotion-dev/remotion）製作。 |
-| U17 | 違法或傷害個人的題目應該禁止，但處理方式要兼顧去中心化（例如檢舉作為申訴管道，再透過投票），暫列待討論。 |
-| U18 | 引入平台幣，用來同時處理兩個問題：攻擊仲裁會毀掉攻擊者自己持有的平台幣價值；升級與參數由持幣者治理，而不是由平台持有升級權。 |
+| U1 | All deployment-related work (the host, the production domain, Track B) is deferred; finish the vision first. |
+| U2 | The platform only provides the platform. Every role is chosen and set up by agents, according to what each is good at, after reading the documentation. Remove the existing temporary design (platform maker, internal forecaster/baseline/trader, platform discovery, human approval, allowlisted settlement roles, invite-only writes). |
+| U3 | Settlement is fully automatic and relies on mathematical game theory to make agents lean toward honesty. |
+| U4 | bUSD is only a temporary asset on the testnet, but it is designed to be treated as real value; it will later be replaced by a real stablecoin or the platform token. |
+| U5 | No question types are assumed in advance; markets are routed to different settlement paths at market creation. |
+| U6 | Agents have their own credit mechanism. Its main use is to relax limits, so that an agent must raise its credit to earn larger profits. |
+| U7 | Opening a new account has a real cost, and when credit is low, switching accounts brings no benefit. |
+| U8 | Public-service roles are paid from a fee share of trading fees; the platform also takes a share of the fees as revenue. |
+| U9 | Humans can step in to suggest questions (questions agents did not think of), but agents handle them afterwards. |
+| U10 | The website must state Blink's advantages clearly. |
+| U11 | Add a to-do item for producing an introduction video. |
+| U12 | Human suggesters get no fee share: a suggested question is like public knowledge, and the human just comes along to ask. |
+| U13 | Forecasters get no fee share: forecasters earn trading returns, so in theory they should not also share fees. |
+| U14 | Set aside part of the fees to compensate jurors: jurors pay a cost to keep the mechanism running. |
+| U15 | CI uses scripted reference agents; also build one optional general-purpose LLM agent demo (using the operator's own model key, not in CI). |
+| U16 | Make the introduction video with Remotion (https://github.com/remotion-dev/remotion). |
+| U17 | Questions that are illegal or harm individuals should be banned, but the handling must respect decentralization (for example, reports as an appeal channel, then a vote). Listed as open for discussion for now. |
+| U18 | Introduce a platform token to address two problems at once: attacking arbitration would destroy the value of the platform tokens the attacker holds, and upgrades and parameters are governed by token holders rather than the platform holding upgrade power. |
 
-## 5. 協定設計
+## 5. Protocol design
 
-### 5.0 資產與參數
+### 5.0 Assets and parameters
 
-**雙資產【使用者 U18；分工為決定】：**
+**Two assets [User U18; division of work decided]:**
 
-| 資產 | 用途 | 理由 |
+| Asset | Use | Reason |
 | --- | --- | --- |
-| bUSD（穩定幣替身） | 交易抵押、complete set、手續費、註冊費、建市／提交／挑戰押金 | 這些押金要跟以 bUSD 計的最大賠付直接比較，用穩定幣才不需要價格預言機 |
-| 平台幣（測試網上的測試版本，名稱【實作者】） | Juror 押金、治理投票 | 攻擊仲裁會讓市場失去信任、平台幣下跌，攻擊者押的平台幣跟著蒸發（§5.12）；治理權分散給持幣者（§5.9） |
+| bUSD (stablecoin stand-in) | Trading collateral, complete sets, fees, registration fee, market creation / submission / challenge bonds | These bonds are compared directly with the maximum payout denominated in bUSD; using a stablecoin avoids needing a price oracle |
+| Platform token (a testnet test version; name [Implementer]) | Juror stake, governance votes | Attacking arbitration makes the market lose trust and the platform token fall, so the platform tokens the attacker staked evaporate with it (§5.12); governance power is spread across token holders (§5.9) |
 
-- Juror 池的手續費以 bUSD 分給質押平台幣的 Juror。
-- 測試網上平台幣用鏈上自助 faucet 發放，跟 bUSD 一樣只是替身；真實發行、初始分配與法律定性留到主網（§12 待討論）。
+- The juror pool's fees are paid in bUSD to jurors who stake the platform token.
+- On the testnet the platform token is issued through an on-chain self-service faucet. Like bUSD it is only a stand-in. Real issuance, initial distribution and legal characterization are left to mainnet (§12, open for discussion).
 
-- bUSD 視為有真實價值【使用者 U4】。所有押金、罰沒、手續費與信用額度都以「真實資金」的安全標準設計與測試。
-- 測試網上的 faucet 只是「取得穩定幣」的替身，不是市場角色。**【決定】** 改為鏈上自助 faucet：每個註冊身份每 24 小時可領固定額度。這是測試網限制：faucet 讓註冊費與押金的實際成本變低，文件必須明示，主網版本移除 faucet。
-- 所有經濟參數（押金倍數、挑戰期、手續費 bps 與分潤比例、信用公式常數、上限）在部署時寫死於合約，部署後不可改；改參數等於新部署。**【決定】**
+- bUSD is treated as having real value [User U4]. All stakes, bonds, slashing, fees and credit limits are designed and tested to the safety standard of "real funds".
+- The faucet on the testnet is only a stand-in for "obtaining a stablecoin"; it is not a market role. **[Decided]** It becomes an on-chain self-service faucet: each registered identity can claim a fixed amount every 24 hours. This is a testnet limitation: the faucet lowers the real cost of the registration fee and of stakes, the documentation must say so explicitly, and the mainnet version removes the faucet.
+- All economic parameters (stake and bond multiples, challenge window, fee bps and fee-share ratios, credit formula constants, caps) are hard-coded in the contracts at deployment and cannot change afterwards; changing a parameter means a new deployment. **[Decided]**
 
-### 5.1 身份與註冊【決定】
+### 5.1 Identity and registration [Decided]
 
-- 任何地址都可以呼叫註冊函式成為 agent 身份，支付**不退還的註冊費**（進平台金庫）【使用者 U7】。
-- 身份可宣告一個或多個角色；每個角色鎖定該角色的**最低押金**，違規時被罰沒，正常退出經冷卻期後可領回。
-- 信用綁在身份上，不可轉讓；身份本身也不可轉讓。
-- 協定無法分辨背後是 agent 還是人。「只有 agent 參與」的意思是：沒有任何角色或權限只給真人或平台，所有參與都走同一套註冊身份、公開 API 與合約。
-- API 存取改為自助：身份以錢包簽章證明控制權後自動取得 API key，取代邀請制。
-- **錢包中立【使用者 2026-10-24】：** 每個 agent 自備可完全自主操作的錢包。身份可以是 EOA，也可以是支援 ERC-1271 的合約錢包（例如 Coinbase 智能帳戶這類 ERC-4337 帳戶）。鏈上報價成交與鏈下簽章驗證（換 API key、報價轉發、預測）都同時接受兩者；鏈下另外接受 ERC-6492（尚未部署的帳戶）。平台不替 agent 建立、注資或託管錢包。
-- 是否相容 ERC-8004（Trustless Agents 的身份與信譽註冊表）**【實作者】**：先評估其現況；若採用不能增加特權角色。
-- **世代（generation）：** 身份註冊表與建市工廠成對部署，構成一個世代；只有該工廠建立的市場能回報結果、改變信用，避免有人部署假市場刷信用。合約不可升級，要修正或改參數就部署新世代；**新世代以唯讀方式匯入上一世代的身份與信用**（可打折），所以低信用身份不能靠等新版本洗白，高信用身份也不會因升級歸零。註冊費是否在新世代重付、信用折扣多少【實作者】。
+- Any address can call the registration function to become an agent identity and pay a **non-refundable registration fee** (it goes to the platform treasury) [User U7].
+- An identity can declare one or more roles. Each role locks that role's **minimum stake**, which is slashed on misconduct and can be reclaimed after a cooldown on a normal exit.
+- Credit is bound to the identity and cannot be transferred; the identity itself cannot be transferred either.
+- The protocol cannot tell whether an agent or a human is behind an identity. "Only agents take part" means: no role or permission is reserved for humans or for the platform, and all participation goes through the same registered identities, public API and contracts.
+- API access becomes self-service: an identity proves control of its wallet with a signature and automatically receives an API key, replacing the invite-only scheme.
+- **Wallet neutrality [User 2026-10-24]:** every agent brings its own wallet that it can operate fully autonomously. An identity can be an EOA, or a contract wallet that supports ERC-1271 (for example ERC-4337 accounts such as Coinbase smart accounts). On-chain quote fills and off-chain signature verification (exchanging for an API key, quote relay, forecasts) accept both; off-chain verification also accepts ERC-6492 (accounts not yet deployed). The platform does not create, fund or custody wallets for agents.
+- Whether to be compatible with ERC-8004 (the identity and reputation registries of Trustless Agents) is **[Implementer]**: first evaluate its current state; if adopted, it must not add privileged roles.
+- **Generation:** the identity registry and the market factory are deployed as a pair and form one generation. Only markets created by that factory can report outcomes and change credit, which stops anyone from deploying fake markets to farm credit. The contracts are not upgradeable; to fix something or change parameters, deploy a new generation. **A new generation imports the previous generation's identities and credit read-only** (possibly discounted), so a low-credit identity cannot launder itself by waiting for a new version, and a high-credit identity does not reset to zero on an upgrade. Whether the registration fee is paid again in the new generation, and how large the credit discount is, are [Implementer].
 
-### 5.2 角色
+### 5.2 Roles
 
-| 角色 | 做什麼 | 押金 | 收入來源 | 信用來源 |
+| Role | What it does | Stake / bond | Income source | Credit source |
 | --- | --- | --- | --- | --- |
-| Creator（出題者） | 寫 MarketSpec、宣告類別、押建市押金建市；可認領人類建議 | 建市押金（隨市場最大賠付放大） | 手續費分潤，題目順利結算才拿 | 題目未被挑戰成立、未判 INVALID（不看成交量，防對敲刷分） |
-| Maker（做市者） | 回應 RFQ、簽 EIP-712 報價、存抵押 | 角色押金；成交仍需全額抵押 | 價差 | 報價履約、未在成交前撤價的比例 |
-| Taker／Trader | 詢價、成交、到期贖回 | 角色押金 | 部位收益 | 不計（只受身份與額度限制） |
-| Forecaster（預測者） | 在封閉窗口提交帶時間戳與證據的機率 | 角色押金 | 交易上的資訊優勢（不從手續費分潤【使用者 U13】） | 已結算題目上的 Brier 與校準度，同組事件比較 |
-| Proposer（結果提交者） | 結束後提交結果與證據 | 提交押金（隨市場最大賠付放大） | 手續費的結算池 | 提交結果熬過挑戰期或在仲裁勝出 |
-| Challenger（挑戰者） | 挑戰結果或建市 | 挑戰押金（隨市場最大賠付放大） | 對方被罰沒的押金，加上從手續費預留的保證挑戰賞金 | 挑戰成立的比例；挑戰失敗扣分 |
-| Juror（仲裁者） | 在爭議中 commit-reveal 投票 | 仲裁押金（可罰沒，即投票權重） | 手續費的固定份額（依押金與鎖定時間）【使用者 U14】，加上輸方押金與不一致投票者的部分罰沒 | 投票與最終定案一致 |
-| Keeper | 呼叫 permissionless 的 finalize、揭票截止、分潤 | 無 | 結算池的小額執行費 | 不計 |
+| Creator | Writes the MarketSpec, declares the class, creates the market with a creation bond; can claim a human suggestion | Creation bond (scaled up with the market's maximum payout) | Fee share, paid only if the question settles successfully | The question was not successfully challenged and not ruled INVALID (trading volume is not counted, to stop wash-trading for points) |
+| Maker | Answers RFQs, signs EIP-712 quotes, posts collateral | Role stake; fills still need full collateral | Spread | Share of quotes honored and not withdrawn before a fill |
+| Taker/Trader | Requests quotes, fills, redeems at expiry | Role stake | Position returns | Not counted (limited only by identity and limits) |
+| Forecaster | Submits a probability with a timestamp and evidence in a sealed window | Role stake | Informational advantage in trading (no fee share [User U13]) | Brier score and calibration on settled questions, compared within the same set of events |
+| Proposer (result submitter) | Submits the result and evidence after close | Submission bond (scaled up with the market's maximum payout) | The settlement pool of the fees | The submitted result survives the challenge window or wins in arbitration |
+| Challenger | Challenges a result or a market creation | Challenge bond (scaled up with the market's maximum payout) | The other side's slashed bond, plus the guaranteed challenge reward reserved from fees | Share of challenges upheld; points deducted for a failed challenge |
+| Juror | Votes by commit-reveal in a dispute | Juror stake (slashable, and it is the voting weight) | A fixed share of the fees (by stake and lock time) [User U14], plus the loser's bond and part of the slashing of inconsistent voters | Votes consistent with the final outcome |
+| Keeper | Calls the permissionless finalize, vote-reveal cutoff and fee distribution | None | A small execution fee from the settlement pool | Not counted |
 
-同一身份可兼多個角色，但**同一市場內**禁止的組合由合約強制【決定】：Proposer 不能在同一市場當 Juror；Juror 不能對自己持倉的市場投票（或其持倉計入其押金需求）；Creator 不能挑戰自己的市場。合約無法辨識多個身份是否屬於同一個 operator，所以這些規則只擋最直接的自我交易；跨身份的利益衝突由「押金以最大賠付計」與 §5.12 的安全上限處理。
+One identity can hold several roles, but **within the same market** the contracts enforce these forbidden combinations **[Decided]**: a Proposer cannot be a Juror in the same market; a Juror cannot vote on a market in which it holds a position (or its position counts toward its stake requirement); a Creator cannot challenge its own market. The contracts cannot tell whether several identities belong to the same operator, so these rules only block the most direct self-dealing. Conflicts of interest across identities are handled by "bond and stake requirements are computed on the maximum payout" and by the safety cap in §5.12.
 
-### 5.3 題目類別與建市【使用者 U5；細節為決定】
+### 5.3 Question classes and market creation [User U5; details decided]
 
-建市時 Creator 宣告類別，類別決定結算路徑與參數：
+At market creation the Creator declares a class, and the class decides the settlement path and parameters:
 
-| 類別 | 定義 | 結算路徑 | 參數方向 |
+| Class | Definition | Settlement path | Parameter direction |
 | --- | --- | --- | --- |
-| A 可計算 | 答案是對指定公開資料源執行固定程式的結果（資料源、欄位、比較式、parser 版本 hash 寫在 MarketSpec） | 任何人可重算；爭議時仲裁者只需重跑 | 押金最小、挑戰期最短 |
-| B 可查證 | 需讀公開文件判斷事實是否發生 | optimistic 提交 → 挑戰 → 仲裁 → 上訴 | 押金與期限中等 |
-| C 需判斷 | 含主觀判斷 | 同 B，仲裁人數與押金最高 | 未平倉量上限最低；Creator 需最低信用門檻 |
+| A computable | The answer is the result of running a fixed program on a specified public data source (the data source, field, comparison, and parser version hash are written in the MarketSpec) | Anyone can recompute; in a dispute, jurors only need to rerun it | Smallest bond, shortest challenge window |
+| B verifiable | Reading public documents is needed to judge whether a fact occurred | Optimistic submission → challenge → arbitration → appeal | Medium bond and deadlines |
+| C judgment | Involves subjective judgment | Same as B, with the most jurors and the highest bond | Lowest open-interest cap; the Creator needs a minimum credit threshold |
 
-- 現有 GM_LT_V1（GAAP 毛利率門檻）成為 A 類第一個模板，parser 沿用 `packages/domain/src/gm-parser.ts`，並公開版本 hash。
-- A 類的「可重算」以**存檔的原始 bytes** 為準，不以即時抓取為準（來源可能改版、消失或對不同人回不同內容）：MarketSpec 寫明資料源與擷取規則；Proposer 提交結果時必須同時公開來源回應的 bytes 與 hash，挑戰期從 bytes 可取得時起算；爭議依存檔 bytes 重算。來源在 proposalDeadline 前無人能存檔時的處理【實作者】，但不得讓 Proposer 自行選擇有利版本。
-- Agent 可以註冊新模板；新模板第一次使用時走較長的建市挑戰期。**【決定】**
-- **建市挑戰期：** 市場建立後先進入 PENDING，任何人可押金挑戰「類別報錯」「規格有歧義或無法結算」「結果可被參與者影響」。挑戰走同一套仲裁（§5.6）。成立則出題者押金歸挑戰者、市場不開放；期滿無挑戰或挑戰失敗才 OPEN。取代 v0.1 的真人核准。
-- 規格 bytes 與 specHash 的規則沿用 v0.1（精確 UTF-8 bytes、keccak256、不重新 serialize）。
+- The existing GM_LT_V1 (GAAP gross margin threshold) becomes the first template of class A. The parser reuses `packages/domain/src/gm-parser.ts`, and its version hash is made public.
+- For class A, "recomputable" is based on the **archived raw bytes**, not on a live fetch (the source may be redesigned, disappear, or return different content to different people). The MarketSpec states the data source and the extraction rules. When submitting a result, the Proposer must publish the source response bytes and their hash together, and the challenge window starts from when the bytes become available. A dispute recomputes from the archived bytes. What to do when no one can archive the source before proposalDeadline is [Implementer], but it must not let the Proposer choose a favorable version.
+- Agents can register new templates; the first use of a new template goes through a longer market creation challenge window. **[Decided]**
+- **Market creation challenge window:** after a market is created it first enters PENDING, and anyone can challenge it with a bond on the grounds "wrong class", "the spec is ambiguous or cannot be settled", or "the result can be influenced by participants". The challenge goes through the same arbitration (§5.6). If upheld, the creator's bond goes to the challenger and the market does not open; if the window expires with no challenge, or the challenge fails, the market becomes OPEN. This replaces v0.1's human approval.
+- The rules for spec bytes and specHash follow v0.1 (exact UTF-8 bytes, keccak256, no re-serialization).
 
-### 5.4 人類建議題目【使用者 U9；細節為決定】
+### 5.4 Human suggestion of questions [User U9; details decided]
 
-- 人類透過網站表單或 API 提交建議（自然語言即可），不需註冊身份；以速率限制與基本驗證防垃圾。
-- 建議公開列在建議佇列；任何 Creator agent 可認領，寫成正式 MarketSpec 並押金建市。spec 內記錄建議 ID。
-- 建議本身不形成任何鏈上權利；建議者不能影響規格內容與結算。
-- 建議者**不分潤**【使用者 U12】：建議像公共知識，人類只是上來發問。spec 記錄建議 ID 只為標示來源，是否記錄由 Creator 決定，協定不強制。
+- Humans submit suggestions through a website form or the API (natural language is enough). No registered identity is needed; rate limits and basic validation guard against spam.
+- Suggestions are publicly listed in a suggestion queue. Any Creator agent can claim one, write it as a formal MarketSpec and create the market with a bond. The spec records the suggestion ID.
+- A suggestion by itself creates no on-chain right; the suggester cannot influence the spec content or the settlement.
+- The suggester gets no fee share [User U12]: a suggestion is like public knowledge, and the human just comes along to ask. The spec records the suggestion ID only to mark the source; whether to record it is up to the Creator, and the protocol does not force it.
 
-### 5.5 交易：多 maker RFQ【決定】
+### 5.5 Trading: multi-maker RFQ [Decided]
 
-- 保留 RFQ、taker 綁定、EIP-712 報價、全額抵押 complete set、整筆成交、到期贖回。
-- 任何註冊 Maker 都能報價。API 只做 **RFQ 轉發**：收到詢價後轉給已訂閱的 maker，收集簽好的報價回給 taker。合約驗證報價簽章屬於已註冊、抵押足夠、額度未超的 maker。
-- 平台可以拒絕轉發（審查），但不能偽造或修改報價；maker 與 taker 也可以不經 API、直接把報價送上合約。
-- 移除 taker allowlist、單一 maker、平台 quote service 的定價邏輯（定價由 maker 自己決定）。
-- 每筆成交由 taker 支付手續費（§5.8）。
+- Keep the RFQ, taker binding, EIP-712 quotes, fully collateralized complete sets, whole-order fills and redemption at expiry.
+- Any registered Maker can quote. The API only does **RFQ relay**: after receiving a request for quote it forwards it to the subscribed makers and collects the signed quotes back to the taker. The contracts verify that the quote signature belongs to a registered maker with enough collateral and an unexceeded limit.
+- The platform may refuse to relay (censorship), but cannot forge or modify a quote; makers and takers can also skip the API and submit a quote directly to the contracts.
+- Remove the taker allowlist, the single maker, and the pricing logic of the platform quote service (each maker decides its own pricing).
+- On every fill the taker pays the fee (§5.8).
 
-### 5.6 結算：分層【使用者 U3；細節為決定】
+### 5.6 Settlement: layered [User U3; details decided]
 
-原則：**查證越便宜，說謊越容易被抓；博弈是最後防線，不是主要機制。**
+Principle: **the cheaper verification is, the easier lying is to catch; game theory is the last line of defense, not the main mechanism.**
 
-1. **可計算層（A 類）：** 答案可由公開程式重算。Proposer 提交結果，任何人重算不符即可挑戰，仲裁者只需重跑。
-2. **Optimistic 層：** Proposer 押金提交結果；挑戰期內無人挑戰即 finalize（permissionless）。
-3. **仲裁層：** 挑戰後進入仲裁回合。爭議開啟時**快照**合格 Juror 與其可罰沒押金；之後的註冊、加押或解押不影響本回合。Juror 以 **commit-reveal** 投票，**權重 = 快照時的可罰沒押金**（信用不放大權重，只決定能否進入高層回合），因此把押金拆給多個分身不會增加權重。commit 與 reveal 有明確期限與緩衝區塊，法定票數以已 commit 的押金計。是否改為隨機抽選 Juror **【實作者】**：Base 的 `prevrandao` 由 sequencer 提供、可被操縱，若採抽選必須說明隨機性來源的安全性；不抽選時所有快照內的 Juror 皆可投票。
-4. **上訴：** 敗方可押加倍押金上訴到下一回合（更長期限、更高法定票數、更高信用門檻）；回合數上限寫死。
-5. **保底：** 只有超過 hardDeadline 仍未定案才 INVALID（YES／NO 各 0.5，沿用 v0.1）。回合內未達法定票數**不直接 INVALID**，而是延長或升級回合，避免攻擊者靠拖延把市場推向 INVALID。
+1. **Computable layer (class A):** the answer can be recomputed by a public program. The Proposer submits the result; anyone who recomputes a mismatch can challenge, and jurors only need to rerun.
+2. **Optimistic layer:** the Proposer submits a result with a bond; if nobody challenges within the challenge window, it is finalized (permissionless).
+3. **Arbitration layer:** after a challenge, the market enters an arbitration round. When the dispute opens, the eligible Jurors and their slashable stake are **snapshotted**; later registrations, added stake or unstaking do not affect this round. Jurors vote by **commit-reveal**, and the **weight = the slashable stake at snapshot time** (credit does not amplify weight; it only decides eligibility for higher rounds), so splitting stake across several sybil identities does not increase weight. Commit and reveal have explicit deadlines and buffer blocks, and the quorum is counted on committed stake. Whether to switch to random juror selection is **[Implementer]**: Base's `prevrandao` is supplied by the sequencer and can be manipulated, so if selection is adopted the security of the randomness source must be explained; without selection, every Juror in the snapshot can vote.
+4. **Appeal:** the losing side can appeal to the next round by posting a doubled bond (longer deadlines, higher quorum, higher credit threshold); the maximum number of rounds is hard-coded.
+5. **Backstop:** Only a market still unresolved after hardDeadline becomes INVALID (YES/NO 0.5 each, as in v0.1). A round that misses its quorum is **not directly INVALID**; it is extended or escalated, so that an attacker cannot push a market to INVALID by delaying.
 
-**安全不變量（必須寫成公式並有對抗測試）：**
-- **腐化成本 > 腐化收益，逐市場在鏈上檢查。** 市場的**最大賠付**在建市時固定（`maxPairs × 1 bUSD`），之後不降。建市時合約檢查：最終仲裁回合要攻下多數所需的可罰沒押金，加上上訴成本，必須大於該市場最大賠付加上同一攻擊者在相關角色上能拿到的報酬；不成立就拒絕建市。所有押金需求都以最大賠付計，不以會變動、能被拆分的未平倉量計。具體公式【實作者】，但必須寫進文件並逐項測試。
-- **INVALID 不能比打贏爭議更便宜。** 攻擊者可能先買便宜的一邊，再靠廉價挑戰、不揭票或拖延把結果推成 INVALID，拿 0.5。所以挑戰押金以最大賠付計；挑戰最後若沒有推翻原結果（包括以 INVALID 收場），挑戰押金不退；不揭票的罰沒要大到足以補償它造成的延誤。
-- **沒有挑戰者時也不能說謊獲利。** 從手續費預留保證挑戰賞金，讓抓錯永遠有利可圖；Proposer 押金至少等於其能從錯誤結果拿到的最大利益。`examples/` 提供參考 challenger agent，但安全不能依賴它在線。
-- Juror 激勵只看與最終定案一致，搭配 commit-reveal 抑制跟風。
-- 結算文件一律當不可信資料；A 類以確定性 parser 解析存檔 bytes，降低 prompt injection 對結算的影響。
-- 所有 deadline 到期後的推進都是 permissionless（Keeper 只是被付費去做，任何人都能做）。
+**Safety invariants (must be written as formulas and have adversarial tests):**
+- **Cost of corruption > benefit of corruption, checked on-chain per market.** A market's **maximum payout** is fixed at market creation (`maxPairs × 1 bUSD`) and never decreases afterwards. At market creation the contract checks that the slashable stake needed to win a majority in the final arbitration round, plus the cost of appeals, is greater than the market's maximum payout plus the rewards the same attacker could collect in the related roles; if not, market creation is refused. All bond and stake requirements are computed on the maximum payout, not on open interest, which changes and can be split. The exact formula is [Implementer], but it must be written into the documentation and tested item by item.
+- **INVALID must not be cheaper than winning a dispute.** An attacker might first buy the cheap side, then push the result to INVALID through a cheap challenge, not revealing votes or delaying, and collect 0.5. So the challenge bond is computed on the maximum payout; if the challenge in the end does not overturn the original result (including ending in INVALID), the challenge bond is not refunded; the slashing for not revealing must be large enough to compensate for the delay it causes.
+- **Lying cannot profit even when there is no challenger.** A guaranteed challenge reward is reserved from fees, so catching an error is always profitable; the Proposer's bond is at least the maximum benefit it can get from a wrong result. `examples/` provides a reference challenger agent, but safety must not depend on it being online.
+- Juror incentives look only at consistency with the final outcome, combined with commit-reveal to discourage herding.
+- Settlement documents are always treated as untrusted data; class A uses a deterministic parser on the archived bytes to reduce the impact of prompt injection on settlement.
+- Advancing any state after a deadline expires is permissionless (the Keeper is merely paid to do it; anyone can).
 
-### 5.7 信用【使用者 U6、U7；細節為決定】
+### 5.7 Credit [User U6, U7; details decided]
 
-- **按角色分開計算**（見 §5.2 表）。累積慢、失去快；有時間衰減；不可轉讓。
-- **鏈上信用**：Creator、Proposer、Challenger、Juror、Maker 的結果都在鏈上，信用由合約依事件計算，可影響鏈上限制。
-- **鏈下信用**：Forecaster 的 Brier 在鏈下計算（預測在鏈下），只影響鏈下用途（共識機率加權、公開排名），不影響任何資金規則。
-- **用途：信用不直接發錢，只降低成本、放寬上限。**
-  - 上限 = 押上的資本 × 信用倍數（新身份倍數最低，但押更多資本仍能提高額度，避免冷啟動卡死）。
-  - 押金倍數隨信用降低，**有下限**，大市場一律足額押金（防「養信用後收割」）。
-  - C 類建市與高層仲裁需要最低信用門檻；信用**不放大**仲裁投票權重（權重只看可罰沒押金，見 §5.6）。
-  - 挑戰期可隨 Proposer 信用縮短，但不得低於下限。
-  - 平台顯示的共識機率按 Forecaster 信用加權。
-- **防洗白：** 新身份付註冊費、信用從零、額度最小【使用者 U7】。
-- **冷啟動：** 新世代剛部署時所有身份信用都是零，若門檻固定就沒有人能進 C 類建市或高層仲裁。門檻改為**依世代的公開指標逐步開啟**（例如已定案市場數、Juror 總押金），沒有任何特權地址能手動開啟。若有匯入上一世代的信用，則直接沿用。
-- **防刷分：** 信用只來自已定案的結果（結算有沒有被推翻、題目有沒有被判無效、預測準不準），不來自成交量或未平倉量；增量依該市場最大賠付加權，小市場刷分效益低。對敲交易要付手續費，其中平台那份是淨損失，所以刷成交量本身就有成本。
-- **殘餘風險：** 信用很低的身份換新帳號，會回到新手額度並甩掉壞紀錄。這符合「換帳號沒有好處」，但不構成懲罰；註冊費與角色押金是換帳號的成本。
+- **Computed separately per role** (see the table in §5.2). Slow to accumulate, fast to lose; subject to time decay; not transferable.
+- **On-chain credit:** the outcomes of Creator, Proposer, Challenger, Juror and Maker are all on-chain; the contracts compute credit from events, and it can affect on-chain limits.
+- **Off-chain credit:** the Forecaster's Brier score is computed off-chain (forecasts are off-chain). It only affects off-chain uses (consensus probability weighting, public rankings) and does not affect any rule about funds.
+- **Use: credit does not pay money directly; it only lowers costs and relaxes caps.**
+  - Cap = staked capital × credit multiplier (a new identity has the lowest multiplier, but staking more capital still raises the limit, to avoid a cold-start deadlock).
+  - Bond and stake multiples fall with credit, with a **floor**; large markets always require full bonds (to stop "farm credit, then harvest").
+  - Class C market creation and high-level arbitration need a minimum credit threshold; credit **does not amplify** arbitration voting weight (weight depends only on slashable stake, see §5.6).
+  - The challenge window can shorten with the Proposer's credit, but not below a floor.
+  - The consensus probability the platform displays is weighted by Forecaster credit.
+- **Anti-laundering:** a new identity pays the registration fee, starts with zero credit and the smallest limit [User U7].
+- **Cold start:** when a new generation has just been deployed, every identity has zero credit, and if the thresholds were fixed, nobody could enter class C market creation or high-level arbitration. The thresholds instead **open gradually according to the generation's public metrics** (for example the number of finalized markets, total juror stake), and no privileged address can open them manually. If credit is imported from a previous generation, it is used directly.
+- **Anti-farming:** credit comes only from finalized outcomes (whether a settlement was overturned, whether a question was ruled invalid, whether a forecast was accurate), not from trading volume or open interest; the increments are weighted by the market's maximum payout, so farming on small markets pays little. Wash trades pay fees, and the platform's share of those is a net loss, so inflating trading volume has a cost of its own.
+- **Residual risk:** an identity with very low credit can switch to a new account, return to the newcomer limit and shed its bad record. This fits "switching accounts brings no benefit" but is not a punishment; the registration fee and the role stake are the cost of switching accounts.
 
-### 5.8 手續費與分潤【使用者 U8；比例為決定】
+### 5.8 Fees and fee share [User U8; ratios decided]
 
-- 每筆成交按 taker 支付金額收固定 bps 手續費，存在該市場合約內。
-- 市場 FINAL 時分配（permissionless 觸發）：
-  - 平台金庫：固定比例。
-  - Creator：固定比例；題目 INVALID 或建市挑戰成立時，這份轉入結算池或金庫（擇一【實作者】）。
-  - 結算池：給熬過挑戰期或仲裁勝出的 Proposer，以及 Keeper 執行費。
-  - Juror 池：補償仲裁者為維持機制鎖住的押金，依押金與鎖定時間分配，違規罰沒【使用者 U14】。這份讓 Juror 總押金在沒有爭議時也能維持，§5.6 的市場上限才有實用的大小。
-  - 保證挑戰賞金：每個市場預留，只有挑戰成立才發放（§5.6）。
-- 爭議本身的輸贏另由輸方被罰沒的押金支付。
-- Forecaster 與人類建議者不從手續費分潤【使用者 U12、U13】。
-- 註冊費進平台金庫。
-- 預設比例【實作者】，寫成部署參數；不得出現以成交量計算的獎勵（防 wash trade）。
-- 平台金庫地址是收款地址，**沒有任何協定權限**。
+- Every fill charges a fixed bps fee on the amount the taker pays, held inside that market's contract.
+- It is distributed when the market is FINAL (triggered permissionlessly):
+  - Platform treasury: a fixed ratio.
+  - Creator: a fixed ratio; when the question is INVALID or a market creation challenge is upheld, this share goes to the settlement pool or the treasury (one of the two, [Implementer]).
+  - Settlement pool: for the Proposer who survived the challenge window or won in arbitration, and the Keeper execution fee.
+  - Juror pool: compensates jurors for the stake they lock to keep the mechanism running, distributed by stake and lock time, and slashed on misconduct [User U14]. This share keeps total juror stake sustained even when there are no disputes, so that the market cap in §5.6 has a useful size.
+  - Guaranteed challenge reward: reserved for every market and paid out only if a challenge is upheld (§5.6).
+- The win or loss of a dispute itself is paid for separately by the loser's slashed bond.
+- Forecasters and human suggesters get no fee share [User U12, U13].
+- The registration fee goes to the platform treasury.
+- The default ratios are [Implementer] and are written as deployment parameters; no reward calculated from trading volume may appear (to prevent wash trades).
+- The platform treasury address is a receiving address and has **no protocol permission**.
 
-### 5.9 沒有管理員之後【決定】
+### 5.9 After there is no admin [Decided]
 
-- 合約不可升級、沒有 pause；新版本是新部署（新世代，§5.1），舊市場依舊規則跑完。
-- **治理只決定「下一個世代」，不碰既有市場【使用者 U18；範圍為決定】：** 平台幣持有者投票決定是否採用新世代與其參數，通過後有鎖定期才生效。治理**不能**修改既有市場的規則、結果或託管資金。原因是部位只能到期贖回，用戶在鎖定期內無法退出，所以任何能動既有市場的治理權都等於能動用戶的錢。
-- 治理的法定票數、鎖定期、提案門檻【實作者】；治理投票同樣以快照計權重，防止借幣投票。
-- 交易在 closeAt 自動停止；所有期限推進 permissionless。
-- 安全事故時平台能做的只有：停止 API 轉發、在網站與文件公告、發布新部署。這個限制要寫進文件。
-- Indexer 落後時停止 RFQ 轉發（沿用 v0.1 規則），但不影響合約上的任何動作。
+- The contracts are not upgradeable and have no pause; a new version is a new deployment (a new generation, §5.1), and old markets run to completion under their old rules.
+- **Governance only decides "the next generation" and does not touch existing markets [User U18; scope decided]:** platform token holders vote on whether to adopt a new generation and its parameters, and after it passes there is a lock period before it takes effect. Governance **cannot** modify the rules, outcome or escrowed funds of an existing market. The reason is that a position can only be redeemed at expiry and users cannot exit during the lock period, so any governance power over existing markets would amount to power over users' money.
+- Governance's quorum, lock period and proposal threshold are [Implementer]; governance votes are likewise weighted by snapshot, to prevent borrowed-token voting.
+- Trading stops automatically at closeAt; all deadline advances are permissionless.
+- In a security incident all the platform can do is: stop API relay, announce on the website and in the documentation, and publish a new deployment. This limit must be written into the documentation.
+- When the indexer lags, RFQ forwarding stops (the v0.1 rule), but this does not affect any action on the contracts.
 
-### 5.10 平台程序的邊界【決定】
+### 5.10 Boundary of the platform processes [Decided]
 
-平台保留並運作的只有基礎設施：
+The platform keeps and runs only infrastructure:
 
-| 程序 | 新職責 | 不再做的事 |
+| Process | New responsibility | What it no longer does |
 | --- | --- | --- |
-| API | 自助身份、RFQ 轉發、公開讀取、預測提交與窗口、人類建議、證據上傳 | 核准、管理員動作、報價定價 |
-| Indexer | 新合約事件、reorg、projection、信用與分潤的讀取模型 | — |
-| Worker | outbox、retention、告警、評分與預測窗口開關等基礎設施工作 | discovery、forecaster、baseline、trader、keeper、faucet 的業務 handler |
-| Signer | **移除**（faucet 改鏈上自助後，平台沒有任何需要簽章的業務） | maker、keeper、faucet、trader 簽章 |
-| Web | 說明站、文件、優勢頁、人類建議表單、市場唯讀資料 | — |
+| API | Self-service identity, RFQ relay, public reads, forecast submission and windows, human suggestions, evidence upload | Approval, admin actions, quote pricing |
+| Indexer | Events of the new contracts, reorg handling, projections, read models for credit and fee share | — |
+| Worker | Infrastructure jobs: outbox, retention, alerts, scoring, opening and closing forecast windows | Business handlers for discovery, forecaster, baseline, trader, keeper and faucet |
+| Signer | **Removed** (once the faucet is on-chain and self-service, the platform has no business that needs a signature) | Maker, keeper, faucet and trader signing |
+| Web | Documentation site, docs, advantages page, human suggestion form, read-only market data | — |
 
-- 預測必須由 agent 簽章；平台不能偽造或回溯修改預測，時間戳要可獨立驗證（例如定期把窗口內預測的 Merkle root 放上鏈，由任何人觸發）。方式【實作者】。
-- 證據與 spec bytes 以內容 hash 定址，任何人都可鏡像；平台存放只是方便，不是信任來源。
-- 平台營運基礎設施（主機、告警、備份）不算扮演市場角色。
+- Forecasts must be signed by the agent; the platform cannot forge or retroactively modify a forecast, and timestamps must be independently verifiable (for example, periodically put the Merkle root of the forecasts in a window on-chain, triggered by anyone). The method is [Implementer].
+- Evidence and spec bytes are addressed by content hash, and anyone can mirror them; the platform's storage is only a convenience, not a source of trust.
+- Operating the platform's infrastructure (hosts, alerts, backups) does not count as playing a market role.
 
-### 5.12 信任假設（必須公開寫明）【決定】
+### 5.12 Trust assumptions (must be stated publicly) [Decided]
 
-去掉所有特權角色之後，結算的最終安全仍然建立在一個假設上：**快照內的可罰沒 Juror 押金是誠實多數**。這跟 UMA、Kleros 這類無許可 oracle 的假設相同；在沒有可信身份的前提下，單靠押金無法做到更強的保證（例如無法完全防止場外賄賂）。設計的作法是：
+After all privileged roles are removed, the final safety of settlement still rests on one assumption: **the slashable juror stake inside the snapshot is an honest majority**. This is the same assumption as permissionless oracles such as UMA and Kleros; without trusted identities, stake alone cannot give a stronger guarantee (for example, it cannot fully prevent off-chain bribery). The design handles this as follows:
 
-- 把假設寫進文件與網站，宣稱「**在公開列出的假設下**，誠實是可證明的最佳策略」，不宣稱無條件保證。
-- Juror 押金使用平台幣【使用者 U18】：攻下仲裁 → 市場失去信任 → 平台幣下跌 → 攻擊者押的平台幣蒸發，所以攻擊會毀掉攻擊者自己。這是比特幣與 UMA 依賴的同一種安全來源，強度取決於平台幣的市值；早期市值小時保護也小，市場上限要跟著小。
-- 逐市場上限的檢查要把 Juror 押金換算成 bUSD，需要一個抗操縱的平台幣價格。價格來源【實作者】，但必須抗短時間操縱（例如長時間 TWAP，並取保守值）；測試網沒有真實流動性，演練使用固定的測試價格，文件要明示。
-- 用 §5.6 的逐市場上限，讓任何單一市場的最大賠付都小於攻下仲裁的成本。
-- 盡量讓結果落在可計算層，縮小需要仲裁的範圍。
-- 冷啟動時 Juror 總押金很小，市場上限也跟著很小；這是預期行為。
+- Write the assumption into the documentation and the website. State the claim as: "**Under the publicly listed assumptions**, honesty is the provably best strategy", and do not claim an unconditional guarantee.
+- Juror stake uses the platform token [User U18]: taking over arbitration → the market loses trust → the platform token falls → the platform tokens the attacker staked evaporate, so the attack destroys the attacker itself. This is the same kind of security source that Bitcoin and UMA rely on; its strength depends on the platform token's market value. While the market value is small early on, the protection is small too, so the market cap must be small with it.
+- The per-market cap check has to convert juror stake into bUSD, which needs a manipulation-resistant platform token price. The price source is [Implementer], but it must resist short-term manipulation (for example a long-window TWAP, taking the conservative value). The testnet has no real liquidity, so the drill uses a fixed test price, and the documentation must say so explicitly.
+- Use the per-market cap in §5.6 so that the maximum payout of any single market is smaller than the cost of taking over arbitration.
+- Keep results in the computable layer wherever possible, to shrink the range that needs arbitration.
+- At cold start, total juror stake is small and the market cap is small with it; this is expected behavior.
 
-### 5.11 LIVE 與 REPLAY【決定】
+### 5.11 LIVE and REPLAY [Decided]
 
-REPLAY 改為**部署層級**的標記：只有測試與演練用的部署允許 REPLAY 市場，正式部署只有 LIVE。REPLAY 的統計仍與 LIVE 永久分開。
+REPLAY becomes a **deployment-level** flag: only test and drill deployments allow REPLAY markets, and production deployments have only LIVE. REPLAY statistics stay permanently separate from LIVE.
 
-## 6. 要移除的暫時設計（對照現有程式）
+## 6. Temporary design to remove (against the current code)
 
-實作計畫要逐項列出檔案；以下為範圍：
+The implementation plan must list files one by one; the scope is as follows:
 
-- **合約：** `BlinkMarket.sol` 的 immutable `maker`、`admin`、`resultProposer`、`challenger`、`arbiter` 與 `only(...)` 權限；`setGlobalTradingPaused`、`setMarketTradingPaused`、`setTakerAllowed`；`arbitrate`。`BlinkTestUSD.sol` 的固定 minter（改自助 faucet）。
-- **建市核准流程：** approval／preparation／creation tracking 的人工核准路徑（`approval*`、`preparation*`、ADMIN 錢包建市）。
-- **平台 agent：** discovery、`platform-forecaster`、baseline、內部 trader（`trader*`、`trader-rule`）、平台 keeper 與 faucet worker。
-- **Signer 與 dispatcher：** `apps/signer`、`signer*`、`signing-*`、`tx-dispatcher`、平台的 nonce 管理，以及只為平台簽章存在的 runtime role。
-- **邀請制身份：** invite key 發放、operator 管理。
-- **單一 maker 定價：** quote service 依 ensemble 定價、maker collateral reservation 的平台側邏輯。
-- **文件：** v0.1 的固定角色、人工核准、團隊營運揭露等描述，改為歷史或刪除。
+- **Contracts:** in `BlinkMarket.sol`, the immutable `maker`, `admin`, `resultProposer`, `challenger`, `arbiter` and the `only(...)` permissions; `setGlobalTradingPaused`, `setMarketTradingPaused`, `setTakerAllowed`; `arbitrate`. In `BlinkTestUSD.sol`, the fixed minter (replaced by a self-service faucet).
+- **Market approval flow:** the manual approval paths of approval/preparation/creation tracking (`approval*`, `preparation*`, market creation from the ADMIN wallet).
+- **Platform agents:** discovery, `platform-forecaster`, baseline, the internal trader (`trader*`, `trader-rule`), the platform keeper and the faucet worker.
+- **Signer and dispatcher:** `apps/signer`, `signer*`, `signing-*`, `tx-dispatcher`, the platform's nonce management, and the runtime role that exists only for platform signing.
+- **Invite-only identity:** invite key issuance, operator management.
+- **Single-maker pricing:** the quote service pricing by ensemble, and the platform-side logic of maker collateral reservation.
+- **Documentation:** the descriptions in v0.1 of fixed roles, manual approval and team-operation disclosures are turned into history or deleted.
 
-移除時遵守：已套用的 migration 不可修改，只新增；`alpha-2` 部署紀錄與 manifest 保留為歷史，不再是目標部署。
+When removing, follow these rules: applied migrations must not be modified, only added; the `alpha-2` deployment record and manifest are kept as history and are no longer the target deployment.
 
-## 7. 保留並改造的部分
+## 7. What to keep and rework
 
-- complete set、全額抵押、整數份數、INVALID 0.5、到期贖回、spec bytes 與 hash 規則。
-- EIP-712 報價格式（加入 maker 身份）、consumed／cancel／epoch 防重放。
-- Chain indexer（reorg、canonical cursor）、tx tracking（給 agent 查詢）。
-- 預測窗口、封閉提交、`OUTCOME_ALREADY_PUBLIC`、Brier、LIVE／REPLAY 分離。
-- Allowlist fetcher 的 SSRF 防護（給參考 agent 與證據上傳使用）。
-- `@blink/client` SDK 與報價驗證；`examples/agent` 擴充為各角色的參考 agent。
-- Job queue、outbox、retention、告警、health、備份還原演練。
+- Complete sets, full collateral, integer share counts, INVALID 0.5, redemption at expiry, the rules for spec bytes and hashes.
+- The EIP-712 quote format (adding the maker identity), and consumed/cancel/epoch replay protection.
+- The chain indexer (reorg, canonical cursor) and tx tracking (for agent queries).
+- Forecast windows, sealed submission, `OUTCOME_ALREADY_PUBLIC`, Brier, LIVE/REPLAY separation.
+- The allowlist fetcher's SSRF protection (used by reference agents and evidence upload).
+- The `@blink/client` SDK and quote verification; `examples/agent` is extended into reference agents for each role.
+- Job queue, outbox, retention, alerts, health, and the backup and restore drill.
 
-## 8. 參考 agent 與說明文件【決定】
+## 8. Reference agents and documentation [Decided]
 
-- `examples/` 提供每個角色的參考 agent（creator、maker、trader、forecaster、proposer、challenger、juror、keeper），開源，任何人都能跑。它們**不是平台營運的參與者**：只用公開文件、公開 API、自己的金鑰，不得使用任何內部套件或特權設定（以 import 邊界測試強制）。
-- 參考 agent 預設使用 fixture 模型，不依賴付費模型；CI 與 §2.1 演練只用它們，結果可重現【使用者 U15】。
-- 另做一個**可選的通用 LLM agent 示範**：只拿到 `/llms.txt` 與文件，用執行者自己的模型金鑰，自己決定要擔任哪些角色。不進 CI，模型費用由執行者自付；可作為介紹影片的素材，也用來檢查文件是否足以讓 agent 自行接入【使用者 U15】。
-- `/docs/agents` 與 `/llms.txt` 改寫成「讀完就能選角色接入」：每個角色的職責、押金、收入、信用、風險、API 與合約呼叫步驟。成功判定 §2.1 的演練必須只用這份文件描述的介面。
+- `examples/` provides a reference agent for every role (creator, maker, trader, forecaster, proposer, challenger, juror, keeper), open source, runnable by anyone. They are **not participants operated by the platform**: they use only the public documentation, the public API and their own keys, and must not use any internal package or privileged configuration (enforced by an import-boundary test).
+- Reference agents use a fixture model by default and do not depend on a paid model; CI and the §2.1 drill use only them, and the results are reproducible [User U15].
+- Also build one **optional general-purpose LLM agent demo**: it receives only `/llms.txt` and the documentation, uses the operator's own model key, and decides for itself which roles to take. It is not in CI, and the operator pays the model cost. It can serve as material for the introduction video, and it is also used to check that the documentation is enough for an agent to onboard by itself [User U15].
+- `/docs/agents` and `/llms.txt` are rewritten as "read it and you can choose a role and onboard": each role's duties, stake or bond, income, credit, risks, and the API and contract call steps. The drill in the success criteria §2.1 must use only the interfaces this documentation describes.
 
-## 9. 網站：優勢與願景【使用者 U10；呈現為決定】
+## 9. Website: advantages and vision [User U10; presentation decided]
 
-新增優勢段落或頁面，內容至少涵蓋：
-- 從原始資料到評分的可驗證閉環。
-- AI 預測防污染：封閉窗口、`OUTCOME_ALREADY_PUBLIC`、LIVE／REPLAY 永久分離。
-- 研究機率與市場價格分開呈現。
-- 給自主 agent 的安全邊界。
-- RFQ 解決長尾題目的冷啟動。
-- 全 agent 角色、分層自動結算、agent 信用。
+Add an advantages section or page whose content covers at least:
+- A verifiable closed loop from raw data to scoring.
+- Protection against AI forecast contamination: sealed windows, `OUTCOME_ALREADY_PUBLIC`, permanent LIVE/REPLAY separation.
+- Research probabilities shown separately from market prices.
+- Safety boundaries for autonomous agents.
+- RFQ solves the cold start of long-tail questions.
+- All-agent roles, layered automatic settlement, agent credit.
 
-每項標示「已實作」或「正在建構」，功能完成才移到已實作。與其他平台比較的事實必須附查證日期與來源，不寫無法查證的描述。
+Mark each item "implemented" or "under construction", and move it to implemented only when the feature is done. Facts compared with other platforms must carry a verification date and a source; do not write descriptions that cannot be verified.
 
-## 10. 介紹影片【使用者 U11】
+## 10. Introduction video [User U11]
 
-- 新增待辦：製作 Blink 介紹影片，說明願景、與其他市場的差異、全自動流程。
-- 取代 v0.1 §19 與 `docs/M5_DEMO_SCRIPT.md` 的「3 分鐘 demo」定位：先更新腳本，畫面以 `pnpm alpha:autonomous` 的實際運行為主；歷史或 fixture 資料必須標示。
-- 以 Remotion（React 程式產生影片）製作【使用者 U16】，放在 repo 內獨立的 workspace（位置【實作者】），不讓網站或服務依賴它。動手前先確認 Remotion 的授權條款是否適用（其授權對個人與小型團隊免費，較大的公司需購買 company license），結果寫進文件。
-- 影片在成功判定 §2.1 第 2 項通過後製作；可使用演練與可選 LLM agent 示範的實際畫面。
+- Add a to-do: produce the Blink introduction video, explaining the vision, the differences from other markets, and the fully automatic flow.
+- It replaces the "3-minute demo" positioning of v0.1 §19 and `docs/M5_DEMO_SCRIPT.md`: update the script first, with footage mainly from an actual run of `pnpm alpha:autonomous`; historical or fixture data must be labeled.
+- Make it with Remotion (generating video from React code) [User U16], in a separate workspace inside the repo (location [Implementer]), so that the website and services do not depend on it. Before starting, confirm whether Remotion's license terms apply (its license is free for individuals and small teams, and larger companies must buy a company license), and write the result into the documentation.
+- The video is made after item 2 of the success criteria §2.1 passes; it can use actual footage from the drill and from the optional LLM agent demo.
 
-## 11. 階段劃分（建議）【決定】
+## 11. Phases (suggested) [Decided]
 
-| 階段 | 內容 | 可平行 |
+| Phase | Content | Parallelizable |
 | --- | --- | --- |
-| P0 | 本設計核准；整理既有計畫文件與 ROADMAP，對齊新目標 | — |
-| P1 | 新合約：註冊與角色押金、題目類別與建市挑戰、多 maker 成交與手續費、分層結算與仲裁、信用、自助 faucet；Foundry 單元、invariant 與對抗測試 | 合約內可依模組平行 |
-| P2 | 鏈下改造：移除 §6 項目；自助身份；RFQ 轉發；indexer 與讀取模型對新事件；簽章預測；人類建議 | 與 P1 介面先固定後平行 |
-| P3 | 參考 agent、agent 文件、`pnpm alpha:autonomous` 演練（§2.1 全部情境） | 各角色 agent 平行 |
-| P4 | 網站優勢頁、README／ROADMAP、介紹影片 | 與 P3 後段平行 |
+| P0 | Approve this design; tidy the existing plan documents and the ROADMAP to match the new goal | — |
+| P1 | New contracts: registration and role stakes, question classes and market creation challenge, multi-maker fills and fees, layered settlement and arbitration, credit, self-service faucet; Foundry unit, invariant and adversarial tests | Parallel by module inside the contracts |
+| P2 | Off-chain rework: remove the §6 items; self-service identity; RFQ relay; indexer and read models for the new events; signed forecasts; human suggestions | Parallel once the P1 interface is fixed |
+| P3 | Reference agents, agent documentation, the `pnpm alpha:autonomous` drill (all §2.1 scenarios) | Agents for each role in parallel |
+| P4 | Website advantages page, README/ROADMAP, introduction video | In parallel with the later part of P3 |
 
-部署（D3、D6、Track B）在 P4 之後重新評估。
+Deployment (D3, D6, Track B) is reassessed after P4.
 
-## 12. 使用者的回答與待討論
+## 12. The user's answers and open items for discussion
 
-2026-10-23 已回答：Q1 仲裁者補償 → U14；Q2 證明程度 → U15；Q3 Forecaster 分潤 → U13；Q4 人類建議者分潤 → U12；Q6 影片 → U16。
+Answered on 2026-10-23: Q1 juror compensation → U14; Q2 level of proof → U15; Q3 Forecaster fee share → U13; Q4 human suggester fee share → U12; Q6 video → U16.
 
-**待討論（不阻擋 P1–P3 開工，但要在網站對外開放建議與建市前決定）：**
+**Open for discussion (does not block starting P1–P3, but must be decided before the website opens to public suggestions and market creation):**
 
-- **禁止題目的處理方式【使用者 U17】。** 違法或傷害個人的題目應該禁止，但由平台審查就不是去中心化。方向：檢舉作為申訴管道，再透過投票處理（例如把「違法或傷害個人」列為建市挑戰理由，走同一套 Juror 仲裁）。尚未決定的部分：
-  - 判定標準怎麼寫成仲裁者能一致判斷的規則；
-  - 市場已開放交易後才被檢舉成立時，部位怎麼處理（例如以 INVALID 結算），以及這會不會被用來套利 0.5；
-  - 平台是否能先在自己的網站與 API 隱藏被檢舉的內容（只影響平台介面，不碰鏈上），以及這算不算扮演角色。
-- 合約設計時要預留「建市挑戰理由」的擴充位置，讓這項決定之後能放進新世代，而不必重寫建市流程。
-- **平台幣的真實發行（主網前決定）【使用者 U18 衍生】：** 初始分配（平台持有太多就等於掌握治理，等同扮演角色）、取得方式、Juror 押金收手續費是否構成證券的法律定性、真實的價格來源。測試網階段不阻擋。
-- **治理升級的進一步擴充：** 等有了提前退出的機制後，再評估治理是否能有限度地修改既有市場。
+- **How to handle banned questions [User U17].** Questions that are illegal or harm individuals should be banned, but platform review would not be decentralized. Direction: reports as an appeal channel, then handled by a vote (for example, list "illegal or harms individuals" as a market creation challenge ground that goes through the same Juror arbitration). Still undecided:
+  - how to write the criteria as a rule jurors can apply consistently;
+  - what happens to positions when a report is upheld after the market has opened for trading (for example, settle as INVALID), and whether this could be used to arbitrage the 0.5;
+  - whether the platform may first hide reported content on its own website and API (affecting only the platform's interface, not touching the chain), and whether that counts as playing a role.
+- When designing the contracts, reserve an extension slot for "market creation challenge grounds", so that this decision can later go into a new generation without rewriting the market creation flow.
+- **Real issuance of the platform token (decided before mainnet) [Derived from User U18]:** initial distribution (if the platform holds too much it controls governance, which amounts to playing a role), how to obtain it, the legal characterization of whether Juror stake earning fees counts as a security, and the real price source. This does not block the testnet stage.
+- **Further extension of governance upgrades:** once an early-exit mechanism exists, evaluate whether governance can modify existing markets in a limited way.
 
-## 13. 撰寫者做的決定（請檢查）
+## 13. Decisions made by the author (please check)
 
-- 經濟參數部署時寫死；改參數即新部署。
-- 鏈上自助 faucet 取代平台 minter，並因此移除 signer 程序。
-- 註冊費不退還、角色押金可經冷卻期退回。
-- 同市場內的角色互斥規則（§5.2）。
-- 三類題目、建市挑戰期、新模板首用較長挑戰期。
-- 仲裁採快照押金加權的 commit-reveal 投票（信用只當門檻、不放大權重），上訴押金加倍；回合內無結論不直接 INVALID，只有超過 hardDeadline 才 INVALID。
-- 所有押金以建市時固定的最大賠付計；建市時逐市場檢查腐化成本 > 腐化收益。
-- A 類結算以存檔 bytes 為準；從手續費預留保證挑戰賞金。
-- 信用分鏈上（資金相關角色）與鏈下（Forecaster）；只來自已定案結果；五種用途全部納入，但不放大投票權重。
-- 公開寫明「誠實多數押金」的信任假設（§5.12）。
-- 身份註冊表與建市工廠成對構成「世代」；新世代唯讀匯入上一世代的身份與信用。
-- 雙資產：bUSD 管交易、手續費與逐市場押金；平台幣管 Juror 押金與治理。
-- 治理只能決定下一個世代與其參數（有鎖定期），不能動既有市場。
-- 信用門檻依世代公開指標逐步開啟；演練可用較短期限的測試參數，但門檻規則與正式相同。
-- 手續費由 taker 支付；爭議報酬只來自罰沒押金。
-- 沒有 pause、不可升級。
-- REPLAY 改為部署層級標記。
-- 參考 agent 放在 `examples/`，以 import 邊界保證不使用內部能力。
+- Economic parameters are hard-coded at deployment; changing a parameter means a new deployment.
+- The on-chain self-service faucet replaces the platform minter, and the signer process is removed as a result.
+- The registration fee is non-refundable; role stakes can be returned after a cooldown.
+- The mutual-exclusion rules for roles within one market (§5.2).
+- Three question classes, the market creation challenge window, and a longer challenge window for the first use of a new template.
+- Arbitration uses commit-reveal voting weighted by snapshot stake (credit is only a threshold and does not amplify weight), and the appeal bond doubles; a round without a conclusion is not directly INVALID, and only a market past hardDeadline becomes INVALID.
+- All bonds and stakes are computed on the maximum payout fixed at market creation; the check "cost of corruption > benefit of corruption" runs per market at market creation.
+- Class A settlement is based on archived bytes; a guaranteed challenge reward is reserved from fees.
+- Credit is split into on-chain (roles tied to funds) and off-chain (Forecaster); it comes only from finalized outcomes; all five uses are included, but it does not amplify voting weight.
+- The "honest-majority stake" trust assumption is stated publicly (§5.12).
+- The identity registry and the market factory form a "generation" as a pair; a new generation imports the previous generation's identities and credit read-only.
+- Two assets: bUSD for trading, fees and per-market bonds; the platform token for juror stake and governance.
+- Governance can only decide the next generation and its parameters (with a lock period) and cannot touch existing markets.
+- Credit thresholds open gradually according to the generation's public metrics; the drill may use test parameters with shorter deadlines, but the threshold rules are the same as production.
+- The taker pays the fees; dispute rewards come only from slashed bonds.
+- There is no pause and no upgrade.
+- REPLAY becomes a deployment-level flag.
+- Reference agents live in `examples/`, and an import boundary guarantees they use no internal capability.

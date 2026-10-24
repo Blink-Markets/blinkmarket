@@ -1,18 +1,20 @@
-# 04 — RFQ、Signer、Indexer 與故障恢復
+# 04 — RFQ, Signer, Indexer and Failure Recovery
 
-Tasks 5/8/9/13 已實作 reorg-aware indexer、受限 signer、RFQ reservations 與 keeper/faucet dispatcher 接線；見 [Indexer](../M2_CHAIN_INDEXER.md)、[Signer](../M2_SIGNER.md)、[RFQ](../M2_RFQ.md)、[keeper/faucet](../M3_KEEPER_FAUCET.md)。[內部 trader](../M3_INTERNAL_TRADER.md) 已接公開 RFQ、mandate 鎖下預留、exact approve／fill 與 FINAL redeem；每 deployment 僅支援一個 trader，edge 必須嚴格超過門檻（預設 500 bps）。下文為設計基線，實作差異與風險以交付記錄為準。私鑰僅由 signer 讀取 mode 0600 檔案，raw transaction artifact 尚無 app-level encryption。網路 ACL/mTLS 與部署仍待完成；本機僅 REPLAY，無付費模型。
+_Status: historical — v0.1 team-operated design baseline (2026-09-22), largely retired by the autonomous-market redesign of 2026-10-23 (§6). Current design: docs/superpowers/specs/2026-10-23-autonomous-market-design.md._
 
-## 三種不同狀態
+Tasks 5/8/9/13 implemented the reorg-aware indexer, the restricted signer, RFQ reservations and the keeper/faucet dispatcher wiring. See [Indexer](../M2_CHAIN_INDEXER.md), [Signer](../M2_SIGNER.md), [RFQ](../M2_RFQ.md) and [keeper/faucet](../M3_KEEPER_FAUCET.md). The [internal trader](../M3_INTERNAL_TRADER.md) is wired to the public RFQ, reservation under the mandate lock, exact approve / fill and FINAL redeem. Each deployment supports only one trader, and the edge must strictly exceed the threshold (default 500 bps). The text below is the design baseline. Implementation differences and risks are defined by the delivery records. The private key is read only by the signer, from a mode 0600 file. The raw transaction artifact has no app-level encryption yet. Network ACL/mTLS and deployment are still to be done. Locally, only REPLAY runs, with no paid models.
 
-| 實體 | 狀態 | 不能推論的事 |
+## Three different states
+
+| Entity | States | What cannot be inferred |
 | --- | --- | --- |
-| Quote artifact | DRAFT / SIGN_REQUESTED / SIGNED / SIGN_UNKNOWN / EXPIRED / CANCELLED / CONSUMED | SIGNED不代表上鏈；本機EXPIRED不代表reservation已可釋放 |
-| Reservation | HELD / RECONCILE_REQUIRED / ACCOUNTED / RELEASED | RPC timeout或lease失效不能直接RELEASED |
-| Tx attempt | CREATED / SIGNED / SUBMITTED / PRECONFIRMED / INCLUDED / FINALIZED；REVERTED / REPLACED / UNKNOWN / REORGED | UNKNOWN不是失敗；INCLUDED不等於L1 finality |
+| Quote artifact | DRAFT / SIGN_REQUESTED / SIGNED / SIGN_UNKNOWN / EXPIRED / CANCELLED / CONSUMED | SIGNED does not mean on-chain; a local EXPIRED does not mean the reservation can be released |
+| Reservation | HELD / RECONCILE_REQUIRED / ACCOUNTED / RELEASED | an RPC timeout or lease loss cannot go straight to RELEASED |
+| Tx attempt | CREATED / SIGNED / SUBMITTED / PRECONFIRMED / INCLUDED / FINALIZED; REVERTED / REPLACED / UNKNOWN / REORGED | UNKNOWN is not a failure; INCLUDED does not equal L1 finality |
 
-Quote的CONSUMED/CANCELLED是canonical block所觀測結果，附cursor；遇reorg可能恢復有效。ACCOUNTED代表該quote的支出已反映在同cursor free balance，不再另扣reservation；不是「從未有風險」。RELEASED只表示目前核對區塊上無可執行風險，保留歷史供reorg重建。
+A quote's CONSUMED/CANCELLED is the result observed in a canonical block, with a cursor attached. After a reorg it may become valid again. ACCOUNTED means the quote's spend is already reflected in the free balance at the same cursor, so the reservation is not deducted again. It does not mean "never at risk". RELEASED only means that there is currently no executable risk on the reconciled block. History is kept for reorg rebuilds.
 
-## 報價順序
+## Quote sequence
 
 ```mermaid
 sequenceDiagram
@@ -22,78 +24,78 @@ sequenceDiagram
   participant S as Signer
   participant C as Canonical RPC
   T->>A: RFQ + deploymentId + Idempotency-Key
-  A->>C: 取同區塊的市場/epoch/free與freshness
-  A->>D: 鎖gate/pool/quota，CAS cursor，預留並存quote draft
+  A->>C: read market/epoch/free and freshness at the same block
+  A->>D: lock gate/pool/quota, CAS cursor, reserve and store quote draft
   D-->>A: reservation + signRequestId
-  A->>S: 受驗證的signRequestId
-  S->>D: 重新載入intent/policy/reservation
-  S->>C: 檢查部署/期限/狀態
+  A->>S: validated signRequestId
+  S->>D: reload intent/policy/reservation
+  S->>C: check deployment/expiry/state
   S->>D: persist signed artifact
   S-->>A: artifactId
-  A->>D: 保存quote response + idempotency結果
+  A->>D: store quote response + idempotency result
   A-->>T: signed quote envelope
-  T->>C: 自己approve / fill
+  T->>C: approve / fill by itself
 ```
 
-取得RPC snapshot後、DB lock等待期間可能有新cursor；transaction必須比對pool.version/cursor，變動就放棄舊snapshot重新讀，不能把新free和舊consumed拼起來。Signer簽前再檢查期限與gate，但仍無法保證maker之後不提款；鏈上驗證是最後防線。
+A new cursor may appear after the RPC snapshot is taken and while waiting for the DB lock. The transaction must compare pool.version/cursor. If it changed, it drops the old snapshot and reads again. It must not combine the new free with the old consumed. The signer checks expiry and the gate again before signing, but still cannot guarantee that the maker will not withdraw later. The on-chain check is the last line of defense.
 
-可用額度 = 同cursor makerFreeBalance − 同pool全部HELD/RECONCILE_REQUIRED amounts，ACCOUNTED/RELEASED不重扣。LIVE與REPLAY共用同合約maker free時必須共用資金pool，雖然定價snapshot/統計分開；不可各自把全部free視為可用。
+Available amount = makerFreeBalance at the same cursor − all HELD/RECONCILE_REQUIRED amounts of the same pool. ACCOUNTED/RELEASED are not deducted again. When LIVE and REPLAY share the same contract maker free, they must share one fund pool, even though the pricing snapshots and statistics are separate. Each must not treat all of free as available.
 
-價格只取最近已截止、兩個固定platform forecaster皆合格、age<=24h的同window snapshot。Baseline/external不加入平台平均。機率以millionths整數：p=(p1+p2)/(2*1000000)，YES ask的ceil以整數有理數完成，NO使用同分母補數，再+200並clamp1..9999。
+The price uses only the most recent closed same-window snapshot in which both fixed platform forecasters are eligible and the age is <=24h. Baseline/external forecasts are not added to the platform average. Probability uses integer millionths: p=(p1+p2)/(2*1000000). The ceil of the YES ask is computed with integer rational arithmetic. NO uses the complement over the same denominator, then adds 200 and clamps to 1..9999.
 
-validAfter以已驗證canonical block timestamp生成，expiry=min(validAfter+30,closeAt)。回應時若已到期或剩餘不足以使用，回NO_QUOTE且保留既有artifact/reservation直到對帳；不能暗中延長同digest。clock drift告警，政策不以client clock作真相。
+validAfter is generated from the verified canonical block timestamp, and expiry=min(validAfter+30,closeAt). If at response time the quote has already expired or the remaining time is not enough to use it, return NO_QUOTE and keep the existing artifact/reservation until reconciliation. The same digest must not be extended quietly. Clock drift raises an alert, and the policy does not take the client clock as truth.
 
-## Signer 內部協定
+## Signer internal protocol
 
-僅私有網路的mTLS service identity可呼叫。路由按角色分開；research worker identity完全無sign scope。允許的請求只帶signRequestId/intentId與期望payload hash，不接受caller任意calldata或key selector。
+Only a private-network mTLS service identity can call it. Routes are split by role. The research worker identity has no sign scope at all. An allowed request carries only the signRequestId/intentId and the expected payload hash. It does not accept arbitrary calldata or a key selector from the caller.
 
-Caller → role allowlist：
-- quote API：maker quote；不允許maker withdraw/epoch/cancel自動化。
-- execution worker：特定內部trader的approveExact/fillQuote/redeem。
-- keeper worker：finalizeUnchallenged/finalizeTimeout。
-- faucet worker：已核准claim的TestUSD mint。
-- ADMIN/proposer/challenger/arbiter：不在服務範圍，人工錢包。
+Caller → role allowlist:
+- quote API: maker quote. Maker withdraw/epoch/cancel automation is not allowed.
+- execution worker: approveExact/fillQuote/redeem of the specific internal trader.
+- keeper worker: finalizeUnchallenged/finalizeTimeout.
+- faucet worker: TestUSD mint for an approved claim.
+- ADMIN/proposer/challenger/arbiter: not in the service scope, manual wallet.
 
-Signer重載deployment manifest、固定to/chain/from、intent、reservation、policy版本；自己由ABI編碼、核對gas/期限/金額。拒絕任意ETH value、未知selector、unlimited approval、錯token/market、過期租約或已取消intent。每角色独立key与nonce guard；maker簽quote不消耗交易nonce。
+The signer reloads the deployment manifest, the fixed to/chain/from, the intent, the reservation and the policy version. It encodes with the ABI itself and checks gas / expiry / amount. It rejects arbitrary ETH value, an unknown selector, an unlimited approval, a wrong token/market, an expired lease or a cancelled intent. Each role has its own key and nonce guard. A maker quote signature does not consume a transaction nonce.
 
-Sign request唯一鍵防兩份artifact；重試回同一artifact。簽章與DB無法原子commit：實作須先持久化請求與canonical payload，再簽，再保存artifact後才對外回覆；若簽後保存前crash，可重新對相同digest/相同unsigned transaction重建，禁止改payload或分配新nonce。
+The sign request unique key prevents two artifacts. A retry returns the same artifact. The signature and the DB cannot be committed atomically. The implementation must first persist the request and the canonical payload, then sign, and reply externally only after the artifact is saved. If a crash happens after signing but before saving, the same digest / same unsigned transaction can be rebuilt. Changing the payload or allocating a new nonce is forbidden.
 
-持久化signed artifact與「可被dispatcher送出」狀態同transaction。只從已保存artifact送交易，不能邊簽邊廣播。單一intent如果需replacement，建立有版本的新attempt、保留同nonce及相同經濟calldata，僅調整gas並重新預留gas上界。
+Persisting the signed artifact and the "can be sent by the dispatcher" state happen in the same transaction. Transactions are sent only from a saved artifact. Signing and broadcasting at the same time is not allowed. If a single intent needs a replacement, create a new versioned attempt that keeps the same nonce and the same economic calldata, adjusts only gas, and reserves the gas upper bound again.
 
-## Reservation解除
+## Reservation release
 
-| 觀測 | 處理 |
+| Observation | Handling |
 | --- | --- |
-| 签署RPC timeout／回應丟失 | SIGN_UNKNOWN + HELD，查signRequest artifact，不簽新quote |
-| expiresAt超過本機時間 | 顯示過期，保留資金直到canonical block核對 |
-| 同區塊consumed=true | 用該block更新free/positions，再將reservation設ACCOUNTED |
-| 同區塊cancelled=true或epoch已失效，且consumed=false | reconcile free後RELEASED |
-| canonical block timestamp>=expiresAt且consumed=false | 同區塊free核對後RELEASED |
-| maker free下降／pool不一致 | 關gate，保留未決風險、告警、核對提款/成交 |
-| provider斷線／finality未知 | 保留風險；finality未知不可偽造FINALIZED |
+| signing RPC timeout / response lost | SIGN_UNKNOWN + HELD, look up the signRequest artifact, do not sign a new quote |
+| expiresAt is past the local time | show as expired, keep the funds until the canonical block is reconciled |
+| consumed=true at the same block | update free/positions with that block, then set the reservation to ACCOUNTED |
+| cancelled=true at the same block, or the epoch is invalidated, and consumed=false | reconcile free, then RELEASED |
+| canonical block timestamp>=expiresAt and consumed=false | reconcile free at the same block, then RELEASED |
+| maker free drops / pool inconsistent | close the gate, keep the unresolved risk, alert, reconcile withdrawals/fills |
+| provider disconnected / finality unknown | keep the risk; unknown finality must not be faked as FINALIZED |
 
-最新canonical INCLUDED可作v0.1暫時可用狀態；每筆reserve/release/accounting附block hash。若重組撤回該block，先關gate、重建其pool/reservations，再開啟；不能將RELEASED當不可逆terminal。舊quote可能因重組恢復有效，需重新計入，若超額即停止新簽章。無法原子阻止外部錢包fill，合約仍確保實際抵押。
+The latest canonical INCLUDED can serve as the temporarily usable state for v0.1. Every reserve/release/accounting carries a block hash. If a reorg withdraws that block, first close the gate, rebuild its pool/reservations, then open it again. RELEASED must not be treated as an irreversible terminal state. An old quote may become valid again after a reorg and must be counted again. If it then exceeds the amount, stop signing new ones. The contract cannot atomically block an external wallet fill, but the contract still guarantees the actual collateral.
 
 ## Indexer
 
-每deployment持有帶fencing token的lease，保存已套用block hash/number。同步流程：
-1. 取header，確認parent=目前cursor；不符先找共同祖先。
-2. 拉該區段指定contract地址的logs，驗ABI/hash、排序blockNumber/transactionIndex/logIndex。
-3. 同DB transaction保存block/events，依事件更新market/position/quote/outcome/escrow projections與cursor；event unique含blockHash。
-4. 額外以同區塊contract reads核對makerFree/escrow/positions；讀取採block hash定位，provider不支援時用block number且前後核對header，變動即丟棄。
-5. finality由經驗證provider的finalized tag提供；無此能力標UNKNOWN。
-6. RFQ gate檢查latest head lag>3 OR last successful update>10s；任一成立即停止。Polling初值1秒，屬工程參數，不是finality承諾。
+Each deployment holds a lease with a fencing token and stores the applied block hash/number. The sync flow:
+1. Fetch the header and confirm parent = the current cursor. If not, find the common ancestor first.
+2. Pull the logs of the specified contract addresses for that range, verify the ABI/hash, and sort by blockNumber/transactionIndex/logIndex.
+3. In the same DB transaction, store the blocks/events, update the market/position/quote/outcome/escrow projections and the cursor according to the events. The event unique key includes blockHash.
+4. Additionally cross-check makerFree/escrow/positions with contract reads at the same block. Reads are located by block hash. If the provider does not support that, use the block number and check the header before and after, and discard on any change.
+5. Finality comes from the finalized tag of a verified provider. If it has no such capability, mark UNKNOWN.
+6. The RFQ gate checks latest head lag>3 OR last successful update>10s, and stops when either holds. Polling starts at 1 second. It is an engineering parameter and not a finality promise.
 
-Reorg：先關gate → 將祖先後events標noncanonical並保留 → 從最近可信checkpoint或deployment block重建受影響projections → 同步新分支 → 同cursor reconcile所有未finalized quote/tx/reservation → 原子更新cursor/gate。
+Reorg: close the gate first → mark events after the ancestor as noncanonical and keep them → rebuild the affected projections from the nearest trusted checkpoint or the deployment block → sync the new branch → reconcile all unfinalized quote/tx/reservation at the same cursor → update the cursor/gate atomically.
 
-事件動作採冪等reducer；QuoteFilled對雙方各加正確相反side，PositionRedeemed清空其餘額；不可只靠交易status推算份數。MakerRedeem不加free，只有deposit/withdraw/fill影響free。
+Event actions use idempotent reducers. QuoteFilled adds the correct opposite side to each of the two parties. PositionRedeemed clears the remaining balance. Share counts must not be derived from the transaction status alone. MakerRedeem does not add free. Only deposit/withdraw/fill affect free.
 
-若跨越已標finalized checkpoint的矛盾，停止自動回復、告警人工核對provider；不悄悄把歷史finalized資料改成其他結果。
+If a contradiction crosses a checkpoint already marked finalized, stop automatic recovery and alert for a manual check of the provider. Historical finalized data is never quietly changed into a different result.
 
-## 交易提交與復原
+## Transaction submission and recovery
 
-每sender先鎖nonce guard，讀pending/latest nonce與DB allocations對帳，保留占用。重播可用相同raw bytes；replacement同nonce、記replacementOf。Nonce已被未知交易佔用時標UNKNOWN並查鏈，不自動挪到新nonce重做原intent。
+For each sender, lock the nonce guard first, read the pending/latest nonce and reconcile it with the DB allocations, and hold the occupation. A replay can use the same raw bytes. A replacement uses the same nonce and records replacementOf. When a nonce is occupied by an unknown transaction, mark UNKNOWN and check the chain. Do not move it to a new nonce automatically to redo the original intent.
 
-外部wallet交易API只追蹤；不幫外部taker分配nonce或代簽。Internal fill不確定時查digest consumed、canonical receipt、事件與position；持倉本身不足以識別單一fill，必須與digest事件關聯。
+The external wallet transaction API only tracks. It does not allocate a nonce or sign for an external taker. When an internal fill is uncertain, check whether the digest is consumed, the canonical receipt, the events and the position. The position alone cannot identify a single fill, and must be linked to the digest event.
 
-所有服務重啟先關新交易gate；reconcile尚未完成不ready。救援keeper/read-only查詢可在獨立健康狀態下繼續，不能因quote gate關閉而阻擋permissionless finalize。
+On every service restart, close the new-trade gate first. Until the reconcile is complete it is not ready. The rescue keeper / read-only queries can continue under a separate health state. A closed quote gate must not block permissionless finalize.

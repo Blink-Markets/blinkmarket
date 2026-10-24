@@ -1,5 +1,7 @@
 # Pre-deployment Fixes Implementation Plan
 
+_Status: completed — all four tasks merged to `main` on 2026-10-22 (a2e4971, 0c5e5a1, 4dc562a, f05118a, 9a0d530; plan closed in 0a239ad). The `alpha-2` deployment these fixes target is deferred by the 2026-10-23 direction change (docs/ROADMAP.md)._
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Fix the four problems that must be fixed before Blink's services run against the live `alpha-2` deployment on Base Sepolia: the `tx.dispatch` retry budget is shorter than Base Sepolia's finality lag; the per-IP limiter sees only the TLS proxy; `operations.jobs` and `operations.outbox` grow without bound and lack indexes for the recovery lookups; and no check stops a deployment from giving the API or the worker the wrong signer roles.

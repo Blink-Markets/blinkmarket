@@ -1,111 +1,113 @@
-# 01 — 合約與帳本細部設計
+# 01 — Contracts and Ledger Detailed Design
 
-依據產品規格 §5–9、§16–17。本文件是實作藍圖，現有 IBlinkMarket 仍為介面草案。
+_Status: historical — v0.1 team-operated design baseline (2026-09-22), largely retired by the autonomous-market redesign of 2026-10-23 (§6). Current design: docs/superpowers/specs/2026-10-23-autonomous-market-design.md._
 
-## 合約組成與部署
+Based on product spec §5–9 and §16–17. This document is an implementation blueprint. The existing IBlinkMarket is still an interface draft.
 
-BlinkTestUSD 採固定版標準 ERC-20，name=「Blink Test USD」、symbol=bUSD、decimals=6。只有固定 faucet minter 可 mint，沒有 upgrade、任意管理提款、transfer fee 或 rebasing。Faucet 的 rolling 24h 限額與受邀地址限制在受限 signer policy/服務執行，不能宣稱 token 自身已提供這些限制。
+## Contract composition and deployment
 
-BlinkMarket 預定使用經版本鎖定的 EIP712、ECDSA、SafeERC20、ReentrancyGuard；不自寫簽章驗證或 token transfer wrapper。M1 安裝時驗證所選 library/compiler 相容性，寫 lock/remapping/artifact。
+BlinkTestUSD is a fixed-version standard ERC-20 with name="Blink Test USD", symbol=bUSD, decimals=6. Only the fixed faucet minter can mint. There is no upgrade, no arbitrary admin withdrawal, no transfer fee and no rebasing. The faucet's rolling 24h limit and the invited-address restriction are enforced by the restricted signer policy/service. The token itself must not be claimed to provide these limits.
 
-Constructor 參數：
-- collateral、maker、admin、resultProposer、challenger、arbiter。
-- 所有地址非零；五個業務角色互異；maker 須符合部署時 EOA 要求。
-- collateral 必須有 code、decimals=6；部署腳本核對它是該 release 的 TestUSD artifact，不能只因 decimals 相同就接受其他 token。
-- chainId 固定 84532；本機 Foundry/Anvil 設同 chain ID。部署腳本與 constructor 均拒絕主網，無 env bypass。
-- 沒有 owner 替換、角色輪替、delegatecall 或升級入口。
+BlinkMarket is intended to use version-locked EIP712, ECDSA, SafeERC20 and ReentrancyGuard. It does not write its own signature verification or token transfer wrapper. M1 installation verifies that the chosen library and compiler are compatible, and writes the lock/remapping/artifact.
 
-角色採 immutable address + 明確函式檢查，外部提供 getters。一般 AccessControl 包含動態 grant/revoke 的能力，不直接繼承其管理介面以免違反固定角色限制。[OpenZeppelin 權限文件](https://docs.openzeppelin.com/contracts/5.x/access-control)
+Constructor parameters:
+- collateral, maker, admin, resultProposer, challenger, arbiter.
+- All addresses are non-zero. The five business roles are pairwise distinct. The maker must meet the EOA requirement at deployment time.
+- collateral must have code and decimals=6. The deployment script checks that it is the TestUSD artifact of that release. It must not accept another token just because its decimals match.
+- chainId is fixed at 84532. Local Foundry/Anvil uses the same chain ID. The deployment script and the constructor both reject mainnet, with no env bypass.
+- There is no owner replacement, role rotation, delegatecall or upgrade entry.
+
+Roles use an immutable address plus explicit function checks, with external getters. A generic AccessControl includes the ability to grant and revoke dynamically. The contract does not inherit its management interface directly, to avoid violating the fixed-role restriction. [OpenZeppelin access control documentation](https://docs.openzeppelin.com/contracts/5.x/access-control)
 
 ## Storage
 
-| 範圍 | 欄位 | 用途 |
+| Scope | Fields | Purpose |
 | --- | --- | --- |
-| immutable | collateral、五角色 | 固定部署邊界 |
-| global | globalTradingPaused、makerFreeBalance、currentMakerEpoch、nextMarketId=1 | 交易開關、maker 可提領抵押 |
-| global | usedSpecHashes[hash]、consumed[digest]、cancelled[digest] | 建市與 quote 去重 |
-| global | takerAllowed[address] | 只控制新增成交 |
-| market | specHash/URI、mode、四個時間欄位、caps | 建市後不可修改 |
-| market | state、paused、proposedAt、proposedOutcome、finalOutcome、evidence hashes | 狀態與稽核 |
-| market | totalMintedPairs、escrowMicros | 累計 complete sets 與剩餘資金 |
-| market/account | yesShares、noShares、cumulativeTakerShares | 可贖回持倉與不可歸零的累計 cap |
+| immutable | collateral, five roles | fixed deployment boundary |
+| global | globalTradingPaused, makerFreeBalance, currentMakerEpoch, nextMarketId=1 | trading switch, withdrawable maker collateral |
+| global | usedSpecHashes[hash], consumed[digest], cancelled[digest] | market creation and quote dedupe |
+| global | takerAllowed[address] | controls new fills only |
+| market | specHash/URI, mode, four time fields, caps | immutable after market creation |
+| market | state, paused, proposedAt, proposedOutcome, finalOutcome, evidence hashes | state and audit |
+| market | totalMintedPairs, escrowMicros | cumulative complete sets and remaining funds |
+| market/account | yesShares, noShares, cumulativeTakerShares | redeemable positions and a cumulative cap that never goes to zero |
 
-Storage 可保留 uint64 份數／時間；乘法先提升 uint256 再算。對外 getter 回傳 proposedOutcome/finalOutcome 是否存在，不能把 enum 預設 YES 顯示成已判定 YES。內部可用 state 判斷存在性。
+Storage may keep uint64 share counts and times. Multiplications are promoted to uint256 before computing. The external getter reports whether proposedOutcome/finalOutcome exists. It must not show the enum default YES as a decided YES. Internally, state can be used to tell whether an outcome exists.
 
-totalMintedPairs 與 cumulativeTakerShares 不隨 redeem 減少。market ID=0 或尚未建立 ID 一律 MarketNotFound，不靠 enum 的零值 OPEN 判斷存在。
+totalMintedPairs and cumulativeTakerShares do not decrease on redeem. Market ID=0 or any ID not yet created is always MarketNotFound. Existence is not judged by the zero value OPEN of the enum.
 
 ## CreateMarket
 
-ADMIN only；拒絕 zero/重複 specHash、空 URI、非合法 mode。時間需 now < closeAt < proposalDeadline < hardDeadline，且 hardDeadline-proposalDeadline > challengeSeconds。
+ADMIN only. Rejects a zero or duplicate specHash, an empty URI and an invalid mode. Times must satisfy now < closeAt < proposalDeadline < hardDeadline, and hardDeadline-proposalDeadline > challengeSeconds.
 
-LIVE challenge=86400；REPLAY 工程 profile 固定 120。maxPairs 為 1..10000，maxTakerShares 為 1..500 且 <=maxPairs；單筆 1..100 是合約常數。文字內容／來源／forecast 規則由核准 API 驗證，不能聲稱合約解析 JSON。
+LIVE challenge=86400. The REPLAY engineering profile is fixed at 120. maxPairs is 1..10000, and maxTakerShares is 1..500 and <=maxPairs. A single fill of 1..100 is a contract constant. The text content, sources and forecast rules are validated by the approval API. The contract must not be claimed to parse JSON.
 
-建立市場與 MarketCreated 同一交易完成；映射市場到不可變參數。市場開始 OPEN、unpaused、零帳本；global pause 不影響管理員建市，但影響 fill。
+Creating the market and MarketCreated happen in the same transaction. The market is mapped to its immutable parameters. The market starts OPEN, unpaused, with a zero ledger. A global pause does not affect the admin creating a market, but it does affect fills.
 
-## Quote 簽章
+## Quote signature
 
-Quote struct 的 11 個欄位順序與現有介面一致，不新增 deploymentId 到 typed message。deployment 身份由 domain 的 chainId/verifyingContract 承諾，API 額外比對部署 manifest。name=「Blink RFQ」、version=「0.1」。
+The Quote struct has 11 fields in the same order as the existing interface. deploymentId is not added to the typed message. The deployment identity is committed by the domain's chainId/verifyingContract, and the API additionally compares it with the deployment manifest. name="Blink RFQ", version="0.1".
 
-digest = 標準 typed-data hash；maker 必須固定 EOA、signature 恢復地址相同。拒絕非 canonical ECDSA 與錯 domain。nonce 是隨機 uint256，不當作交易 nonce。Replay protection 使用 consumed/cancelled/currentMakerEpoch/期限；EIP-712 不自行提供這些保護。[EIP-712](https://eips.ethereum.org/EIPS/eip-712)
+digest = the standard typed-data hash. The maker must be the fixed EOA, and the recovered signature address must match. Non-canonical ECDSA and a wrong domain are rejected. nonce is a random uint256 and is not used as a transaction nonce. Replay protection uses consumed/cancelled/currentMakerEpoch/expiry. EIP-712 does not provide these protections itself. [EIP-712](https://eips.ethereum.org/EIPS/eip-712)
 
 ## FillQuote
 
-全程 nonReentrant，按下列順序檢查及變更：
+The whole function is nonReentrant. It checks and changes state in this order:
 
-1. global / market 未 pause、market 存在、OPEN 且 now<closeAt。
-2. q.maker=固定 maker，q.taker=msg.sender、takerAllowed=true，maker!=taker；管理／裁決角色不允許列入 taker。
-3. specHash 相等、side=0/1、quantity 1..100、priceBps 1..9999。
-4. totalMintedPairs+q.quantity <= maxPairs；cumulativeTakerShares+quantity <= maxTakerShares。
-5. validAfter<=now<expiresAt<=closeAt，且 expiresAt-validAfter<=60。
-6. epoch 相等；digest 未 consumed/cancelled；驗證 ECDSA。
-7. 以 uint256 計算 notional=q*1000000、takerCost=q*priceBps*100、makerCost=notional-takerCost；free>=makerCost。
-8. 設 consumed=true、扣 free、加 escrow/pairs/cumulativeTakerShares，兩方加相反份數。
-9. SafeERC20.safeTransferFrom(taker, contract, takerCost)，成功後發 QuoteFilled；transfer revert 時整筆狀態回滾。
+1. global / market not paused, market exists, OPEN and now<closeAt.
+2. q.maker = the fixed maker, q.taker = msg.sender, takerAllowed=true, maker != taker. Admin and arbitration roles are not allowed on the taker list.
+3. specHash equal, side=0/1, quantity 1..100, priceBps 1..9999.
+4. totalMintedPairs+q.quantity <= maxPairs; cumulativeTakerShares+quantity <= maxTakerShares.
+5. validAfter<=now<expiresAt<=closeAt, and expiresAt-validAfter<=60.
+6. epoch equal; digest not consumed/cancelled; ECDSA verified.
+7. Compute in uint256: notional=q*1000000, takerCost=q*priceBps*100, makerCost=notional-takerCost; free>=makerCost.
+8. Set consumed=true, deduct free, add to escrow/pairs/cumulativeTakerShares, and add opposite share counts to the two parties.
+9. SafeERC20.safeTransferFrom(taker, contract, takerCost). After it succeeds, emit QuoteFilled. If the transfer reverts, the whole state change rolls back.
 
-可以在 effects 前預檢 taker balance/allowance 以提供錯誤，但真實轉帳成功仍是必要條件，不把預檢當防重入。指定固定標準 TestUSD，不支援奇異 token 行為。
+A pre-check of taker balance/allowance may run before the effects to give a clear error. A successful real transfer is still required, and the pre-check is not treated as reentrancy protection. The fixed standard TestUSD is specified. Exotic token behavior is not supported.
 
-## 抵押與贖回
+## Collateral and redemption
 
-depositMaker / withdrawMaker 僅 maker，amount>0。deposit 轉入成功後累加 free；withdraw 先檢查 free，先扣帳再轉至 maker。皆 nonReentrant。沒有 beneficiary 參數、escrow rescue、donation sweep。
+depositMaker / withdrawMaker are maker only, with amount>0. deposit adds to free after the transfer in succeeds. withdraw checks free first, deducts the balance first, then transfers to the maker. Both are nonReentrant. There is no beneficiary parameter, no escrow rescue and no donation sweep.
 
-redeem 僅 FINAL，任何有部位呼叫者均可用，包括移出 allowlist 或 maker。不檢查 pause/交易資格。先讀取兩側，若皆零回 NoPosition；兩側歸零、算 payout、扣 escrow，再轉呼叫者。payout=0 不呼叫外部 token transfer，仍發事件且持倉歸零。
+redeem works only when FINAL. Any caller with a position can use it, including one removed from the allowlist and the maker. It does not check pause or trading eligibility. It reads both sides first. If both are zero it returns NoPosition. It zeroes both sides, computes the payout, deducts escrow, then transfers to the caller. If payout=0, no external token transfer is called, but the event is still emitted and the position is still zeroed.
 
-| outcome | 每份 YES | 每份 NO |
+| outcome | per YES share | per NO share |
 | --- | ---: | ---: |
 | YES | 1000000 | 0 |
 | NO | 0 | 1000000 |
 | INVALID | 500000 | 500000 |
 
-例如 100 YES @6000：taker 付60、maker 付40、escrow100。YES 時100/0；NO 時0/100；INVALID 時50/50 bUSD。Maker redeem 直接回錢包，不加 free。
+For example, 100 YES @6000: the taker pays 60, the maker pays 40, and escrow is 100. On YES the payout is 100/0. On NO it is 0/100. On INVALID it is 50/50 bUSD. A maker redeem goes straight to the wallet and is not added to free.
 
-## 狀態與時間边界
+## State and time boundaries
 
-| 操作 | 權限／前態 | 有效時間 | 後態／結果 |
+| Operation | Permission / prior state | Valid time | Next state / result |
 | --- | --- | --- | --- |
-| proposeOutcome | proposer / OPEN | closeAt<=now<proposalDeadline | PROPOSED；evidenceHash非零 |
-| challengeOutcome | challenger / PROPOSED | now<proposedAt+challengeSeconds | DISPUTED；evidenceHash非零 |
-| finalizeUnchallenged | anyone / PROPOSED | challengeEnd<=now<hardDeadline | FINAL；沿用提案 evidence/outcome |
-| arbitrate | arbiter / DISPUTED | now<hardDeadline | FINAL；decisionEvidenceHash非零 |
-| finalizeTimeout | anyone / 非FINAL | now>=hardDeadline | FINAL INVALID；零 evidenceHash |
-| redeem | 自己 / FINAL | 無期限 | 清空自己的部位 |
+| proposeOutcome | proposer / OPEN | closeAt<=now<proposalDeadline | PROPOSED; evidenceHash non-zero |
+| challengeOutcome | challenger / PROPOSED | now<proposedAt+challengeSeconds | DISPUTED; evidenceHash non-zero |
+| finalizeUnchallenged | anyone / PROPOSED | challengeEnd<=now<hardDeadline | FINAL; reuses the proposal evidence/outcome |
+| arbitrate | arbiter / DISPUTED | now<hardDeadline | FINAL; decisionEvidenceHash non-zero |
+| finalizeTimeout | anyone / not FINAL | now>=hardDeadline | FINAL INVALID; zero evidenceHash |
+| redeem | self / FINAL | no deadline | clears the caller's own position |
 
-closeAt 當刻已不可 fill；CLOSED 是 OPEN+時間的讀取衍生態。hardDeadline 當刻只能 timeout，未及時 finalize 的未挑戰提案亦變 INVALID。暫停不阻止上述六項或 maker withdraw。
+At the instant of closeAt, fills are no longer allowed. CLOSED is a read-derived state of OPEN plus time. At the instant of hardDeadline, only timeout is allowed. An unchallenged proposal that was not finalized in time also becomes INVALID. A pause does not block the six operations above or the maker withdraw.
 
-cancelQuote 僅 maker、q.maker=maker、digest 未 consumed；若已 cancelled 可冪等 no-op，不重發事件。無需 quote signature 即可取消自己對特定 payload 的未來簽章。incrementMakerEpoch 僅 maker，checked increment。
+cancelQuote is maker only, with q.maker=maker and the digest not consumed. If it is already cancelled it is an idempotent no-op and does not emit the event again. It needs no quote signature, and it cancels the maker's own future signature over a specific payload. incrementMakerEpoch is maker only, with a checked increment.
 
 ## Errors / Views / Events
 
-建議 custom errors：UnauthorizedRole、InvalidAddress、WrongChain、MarketNotFound、InvalidSpec、DuplicateSpec、InvalidSchedule、InvalidCap、TradingPaused、MarketClosed、InvalidTaker、InvalidSide、InvalidQuantity、InvalidPrice、CapExceeded、InvalidQuoteTime、EpochMismatch、QuoteConsumed、QuoteCancelled、InvalidSignature、InsufficientMakerBalance、InvalidState、DeadlineViolation、EmptyEvidence、NoPosition。
+Recommended custom errors: UnauthorizedRole, InvalidAddress, WrongChain, MarketNotFound, InvalidSpec, DuplicateSpec, InvalidSchedule, InvalidCap, TradingPaused, MarketClosed, InvalidTaker, InvalidSide, InvalidQuantity, InvalidPrice, CapExceeded, InvalidQuoteTime, EpochMismatch, QuoteConsumed, QuoteCancelled, InvalidSignature, InsufficientMakerBalance, InvalidState, DeadlineViolation, EmptyEvidence, NoPosition.
 
-精確 selector 在 M1 產生 ABI 時鎖定；API 映射見 02。不得將所有 revert 都變成 retryable。
+The exact selectors are locked when M1 generates the ABI. See 02 for the API mapping. Not every revert may be turned into retryable.
 
-保留既有 §16 events，補讀取 collateral/roles/global pause/takerAllowed/cumulativeTakerShares 的 getters。Market getter 明確拆提案與最終結果；每個 non-timeout outcome evidence 可由 state 或事件追溯。QuoteFilled 的 cost 由合約算，不接受 calldata 提供成本。
+Keep the existing §16 events. Add getters that read collateral/roles/global pause/takerAllowed/cumulativeTakerShares. The market getter separates the proposal from the final outcome. The evidence of every non-timeout outcome can be traced from state or events. The cost in QuoteFilled is computed by the contract. A cost supplied in calldata is not accepted.
 
-## 驗收
+## Acceptance
 
-完整 C01–C15；另外驗證：
-- constructor 相同角色／零地址／錯鏈／錯資產 metadata 拒絕，無 role mutation selector。
-- 收到 donation 後只滿足 >=，無函式可把 donation 或 escrow 提走。
-- cap 是累計買入，不因相反 side 或贖回繞過；maker 相反權益不套 taker cap。
-- oracle/DB/keeper 全失聯，任何錢包仍可 timeout/redeem。
-- ghost ledger invariant 覆蓋 token failure、reentry mock、所有 outcome、任意操作序列。
+The full C01–C15. Also verify:
+- The constructor rejects identical roles, zero addresses, a wrong chain and wrong asset metadata. There is no role-mutation selector.
+- After receiving a donation, the contract only satisfies >=, and no function can take a donation or escrow out.
+- The cap counts cumulative purchases. It cannot be bypassed by the opposite side or by redeem. The maker's opposite-side position does not apply the taker cap.
+- If the oracle, DB and keeper are all unreachable, any wallet can still timeout/redeem.
+- The ghost ledger invariant covers token failure, a reentry mock, all outcomes and arbitrary operation sequences.

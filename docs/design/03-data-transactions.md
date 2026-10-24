@@ -1,94 +1,96 @@
-# 03 — 資料與交易細部設計
+# 03 — Data and Transactions Detailed Design
 
-採明確 SQL migrations + pg adapter，0001–0019 已實作。下表列實際批次；後續關鍵記錄表保留概念設計名稱，實際欄位與權限以 migrations 及各交付記錄為準。內部 trader 的 mandate／risk reservations 與 observability migration 已交付。尚未部署，僅本機 REPLAY 驗證；不代表完整里程碑完成。
+_Status: historical — v0.1 team-operated design baseline (2026-09-22), largely retired by the autonomous-market redesign of 2026-10-23 (§6). Current design: docs/superpowers/specs/2026-10-23-autonomous-market-design.md._
 
-## Migration 批次
+This design uses explicit SQL migrations plus a pg adapter, and 0001–0019 are implemented. The table below lists the actual batches. The key record tables after it keep their conceptual design names. The actual columns and permissions are defined by the migrations and the delivery records. The internal trader's mandate / risk reservations and the observability migration are delivered. Nothing is deployed. Only local REPLAY is verified. This does not mean a complete milestone.
 
-| 批次 | 內容 | 完成標準 |
+## Migration batches
+
+| Batch | Content | Completion criterion |
 | --- | --- | --- |
-| 0001 | schemas、uint256/address/hash domains、migration role/runtime grants、operations基礎 | 全新DB建立、overflow拒絕、runtime無DDL權 |
-| 0002 | operators/agents/keys/challenges/bindings（M2.1 已實作） | secrets不可公開、nonce一次性、FK正確 |
-| 0003 | evidence.sources/records、discovery.candidates/candidate_revisions/candidate_evidence（已實作） | 證據權限、revision不可覆寫、expectedRevision衝突與交易回滾 |
-| 0004 | markets.deployments/deployment_checks/specs/approvals/creation_intents/active_slots（已實作） | 原子化核准與容量競爭；歷次結果見 M2_APPROVAL_DELIVERY.md |
-| 0005–0006 | 建市 receipt observations、durable polling schedule | 見 M2_CREATION_TRACKING.md、M2_CREATION_POLLER.md |
-| 0007 | chain blocks/events/cursors 與 projections、DB business clock | 見 M2_CHAIN_INDEXER.md、M2_FOUNDATION_SEAMS.md |
-| 0008 | durable jobs/outbox、budget reservations/cost entries | 見 M3_JOBS_BUDGETS.md |
-| 0009 | forecast windows/submissions/annotations/snapshots、model runs | 見 M3_FORECASTS.md |
-| 0010 | signing intents/requests/artifacts/plans、nonce allocations/tx attempts | 見 M2_SIGNER.md |
-| 0011 | public transaction tracking | 見 M2_PUBLIC_READS.md |
-| 0012 | maker pools、quotes、collateral reservations、quote gates | 見 M2_RFQ.md；trader risk reservations 另見 0018 |
-| 0013 | faucet claims 與 address guards | 見 M3_KEEPER_FAUCET.md |
-| 0014 | resolution reports/events、suggestions、deadline dedupe | 見 M3_RESOLUTION.md |
-| 0015 | analytics score entries 與 scoring view | 見 M3_EVALUATION.md |
-| 0016–0017 | evidence fetch 與 discovery runs | 見 M3_EVIDENCE_FETCHER.md、M3_RESEARCH_WORKERS.md |
-| 0018_trader | mandates、risk reservations、trader snapshot views | 見 [內部 trader](../M3_INTERNAL_TRADER.md) |
-| 0019_observability | receipt observation 的 included_at 與 API 最小讀取權限 | 見 [健康與指標](../M5_HEALTH_METRICS.md) |
+| 0001 | schemas, uint256/address/hash domains, migration role/runtime grants, operations foundation | a fresh DB is created, overflow is rejected, runtime has no DDL permission |
+| 0002 | operators/agents/keys/challenges/bindings (M2.1, implemented) | secrets are not public, nonce is one-time, FKs are correct |
+| 0003 | evidence.sources/records, discovery.candidates/candidate_revisions/candidate_evidence (implemented) | evidence permissions, revisions cannot be overwritten, expectedRevision conflict and transaction rollback |
+| 0004 | markets.deployments/deployment_checks/specs/approvals/creation_intents/active_slots (implemented) | atomic approval and capacity contention; for the results of each round see M2_APPROVAL_DELIVERY.md |
+| 0005–0006 | market creation receipt observations, durable polling schedule | see M2_CREATION_TRACKING.md, M2_CREATION_POLLER.md |
+| 0007 | chain blocks/events/cursors and projections, DB business clock | see M2_CHAIN_INDEXER.md, M2_FOUNDATION_SEAMS.md |
+| 0008 | durable jobs/outbox, budget reservations/cost entries | see M3_JOBS_BUDGETS.md |
+| 0009 | forecast windows/submissions/annotations/snapshots, model runs | see M3_FORECASTS.md |
+| 0010 | signing intents/requests/artifacts/plans, nonce allocations/tx attempts | see M2_SIGNER.md |
+| 0011 | public transaction tracking | see M2_PUBLIC_READS.md |
+| 0012 | maker pools, quotes, collateral reservations, quote gates | see M2_RFQ.md; trader risk reservations are in 0018 |
+| 0013 | faucet claims and address guards | see M3_KEEPER_FAUCET.md |
+| 0014 | resolution reports/events, suggestions, deadline dedupe | see M3_RESOLUTION.md |
+| 0015 | analytics score entries and scoring view | see M3_EVALUATION.md |
+| 0016–0017 | evidence fetch and discovery runs | see M3_EVIDENCE_FETCHER.md, M3_RESEARCH_WORKERS.md |
+| 0018_trader | mandates, risk reservations, trader snapshot views | see [internal trader](../M3_INTERNAL_TRADER.md) |
+| 0019_observability | included_at of the receipt observation and minimal API read permission | see [health and metrics](../M5_HEALTH_METRICS.md) |
 
-Deployment registry 使用既有 DeploymentId 字串作主鍵；manifest 與 chain cursor 已有實作。FK不得指向尚未存在table。Migration按單一版本序列執行，不由五個service各自開機跑DDL；執行器持advisory lock，成功寫migration checksum。失敗回滾該批，非transactional DDL需另批明示。
+The deployment registry uses the existing DeploymentId string as its primary key. The manifest and the chain cursor are implemented. An FK must not point to a table that does not exist yet. Migrations run as a single version sequence, and the five services do not each run DDL at startup. The runner holds an advisory lock and writes the migration checksum on success. A failure rolls back that batch. Non-transactional DDL needs a separate, explicitly marked batch.
 
-## 共用型別與欄位
+## Shared types and columns
 
-UUID由application生成；時間TIMESTAMPTZ，created_at預設DB現在時間。uint256 NUMERIC(78,0)加範圍CHECK；shares按uint64再限cap；cost USD/bUSD分column/unit，不共用無單位amount。address BYTEA長度20、hash BYTEA長度32。JSONB僅版本化payload與外部回應，關聯用FK/link table。
+UUIDs are generated by the application. Times are TIMESTAMPTZ, and created_at defaults to the DB's current time. uint256 is NUMERIC(78,0) with a range CHECK. Shares follow uint64 and are then limited by the cap. Cost in USD/bUSD uses separate columns/units, with no shared unit-less amount. address is BYTEA of length 20 and hash is BYTEA of length 32. JSONB is only for versioned payloads and external responses. Relations use FKs / link tables.
 
-每個mutable projection有version bigint作CAS；chain projections附as_of_block_hash。append-only row不附last-write-wins updated_at，註記放新事件。
+Every mutable projection has a version bigint as CAS. Chain projections carry as_of_block_hash. An append-only row has no last-write-wins updated_at. Notes go into a new event.
 
-## 關鍵記錄
+## Key records
 
-下表是概念設計，不是目前 SQL inventory。特別是 signed raw transaction 存於 `signing.artifacts`：signer 寫入，dispatcher（`blink_worker`）可讀以廣播，尚無 app-level encryption；at-rest encryption 屬部署工作，不能因表中的 `encrypted_bytes` 設計名稱聲稱已加密。
+The table below is a conceptual design and not the current SQL inventory. In particular, the signed raw transaction is stored in `signing.artifacts`: the signer writes it and the dispatcher (`blink_worker`) can read it to broadcast. There is no app-level encryption yet. At-rest encryption is deployment work. The design name `encrypted_bytes` in the table must not be used to claim that encryption exists.
 
-| Table | 核心欄位 | Unique / 特殊約束 |
+| Table | Core columns | Unique / special constraint |
 | --- | --- | --- |
-| approvals | id,candidate_id,revision,spec_hash,actor_id,reason,budget_id | candidate+revision唯一；核准記錄不改 |
-| market_creation_intents | id,approval_id,deployment_id,state,tx_intent_id | approval+deployment唯一 |
-| active_market_slots | deployment_id,mode,entity_id,fiscal_period,canonical_key,approval_id,released_at | 未釋放的mode/entity/period唯一；LIVE容量鎖全域 |
-| forecast_annotations | submission_id,kind,reason,observed_at,actor | 追加事件，不UPDATE forecast |
-| economic_intents | id,deployment_id,kind,actor,resource_id,payload_hash,state | 業務dedupe_key唯一 |
-| nonce_allocations | chain_id,sender,nonce,intent_id | chain/sender/nonce唯一；intent的replacement共用此row |
-| tx_attempts | id,allocation_id,tx_hash,raw_artifact_ref,replacement_of,status | chain/tx_hash唯一；同nonce允许多attempt |
-| maker_pools | deployment_id,maker,balance_micros,cursor_hash,version,trading_gate | deployment+maker唯一；quote/reconcile共用row lock |
-| collateral_reservations | id,intent_id,quote_digest,amount_micros,state,accounted_cursor | intent唯一；digest可在簽前NULL |
-| sign_requests | id,principal,role,intent_id,request_hash,policy_version,state | role+intent+artifact_version唯一 |
-| signed_artifacts | id,sign_request_id,artifact_hash,encrypted_bytes,created_at | request唯一；回傳前persist |
-| outbox | id,event_type,aggregate_id,event_version,payload,dispatched_at | aggregate/event_version/type唯一 |
-| jobs | id,outbox_id,type,dedupe_key,state,attempt,lease_owner,lease_until,lease_token | dedupe_key唯一；lease_token遞增 |
-| idempotency_records | operator_id,endpoint_scope,key,payload_hash,state,response_ref | scope key唯一，不自動過期重用 |
+| approvals | id,candidate_id,revision,spec_hash,actor_id,reason,budget_id | candidate+revision unique; approval records never change |
+| market_creation_intents | id,approval_id,deployment_id,state,tx_intent_id | approval+deployment unique |
+| active_market_slots | deployment_id,mode,entity_id,fiscal_period,canonical_key,approval_id,released_at | unreleased mode/entity/period unique; LIVE capacity lock is global |
+| forecast_annotations | submission_id,kind,reason,observed_at,actor | append-only event, no UPDATE of forecast |
+| economic_intents | id,deployment_id,kind,actor,resource_id,payload_hash,state | business dedupe_key unique |
+| nonce_allocations | chain_id,sender,nonce,intent_id | chain/sender/nonce unique; the intent's replacement shares this row |
+| tx_attempts | id,allocation_id,tx_hash,raw_artifact_ref,replacement_of,status | chain/tx_hash unique; multiple attempts allowed on the same nonce |
+| maker_pools | deployment_id,maker,balance_micros,cursor_hash,version,trading_gate | deployment+maker unique; quote/reconcile share the row lock |
+| collateral_reservations | id,intent_id,quote_digest,amount_micros,state,accounted_cursor | intent unique; digest can be NULL before signing |
+| sign_requests | id,principal,role,intent_id,request_hash,policy_version,state | role+intent+artifact_version unique |
+| signed_artifacts | id,sign_request_id,artifact_hash,encrypted_bytes,created_at | request unique; persisted before returning |
+| outbox | id,event_type,aggregate_id,event_version,payload,dispatched_at | aggregate/event_version/type unique |
+| jobs | id,outbox_id,type,dedupe_key,state,attempt,lease_owner,lease_until,lease_token | dedupe_key unique; lease_token increments |
+| idempotency_records | operator_id,endpoint_scope,key,payload_hash,state,response_ref | scope key unique, never expires for reuse automatically |
 
-四種語意不要混：economic intent唯一性、nonce slot唯一性、signed artifact唯一性、tx hash唯一性。只在transactions表對nonce設唯一會丟掉replacement；完全不鎖nonce則會兩個intent抢同一slot。
+Do not mix four kinds of semantics: economic intent uniqueness, nonce slot uniqueness, signed artifact uniqueness and tx hash uniqueness. A unique constraint on nonce in the transactions table alone loses replacement. Not locking the nonce at all lets two intents grab the same slot.
 
-## 鎖定順序
+## Lock order
 
-單DB READ COMMITTED + 顯式row/advisory locks + UNIQUE作最後防線。涉及phantom count不能只 SELECT COUNT，必須鎖其共同父record。服務重啟／擴容仍使用同一鎖鍵。
+A single DB with READ COMMITTED + explicit row/advisory locks + UNIQUE as the last line of defense. Where a phantom count is involved, a plain SELECT COUNT is not enough. The common parent record must be locked. Service restart / scale-out still uses the same lock keys.
 
-固定先後順序：
-1. idempotency record。
-2. scope guard：deployment gate/LIVE capacity/agent wallet綁定等。
-3. budget day → question，或 maker pool → taker quote quota，或 agent mandate day → open exposure。
-4. resource record（candidate/window/quote/intent，按UUID排序）。
-5. reservation/sign request/nonce slot（涉及同sender須先sender allocation guard）。
-6. audit/outbox append。
+Fixed order:
+1. idempotency record.
+2. scope guard: deployment gate / LIVE capacity / agent wallet binding, etc.
+3. budget day → question, or maker pool → taker quote quota, or agent mandate day → open exposure.
+4. resource record (candidate/window/quote/intent, ordered by UUID).
+5. reservation / sign request / nonce slot (when the same sender is involved, take the sender allocation guard first).
+6. audit/outbox append.
 
-同一次交易只用需要的集合；跨流程必須遵守相對順序。Chain reconcile鎖deployment gate → maker pool → reservation/projections，不能反向由quote取得pool。DB call內不發RPC、LLM或簽章。
+One transaction uses only the sets it needs. Across flows, the relative order must be obeyed. Chain reconcile locks deployment gate → maker pool → reservation/projections, and a quote must not take the pool in the reverse direction. No RPC, LLM or signing happens inside a DB call.
 
-PostgreSQL仍可能偵測deadlock；40P01/40001只在整個DB交易尚未對外產生副作用時最多重試2次、短隨機退避。外部操作後先查intent。[PostgreSQL explicit locking](https://www.postgresql.org/docs/17/explicit-locking.html)
+PostgreSQL can still detect a deadlock. 40P01/40001 are retried at most 2 times with a short random backoff, and only when the whole DB transaction has not yet produced an external side effect. After an external operation, check the intent first. [PostgreSQL explicit locking](https://www.postgresql.org/docs/17/explicit-locking.html)
 
-## 交易 recipe
+## Transaction recipes
 
-**ApproveCandidate**：以out-of-transaction準備並保存spec immutable object；transaction鎖capacity/active slot/candidate，驗expectedRevision、validation version及預算，insert approval/spec ref/creation intent/slot/audit/outbox。衝突回409。不可因API202即建立有chain ID的market row；MarketCreated後才連結。
+**ApproveCandidate**: prepare and store the spec immutable object outside the transaction. The transaction locks capacity / active slot / candidate, verifies expectedRevision, the validation version and the budget, then inserts the approval / spec ref / creation intent / slot / audit / outbox. A conflict returns 409. A market row with a chain ID must not be created just because the API returned 202. It is linked only after MarketCreated.
 
-核准後若要修改，新增revision，禁止把已授權舊建市tx和新revision同時送出。已有signed/submitted/unknown舊intent時先查鏈；確定未成功且不再可執行才取消slot。難以確認時維持pending，不讓修訂產生重複市場。
+If a change is needed after approval, add a new revision. It is forbidden to send the already-authorized old market creation tx and the new revision at the same time. If an old signed/submitted/unknown intent exists, check the chain first. Cancel the slot only when it is certain that it did not succeed and can no longer be executed. When it is hard to confirm, stay pending, so that a revision does not create duplicate markets.
 
-**SubmitForecast**：鎖window（與close worker相同鎖）、DB clock檢查open<=now<deadline、insert forecast+evidence links+audit；unique(window,agent)拒絕同agent其他key補發。不接受等待鎖之前的now，避免排隊穿過截止。
+**SubmitForecast**: lock the window (with the same lock as the close worker), check open<=now<deadline with the DB clock, insert the forecast + evidence links + audit. unique(window,agent) rejects a reissue by the same agent under another key. The now from before waiting for the lock is not accepted, so that queueing cannot slip past the deadline.
 
-**ReserveCost**：lock day+question，used=spent+all outstanding reservations；最壞上限available足夠才reserve。未知費用是reservation的子狀態，不再加一次unknown造成雙重計數。
+**ReserveCost**: lock day+question, used=spent+all outstanding reservations. Reserve only if the worst-case upper bound fits in available. An unknown cost is a sub-state of the reservation, and no extra unknown is added, which would double count.
 
-**ClaimJob**：短transaction用SKIP LOCKED領取到期工作，increment fencing lease_token；commit後跑handler。ACK只接受同token且仍有效的owner。Lease失效的舊worker不可再寫結果；副作用由獨立intent/sign request去重，不依賴lease保證exactly-once。
+**ClaimJob**: a short transaction claims due work with SKIP LOCKED and increments the fencing lease_token. The handler runs after commit. ACK is accepted only from the owner with the same token whose lease is still valid. An old worker whose lease expired must not write results. Side effects are deduplicated by independent intent / sign request, and exactly-once is not guaranteed by the lease.
 
-**Outbox**：dispatcher在同DB transaction建立dedupe job與標dispatch；crash前後最多重跑相同job，不會只標dispatch而漏job。
+**Outbox**: the dispatcher creates the dedupe job and marks the dispatch in the same DB transaction. A crash before or after causes at most a rerun of the same job. It never marks the dispatch but misses the job.
 
-## 保存與權限
+## Retention and permissions
 
-api/worker/indexer/signer不同DB users，沒有migration權。DB credentials不是在.env共用。audit、forecast、revision、cost entry、approval僅INSERT/SELECT；註記另外存。mutable狀態表與append-only事件同transaction更新。
+api/worker/indexer/signer use different DB users and have no migration permission. The DB credentials are not shared in .env. audit, forecast, revision, cost entry and approval are INSERT/SELECT only. Notes are stored separately. Mutable state tables and append-only events are updated in the same transaction.
 
-signed raw tx可被重播，視為敏感artifact；maker quote只提供所屬taker/admin；不寫general log或公開bucket。原始模型/證據受授權來源限制。錯誤detail清洗，last_error存代碼與requestId，不存整包provider response。
+A signed raw tx can be replayed, so it is treated as a sensitive artifact. A maker quote is available only to the taker it belongs to and to the admin. It is not written to the general log or a public bucket. Raw model output and evidence are limited by the authorized source. Error detail is sanitized. last_error stores the code and requestId, and not the whole provider response.
 
-資料保留：Alpha期間不自動purge業務/chain歷史；API secret只hash、signer key不入DB。每日備份與恢復驗收包含outbox pending、unknown cost、未決nonce及reorg markers。
+Data retention: during Alpha, business / chain history is not purged automatically. The API secret is stored only as a hash. The signer key is not stored in the DB. The daily backup and restore acceptance include outbox pending, unknown cost, unresolved nonces and reorg markers.
