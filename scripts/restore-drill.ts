@@ -329,8 +329,19 @@ export async function runRestoreDrill(
       await restored.end();
     } finally {
       try {
-        if (created)
+        if (created) {
+          // pool.end() resolves before its sockets close: let the sessions leave on their own, so
+          // DROP ... FORCE never kills a client that is still shutting down (an uncaught error).
+          for (let i = 0; i < 100; i += 1) {
+            const { rows } = await control.query(
+              "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = $1",
+              [restoredName],
+            );
+            if (rows[0].n === 0) break;
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
           await control.query(`DROP DATABASE "${restoredName}" WITH (FORCE)`);
+        }
       } finally {
         await control.end();
       }
