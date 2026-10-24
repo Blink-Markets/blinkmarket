@@ -237,3 +237,15 @@ See `.superpowers/sdd/2026-10-24-p2-offchain-protocol/task-8-report.md`. Not run
 locally: `tests/postgres/*` (no PostgreSQL here), including the new
 `tests/postgres/content-suggestions.test.ts`; `pnpm build` (Turbopack needs a newer
 glibc). This covers only the Task 8 scope, not the P2 milestone.
+
+### Task 8 fix round 1
+
+The hourly and daily ceilings (wallet challenges 30/h per IP and 10/h per
+(IP, address), verifications 60/h per IP, suggestions 5/h per IP and 500/day
+overall) are now a sliding-window log in `apps/api/src/rate-limit.ts`
+(`createWindowLimiter`): at most N accepted events in any trailing window, refused
+requests are not counted, and `Retry-After` is the time until the oldest counted
+event leaves the window. The token bucket remains only for the public read limit,
+which is a rate with a burst (60 at 1 per second), not an N-per-window ceiling.
+Every `/v1/content/*` response now carries `nosniff` and `Content-Security-Policy:
+sandbox`, errors included; errors keep `Cache-Control: no-store`.

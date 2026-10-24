@@ -319,3 +319,51 @@ test("upload refuses when index is stale", async () => {
     await f.close();
   }
 });
+
+test("security headers are on every content response, errors included", async () => {
+  const f = await offchainFixture();
+  try {
+    const up = await f.upload(f.agents.creator, "<b>x</b>", "text/html");
+    const known = up.json().hash as string;
+    const unknown = "0x" + "00".repeat(32);
+    const cases = [
+      ["GET", "/v1/content/" + unknown, 404],
+      ["HEAD", "/v1/content/" + unknown, 404],
+      ["GET", "/v1/content/0x12", 400],
+      ["HEAD", "/v1/content/0x12", 400],
+      ["GET", "/v1/content/" + known, 200],
+      ["HEAD", "/v1/content/" + known, 200],
+    ] as const;
+    for (const [method, url, status] of cases) {
+      const res = await f.app.inject({ method, url });
+      const label = method + " " + status;
+      assert.equal(res.statusCode, status, label);
+      assert.equal(res.headers["x-content-type-options"], "nosniff", label);
+      assert.equal(res.headers["content-security-policy"], "sandbox", label);
+      if (status === 200) {
+        assert.equal(res.headers["content-disposition"], "attachment", label);
+        assert.equal(
+          res.headers["cache-control"],
+          "public, max-age=31536000, immutable",
+          label,
+        );
+      } else {
+        // Errors are never cached or offered as downloads.
+        assert.equal(res.headers["cache-control"], "no-store", label);
+        assert.equal(res.headers["content-disposition"], undefined, label);
+      }
+    }
+    // Upload errors carry them too, as do refusals before the body is read.
+    for (const res of [
+      await f.upload(null, "x", "text/plain"),
+      await f.upload(f.agents.creator, "x", "image/png"),
+      await f.upload(f.agents.stranger, "x", "text/plain"),
+    ]) {
+      assert.equal(res.headers["x-content-type-options"], "nosniff");
+      assert.equal(res.headers["content-security-policy"], "sandbox");
+      assert.equal(res.headers["cache-control"], "no-store");
+    }
+  } finally {
+    await f.close();
+  }
+});

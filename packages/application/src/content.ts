@@ -16,12 +16,10 @@ import type { RouteService } from "./route-service.js";
 
 export const contentPaths = ["/v1/content", "/v1/content/:hash"] as const;
 
-// Served bytes are untrusted uploads: nosniff and a sandbox CSP stop any browser from running them,
-// and HTML is never rendered inline.
+// Stored bytes are immutable. nosniff and the sandbox CSP (every /v1/content response, errors too)
+// are added by the API server; HTML is never rendered inline.
 const SERVE_HEADERS = {
   "Cache-Control": "public, max-age=31536000, immutable",
-  "X-Content-Type-Options": "nosniff",
-  "Content-Security-Policy": "sandbox",
 } as const;
 
 /** The media type of a Content-Type header, without parameters, or null if it is not allowed. */

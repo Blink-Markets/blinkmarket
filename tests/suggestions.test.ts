@@ -11,8 +11,8 @@ type Fixture = Awaited<ReturnType<typeof offchainFixture>>;
 const TEXT = "Will the Taipei 101 observatory close for a typhoon in 2026?";
 // Limits far above what a test sends, for the tests that are not about the limits.
 const roomy = {
-  perIp: { capacity: 1000, refillPerSecond: 1 },
-  global: { capacity: 1000, refillPerSecond: 1 },
+  perIp: { limit: 1000, windowSeconds: 3600 },
+  global: { limit: 1000, windowSeconds: 86_400 },
 };
 const suggest = (f: Fixture, body: unknown, remoteAddress = "10.0.0.1") =>
   f.app.inject({
@@ -66,8 +66,8 @@ test("rate limit per IP", async () => {
   let clock = 0;
   const f = await offchainFixture({
     suggestionLimits: {
-      perIp: { capacity: 5, refillPerSecond: 5 / 3600, now: () => clock },
-      global: { capacity: 500, refillPerSecond: 500 / 86400, now: () => clock },
+      perIp: { limit: 5, windowSeconds: 3600, now: () => clock },
+      global: { limit: 500, windowSeconds: 86_400, now: () => clock },
     },
   });
   try {
@@ -81,19 +81,27 @@ test("rate limit per IP", async () => {
     assert.equal(limited.statusCode, 429);
     assert.equal(limited.json().code, "RATE_LIMITED");
     assert.equal(limited.json().retryable, true);
-    assert.ok(Number(limited.headers["retry-after"]) >= 1);
-    // Another client is unaffected, and the first one recovers when its allowance refills.
+    assert.equal(limited.headers["retry-after"], "3600");
+    // Another client is unaffected.
     assert.equal(
       (await suggest(f, { text: TEXT }, "10.0.0.2")).statusCode,
       201,
     );
-    clock += (3600 / 5) * 1000;
-    assert.equal((await suggest(f, { text: TEXT })).statusCode, 201);
+    // At 12 minutes five requests are still inside the hour: a refilling bucket would admit a sixth.
+    clock = 12 * 60_000;
+    const early = await suggest(f, { text: TEXT });
+    assert.equal(early.statusCode, 429, "five per trailing hour, not a refill");
+    assert.equal(early.headers["retry-after"], String(48 * 60));
+    // The refused requests were not counted: the five accepted at t=0 leave the hour together, and
+    // then five more fit, not six.
+    clock = 3_600_000;
+    for (let i = 0; i < 5; i++)
+      assert.equal((await suggest(f, { text: TEXT })).statusCode, 201);
     assert.equal((await suggest(f, { text: TEXT })).statusCode, 429);
-    // A refused request is not stored.
+    // A refused request is not stored: five, one other client and five after the hour.
     assert.equal(
       (await f.app.inject("/v1/suggestions?limit=100")).json().items.length,
-      7,
+      11,
     );
   } finally {
     await f.close();
@@ -101,21 +109,33 @@ test("rate limit per IP", async () => {
 });
 
 test("global daily limit", async () => {
+  let clock = 0;
   const f = await offchainFixture({
     suggestionLimits: {
-      perIp: { capacity: 100, refillPerSecond: 1 },
-      global: { capacity: 3, refillPerSecond: 3 / 86400, now: () => 0 },
+      perIp: { limit: 1000, windowSeconds: 3600, now: () => clock },
+      global: { limit: 500, windowSeconds: 86_400, now: () => clock },
     },
   });
   try {
-    for (let i = 0; i < 3; i++)
+    for (let i = 0; i < 500; i++)
       assert.equal(
-        (await suggest(f, { text: TEXT }, "10.0.1." + i)).statusCode,
+        (await suggest(f, { text: TEXT }, `10.${i >> 8}.${i & 255}.1`))
+          .statusCode,
         201,
+        "request " + i,
       );
-    const limited = await suggest(f, { text: TEXT });
+    // The 501st within the day is refused, even from a client that has not submitted yet...
+    clock = 23 * 3_600_000;
+    const limited = await suggest(f, { text: TEXT }, "10.200.0.1");
     assert.equal(limited.statusCode, 429);
     assert.equal(limited.json().code, "RATE_LIMITED");
+    assert.equal(limited.headers["retry-after"], "3600");
+    // ...and accepted once the first events have left the day.
+    clock = 86_400_000;
+    assert.equal(
+      (await suggest(f, { text: TEXT }, "10.200.0.1")).statusCode,
+      201,
+    );
   } finally {
     await f.close();
   }
