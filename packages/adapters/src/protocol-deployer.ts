@@ -91,6 +91,8 @@ export interface ProtocolArtifact {
   bytecode: Hex;
   creationBytecodeHash: Hex;
   deployedBytecodeTemplate: Hex;
+  /** "DeclaringContract.variable" -> the runtime offsets of every occurrence of that immutable. */
+  immutableReferences: Record<string, { start: number; length: number }[]>;
   compiler: string;
 }
 export type ProtocolArtifacts = Record<ProtocolArtifactName, ProtocolArtifact>;
@@ -125,6 +127,8 @@ export async function loadProtocolArtifacts(
       if (
         keccak256(toBytes(JSON.stringify(artifact.abi))) !== artifact.abiHash ||
         keccak256(artifact.bytecode) !== artifact.creationBytecodeHash ||
+        typeof artifact.immutableReferences !== "object" ||
+        artifact.immutableReferences === null ||
         !artifact.compiler.startsWith("0.8.30")
       )
         throw new Error(
@@ -517,10 +521,11 @@ async function run(
   if (plan.sharedReused) {
     if (!sharedFrom) throw new Error("SHARED_MANIFEST_REQUIRED");
     if (
-      JSON.stringify(
-        Object.values(sharedFrom.shared).map((a) => a.toLowerCase()),
-      ) !==
-      JSON.stringify(Object.values(plan.shared).map((a) => a.toLowerCase()))
+      (Object.keys(SHARED_SLOT_CONTRACTS) as (keyof SharedAddresses)[]).some(
+        (slot) =>
+          sharedFrom.shared[slot]?.toLowerCase() !==
+          plan.shared[slot].toLowerCase(),
+      )
     )
       throw new Error("SHARED_MISMATCH: plan and sharedFrom disagree");
   }

@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:http";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { bytesToHex, type Abi, type Address, type PublicClient } from "viem";
+import {
+  bytesToHex,
+  hexToBytes,
+  keccak256,
+  type Abi,
+  type Address,
+  type PublicClient,
+} from "viem";
 import { protocolAbi } from "../../packages/adapters/src/protocol-abi.js";
 import {
   deployProtocol,
@@ -68,8 +76,11 @@ const failedChecks = (report: { checks: { name: string; ok: boolean }[] }) =>
   report.checks.filter((c) => !c.ok).map((c) => c.name);
 
 // CLI level: scripts/deploy-contracts.ts against a test Anvil.
-const cli = (env: Record<string, string | undefined>, args: string[]) => {
-  const result = spawnSync(
+const cliInvocation = (
+  env: Record<string, string | undefined>,
+  args: string[],
+) =>
+  [
     process.execPath,
     [
       "--import",
@@ -92,11 +103,27 @@ const cli = (env: Record<string, string | undefined>, args: string[]) => {
         ...env,
       },
       encoding: "utf8",
-      timeout: 120_000,
     },
-  );
+  ] as const;
+const cli = (env: Record<string, string | undefined>, args: string[]) => {
+  const [command, argv, options] = cliInvocation(env, args);
+  const result = spawnSync(command, argv, { ...options, timeout: 120_000 });
   return { ...result, output: result.stdout + result.stderr };
 };
+// For tests that serve the RPC from this process: spawnSync would block the server.
+const cliAsync = (env: Record<string, string | undefined>, args: string[]) =>
+  new Promise<{ status: number | null; stdout: string; stderr: string }>(
+    (resolve, reject) => {
+      const [command, argv, options] = cliInvocation(env, args);
+      const child = spawn(command, argv, options);
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.stderr.on("data", (d) => (stderr += d));
+      child.on("error", reject);
+      child.on("close", (status) => resolve({ status, stdout, stderr }));
+    },
+  );
 const deployerKey = () =>
   bytesToHex(anvil.accounts.admin.getHdKey().privateKey!);
 
@@ -352,6 +379,47 @@ test("verification reports every kind of mismatch", async () => {
   assert.ok(failedChecks(missing).includes("anchor"));
 });
 
+test("verification rejects one patched immutable occurrence even when the manifest hash follows", async () => {
+  // Every occurrence of an immutable is a separate PUSH32 in the runtime. Patching one that is
+  // not the public getter's leaves the getter, and a hash taken from the patched code, intact.
+  const artifact = JSON.parse(
+    await readFile(
+      join(repoRoot, "contracts/artifacts/BlinkMarkets.json"),
+      "utf8",
+    ),
+  ) as {
+    immutableReferences: Record<string, { start: number; length: number }[]>;
+  };
+  const occurrences = artifact.immutableReferences["BlinkMarkets.registry"]!;
+  assert.ok(
+    occurrences.length > 1,
+    "the registry immutable is used repeatedly",
+  );
+  const address = generation1.generation.markets as Address;
+  const original = hexToBytes((await client.getCode({ address }))!);
+  for (const { start, length } of occurrences) {
+    const snapshot = await anvil.snapshot();
+    try {
+      const patched = Uint8Array.from(original);
+      patched[start + length - 1] = original[start + length - 1]! ^ 1;
+      await client.request({
+        method: "anvil_setCode" as never,
+        params: [address, bytesToHex(patched)] as never,
+      });
+      const manifest = structuredClone(generation1);
+      manifest.contracts.BlinkMarkets!.runtimeHash = keccak256(patched);
+      const report = await verifyProtocolDeployment(client, manifest);
+      assert.equal(report.ok, false, "occurrence at " + start);
+      assert.ok(
+        failedChecks(report).includes("code:BlinkMarkets"),
+        "occurrence at " + start + ": " + failedChecks(report).join(","),
+      );
+    } finally {
+      await anvil.revert(snapshot);
+    }
+  }
+});
+
 let generation2: ProtocolDeployment;
 
 test("deploys generation 2 reusing shared contracts", async () => {
@@ -418,6 +486,29 @@ test("deploys generation 2 reusing shared contracts", async () => {
   assert.equal(await nonceOf(deployerAddress), used);
 });
 
+test("reusing shared contracts does not depend on the key order of the shared manifest", async () => {
+  const snapshot = await anvil.snapshot();
+  try {
+    const plan = await planAt({
+      shared: generation1.shared,
+      previousRegistry: generation1.generation.registry as Address,
+    });
+    const reordered = {
+      ...generation1,
+      shared: Object.fromEntries(Object.entries(generation1.shared).reverse()),
+    } as ProtocolDeployment;
+    const manifest = await deployProtocol(
+      wallet(),
+      client,
+      plan,
+      meta("gen-reordered", reordered),
+    );
+    assert.equal(manifest.generation.index, 2);
+  } finally {
+    await anvil.revert(snapshot);
+  }
+});
+
 test("register and load round-trip", async () => {
   const db = await createTestDatabase();
   try {
@@ -459,11 +550,12 @@ test("register and load round-trip", async () => {
       /permission denied/,
     );
     await db.setRole("blink_deployment_admin");
+    const changed = { ...generation1, startBlock: generation1.startBlock + 1 };
     await assert.rejects(
       registerProtocolDeployment(
         db.pool,
-        { ...generation1, startBlock: generation1.startBlock + 1 },
-        report1,
+        changed,
+        await verifyProtocolDeployment(client, changed),
       ),
       /DEPLOYMENT_REGISTRY_CONFLICT/,
     );
@@ -487,7 +579,7 @@ test("register and load round-trip", async () => {
         { ...generation1, deploymentId: "gen-3" },
         bad,
       ),
-      /DEPLOYMENT_NOT_VERIFIED: registry.addresses/,
+      /DEPLOYMENT_NOT_VERIFIED: .*registry.addresses/,
     );
     await assert.rejects(
       registerProtocolDeployment(
@@ -502,6 +594,52 @@ test("register and load round-trip", async () => {
       loadProtocolDeployment(db.pool, "gen-3"),
       /DEPLOYMENT_NOT_REGISTERED/,
     );
+  } finally {
+    await db.close();
+  }
+});
+
+test("a verification report only registers the manifest it verified", async () => {
+  const db = await createTestDatabase();
+  try {
+    await db.setRole("blink_deployment_admin");
+    const verified = { ...generation1, deploymentId: "bound" };
+    const report = await verifyProtocolDeployment(client, verified);
+    assert.equal(report.ok, true);
+    // The same id, never stored, with different content: the report does not cover it.
+    const changed = { ...verified, treasury: verified.deployer };
+    await assert.rejects(
+      registerProtocolDeployment(db.pool, changed, report),
+      /REPORT_FOR_OTHER_MANIFEST/,
+    );
+    await assert.rejects(
+      loadProtocolDeployment(db.pool, "bound"),
+      /DEPLOYMENT_NOT_REGISTERED/,
+    );
+    // Key order is not content.
+    const reordered = Object.fromEntries(
+      Object.entries(verified).reverse(),
+    ) as ProtocolDeployment;
+    await registerProtocolDeployment(db.pool, reordered, report);
+    assert.deepEqual(await loadProtocolDeployment(db.pool, "bound"), verified);
+  } finally {
+    await db.close();
+  }
+});
+
+test("the table itself rejects a manifest with missing keys", async () => {
+  const db = await createTestDatabase();
+  try {
+    await db.setRole("blink_deployment_admin");
+    for (const manifest of ["{}", '{"schema":"blink.deployment/2"}'])
+      await assert.rejects(
+        db.db.exec(
+          "INSERT INTO markets.protocol_deployments(deployment_id,manifest,verified_at) VALUES ('x','" +
+            manifest +
+            "',now())",
+        ),
+        /check constraint/i,
+      );
   } finally {
     await db.close();
   }
@@ -581,6 +719,78 @@ test("CLI broadcast deploys generation 1 then generation 2 and writes each manif
       before + 4,
     );
   } finally {
+    await rm(dir, { recursive: true, force: true });
+    await node.stop();
+  }
+});
+
+test("CLI keeps the manifest when verification throws after a successful deployment", async () => {
+  const node = await startAnvil({ chainId: 84532 });
+  const dir = await mkdtemp(join(tmpdir(), "blink-deploy-"));
+  // Forwards every call to Anvil, except that once the eighth deployment transaction is sent the
+  // head block can no longer be read: the first read of verification fails.
+  let sent = 0;
+  const proxy = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => (body += chunk));
+    request.on("end", async () => {
+      const call = JSON.parse(body) as {
+        id: number;
+        method: string;
+        params?: unknown[];
+      };
+      if (call.method === "eth_sendRawTransaction") sent++;
+      if (sent >= 8 && call.method === "eth_getBlockByNumber") {
+        response.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: call.id,
+            error: { code: -32000, message: "injected head failure" },
+          }),
+        );
+        return;
+      }
+      const upstream = await fetch(node.url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      });
+      response.end(await upstream.text());
+    });
+  });
+  await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
+  try {
+    const { port } = proxy.address() as { port: number };
+    const out = join(dir, "kept.json");
+    const result = await cliAsync(
+      {
+        DEPLOY_RPC_URL: "http://127.0.0.1:" + port,
+        DEPLOYER_PRIVATE_KEY: deployerKey(),
+      },
+      ["--deployment-id", "kept", "--broadcast", "--out", out],
+    );
+    assert.equal(sent, 8, result.stderr);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /DEPLOYMENT_VERIFICATION_ERROR/);
+    const manifest = ProtocolDeployment.parse(
+      JSON.parse(await readFile(out, "utf8")),
+    );
+    for (const [name, record] of Object.entries(manifest.contracts))
+      assert.ok(
+        await node.publicClient.getCode({ address: record.address as Address }),
+        name + " is on chain and in the manifest",
+      );
+    assert.deepEqual(
+      failedChecks(
+        await verifyProtocolDeployment(
+          node.publicClient as PublicClient,
+          manifest,
+        ),
+      ),
+      [],
+    );
+  } finally {
+    proxy.close();
     await rm(dir, { recursive: true, force: true });
     await node.stop();
   }

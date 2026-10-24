@@ -4,7 +4,8 @@ CREATE TABLE markets.protocol_deployments (
   deployment_id TEXT PRIMARY KEY,
   manifest JSONB NOT NULL,
   verified_at TIMESTAMPTZ NOT NULL,
-  CHECK (manifest->>'schema' = 'blink.deployment/2' AND manifest->>'deploymentId' = deployment_id)
+  -- COALESCE: a manifest missing either key makes the comparison NULL, which a CHECK would accept.
+  CHECK (COALESCE(manifest->>'schema' = 'blink.deployment/2' AND manifest->>'deploymentId' = deployment_id, false))
 );
 CREATE TRIGGER immutable BEFORE UPDATE OR DELETE OR TRUNCATE ON markets.protocol_deployments
   FOR EACH STATEMENT EXECUTE FUNCTION operations.reject_mutation();

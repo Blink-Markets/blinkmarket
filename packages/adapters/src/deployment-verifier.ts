@@ -1,7 +1,12 @@
 import {
+  bytesToHex,
+  encodeAbiParameters,
   getAddress,
   hexToBytes,
   keccak256,
+  numberToHex,
+  pad,
+  parseAbiParameters,
   toBytes,
   zeroAddress,
   type Abi,
@@ -18,6 +23,8 @@ import {
   loadProtocolArtifacts,
   paramsTuple,
   SHARED_SLOT_CONTRACTS,
+  type ProtocolArtifact,
+  type ProtocolArtifactName,
   type ProtocolArtifacts,
 } from "./protocol-deployer.js";
 
@@ -131,27 +138,196 @@ export interface VerificationReport {
   blockNumber: string;
   blockHash: Hex;
   verifiedAt: Date;
+  /** Canonical digest of the manifest that was checked; registration compares it. */
+  manifestDigest: Hex;
 }
+
+// Key order is not content: objects serialize with sorted keys, so equal manifests share a digest.
+const canonicalJson = (value: unknown): string => {
+  if (Array.isArray(value))
+    return "[" + value.map(canonicalJson).join(",") + "]";
+  if (value !== null && typeof value === "object")
+    return (
+      "{" +
+      Object.entries(value)
+        .filter(([, v]) => v !== undefined)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([k, v]) => JSON.stringify(k) + ":" + canonicalJson(v))
+        .join(",") +
+      "}"
+    );
+  return JSON.stringify(value);
+};
+export const manifestDigest = (manifest: ProtocolDeployment): Hex =>
+  keccak256(toBytes(canonicalJson(manifest)));
 
 const sameAddress = (a: string, b: string) =>
   a.toLowerCase() === b.toLowerCase();
 
-// Runtime code equals the artifact's template except where an immutable was written. Solidity
-// leaves each immutable as a 32-byte run of zeros in the template, so a byte may differ only
-// inside such a run. ponytail: a zero run in real code could hide a patched byte; the recorded
-// runtime hash and the cross-link reads below are the second line of defence.
-function matchesTemplate(code: Hex, template: Hex): boolean {
-  const actual = hexToBytes(code);
-  const expected = hexToBytes(template);
-  if (actual.length !== expected.length) return false;
-  const free = new Uint8Array(expected.length);
-  for (let start = 0; start < expected.length;) {
-    let end = start;
-    while (end < expected.length && expected[end] === 0) end++;
-    if (end - start >= 32) free.fill(1, start, end);
-    start = end + 1;
+// ---- expected immutables ----
+
+const word = (value: bigint | number) =>
+  numberToHex(BigInt(value), { size: 32 });
+const addressWord = (address: string) => pad(address.toLowerCase() as Hex);
+// OpenZeppelin ShortString: the text left-aligned, its length in the last byte.
+const shortString = (text: string): Hex => {
+  const bytes = new Uint8Array(32);
+  bytes.set(toBytes(text));
+  bytes[31] = toBytes(text).length;
+  return bytesToHex(bytes);
+};
+const EIP712_TYPEHASH = keccak256(
+  toBytes(
+    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)",
+  ),
+);
+// What OpenZeppelin's EIP712 constructor leaves in the runtime.
+const eip712Immutables = (
+  name: string,
+  version: string,
+  chainId: number,
+  self: string,
+): Record<string, Hex> => {
+  const hashedName = keccak256(toBytes(name));
+  const hashedVersion = keccak256(toBytes(version));
+  return {
+    "EIP712._name": shortString(name),
+    "EIP712._version": shortString(version),
+    "EIP712._hashedName": hashedName,
+    "EIP712._hashedVersion": hashedVersion,
+    "EIP712._cachedChainId": word(chainId),
+    "EIP712._cachedThis": addressWord(self),
+    "EIP712._cachedDomainSeparator": keccak256(
+      encodeAbiParameters(
+        parseAbiParameters("bytes32, bytes32, bytes32, uint256, address"),
+        [
+          EIP712_TYPEHASH,
+          hashedName,
+          hashedVersion,
+          BigInt(chainId),
+          self as Address,
+        ],
+      ),
+    ),
+  };
+};
+
+// The value each constructor writes into each immutable, from the manifest alone. Names follow
+// scripts/check-contracts.mjs ("DeclaringContract.variable").
+function expectedImmutables(
+  name: ProtocolArtifactName,
+  self: string,
+  manifest: ProtocolDeployment,
+): Record<string, Hex> {
+  const { shared, generation, chainId } = manifest;
+  const a = addressWord;
+  const links = {
+    registry: a(generation.registry),
+    jurors: a(generation.jurors),
+    markets: a(generation.markets),
+    resolution: a(generation.resolution),
+    collateral: a(shared.busd),
+  };
+  switch (name) {
+    case "BlinkFaucet":
+      return {
+        "BlinkFaucet.busd": a(shared.busd),
+        "BlinkFaucet.token": a(shared.token),
+      };
+    case "BlinkTestUSD":
+      return { "BlinkTestUSD.minter": a(shared.faucet) };
+    case "BlinkToken":
+      return {
+        "BlinkToken.minter": a(shared.faucet),
+        ...eip712Immutables("Blink Test Token", "1", chainId, self),
+      };
+    case "FixedPriceSource":
+      return {
+        "FixedPriceSource.tokenPriceMicros": word(manifest.tokenPriceMicros),
+      };
+    case "BlinkGovernor":
+      return {
+        "BlinkGovernor.adoptionDelay": word(manifest.governor.adoptionDelay),
+        "GovernorVotes._token": a(shared.token),
+        ...eip712Immutables("Blink Governor", "1", chainId, self),
+      };
+    case "BlinkAnchor":
+      return {};
+    case "BlinkRegistry":
+      return {
+        "BlinkRegistry.collateral": links.collateral,
+        "BlinkRegistry.jurors": links.jurors,
+        "BlinkRegistry.markets": links.markets,
+        "BlinkRegistry.resolution": links.resolution,
+        "BlinkRegistry.token": a(shared.token),
+        "BlinkRegistry.priceSource": a(shared.priceSource),
+        "BlinkRegistry.treasury": a(manifest.treasury),
+        "BlinkRegistry.previousRegistry": a(
+          generation.previousRegistry ?? zeroAddress,
+        ),
+      };
+    case "BlinkJurors":
+      return {
+        "BlinkJurors.registry": links.registry,
+        "BlinkJurors.markets": links.markets,
+        "BlinkJurors.resolution": links.resolution,
+        "BlinkJurors.token": a(shared.token),
+        "BlinkJurors.collateral": links.collateral,
+        "BlinkJurors.priceSource": a(shared.priceSource),
+        "BlinkJurors.treasury": a(manifest.treasury),
+      };
+    case "BlinkMarkets":
+      return {
+        "BlinkMarkets.registry": links.registry,
+        "BlinkMarkets.jurors": links.jurors,
+        "BlinkMarkets.collateral": links.collateral,
+        "BlinkMarkets.resolution": links.resolution,
+        ...eip712Immutables("Blink RFQ", "0.2", chainId, self),
+      };
+    case "BlinkResolution":
+      return {
+        "BlinkResolution.registry": links.registry,
+        "BlinkResolution.markets": links.markets,
+        "BlinkResolution.jurors": links.jurors,
+        "BlinkResolution.collateral": links.collateral,
+      };
   }
-  return actual.every((byte, i) => byte === expected[i] || free[i] === 1);
+}
+
+// Rebuilds the runtime the artifact would produce: the template with every occurrence of every
+// immutable set to its expected value. All other bytes, and every occurrence, must match exactly.
+function runtimeDifference(
+  code: Hex,
+  artifact: ProtocolArtifact,
+  expected: Record<string, Hex>,
+): string | undefined {
+  const rebuilt = hexToBytes(artifact.deployedBytecodeTemplate);
+  const covering: (string | undefined)[] = [];
+  for (const [name, references] of Object.entries(
+    artifact.immutableReferences,
+  )) {
+    const value = expected[name];
+    if (!value) return "no expected value for immutable " + name;
+    for (const { start, length } of references) {
+      if (length !== 32 || start < 0 || start + length > rebuilt.length)
+        return "malformed reference for immutable " + name;
+      rebuilt.set(hexToBytes(value), start);
+      covering[start] = name;
+    }
+  }
+  const actual = hexToBytes(code);
+  if (actual.length !== rebuilt.length)
+    return "runtime length " + actual.length + ", artifact " + rebuilt.length;
+  const at = actual.findIndex((byte, i) => byte !== rebuilt[i]);
+  if (at < 0) return undefined;
+  const inside = Object.entries(artifact.immutableReferences).find(([, refs]) =>
+    refs.some((r) => at >= r.start && at < r.start + r.length),
+  );
+  return (
+    "runtime differs from the artifact at byte " +
+    at +
+    (inside ? " (immutable " + inside[0] + ")" : "")
+  );
 }
 
 /**
@@ -237,8 +413,15 @@ export async function verifyProtocolDeployment(
       if (!code || code === "0x") return "no code at " + record.address;
       if (keccak256(code) !== record.runtimeHash)
         return "runtime hash differs from the manifest";
-      if (!matchesTemplate(code, artifact.deployedBytecodeTemplate))
-        return "runtime code differs from the artifact";
+      return runtimeDifference(
+        code,
+        artifact,
+        expectedImmutables(
+          name as ProtocolArtifactName,
+          record.address,
+          manifest,
+        ),
+      );
     });
 
   // Each slot is backed by exactly the record of the contract that belongs there.
@@ -457,5 +640,6 @@ export async function verifyProtocolDeployment(
     blockNumber: blockNumber.toString(),
     blockHash: block.hash,
     verifiedAt,
+    manifestDigest: manifestDigest(manifest),
   };
 }

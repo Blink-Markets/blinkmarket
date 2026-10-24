@@ -4,6 +4,7 @@ import type { Abi, PublicClient } from "viem";
 import { ProtocolDeployment } from "@blink/schemas";
 import { createUnitOfWork } from "./database.js";
 import {
+  manifestDigest,
   verifyDeploymentOnChain,
   type VerificationReport,
 } from "./deployment-verifier.js";
@@ -77,6 +78,9 @@ export async function registerProtocolDeployment(
           .map((c) => c.name)
           .join(", "),
     );
+  // The report vouches for the manifest it checked, not for any other one with the same id.
+  if (report.manifestDigest !== manifestDigest(parsed))
+    throw new Error("REPORT_FOR_OTHER_MANIFEST");
   await db.query(
     "INSERT INTO markets.protocol_deployments(deployment_id,manifest,verified_at) VALUES ($1,$2,$3) ON CONFLICT(deployment_id) DO NOTHING",
     [parsed.deploymentId, parsed, report.verifiedAt],

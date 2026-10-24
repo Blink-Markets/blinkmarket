@@ -145,7 +145,6 @@ try {
       plan,
       { deploymentId, releaseCommit, ...(sharedFrom ? { sharedFrom } : {}) },
     );
-    const report = await verifyProtocolDeployment(client, manifest);
     if (values.out) {
       try {
         await writeFile(values.out, json(manifest) + "\n", { flag: "wx" });
@@ -157,6 +156,20 @@ try {
         );
       }
     } else console.log(json(manifest));
+    // Only now: the manifest is saved, so a verification error cannot lose the deployed addresses.
+    let report;
+    try {
+      report = await verifyProtocolDeployment(client, manifest);
+    } catch (error) {
+      throw new Error(
+        "DEPLOYMENT_VERIFICATION_ERROR: " +
+          (error instanceof Error
+            ? ((error as { shortMessage?: string }).shortMessage ??
+              error.message)
+            : "unknown error") +
+          " (the deployment is on chain and the manifest is saved; verify it with pnpm manifest:verify)",
+      );
+    }
     if (!report.ok)
       throw new Error(
         "DEPLOYMENT_VERIFICATION_FAILED: " +
