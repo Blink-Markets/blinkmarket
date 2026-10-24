@@ -30,6 +30,7 @@ interface IBlinkResolution {
         uint256[3] revealersByChoice;
         uint8 leadingChoice;
         uint8 level;
+        uint32 creditThreshold;
         bool settled;
         bool restarted;
     }

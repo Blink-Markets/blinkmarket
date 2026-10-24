@@ -219,9 +219,9 @@ contract LifecycleTest is ProtocolScenario {
         vm.prank(proposer); resolution.appeal(dispute);
         (IBlinkResolution.Dispute memory d,) = resolution.getDispute(dispute);
         eq(d.currentRound, 1); eq(d.appealRound, 1); eq(d.lastBond, 10e6);
+        _round(dispute, 0, 0); _finalize(dispute);
         vm.prank(keeper); resolution.settleVote(dispute, 0, j1);
         vm.prank(keeper); resolution.settleVote(dispute, 0, j2);
-        _round(dispute, 0, 0); _finalize(dispute);
         vm.prank(keeper); resolution.settleVote(dispute, 1, j1);
         vm.prank(keeper); resolution.settleVote(dispute, 1, j2);
         eq(uint256(markets.getMarket(id).finalOutcome), uint256(Outcome.YES));

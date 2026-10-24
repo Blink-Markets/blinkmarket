@@ -238,11 +238,11 @@ contract ResolutionDisputeTest is ProtocolBase {
     function test_appealDoublesBondAndRaisesThreshold() public {
         uint256 id = _result(); _majority(id, 0);
         uint256 before = busd.balanceOf(proposer);
+        markets.seedFinalized(3);
         vm.prank(proposer); resolution.appeal(id);
         eq(busd.balanceOf(proposer), before - 2 * BOND);
         (IBlinkResolution.Dispute memory d,) = resolution.getDispute(id);
         eq(d.appealRound, 1); eq(d.lastBond, 2 * BOND);
-        markets.seedFinalized(3);
         vm.expectRevert(BlinkResolution.InsufficientCredit.selector); _commit(id, 1, j1, 1);
         vm.prank(address(markets)); registry.reportGain(j1, Role.JUROR, 5e6);
         _commit(id, 1, j1, 1);
@@ -279,6 +279,7 @@ contract ResolutionDisputeTest is ProtocolBase {
 
     function test_loserCanBeSettledByThirdParty() public {
         uint256 id = _result(); _majority(id, 0);
+        vm.warp(token.clock() + 1 hours); resolution.finalizeDispute(id);
         vm.prank(actor("keeper")); resolution.settleVote(id, 0, j3);
         eq(jurors.stakeAt(j3, token.clock()), 95e17);
         eq(jurors.openVotes(j3), 0);
@@ -403,9 +404,9 @@ contract ResolutionDisputeTest is ProtocolBase {
     function test_rewardUsesActualCappedSlash() public {
         uint256 id = _result(); _majority(id, 0);
         vm.prank(address(resolution)); jurors.slash(j3, 99e17, treasury);
+        vm.warp(token.clock() + 1 hours); resolution.finalizeDispute(id);
         resolution.settleVote(id, 0, j3);
         eq(jurors.undistributedSlashed(), 1e17);
-        vm.warp(token.clock() + 1 hours); resolution.finalizeDispute(id);
         uint256 before = token.balanceOf(j1); resolution.settleVote(id, 0, j1);
         eq(token.balanceOf(j1), before + uint256(1e17) * 60 / 90);
     }
@@ -417,7 +418,7 @@ contract ResolutionDisputeTest is ProtocolBase {
         vm.warp(token.clock() + 2 days);
         vm.expectRevert(BlinkJurors.OpenVotes.selector);
         vm.prank(j3); jurors.withdrawUnstaked();
-        resolution.settleRound(id); resolution.settleVote(id, 0, j3);
+        resolution.settleRound(id); resolution.finalizeDispute(id); resolution.settleVote(id, 0, j3);
         uint256 before = token.balanceOf(j3);
         vm.prank(j3); jurors.withdrawUnstaked();
         eq(token.balanceOf(j3), before + 95e17);
@@ -426,14 +427,14 @@ contract ResolutionDisputeTest is ProtocolBase {
 
     function test_finalRoundAloneAwardsJurorCredit() public {
         uint256 id = _result(); _majority(id, 0);
-        resolution.settleVote(id, 0, j3);
         vm.prank(proposer); resolution.appeal(id);
+        _majority(id, 1);
+        eq(registry.creditOf(j1, Role.JUROR), 0);
+        vm.warp(token.clock() + 1 hours); resolution.finalizeDispute(id);
+        resolution.settleVote(id, 0, j3);
         resolution.settleVote(id, 0, j1);
         eq(registry.creditOf(j1, Role.JUROR), 0);
-        _majority(id, 1);
         resolution.settleVote(id, 1, j3);
-        eq(registry.creditOf(j3, Role.JUROR), 0);
-        vm.warp(token.clock() + 1 hours); resolution.finalizeDispute(id);
         resolution.settleVote(id, 1, j1);
         eq(registry.creditOf(j1, Role.JUROR), 20);
         vm.expectRevert(BlinkResolution.AlreadySettled.selector); resolution.settleVote(id, 1, j1);

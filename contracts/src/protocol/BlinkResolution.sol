@@ -81,6 +81,7 @@ contract BlinkResolution is IBlinkResolution, ReentrancyGuard {
         // shortcut: timeout pools and rounding dust stay in jurors, revisit if a recovery policy is specified.
         uint256 tokens;
         uint256 pendingLosers;
+        bool coherenceCounted;
     }
 
     event VoteCommitted(uint256 indexed disputeId, uint256 indexed round, address indexed juror, uint256 weight);
@@ -267,7 +268,9 @@ contract BlinkResolution is IBlinkResolution, ReentrancyGuard {
         r.snapshotAt = uint64(block.timestamp - 1);
         r.commitEnd = block.timestamp + p.commitSeconds;
         r.revealEnd = r.commitEnd + p.revealSeconds;
+        r.appealEnd = r.revealEnd + p.appealSeconds;
         r.level = d.appealRound;
+        r.creditThreshold = markets.finalizedCount() >= p.phaseInFinalizedMarkets ? p.roundCreditThreshold[r.level] : 0;
     }
 
     function _activeDispute(uint256 disputeId) internal view returns (Dispute storage d) {
@@ -285,8 +288,7 @@ contract BlinkResolution is IBlinkResolution, ReentrancyGuard {
             || msg.sender == d.challenger || _appellants[disputeId][msg.sender]) revert ConflictedJuror();
         (uint256 yes, uint256 no) = markets.getPosition(d.marketId, msg.sender);
         if (yes != 0 || no != 0) revert ConflictedJuror();
-        Params memory p = registry.params();
-        if (!registry.meetsThreshold(msg.sender, Role.JUROR, p.roundCreditThreshold[r.level])) {
+        if (registry.creditOf(msg.sender, Role.JUROR) < r.creditThreshold) {
             revert InsufficientCredit();
         }
         Vote storage v = _votes[disputeId][d.currentRound][msg.sender];
@@ -329,17 +331,15 @@ contract BlinkResolution is IBlinkResolution, ReentrancyGuard {
         if (r.revealedWeight[1] > r.revealedWeight[choice]) choice = 1;
         bool tied = r.revealedWeight[0] == r.revealedWeight[1];
         r.settled = true;
+        _pools[disputeId][r.level].pendingLosers += r.committers - r.revealers;
         if (r.committedWeight < jurors.totalStakeAt(r.snapshotAt) * p.quorumBps[r.level] / BPS
             || tied) {
             r.restarted = true;
-            _pools[disputeId][r.level].pendingLosers += r.committers - r.revealers;
             ++d.currentRound;
             _startRound(disputeId, p);
             emit RoundRestarted(disputeId, d.currentRound, d.appealRound, _rounds[disputeId][d.currentRound].snapshotAt);
         } else {
             r.leadingChoice = choice;
-            r.appealEnd = block.timestamp + p.appealSeconds;
-            _pools[disputeId][r.level].pendingLosers += r.committers - r.revealersByChoice[choice];
             emit RoundSettled(disputeId, d.currentRound, d.appealRound, choice, r.appealEnd);
         }
     }
@@ -351,6 +351,9 @@ contract BlinkResolution is IBlinkResolution, ReentrancyGuard {
         if (block.timestamp >= r.appealEnd) revert DeadlineViolation();
         Params memory p = registry.params();
         if (d.appealRound + 1 >= p.maxRounds) revert NoMoreAppeals();
+        if (block.timestamp + p.commitSeconds + p.revealSeconds >= markets.getMarket(d.marketId).hardDeadline) {
+            revert DeadlineViolation();
+        }
         bool challengerSide = !_challengerWins(d, r.leadingChoice);
         Role role = challengerSide ? Role.CHALLENGER : (d.kind == DisputeKind.CREATION ? Role.CREATOR : Role.PROPOSER);
         bool existingPoster;
@@ -471,7 +474,16 @@ contract BlinkResolution is IBlinkResolution, ReentrancyGuard {
         uint256 reward;
         if (!d.timedOut) {
             Pool storage pool = _pools[disputeId][r.level];
-            bool loser = !v.revealed || (!r.restarted && v.choice != r.leadingChoice);
+            uint8 finalChoice = _rounds[disputeId][d.currentRound].leadingChoice;
+            if (v.revealed && !r.restarted) {
+                if (!d.settled) revert InvalidState();
+                // Each level has one decisive round; count its incoherent revealers only once the choice is final.
+                if (!pool.coherenceCounted) {
+                    pool.pendingLosers += r.revealers - r.revealersByChoice[finalChoice];
+                    pool.coherenceCounted = true;
+                }
+            }
+            bool loser = !v.revealed || (!r.restarted && v.choice != finalChoice);
             if (loser) {
                 Params memory p = registry.params();
                 uint256 before = jurors.undistributedSlashed();
@@ -481,9 +493,7 @@ contract BlinkResolution is IBlinkResolution, ReentrancyGuard {
                 --pool.pendingLosers;
             } else if (!r.restarted) {
                 if (pool.pendingLosers != 0) revert LosersPending();
-                // Once appealed or finalized, no more slash sources can enter this level's pool.
-                if (!d.settled && round == d.currentRound) revert InvalidState();
-                reward = Math.mulDiv(pool.tokens, v.weight, r.revealedWeight[r.leadingChoice]);
+                reward = Math.mulDiv(pool.tokens, v.weight, r.revealedWeight[finalChoice]);
                 jurors.reward(juror, reward);
             }
         }
