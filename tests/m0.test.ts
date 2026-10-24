@@ -173,8 +173,13 @@ test("every business endpoint has request/response contracts and stays disabled"
       501,
     );
     assert.equal(
-      (await app.inject({ method: "POST", url: "/v1/candidates", payload: {} }))
-        .statusCode,
+      (
+        await app.inject({
+          method: "POST",
+          url: "/v1/markets/1/forecasts?deploymentId=d",
+          payload: {},
+        })
+      ).statusCode,
       400,
     );
     assert.equal((await app.inject("/openapi.json")).statusCode, 200);

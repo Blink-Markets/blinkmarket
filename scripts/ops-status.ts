@@ -2,11 +2,8 @@ import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { encodeFunctionData } from "viem";
 import {
-  AdminCandidatesResponse,
   AdminJobsResponse,
-  AdminBudgetsResponse,
   AdminPauseResponse,
-  AdminResolutionsResponse,
   PublicDeployment,
   PositiveUint256,
 } from "../packages/schemas/src/index.ts";
@@ -106,37 +103,22 @@ export async function opsStatusCommand(
       2,
     );
   }
-  const [candidates, jobs, budgets, pause, resolutions] = await Promise.all([
-    get("/v1/admin/candidates").then((v) => AdminCandidatesResponse.parse(v)),
+  const [jobs, pause] = await Promise.all([
     get("/v1/admin/jobs?state=DEAD").then((v) => AdminJobsResponse.parse(v)),
-    get("/v1/admin/budgets").then((v) => AdminBudgetsResponse.parse(v)),
     get("/v1/admin/pause").then((v) => AdminPauseResponse.parse(v)),
-    get("/v1/admin/resolutions").then((v) => AdminResolutionsResponse.parse(v)),
   ]);
-  const b = budgets.daily;
   const health = pause.health;
   return [
     `Operator status — ${pause.deploymentId} (Base Sepolia, indexed)`,
     `Health: ${health.status}; reasons: ${health.reasons.join(", ") || "none"}`,
     `Index: ${health.details?.chainIndex.blockNumber ?? "unknown"} / ${health.details?.chainIndex.headNumber ?? "unknown"}`,
-    `Candidates (${shown(candidates)}, own operator): ${candidates.items.length}; approvals: ${candidates.items.filter((c) => c.approval).length}`,
     `Failed jobs (${shown(jobs)}): ${jobs.items.length}; queue: ${health.details?.queue.map((q) => q.name + "=" + q.count).join(", ") ?? "unknown"}`,
-    `Budget ${b.day} (USD micros): cap=${b.capUsdMicros}, spent=${b.spentUsdMicros}, reserved=${b.reservedUsdMicros}, unknown=${b.unknownUsdMicros}`,
-    `Budget gates: daily=${health.details?.budgetGates.dailyClosed ?? "unknown"}, questions=${health.details?.budgetGates.questionsClosed ?? "unknown"}`,
     `Pause: global=${pause.globalPaused ?? "unknown"}; paused markets=${
       pause.markets
         .filter((m) => m.paused)
         .map((m) => m.marketId)
         .join(",") || "none"
     }`,
-    `Resolution queue (${shown(resolutions)}): ${resolutions.items.length}; disputed=${resolutions.items.filter((m) => m.state === "DISPUTED").length}`,
-    ...[...resolutions.items]
-      .sort((a, b) => Number(BigInt(a.hardDeadline) - BigInt(b.hardDeadline)))
-      .slice(0, 5)
-      .map(
-        (m) =>
-          `  Market ${m.marketId}: ${m.state}; challengeEnd=${m.challengeEndsAt ?? "n/a"}; hardDeadline=${m.hardDeadline}; own open reports=${m.openReports}`,
-      ),
   ].join("\n");
 }
 if (

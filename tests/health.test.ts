@@ -83,17 +83,6 @@ test("API role reports infrastructure readiness and safe job metrics without exe
     ]);
     await w.owner(() =>
       w.t.db.query(
-        "INSERT INTO budgets.daily(day,gate_closed_reason) VALUES ((blink.now() AT TIME ZONE 'UTC')::date,'OVERRUN')",
-      ),
-    );
-    assert.deepEqual((await get("/v1/health")).json().reasons, [
-      "BUDGET_GATE_CLOSED",
-    ]);
-    await w.owner(() =>
-      w.t.db.query("UPDATE budgets.daily SET gate_closed_reason=NULL"),
-    );
-    await w.owner(() =>
-      w.t.db.query(
         "UPDATE chain.cursors SET synced_at=blink.now()-interval '1 hour'",
       ),
     );

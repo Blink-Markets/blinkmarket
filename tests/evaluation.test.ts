@@ -8,13 +8,8 @@ import { createEvaluationHandler } from "../packages/application/src/evaluation.
 async function setup() {
   const t = await createTestDatabase();
   const agents: Awaited<ReturnType<typeof inviteAgent>>[] = [];
-  for (const name of ["A", "B", "baseline", "external"])
+  for (const name of ["A", "B", "C", "D"])
     agents.push(await inviteAgent(t, { name, scopes: ["forecast:write"] }));
-  for (let i = 0; i < 3; i++)
-    await t.db.query(
-      "INSERT INTO forecasts.platform_agents(agent_id,role,model,prompt_hash,policy_version) VALUES($1,$2,'fixture',decode(repeat('66',32),'hex'),'v1')",
-      [agents[i]!.agentId, ["FORECASTER_A", "FORECASTER_B", "BASELINE"][i]],
-    );
   await t.db.exec(
     "INSERT INTO markets.deployments(id,manifest,market_address) VALUES('test','{}',decode(repeat('11',20),'hex'))",
   );
@@ -84,12 +79,12 @@ async function setup() {
   return { t, agents, market, window, store, score };
 }
 
-test("evaluation scores final windows once, separates missing, contamination, INVALID and external agents", async () => {
+test("evaluation scores final windows once, separates withdrawn, contaminated and INVALID entries per agent", async () => {
   const s = await setup();
   try {
     await s.market(1);
     const good = await s.window(1, ["0.6", "0.600001", "0.5", "0.123457"]);
-    const missing = await s.window(1, ["0.6", null]);
+    const partial = await s.window(1, ["0.6", null]);
     const contaminated = await s.window(1, ["0.6", "0.7"], {
       0: "OUTCOME_ALREADY_PUBLIC",
     });
@@ -113,27 +108,36 @@ test("evaluation scores final windows once, separates missing, contamination, IN
         "SELECT *, brier::text AS exact FROM analytics.score_entries ORDER BY id",
       )
     ).rows;
-    assert.equal(rows.length, 13);
-    const ensemble = (id: string) =>
-      rows.find((r) => r.window_id === id && r.scorer === "ENSEMBLE")!;
-    assert.equal(ensemble(good).exact, "0.15999960000025");
-    assert.equal(ensemble(good).probability_millionths, null);
-    assert.equal(ensemble(good).probability_millionths_times2, 1200001);
-    assert.equal(ensemble(missing).missing, true);
-    assert.equal(ensemble(missing).brier, null);
-    assert.equal(ensemble(contaminated).contaminated, true);
-    assert.equal(ensemble(withdrawn).missing, true);
-    assert.equal(ensemble(withdrawn).contaminated, true);
-    assert.equal(
-      rows.find((r) => r.window_id === good && r.scorer === "AGENT")!.exact,
-      "0.768327630849",
-    );
+    assert.equal(rows.length, 15);
+    assert.ok(rows.every((r) => r.scorer === "AGENT"));
+    const entry = (window: string, agent: number) =>
+      rows.find(
+        (r) =>
+          r.window_id === window && r.agent_id === s.agents[agent]!.agentId,
+      )!;
+    assert.equal(entry(good, 0).exact, "0.16");
+    assert.equal(entry(good, 0).probability_millionths, 600000);
+    assert.equal(entry(good, 1).exact, "0.159999200001");
+    assert.equal(entry(good, 2).exact, "0.25");
+    assert.equal(entry(good, 3).exact, "0.768327630849");
+    assert.equal(entry(good, 3).probability_millionths, 123457);
+    // An agent that did not submit has no entry: nothing is invented for it.
+    assert.equal(rows.filter((r) => r.window_id === partial).length, 1);
+    assert.equal(entry(partial, 0).missing, false);
+    assert.equal(entry(contaminated, 0).contaminated, true);
+    assert.equal(entry(contaminated, 1).contaminated, false);
+    assert.equal(entry(withdrawn, 0).contaminated, false);
+    assert.equal(entry(withdrawn, 1).missing, true);
+    assert.equal(entry(withdrawn, 1).brier, null);
+    assert.equal(entry(withdrawn, 1).probability_millionths_times2, null);
+    assert.equal(entry(withdrawn, 3).missing, false);
+    assert.equal(entry(withdrawn, 3).contaminated, true);
     assert.ok(
       rows
         .filter((r) => r.outcome === "INVALID")
         .every((r) => r.brier === null),
     );
-    assert.equal(rows.filter((r) => r.outcome === "INVALID").length, 3);
+    assert.equal(rows.filter((r) => r.outcome === "INVALID").length, 4);
     await s.score();
     assert.deepEqual(
       (
@@ -164,21 +168,14 @@ test("evaluation scores final windows once, separates missing, contamination, IN
   }
 });
 
-test("public metrics weight two events equally across three windows, isolate mode, and include platform budget totals", async () => {
+test("public metrics weight each market equally across its agent entries and isolate mode", async () => {
   const { createMetricsService } =
     await import("../packages/application/src/evaluation.js");
-  const { postgresBudgetLedger } =
-    await import("../packages/adapters/src/budget-ledger.js");
   const { buildApi } = await import("../apps/api/src/server.js");
   const { apiContracts } = await import("../packages/schemas/src/index.ts");
   const s = await setup();
   const app = buildApi({
-    services: [
-      createMetricsService({
-        store: s.store,
-        budgets: postgresBudgetLedger(s.t.pool),
-      }),
-    ],
+    services: [createMetricsService({ store: s.store })],
   });
   try {
     await s.market(1);
@@ -188,26 +185,11 @@ test("public metrics weight two events equally across three windows, isolate mod
     await s.market(2);
     for (let i = 0; i < 3; i++) await s.window(2, ["0.8", "0.8"]);
     await s.market(3);
-    await s.window(3, ["0.8", null]);
+    await s.window(3, ["0.8", "0.8"], { 1: "WITHDRAWN" });
     await s.market(4, "REPLAY", "INVALID"); // Count even without windows.
     await s.market(5, "LIVE");
     await s.window(5, ["0", "0"]);
     await s.t.setRole("blink_worker");
-    const budget = postgresBudgetLedger(s.t.pool);
-    const reserve = (maxUsdMicros: bigint) =>
-      budget.reserve({
-        runId: randomUUID(),
-        questionKey: "fixture",
-        questionCapUsdMicros: 2000000n,
-        provider: "fixture",
-        model: "fixture",
-        maxUsdMicros,
-      });
-    const spent = await reserve(100n),
-      unknown = await reserve(200n);
-    await reserve(300n);
-    await budget.reconcile(spent.reservationId, 75n, "fixture-spent");
-    await budget.markUnknown(unknown.reservationId, "fixture-unknown");
     await s.score();
     await s.t.setRole("blink_api");
     const replay = await app.inject({ url: "/v1/metrics?mode=REPLAY" });
@@ -215,13 +197,10 @@ test("public metrics weight two events equally across three windows, isolate mod
     assert.equal(replay.headers["cache-control"], "public, max-age=60");
     assert.deepEqual(replay.json(), {
       mode: "REPLAY",
-      eventCount: "2",
+      eventCount: "3",
       missingCount: "1",
       invalidCount: "1",
-      brier: 0.145,
-      spentUsdMicros: "75",
-      reservedUsdMicros: "300",
-      unknownUsdMicros: "200",
+      brier: 0.094,
     });
     apiContracts
       .find((c) => c.path === "/v1/metrics")!
@@ -231,7 +210,6 @@ test("public metrics weight two events equally across three windows, isolate mod
     assert.equal(live.brier, 1);
     assert.equal(live.missingCount, "0");
     assert.equal(live.invalidCount, "0");
-    assert.equal(live.spentUsdMicros, "75");
     assert.equal(
       (await app.inject({ url: "/v1/metrics?mode=OTHER" })).statusCode,
       400,

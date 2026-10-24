@@ -32,7 +32,6 @@ export interface MarketListQuery {
   deploymentId?: string;
   mode?: string;
   status?: string;
-  entity?: string;
   limit?: number;
   cursor?: string;
 }

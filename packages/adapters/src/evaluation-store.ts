@@ -3,7 +3,6 @@ import type { Pool } from "pg";
 import type {
   EvaluationStore,
   EvaluationWindow,
-  EvaluationForecast,
   MetricsReader,
 } from "@blink/ports";
 import { createUnitOfWork } from "./database.js";
@@ -24,7 +23,7 @@ export function postgresEvaluationStore(
         SELECT s.* FROM analytics.score_entries s
         JOIN chain.markets m USING(deployment_id,market_id)
         WHERE s.mode=$1 AND m.mode=$1 AND m.state='FINAL'
-          AND s.outcome=m.final_outcome AND s.scorer='ENSEMBLE' AND s.evaluation_version='v1'
+          AND s.outcome=m.final_outcome AND s.scorer='AGENT' AND s.evaluation_version='v1'
       ), events AS (
         SELECT deployment_id,market_id,AVG(brier) AS brier FROM scores
         WHERE outcome IN ('YES','NO') AND NOT missing AND NOT contaminated
@@ -54,7 +53,6 @@ export function postgresEvaluationStore(
           mode: EvaluationWindow["mode"];
           outcome: EvaluationWindow["outcome"];
           agent_id: string | null;
-          role: EvaluationForecast["role"];
           probability_millionths: number;
           withdrawn: boolean;
           contaminated: boolean;
@@ -78,7 +76,6 @@ export function postgresEvaluationStore(
           if (r.agent_id)
             window.forecasts.push({
               agentId: r.agent_id,
-              role: r.role,
               probabilityMillionths: r.probability_millionths,
               withdrawn: r.withdrawn,
               contaminated: r.contaminated,

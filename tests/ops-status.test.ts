@@ -129,33 +129,23 @@ test("status summary says when a list shows only the newest 100 rows", async () 
         const path = new URL(url).pathname;
         const list = { items: [], truncated };
         const body =
-          path === "/v1/admin/budgets"
+          path === "/v1/admin/pause"
             ? {
-                daily: {
-                  day: "2026-01-01",
-                  capUsdMicros: "1",
-                  spentUsdMicros: "0",
-                  reservedUsdMicros: "0",
-                  unknownUsdMicros: "0",
+                deploymentId: "ops-test",
+                globalPaused: false,
+                markets: [],
+                health: {
+                  status: "not-ready",
+                  tradingEnabled: false,
+                  reasons: [],
                 },
               }
-            : path === "/v1/admin/pause"
-              ? {
-                  deploymentId: "ops-test",
-                  globalPaused: false,
-                  markets: [],
-                  health: {
-                    status: "not-ready",
-                    tradingEnabled: false,
-                    reasons: [],
-                  },
-                }
-              : list;
+            : list;
         return new Response(JSON.stringify(body), { status: 200 });
       },
     });
   const more = await run(true);
-  assert.equal(more.match(/showing 100 newest of more/g)?.length, 3);
+  assert.equal(more.match(/showing 100 newest of more/g)?.length, 1);
   assert.doesNotMatch(more, /first 100/);
   assert.doesNotMatch(await run(false), /showing 100 newest of more/);
 });

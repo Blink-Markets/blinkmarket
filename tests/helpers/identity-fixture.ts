@@ -1,10 +1,14 @@
 import type { Pool } from "pg";
-import { IdentityInvitation, type ApiScope } from "@blink/schemas";
-import { createUnitOfWork } from "./database.js";
-import { identityCrypto as crypto } from "./identity-crypto.js";
+import {
+  IdentityInvitation,
+  type ApiScope,
+} from "../../packages/schemas/src/index.js";
+import { createUnitOfWork } from "../../packages/adapters/src/database.js";
+import { identityCrypto as crypto } from "../../packages/adapters/src/identity-crypto.js";
 
-// Offline administrative boundary. The runtime API role cannot execute these writes.
-export function identityAdmin(pool: Pool) {
+// Test fixture only: seeds operators, agents and API keys directly. The platform ships no invitation
+// tooling; identities arrive through wallet proof (a later P2 task replaces this fixture).
+export function identityFixture(pool: Pool) {
   const uow = createUnitOfWork(pool);
   async function issue(
     tx: Parameters<typeof uow.client>[0],

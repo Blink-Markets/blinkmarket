@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { withDatabase } from "../helpers/postgres-database.js";
 import { assertIdentityRuntimeRole } from "../../packages/adapters/src/identity-store.js";
 import { assertWorkerRuntimeRole } from "../../packages/adapters/src/job-queue.js";
-import { assertCreationTrackingRuntimeRole } from "../../packages/adapters/src/creation-tracking-schedule.js";
+import { assertIndexerRuntimeRole } from "../../packages/adapters/src/runtime-role.js";
 
 const services = [
   ["blink_api", assertIdentityRuntimeRole],
   ["blink_worker", assertWorkerRuntimeRole],
-  ["blink_indexer", assertCreationTrackingRuntimeRole],
+  ["blink_indexer", assertIndexerRuntimeRole],
 ] as const;
 
 test("real PostgreSQL: each service requires exactly one runtime group and no admin membership", async () => {

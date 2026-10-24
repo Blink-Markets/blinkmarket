@@ -61,8 +61,6 @@ services:
       API_DATABASE_URL: ${ALPHA_API_DATABASE_URL:?set by images:smoke}
       WALLET_BINDING_ORIGIN: http://127.0.0.1:${ALPHA_API_PORT:-3001}
       SPEC_OBJECT_DIRECTORY: /data/specs
-      SPEC_PUBLIC_ORIGIN: http://127.0.0.1:${ALPHA_API_PORT:-3001}
-      EVIDENCE_OBJECT_DIRECTORY: /data/evidence
       BLINK_DEPLOYMENT_ID: ${ALPHA_DEPLOYMENT_ID:?set by images:smoke}
       BASE_SEPOLIA_RPC_URL: http://anvil:8545
     ports:
@@ -87,31 +85,16 @@ services:
     <<: *service
     image: blink-worker:local
     build: { context: .., dockerfile: infra/Dockerfile.worker }
-    # The platform forecasters call the public API through @blink/client, which accepts only HTTPS or a
-    # loopback host. Sharing the API container's network namespace makes http://127.0.0.1:3001 the API.
-    network_mode: "service:api"
     depends_on:
       postgres:
         condition: service_healthy
       anvil:
-        condition: service_healthy
-      api:
         condition: service_healthy
     environment:
       WORKER_ENABLED: "true"
       WORKER_DATABASE_URL: ${ALPHA_WORKER_DATABASE_URL:?set by images:smoke}
       BLINK_DEPLOYMENT_ID: ${ALPHA_DEPLOYMENT_ID:?set by images:smoke}
       BASE_SEPOLIA_RPC_URL: http://anvil:8545
-      EVIDENCE_OBJECT_DIRECTORY: /data/evidence
-      WORKER_API_URL: http://127.0.0.1:3001
-      WORKER_MODEL_FIXTURES: /fixtures/gm-replay.json
-      WORKER_PLATFORM_OPERATOR_ID: ${ALPHA_PLATFORM_OPERATOR_ID:?set by images:smoke}
-      WORKER_FORECASTER_A_API_KEY: ${ALPHA_FORECASTER_A_KEY:?set by images:smoke}
-      WORKER_FORECASTER_B_API_KEY: ${ALPHA_FORECASTER_B_KEY:?set by images:smoke}
-      WORKER_BASELINE_API_KEY: ${ALPHA_BASELINE_KEY:?set by images:smoke}
-    volumes:
-      - data:/data
-      - ../fixtures/replay/models/gm-replay.json:/fixtures/gm-replay.json:ro
 
 volumes:
   data:

@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import type { Pool } from "pg";
 import { migrate } from "../../packages/adapters/src/migrations.js";
-import { identityAdmin } from "../../packages/adapters/src/identity-admin.js";
+import { identityFixture } from "./identity-fixture.js";
 import type { ApiScope } from "../../packages/schemas/src/index.js";
 
 const roles = new Set([
@@ -85,7 +85,7 @@ export async function inviteAgent(
   input: { name: string; scopes: ApiScope[] },
 ) {
   const invited = await asOwner(t, () =>
-    identityAdmin(t.pool).invite({
+    identityFixture(t.pool).invite({
       operatorName: "operator-" + input.name,
       agentName: input.name,
       scopes: input.scopes,

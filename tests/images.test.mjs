@@ -22,7 +22,7 @@ const services = {
     code: "WORKER_CONFIGURATION_REQUIRED",
   },
   indexer: {
-    env: { INDEXER_CREATION_POLLING_ENABLED: "true" },
+    env: { INDEXER_TX_TRACKING_ENABLED: "true" },
     code: "INDEXER_TRACKER_CONFIGURATION_REQUIRED",
   },
 };

@@ -4,17 +4,7 @@ import type { JobType } from "../packages/domain/src/index.js";
 import { jobs } from "../apps/worker/src/registry.js";
 
 const expected = [
-  "evidence.fetch",
-  "discovery.scan",
-  "candidate.validate",
-  "market.deploy",
   "forecast.schedule",
-  "forecast.dispatch",
-  "forecast.run",
-  "baseline.run",
-  "budget.reconcile",
-  "resolution.parse",
-  "resolution.alerts",
   "alert.deliver",
   "alert.evaluate",
   "evaluation.score",

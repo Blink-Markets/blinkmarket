@@ -8,17 +8,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dispatchOutbox } from "../../packages/adapters/src/outbox-dispatcher.js";
 import { postgresJobQueue } from "../../packages/adapters/src/job-queue.js";
-import { postgresResolutionJobsStore } from "../../packages/adapters/src/resolution-store.js";
 import { postgresAlertEvaluateStore } from "../../packages/adapters/src/alert-evaluate-store.js";
 import { httpRpcProbe } from "../../packages/adapters/src/rpc-probe.js";
 import { fileAlertSink } from "../../packages/adapters/src/alert-sinks.js";
 import { createAlertDeliveryHandler } from "../../packages/application/src/alerts.js";
 import { createAlertEvaluateHandler } from "../../packages/application/src/alert-evaluate.js";
-import { createResolutionAlertHandler } from "../../packages/application/src/resolution.js";
-import { scheduleResolution } from "../../apps/worker/src/handlers.js";
 import { withDatabase } from "../helpers/postgres-database.js";
 
-// Fixed business time (epoch 1_000_000 s) makes the REPLAY 60-second deadline threshold exactly due.
+// Fixed business time (epoch 1_000_000 s) keeps the drill deterministic.
 const NOW = 1_000_000;
 const sign = (alert: Record<string, unknown>) =>
   `${alert.type}|${alert.state ?? ""}|${alert.subject ?? ""}`;
@@ -36,8 +33,7 @@ test(
         await owner.query(`CREATE OR REPLACE FUNCTION blink.now() RETURNS timestamptz LANGUAGE sql VOLATILE AS $$ SELECT to_timestamp(${NOW}) $$;
           INSERT INTO markets.deployments(id,manifest,market_address) VALUES('drill','{}',decode(repeat('11',20),'hex'));
           INSERT INTO chain.markets(deployment_id,market_id,spec_hash,spec_uri,mode,close_at,proposal_deadline,hard_deadline,challenge_seconds,max_pairs,max_taker_shares,state,created_block_number,created_tx_hash,as_of_block_hash)
-          VALUES('drill',1,decode(repeat('22',32),'hex'),'fixture','REPLAY',999000,1000030,1000045,120,100,100,'OPEN',1,decode(repeat('33',32),'hex'),decode(repeat('44',32),'hex')),
-                ('drill',2,decode(repeat('23',32),'hex'),'fixture','REPLAY',990000,998000,999000,120,100,100,'OPEN',1,decode(repeat('34',32),'hex'),decode(repeat('44',32),'hex'));
+          VALUES('drill',1,decode(repeat('22',32),'hex'),'fixture','REPLAY',999000,1000030,1000045,120,100,100,'OPEN',1,decode(repeat('33',32),'hex'),decode(repeat('44',32),'hex'));
           INSERT INTO chain.maker_state(deployment_id,free_balance_micros,epoch,as_of_block_hash) VALUES('drill',0,0,decode(repeat('44',32),'hex'));
           INSERT INTO chain.cursors(deployment_id,block_number,block_hash,block_timestamp,head_number,synced_at)
           VALUES('drill',10,decode(repeat('55',32),'hex'),${NOW},10,to_timestamp(${NOW}));`);
@@ -87,28 +83,8 @@ test(
             .filter(Boolean)
             .map((line) => JSON.parse(line) as Record<string, unknown>);
 
-        // alert.deadline from the scheduler, with no keeper, signer or RPC process.
-        await scheduleResolution(worker);
-        const deadlineJob = await queue.lease(
-          "drill",
-          ["resolution.alerts"],
-          60_000,
-        );
-        assert.ok(deadlineJob);
-        await createResolutionAlertHandler(postgresResolutionJobsStore(worker))(
-          {
-            job: deadlineJob,
-            signal,
-          },
-        );
-        await queue.complete(deadlineJob);
-
-        await flush();
-        assert.deepEqual((await delivered()).map(sign), ["alert.deadline||"]);
-
         // Real conditions, written the way the system would.
         await owner.query(`
-          INSERT INTO budgets.daily(day,gate_closed_reason) VALUES((to_timestamp(${NOW}) AT TIME ZONE 'UTC')::date,'OVERRUN');
           UPDATE chain.markets SET paused=true WHERE market_id=1;
           UPDATE chain.maker_state SET global_paused=true;
           UPDATE chain.cursors SET synced_at=to_timestamp(${NOW - 1000});
@@ -124,9 +100,8 @@ test(
         );
         await tick();
         await flush();
-        const opened = (await delivered()).slice(1);
+        const opened = await delivered();
         assert.deepEqual(opened.map(sign).sort(), [
-          "alert.budget|OPEN|daily",
           "alert.indexer_lag|OPEN|indexer",
           "alert.jobs_dead|OPEN|jobs",
           "alert.pause|OPEN|global",
@@ -138,14 +113,14 @@ test(
         assert.equal(rpcAlert.failures, "3");
         assert.equal(
           new Set((await delivered()).map((a) => a.dedupeKey)).size,
-          7,
+          5,
         );
         // Every alert.* row came from a real producer: no injected fixtures.
         assert.equal(
           (
             await owner.query(
               `SELECT count(*)::int AS n FROM operations.outbox WHERE event_type LIKE 'alert.%'
-               AND event_type<>'alert.deadline' AND aggregate_id NOT LIKE '["alert",%'`,
+               AND aggregate_id NOT LIKE '["alert",%'`,
             )
           ).rows[0].n,
           0,
@@ -153,7 +128,7 @@ test(
         // More ticks while everything stays broken add nothing.
         await tick();
         await flush();
-        assert.equal((await delivered()).length, 10);
+        assert.equal((await delivered()).length, 5);
 
         // Recovery: each condition ends and is reported once as CLEARED.
         rpcServer = createServer((request, response) => {
@@ -176,18 +151,15 @@ test(
           `http://127.0.0.1:${(rpcServer.address() as { port: number }).port}`,
         );
         await owner.query(`
-          UPDATE budgets.daily SET gate_closed_reason=NULL;
           UPDATE chain.markets SET paused=false;
           UPDATE chain.maker_state SET global_paused=false;
           UPDATE chain.cursors SET synced_at=to_timestamp(${NOW});
-          UPDATE chain.markets SET state='FINAL' WHERE market_id=2;
           UPDATE operations.jobs SET state='SUCCEEDED',finished_at=to_timestamp(${NOW}) WHERE state='DEAD';`);
         await tick();
         await tick();
         await flush();
         const all = await delivered();
-        assert.deepEqual(all.slice(7).map(sign).sort(), [
-          "alert.budget|CLEARED|daily",
+        assert.deepEqual(all.slice(5).map(sign).sort(), [
           "alert.indexer_lag|CLEARED|indexer",
           "alert.jobs_dead|CLEARED|jobs",
           "alert.pause|CLEARED|global",
@@ -202,7 +174,7 @@ test(
           await queue.lease("drill", ["alert.deliver"], 60_000),
           null,
         );
-        assert.equal(all.length, 19);
+        assert.equal(all.length, 10);
         assert.equal(JSON.stringify(all).includes("private"), false);
       });
     } finally {

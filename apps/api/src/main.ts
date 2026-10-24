@@ -5,10 +5,7 @@ import {
   createIdentityService,
   createHealthService,
   createOperatorStatusService,
-  createPreparationService,
-  createApprovalService,
   createForecastService,
-  createResolutionService,
   createMarketReadService,
   createMetricsService,
   authenticateIdentity,
@@ -18,17 +15,11 @@ import {
   postgresIdentityStore,
   assertIdentityRuntimeRole,
   assertProductionClock,
-  postgresPreparationStore,
-  postgresApprovalStore,
   postgresForecastStore,
-  postgresResolutionStore,
   fileObjectStore,
   createSpecArchive,
-  encodeMarketCreation,
-  evidenceIntegrity,
   postgresMarketReadStore,
   postgresEvaluationStore,
-  postgresBudgetLedger,
   postgresHealthReader,
   postgresOperatorStatusStore,
 } from "@blink/adapters";
@@ -56,14 +47,6 @@ try {
     if (modeAtLeast(config.mode, "markets"))
       await pool.query("SELECT id FROM chain.transactions LIMIT 0");
     await pool.query("SELECT id FROM identity.api_keys LIMIT 0");
-    if (modeAtLeast(config.mode, "preparation"))
-      await pool.query("SELECT id FROM discovery.candidates LIMIT 0");
-    if (modeAtLeast(config.mode, "approval"))
-      await pool.query("SELECT id FROM markets.creation_intents LIMIT 0");
-    if (modeAtLeast(config.mode, "approval"))
-      await pool.query(
-        "SELECT intent_id FROM chain.creation_projections LIMIT 0",
-      );
     if (modeAtLeast(config.mode, "markets"))
       await pool.query("SELECT id FROM forecasts.windows LIMIT 0");
   }
@@ -85,30 +68,6 @@ try {
           trustedProxies: config.trustedProxies,
           ...(health ? { health } : {}),
           assertReady: () => assertProductionClock(pool, false),
-          ...(modeAtLeast(config.mode, "approval")
-            ? {
-                approval: createApprovalService({
-                  store: postgresApprovalStore(pool),
-                  crypto: identityCrypto,
-                  archive: createSpecArchive(
-                    fileObjectStore(config.specDirectory!),
-                  ),
-                  publicOrigin: config.specOrigin!,
-                  verifyEvidence: evidenceIntegrity(
-                    fileObjectStore(config.evidenceDirectory!),
-                  ),
-                  encodeCreation: encodeMarketCreation,
-                }),
-              }
-            : {}),
-          ...(modeAtLeast(config.mode, "preparation")
-            ? {
-                preparation: createPreparationService(
-                  postgresPreparationStore(pool),
-                  identityCrypto,
-                ),
-              }
-            : {}),
           identity: createIdentityService(
             postgresIdentityStore(pool),
             identityCrypto,
@@ -134,14 +93,7 @@ try {
                       }),
                     ]
                   : []),
-                createMetricsService({
-                  store: postgresEvaluationStore(pool),
-                  budgets: postgresBudgetLedger(pool),
-                }),
-                createResolutionService({
-                  store: postgresResolutionStore(pool),
-                  crypto: identityCrypto,
-                }),
+                createMetricsService({ store: postgresEvaluationStore(pool) }),
                 createForecastService({
                   store: postgresForecastStore(pool),
                   crypto: identityCrypto,

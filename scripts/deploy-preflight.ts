@@ -4,14 +4,12 @@ import { apiConfig } from "../apps/api/src/config.js";
 import {
   alertConfig,
   alertEvaluateConfig,
-  researchConfig,
   workerConfig,
 } from "../apps/worker/src/config.js";
 import {
   chainIndexerConfig,
   indexerConfig,
 } from "../apps/indexer/src/config.js";
-import { isClientHttpLoopbackHost } from "../packages/client/src/url-policy.ts";
 
 type Env = Map<string, string>;
 
@@ -128,26 +126,6 @@ async function main() {
     )
       fail("PREFLIGHT_PUBLIC_SECRET", name);
 
-  const workerApi = env.get("WORKER_API_URL");
-  if (workerApi) {
-    let parsed: URL;
-    try {
-      parsed = new URL(workerApi);
-    } catch {
-      fail("PREFLIGHT_WORKER_API_URL", "WORKER_API_URL");
-    }
-    if (
-      parsed!.username ||
-      parsed!.password ||
-      !(
-        parsed!.protocol === "https:" ||
-        (parsed!.protocol === "http:" &&
-          isClientHttpLoopbackHost(parsed!.hostname))
-      )
-    )
-      fail("PREFLIGHT_WORKER_API_URL", "WORKER_API_URL");
-  }
-
   const sink = env.get("ALERT_SINK");
   if (!sink || sink === "stdout") fail("PREFLIGHT_ALERT_SINK", "ALERT_SINK");
   if (sink === "file" && !env.get("ALERT_FILE_PATH"))
@@ -194,7 +172,6 @@ async function main() {
   try {
     apiConfig(values);
     workerConfig(values);
-    researchConfig(values);
     alertConfig(values);
     alertEvaluateConfig(values);
     indexerConfig(values);

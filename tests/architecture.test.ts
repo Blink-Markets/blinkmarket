@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildApi } from "../apps/api/src/server.js";
+import { jobs } from "../apps/worker/src/registry.js";
 import {
   MarketSpec,
   Quote,
@@ -146,4 +147,62 @@ test("platform has no signer workspace", () => {
       if (existsSync(source)) scan(source);
     }
   }
+});
+
+test("platform runs no research or approval roles", () => {
+  // Module specifiers that point at a retired research, approval or creation-tracking module.
+  const retiredModule =
+    /(?:^|[/@-])(?:discovery|approval|creation-poller)(?:[-/.]|$)/;
+  const retiredIdentifier = /^(?:FORECASTER_A|FORECASTER_B|BASELINE)$/;
+  const retiredJobType = /^(?:discovery\.|research\.forecast|candidate\.|market\.deploy)/;
+  function scan(directory: string) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (["node_modules", "dist", ".next", "out"].includes(entry.name))
+        continue;
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) scan(path);
+      else if (/\.[cm]?[jt]sx?$/.test(entry.name)) {
+        const source = ts.createSourceFile(
+          path,
+          readFileSync(path, "utf8"),
+          ts.ScriptTarget.Latest,
+          true,
+        );
+        function visit(node: ts.Node) {
+          const specifier =
+            ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
+              ? node.moduleSpecifier
+              : ts.isCallExpression(node) &&
+                  (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+                    node.expression.getText(source) === "require")
+                ? node.arguments[0]
+                : undefined;
+          if (specifier && ts.isStringLiteralLike(specifier))
+            assert.equal(
+              retiredModule.test(specifier.text),
+              false,
+              `${path}: ${specifier.text}`,
+            );
+          if (ts.isIdentifier(node) || ts.isStringLiteralLike(node))
+            assert.equal(
+              retiredIdentifier.test(node.text),
+              false,
+              `${path}: ${node.text}`,
+            );
+          ts.forEachChild(node, visit);
+        }
+        visit(source);
+      }
+    }
+  }
+  for (const root of ["apps", "packages"]) {
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const source =
+        root === "apps" ? join(root, entry.name) : join(root, entry.name, "src");
+      if (existsSync(source)) scan(source);
+    }
+  }
+  for (const type of jobs)
+    assert.equal(retiredJobType.test(type), false, `job type ${type}`);
 });

@@ -291,7 +291,7 @@ async function until(check: () => Promise<boolean>) {
   return false;
 }
 
-test("a hung alert sink never holds the slot of evidence.fetch or evaluation.score", async () => {
+test("a hung alert sink never holds the slot of forecast.schedule or evaluation.score", async () => {
   const t = await createTestDatabase();
   let release!: () => void;
   const hung = new Promise<void>((resolve) => (release = resolve));
@@ -306,13 +306,13 @@ test("a hung alert sink never holds the slot of evidence.fetch or evaluation.sco
       payload: { dedupeKey: `alert:${randomUUID()}`, type: "alert.budget" },
     });
     await delay(5);
-    for (const type of ["evidence.fetch", "evaluation.score"] as const)
+    for (const type of ["forecast.schedule", "evaluation.score"] as const)
       await queue.enqueue({ type, dedupeKey: type, payload: {} });
     const done: string[] = [];
     loops = startJobLoops({
       queue,
       handlers: {
-        "evidence.fetch": async () => void done.push("evidence.fetch"),
+        "forecast.schedule": async () => void done.push("forecast.schedule"),
         "evaluation.score": async () => void done.push("evaluation.score"),
       },
       alertHandler: createAlertDeliveryHandler({
@@ -335,7 +335,7 @@ test("a hung alert sink never holds the slot of evidence.fetch or evaluation.sco
     assert.deepEqual(states, [
       { type: "alert.deliver", state: "LEASED" },
       { type: "evaluation.score", state: "SUCCEEDED" },
-      { type: "evidence.fetch", state: "SUCCEEDED" },
+      { type: "forecast.schedule", state: "SUCCEEDED" },
     ]);
     release();
     await loops.stop();
@@ -361,7 +361,7 @@ test("the alert loop leases only alert.deliver and the main loop never leases it
     loops = startJobLoops({
       queue,
       handlers: {
-        "evidence.fetch": async ({ job }) => void seen.push(job.type),
+        "forecast.schedule": async ({ job }) => void seen.push(job.type),
         // Even if a caller registers it, the main loop must not take alert.deliver.
         "alert.deliver": async ({ job }) => void seen.push("main:" + job.type),
       },

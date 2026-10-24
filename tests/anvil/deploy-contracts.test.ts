@@ -74,7 +74,7 @@ interface LocalNode {
   client: PublicClient;
   wallet: WalletClient;
 }
-// Private Anvil spawn helper; mirrors scripts/local-replay.ts.
+// Private Anvil spawn helper.
 async function withAnvil<T>(
   chainId: number,
   run: (node: LocalNode) => Promise<T>,

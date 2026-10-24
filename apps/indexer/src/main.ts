@@ -3,20 +3,12 @@ import { hostname } from "node:os";
 import pg from "pg";
 import { createPublicClient, http } from "viem";
 import {
-  assertCreationTrackingMigrationsInstalled,
-  assertCreationTrackingRuntimeRole,
-  creationReceiptReader,
-  postgresCreationTrackerStore,
-  postgresCreationTrackingSchedule,
+  assertIndexerRuntimeRole,
   postgresTxTrackingStore,
   txReceiptReader,
   txTrackingManifest,
 } from "@blink/adapters";
-import {
-  createCreationTracker,
-  startCreationPoller,
-  createTxTracker,
-} from "@blink/application";
+import { createTxTracker } from "@blink/application";
 import { createService, startService } from "@blink/runtime";
 import {
   assertChainIndexInstalled,
@@ -33,7 +25,6 @@ import {
 import { registerChainIndexHealth } from "./chain-health.js";
 import {
   chainIndexerConfig,
-  creationObservationReady,
   indexerConfig,
   indexerFetchWithTimeout,
 } from "./config.js";
@@ -54,17 +45,7 @@ let chainLoop: ReturnType<typeof startChainIndexer> | null = null;
 chainPool?.on("error", () =>
   console.error("INDEXER_DATABASE_CONNECTION_ERROR"),
 );
-const pool = config.enabled
-  ? new pg.Pool({
-      connectionString: config.databaseUrl!,
-      max: 2,
-      connectionTimeoutMillis: 5000,
-      statement_timeout: 5000,
-      query_timeout: 5000,
-      idle_in_transaction_session_timeout: 10000,
-    })
-  : null;
-const clockPools = [pool, chainPool].filter((p) => p !== null);
+const clockPools = [chainPool].filter((p) => p !== null);
 const checkClocks = async () => {
   for (const database of clockPools)
     await assertProductionClock(
@@ -72,88 +53,14 @@ const checkClocks = async () => {
       process.env.BLINK_ALLOW_TEST_CLOCK === "1",
     );
 };
-const app = createService("indexer", "m2-creation-receipt-poller", async () => {
+const app = createService("indexer", "p2-indexer", async () => {
   await checkClocks();
   return false;
 });
-let poller: ReturnType<typeof startCreationPoller> | null = null;
 let stopTxTracking: (() => Promise<void>) | null = null;
 
-pool?.on("error", () => console.error("INDEXER_DATABASE_CONNECTION_ERROR"));
-
 try {
-  if (pool) {
-    await assertCreationTrackingRuntimeRole(pool);
-    await assertProductionClock(
-      pool,
-      process.env.BLINK_ALLOW_TEST_CLOCK === "1",
-    );
-    await assertCreationTrackingMigrationsInstalled(pool);
-    const schedule = postgresCreationTrackingSchedule(pool);
-    const tracker = createCreationTracker(
-      postgresCreationTrackerStore(pool),
-      creationReceiptReader((signal) =>
-        createPublicClient({
-          transport: http(config.rpcUrl!, {
-            timeout: config.rpcTimeoutMs,
-            retryCount: 0,
-            fetchFn: indexerFetchWithTimeout(config.rpcTimeoutMs),
-            ...(signal ? { fetchOptions: { signal } } : {}),
-          }),
-        }),
-      ),
-    );
-    poller = startCreationPoller({
-      tracker,
-      schedule,
-      workerId: hostname() + ":" + process.pid + ":" + randomUUID(),
-      pollIntervalMs: config.pollIntervalMs,
-      leaseMs: config.leaseMs,
-      reconciliationDeadlineMs: config.reconciliationDeadlineMs,
-      retryBaseMs: config.retryBaseMs,
-      retryMaxMs: config.retryMaxMs,
-      pendingPollMs: config.pendingPollMs,
-      confirmedPollMs: config.confirmedPollMs,
-      revertedPollMs: config.revertedPollMs,
-      onError: (code) => console.error("INDEXER_CREATION_POLLER_ERROR:" + code),
-    });
-    app.get("/health/creation-observer", async (_request, reply) => {
-      try {
-        await checkClocks();
-        const processHealth = poller!.health();
-        const backlog = await schedule.health();
-        const observationReady = creationObservationReady(
-          processHealth,
-          backlog,
-        );
-        return reply.code(observationReady ? 200 : 503).send({
-          component: "creation-receipt-poller",
-          observationReady,
-          poller: processHealth,
-          backlog,
-        });
-      } catch {
-        return reply.code(503).send({
-          component: "creation-receipt-poller",
-          observationReady: false,
-          status: "health-query-failed",
-        });
-      }
-    });
-    app.addHook("onClose", async () => {
-      await poller?.stop();
-      await pool.end();
-    });
-  } else {
-    app.get("/health/creation-observer", async (_request, reply) =>
-      reply.code(503).send({
-        component: "creation-receipt-poller",
-        observationReady: false,
-        status: "disabled",
-      }),
-    );
-  }
-  // Independent of creation polling and the sibling chain projection indexer.
+  // Independent of the sibling chain projection indexer.
   if (config.txTrackingEnabled) {
     const txPool = new pg.Pool({
       connectionString: config.databaseUrl!,
@@ -177,7 +84,7 @@ try {
       await txPool.end();
     };
     clockPools.push(txPool);
-    await assertCreationTrackingRuntimeRole(txPool);
+    await assertIndexerRuntimeRole(txPool);
     await assertProductionClock(
       txPool,
       process.env.BLINK_ALLOW_TEST_CLOCK === "1",
@@ -222,7 +129,7 @@ try {
     });
   }
   if (chainPool) {
-    await assertCreationTrackingRuntimeRole(chainPool);
+    await assertIndexerRuntimeRole(chainPool);
     await assertChainIndexInstalled(chainPool);
     await assertProductionClock(
       chainPool,
@@ -268,12 +175,10 @@ try {
   } else {
     registerChainIndexHealth(app, null);
   }
-  // Existing global readiness remains 503: this component only observes creation receipts.
+  // Global readiness remains 503: transaction tracking and the chain index report on their own.
   await startService(app, config.port, config.host);
 } catch (error) {
   await stopTxTracking?.().catch(() => undefined);
-  await poller?.stop().catch(() => undefined);
-  await pool?.end();
   await chainLoop?.stop().catch(() => undefined);
   await chainPool?.end();
   const code =

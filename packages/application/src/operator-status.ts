@@ -10,17 +10,10 @@ export function createOperatorStatusService(deps: {
   ): Promise<IdentityPrincipal>;
 }): RouteService {
   return {
-    paths: [
-      "/v1/admin/candidates",
-      "/v1/admin/jobs",
-      "/v1/admin/budgets",
-      "/v1/admin/pause",
-      "/v1/admin/resolutions",
-    ],
+    paths: ["/v1/admin/jobs", "/v1/admin/pause"],
     async handle(request) {
-      let principal: IdentityPrincipal;
       try {
-        principal = await deps.authenticateAdmin(request.authorization);
+        await deps.authenticateAdmin(request.authorization);
       } catch (error) {
         if (
           error instanceof IdentityError &&
@@ -46,26 +39,9 @@ export function createOperatorStatusService(deps: {
           },
         };
       }
-      if (request.path === "/v1/admin/resolutions")
-        return {
-          status: 200,
-          body: await deps.store.resolutions(principal.operatorId),
-        };
-      if (request.path === "/v1/admin/jobs")
-        return {
-          status: 200,
-          body: await deps.store.jobs(
-            request.query.state as string | undefined,
-          ),
-        };
-      if (request.path === "/v1/admin/budgets")
-        return { status: 200, body: await deps.store.budgets() };
       return {
         status: 200,
-        body: await deps.store.candidates(
-          principal.operatorId,
-          request.query.status as string | undefined,
-        ),
+        body: await deps.store.jobs(request.query.state as string | undefined),
       };
     },
   };

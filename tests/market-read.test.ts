@@ -5,8 +5,6 @@ import { createMarketReadService } from "../packages/application/src/market-read
 import { postgresMarketReadStore } from "../packages/adapters/src/market-read-store.js";
 import { apiContracts } from "../packages/schemas/src/index.js";
 import { fixture, hash, address } from "./helpers/market-read.js";
-import { inviteAgent } from "./helpers/database.js";
-import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { keccak256 } from "viem";
 function parse(path: string, body: unknown) {
@@ -34,53 +32,19 @@ test("public markets paginate in projection order and parse the response contrac
     await t.close();
   }
 });
-test("filters use the approved revision entity and reject foreign-filter and malformed cursors", async () => {
+test("list filters apply and malformed cursors are rejected", async () => {
   const t = await fixture();
   try {
-    const agent = await inviteAgent(t, { name: "approval", scopes: ["admin"] });
-    const id = randomUUID();
-    await t.db.exec("BEGIN");
-    await t.db.query(
-      "INSERT INTO discovery.candidates(id,operator_id,current_revision) VALUES ($1,$2,2)",
-      [id, agent.operatorId],
-    );
-    for (let revision = 1; revision <= 2; revision++)
-      await t.db.query(
-        "INSERT INTO discovery.candidate_revisions(candidate_id,revision,snapshot) VALUES ($1,$2,$3)",
-        [
-          id,
-          revision,
-          {
-            candidateId: id,
-            revision,
-            state: "DEPLOY_PENDING",
-            entityId: revision === 1 ? "approved-entity" : "changed-entity",
-          },
-        ],
-      );
-    await t.db.query(
-      "INSERT INTO markets.specs(hash,object_uri,public_uri) VALUES (decode($1,'hex'),'memory:spec','https://spec.invalid')",
-      [hash(5).slice(2)],
-    );
-    await t.db.query(
-      "INSERT INTO markets.approvals(id,candidate_id,revision,deployment_id,spec_hash,actor_key_id,budget_micros,reason) VALUES ($1,$2,1,'d1',decode($3,'hex'),$4,1,'test')",
-      [randomUUID(), id, hash(5).slice(2), agent.keyId],
-    );
-    await t.db.exec("COMMIT");
     await t.setRole("blink_api");
     const get = async (q: string) => t.app.inject({ url: "/v1/markets?" + q });
     assert.deepEqual(
       parse(
         "/v1/markets",
-        (
-          await get(
-            "entity=approved-entity&deploymentId=d1&mode=REPLAY&status=OPEN",
-          )
-        ).json(),
+        (await get("deploymentId=d1&mode=REPLAY&status=OPEN")).json(),
       ).items.map((m: any) => m.marketId),
-      ["5"],
+      ["5", "4", "3", "2", "1"],
     );
-    assert.equal((await get("entity=changed-entity")).json().items.length, 0);
+    assert.equal((await get("deploymentId=other")).json().items.length, 0);
     assert.equal((await get("mode=LIVE")).json().items.length, 0);
     const cursor = (await get("limit=2")).json().nextCursor;
     for (const q of [
@@ -174,8 +138,6 @@ test("detail parses archived spec; spec serves exact bytes and integrity failure
     assert.equal(r.statusCode, 200, r.body);
     const detail = parse("/v1/markets/:id", r.json());
     assert.deepEqual(detail.spec, JSON.parse(bytes.toString()));
-    assert.equal(detail.costMicros, "0");
-    assert.equal(detail.forecastSnapshotId, null);
     const resolution = parse(
       "/v1/markets/:id/resolution",
       (await t.app.inject("/v1/markets/1/resolution?deploymentId=d1")).json(),
@@ -304,15 +266,8 @@ test("public GET rate limit covers every market-read GET contract", async () => 
     await t.close();
   }
 });
-test("hooks supply forecast snapshot, cost and trading permission", async () => {
-  const snapshot = randomUUID();
+test("the hook supplies trading permission", async () => {
   const t = await fixture({
-    async forecastSnapshotId(deploymentId, marketId) {
-      return deploymentId === "d1" && marketId === "1" ? snapshot : null;
-    },
-    async costMicros() {
-      return "12345";
-    },
     async canTrade(market, cursor) {
       return {
         canTrade: cursor !== null && market.effectiveState === "OPEN",
@@ -327,8 +282,6 @@ test("hooks supply forecast snapshot, cost and trading permission", async () => 
       "/v1/markets/:id",
       (await t.app.inject("/v1/markets/1?deploymentId=d1")).json(),
     );
-    assert.equal(detail.forecastSnapshotId, snapshot);
-    assert.equal(detail.costMicros, "12345");
     assert.equal(detail.canTrade, true);
     assert.deepEqual(detail.reasons, []);
     const list = parse(

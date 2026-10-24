@@ -151,7 +151,7 @@ export function decideEpisodeChanges(input: {
 /**
  * alert.evaluate: observes every alert family, opens/re-announces/clears episodes, and leaves the
  * alerts in the outbox for the normal alert.deliver path. It needs only the worker's own database login (and the RPC URL when one is configured).
- * Conditions without a deployment (budget gates, DEAD jobs, the RPC) are evaluated once per tick
+ * Conditions without a deployment (DEAD jobs, the RPC) are evaluated once per tick
  * under the global scope; the rest once per deployment.
  */
 export function createAlertEvaluateHandler(deps: {

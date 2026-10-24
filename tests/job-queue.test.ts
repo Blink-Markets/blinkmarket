@@ -27,7 +27,7 @@ async function withQueue(
 }
 
 const fetchJob = (dedupeKey: string, extra = {}) => ({
-  type: "evidence.fetch" as const,
+  type: "forecast.schedule" as const,
   dedupeKey,
   payload: { sourceId: dedupeKey },
   ...extra,
@@ -105,7 +105,7 @@ test("lease takes due jobs in run order, skips future and other types", () =>
       payload: {},
       runAt: new Date(now - 9000),
     });
-    const types = ["evidence.fetch"] as const;
+    const types = ["forecast.schedule"] as const;
     const first = await queue.lease("w1", types, 60_000);
     const second = await queue.lease("w1", types, 60_000);
     assert.equal(first?.id, earlier.jobId);
@@ -113,7 +113,7 @@ test("lease takes due jobs in run order, skips future and other types", () =>
     assert.equal(await queue.lease("w1", types, 60_000), null);
     assert.deepEqual(first, {
       id: earlier.jobId,
-      type: "evidence.fetch",
+      type: "forecast.schedule",
       payload: { sourceId: "earlier" },
       attempt: 1,
       maxAttempts: 3,
@@ -126,13 +126,13 @@ test("lease takes due jobs in run order, skips future and other types", () =>
 test("a stale token cannot complete, and an expired lease is re-leased with a new token", () =>
   withQueue(async (s, queue) => {
     const { jobId } = await queue.enqueue(fetchJob("expiring"));
-    const a = (await queue.lease("worker-a", ["evidence.fetch"], 60_000))!;
+    const a = (await queue.lease("worker-a", ["forecast.schedule"], 60_000))!;
     assert.equal(
-      await queue.lease("worker-b", ["evidence.fetch"], 60_000),
+      await queue.lease("worker-b", ["forecast.schedule"], 60_000),
       null,
     );
     await s.advanceClock(61);
-    const b = (await queue.lease("worker-b", ["evidence.fetch"], 60_000))!;
+    const b = (await queue.lease("worker-b", ["forecast.schedule"], 60_000))!;
     assert.equal(b.id, jobId);
     assert.equal(b.attempt, 2);
     assert.equal(b.workerId, "worker-b");
@@ -161,7 +161,7 @@ test("a stale token cannot complete, and an expired lease is re-leased with a ne
 test("a lapsed lease cannot be acknowledged even before anyone re-leases it", () =>
   withQueue(async (s, queue) => {
     await queue.enqueue(fetchJob("lapsed"));
-    const job = (await queue.lease("w", ["evidence.fetch"], 60_000))!;
+    const job = (await queue.lease("w", ["forecast.schedule"], 60_000))!;
     await s.advanceClock(61);
     assert.equal(await queue.heartbeat(job, 60_000), false);
     assert.equal(await queue.complete(job), false);
@@ -174,11 +174,11 @@ test("a lapsed lease cannot be acknowledged even before anyone re-leases it", ()
 test("heartbeat extends the lease so nobody else can take the job", () =>
   withQueue(async (s, queue) => {
     await queue.enqueue(fetchJob("beating"));
-    const job = (await queue.lease("w1", ["evidence.fetch"], 60_000))!;
+    const job = (await queue.lease("w1", ["forecast.schedule"], 60_000))!;
     await s.advanceClock(50);
     assert.equal(await queue.heartbeat(job, 60_000), true);
     await s.advanceClock(100);
-    assert.equal(await queue.lease("w2", ["evidence.fetch"], 60_000), null);
+    assert.equal(await queue.lease("w2", ["forecast.schedule"], 60_000), null);
     assert.equal(await queue.complete(job), true);
   }));
 
@@ -187,7 +187,7 @@ test("fail requeues a retryable job with backoff, then dead-letters it with an a
     const { jobId } = await queue.enqueue(
       fetchJob("flaky", { maxAttempts: 2 }),
     );
-    const first = (await queue.lease("w", ["evidence.fetch"], 60_000))!;
+    const first = (await queue.lease("w", ["forecast.schedule"], 60_000))!;
     assert.equal(
       await queue.fail(first, { code: "UPSTREAM_TIMEOUT", retryable: true }),
       "RETRY",
@@ -207,9 +207,9 @@ test("fail requeues a retryable job with backoff, then dead-letters it with an a
       requeued.delay > 4 && requeued.delay <= 5,
       String(requeued.delay),
     );
-    assert.equal(await queue.lease("w", ["evidence.fetch"], 60_000), null);
+    assert.equal(await queue.lease("w", ["forecast.schedule"], 60_000), null);
     await s.advanceClock(6);
-    const second = (await queue.lease("w", ["evidence.fetch"], 60_000))!;
+    const second = (await queue.lease("w", ["forecast.schedule"], 60_000))!;
     assert.equal(second.attempt, 2);
     assert.equal(
       await queue.fail(second, { code: "UPSTREAM_TIMEOUT", retryable: true }),
@@ -238,7 +238,7 @@ test("fail requeues a retryable job with backoff, then dead-letters it with an a
 test("a non-retryable failure is dead-lettered on the first attempt", () =>
   withQueue(async (s, queue) => {
     const { jobId } = await queue.enqueue(fetchJob("hopeless"));
-    const job = (await queue.lease("w", ["evidence.fetch"], 60_000))!;
+    const job = (await queue.lease("w", ["forecast.schedule"], 60_000))!;
     assert.equal(
       await queue.fail(job, { code: "SOURCE_REJECTED", retryable: false }),
       "DEAD",
@@ -256,9 +256,9 @@ test("a job whose lease keeps expiring is dead-lettered once attempts are spent"
     const { jobId } = await queue.enqueue(
       fetchJob("crash-loop", { maxAttempts: 1 }),
     );
-    await queue.lease("crashing", ["evidence.fetch"], 60_000);
+    await queue.lease("crashing", ["forecast.schedule"], 60_000);
     await s.advanceClock(61);
-    assert.equal(await queue.lease("w2", ["evidence.fetch"], 60_000), null);
+    assert.equal(await queue.lease("w2", ["forecast.schedule"], 60_000), null);
     const row = (
       await s.pool.query(
         "SELECT state, last_error_code FROM operations.jobs WHERE id=$1",
@@ -323,7 +323,7 @@ test("the outbox dispatcher creates mapped jobs once and marks unmapped events d
         assert.deepEqual(event.payload, { marketHint: "m" });
         return [
           {
-            type: "market.deploy" as const,
+            type: "operations.prune" as const,
             dedupeKey: "ignored-in-favour-of-outbox-key",
             payload: { intent: event.aggregateId },
           },
@@ -339,8 +339,8 @@ test("the outbox dispatcher creates mapped jobs once and marks unmapped events d
     ).rows;
     assert.deepEqual(jobs, [
       {
-        type: "market.deploy",
-        dedupe_key: `outbox:${mapped}:market.deploy`,
+        type: "operations.prune",
+        dedupe_key: `outbox:${mapped}:operations.prune`,
         outbox_id: mapped,
         payload: { intent: "intent-1" },
       },

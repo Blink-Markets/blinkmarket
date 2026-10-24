@@ -9,18 +9,12 @@ import {
   createWalletClient,
   defineChain,
   http,
-  keccak256,
   type Abi,
 } from "viem";
 import { mnemonicToAccount } from "viem/accounts";
 import { migratePostgres } from "../packages/adapters/src/migrations.js";
 import { deployContracts } from "../packages/adapters/src/contract-deployer.js";
 import { registerVerifiedDeployment } from "../packages/adapters/src/deployment-registry.js";
-import * as adapters from "../packages/adapters/src/index.js";
-import {
-  FORECAST_PROMPTS,
-  type PlatformRole,
-} from "../packages/domain/src/index.js";
 // Opt-in smoke for the three infrastructure images against local PostgreSQL and Anvil.
 // The project name and the host ports can be overridden, so two runs (or another stack on a shared
 // machine) never share containers, volumes or ports; the defaults avoid the test PostgreSQL ports.
@@ -44,8 +38,6 @@ const passwords = {
   worker: secret(),
   indexer: secret(),
   deployment: secret(),
-  identity: secret(),
-  evidence: secret(),
 };
 const login = (role: keyof typeof passwords) =>
   `postgresql://smoke_${role}:${passwords[role]}@postgres:5432/blink`;
@@ -60,10 +52,6 @@ const env = {
   ALPHA_API_DATABASE_URL: login("api"),
   ALPHA_WORKER_DATABASE_URL: login("worker"),
   ALPHA_INDEXER_DATABASE_URL: login("indexer"),
-  ALPHA_PLATFORM_OPERATOR_ID: "set-after-provisioning",
-  ALPHA_FORECASTER_A_KEY: "set-after-provisioning",
-  ALPHA_FORECASTER_B_KEY: "set-after-provisioning",
-  ALPHA_BASELINE_KEY: "set-after-provisioning",
 };
 
 function docker(args: string[], options: { allowFailure?: boolean } = {}) {
@@ -124,7 +112,6 @@ const hostPool = (role: keyof typeof passwords) => {
   return pool;
 };
 const apiUrl = () => `http://127.0.0.1:${ports.api}`;
-const hash = (text: string) => keccak256(new TextEncoder().encode(text));
 
 // The same test mnemonic the harness uses; these accounts exist only on this Anvil.
 const mnemonic = "test test test test test test test test test test test junk";
@@ -187,65 +174,25 @@ async function deploy(registrar: pg.Pool) {
   return { client, manifest };
 }
 
-type Invite = { apiKey: string; operatorId: string; agentId: string };
-
-// Everything the containers need before they start: schema, one ordinary login per service, the
-// deployment on Anvil, invited API keys for the platform agents and the external agent.
+// Everything the containers need before they start: schema, one ordinary login per service and
+// the deployment on Anvil. The platform holds no agent credentials.
 async function provision(owner: pg.Pool) {
   await migratePostgres(hostUrl("postgres"));
-  // The registration, identity and evidence logins are used by this driver only, never by a container.
+  // The registration login is used by this driver only, never by a container.
   for (const [role, group] of [
     ["api", "blink_api"],
     ["worker", "blink_worker"],
     ["indexer", "blink_indexer"],
     ["deployment", "blink_deployment_admin"],
-    ["identity", "blink_identity_admin"],
-    ["evidence", "blink_evidence_admin"],
   ] as const)
     await owner.query(
       `CREATE ROLE "smoke_${role}" LOGIN PASSWORD '${passwords[role]}' IN ROLE ${group}`,
     );
   const chain = await deploy(hostPool("deployment"));
-  const identity = adminOf(hostPool("identity"));
-  const invite = (name: string, scopes: string[]): Promise<Invite> =>
-    identity.invite({
-      operatorName: name,
-      agentName: name,
-      scopes,
-      reason: "image smoke fixture",
-    });
-  const keys = {
-    discovery: await invite("discovery", ["candidate:write"]),
-    administrator: await invite("admin", ["admin"]),
-    external: await invite("external", ["forecast:write", "trade:quote"]),
-  };
-  const platform = {} as Record<PlatformRole, Invite>;
-  for (const [role, model] of [
-    ["FORECASTER_A", "gm-replay-forecaster-a"],
-    ["FORECASTER_B", "gm-replay-forecaster-b"],
-    ["BASELINE", "gm-replay-baseline"],
-  ] as const) {
-    platform[role] = await invite(role, ["forecast:write"]);
-    await owner.query(
-      "INSERT INTO forecasts.platform_agents(agent_id,role,model,prompt_hash,policy_version) VALUES($1,$2,$3,decode($4,'hex'),'v1')",
-      [
-        platform[role].agentId,
-        role,
-        model,
-        hash(FORECAST_PROMPTS[role]).slice(2),
-      ],
-    );
-  }
-  // The worker container reads these at start-up.
-  env.ALPHA_PLATFORM_OPERATOR_ID = keys.discovery.operatorId;
-  env.ALPHA_FORECASTER_A_KEY = platform.FORECASTER_A.apiKey;
-  env.ALPHA_FORECASTER_B_KEY = platform.FORECASTER_B.apiKey;
-  env.ALPHA_BASELINE_KEY = platform.BASELINE.apiKey;
-  return { chain, keys, platform };
+  return { chain };
 }
-const adminOf = adapters.identityAdmin;
 
-// Only evidence/spec directories are mounted into the service containers.
+// Only the spec directory is mounted into a service container (the API).
 function seedVolumes() {
   docker([
     "run",
@@ -258,7 +205,7 @@ function seedVolumes() {
     PROJECT_VOLUME("data") + ":/data",
     "blink-api:local",
     "-c",
-    "mkdir -p /data/specs /data/evidence && chown -R node:node /data",
+    "mkdir -p /data/specs && chown -R node:node /data",
   ]);
 }
 

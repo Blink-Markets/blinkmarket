@@ -1,6 +1,5 @@
 export interface EvaluationForecast {
   agentId: string;
-  role: "FORECASTER_A" | "FORECASTER_B" | "BASELINE" | null;
   probabilityMillionths: number;
   withdrawn: boolean;
   contaminated: boolean;
@@ -14,8 +13,8 @@ export interface EvaluationWindow {
   forecasts: EvaluationForecast[];
 }
 export interface ScoreEntry extends Omit<EvaluationWindow, "forecasts"> {
-  scorer: "ENSEMBLE" | "BASELINE" | "AGENT";
-  agentId: string | null;
+  scorer: "AGENT";
+  agentId: string;
   probabilityMillionthsTimes2: number | null;
   brier: string | null;
   missing: boolean;

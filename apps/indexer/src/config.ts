@@ -1,26 +1,10 @@
 export interface IndexerConfig {
-  enabled: boolean;
   txTrackingEnabled: boolean;
   port: number;
   host: string;
   databaseUrl: string | null;
   rpcUrl: string | null;
-  pollIntervalMs: number;
-  leaseMs: number;
-  reconciliationDeadlineMs: number;
-  retryBaseMs: number;
-  retryMaxMs: number;
-  pendingPollMs: number;
-  confirmedPollMs: number;
-  revertedPollMs: number;
   rpcTimeoutMs: number;
-}
-
-export function creationObservationReady(
-  process: { running: boolean },
-  backlog: { due: number; failing: number },
-) {
-  return process.running && backlog.due === 0 && backlog.failing === 0;
 }
 
 function integer(env: NodeJS.ProcessEnv, key: string, fallback: number) {
@@ -34,7 +18,6 @@ function integer(env: NodeJS.ProcessEnv, key: string, fallback: number) {
 }
 
 export function indexerConfig(env: NodeJS.ProcessEnv): IndexerConfig {
-  const enabled = env.INDEXER_CREATION_POLLING_ENABLED === "true";
   const txTrackingEnabled = env.INDEXER_TX_TRACKING_ENABLED === "true";
   if (
     env.INDEXER_TX_TRACKING_ENABLED !== undefined &&
@@ -42,15 +25,9 @@ export function indexerConfig(env: NodeJS.ProcessEnv): IndexerConfig {
     env.INDEXER_TX_TRACKING_ENABLED !== "false"
   )
     throw new Error("INVALID_INDEXER_TX_TRACKING_ENABLED");
-  if (
-    env.INDEXER_CREATION_POLLING_ENABLED !== undefined &&
-    env.INDEXER_CREATION_POLLING_ENABLED !== "true" &&
-    env.INDEXER_CREATION_POLLING_ENABLED !== "false"
-  )
-    throw new Error("INVALID_INDEXER_CREATION_POLLING_ENABLED");
   const databaseUrl = env.INDEXER_DATABASE_URL?.trim() || null;
   const rpcUrl = env.BASE_SEPOLIA_RPC_URL?.trim() || null;
-  if ((enabled || txTrackingEnabled) && (!databaseUrl || !rpcUrl))
+  if (txTrackingEnabled && (!databaseUrl || !rpcUrl))
     throw new Error("INDEXER_TRACKER_CONFIGURATION_REQUIRED");
   if (rpcUrl) {
     let parsed: URL;
@@ -63,50 +40,21 @@ export function indexerConfig(env: NodeJS.ProcessEnv): IndexerConfig {
       throw new Error("INVALID_INDEXER_BASE_SEPOLIA_RPC_URL");
   }
   const config: IndexerConfig = {
-    enabled,
     txTrackingEnabled,
     port: integer(env, "INDEXER_PORT", 3003),
     host: env.INDEXER_HOST?.trim() || "127.0.0.1",
     databaseUrl,
     rpcUrl,
-    pollIntervalMs: integer(env, "INDEXER_POLL_INTERVAL_MS", 1000),
-    leaseMs: integer(env, "INDEXER_LEASE_MS", 90_000),
-    reconciliationDeadlineMs: integer(
-      env,
-      "INDEXER_RECONCILIATION_DEADLINE_MS",
-      60_000,
-    ),
-    retryBaseMs: integer(env, "INDEXER_RETRY_BASE_MS", 5000),
-    retryMaxMs: integer(env, "INDEXER_RETRY_MAX_MS", 300_000),
-    pendingPollMs: integer(env, "INDEXER_PENDING_POLL_MS", 15_000),
-    confirmedPollMs: integer(env, "INDEXER_CONFIRMED_POLL_MS", 300_000),
-    revertedPollMs: integer(env, "INDEXER_REVERTED_POLL_MS", 300_000),
     rpcTimeoutMs: integer(env, "INDEXER_RPC_TIMEOUT_MS", 5000),
   };
-  if (enabled && config.leaseMs <= config.reconciliationDeadlineMs + 15_000)
-    throw new Error("INDEXER_LEASE_MUST_EXCEED_RECONCILIATION_DEADLINE");
-  if (config.retryMaxMs < config.retryBaseMs)
-    throw new Error("INDEXER_RETRY_MAX_MUST_EXCEED_RETRY_BASE");
   if (config.port > 65_535)
     throw new Error("INVALID_INDEXER_PORT");
-  if (
-    [
-      config.pollIntervalMs,
-      config.leaseMs,
-      config.reconciliationDeadlineMs,
-      config.retryBaseMs,
-      config.retryMaxMs,
-      config.pendingPollMs,
-      config.confirmedPollMs,
-      config.revertedPollMs,
-      config.rpcTimeoutMs,
-    ].some((value) => value > 86_400_000)
-  )
+  if (config.rpcTimeoutMs > 86_400_000)
     throw new Error("INDEXER_DURATION_TOO_LARGE");
   return config;
 }
 
-/** Preserve the poller's cancellation signal while imposing a per-request deadline. */
+/** Preserve the caller's cancellation signal while imposing a per-request deadline. */
 export function indexerFetchWithTimeout(timeoutMs: number): typeof fetch {
   return async (input, init) => {
     const controller = new AbortController();
@@ -141,7 +89,7 @@ export interface ChainIndexerConfig {
   rangeSize: number;
 }
 
-// The canonical chain indexer is enabled on its own, independent of the creation poller.
+// The canonical chain indexer is enabled on its own, independent of transaction tracking.
 export function chainIndexerConfig(env: NodeJS.ProcessEnv): ChainIndexerConfig {
   const flag = env.CHAIN_INDEXER_ENABLED;
   if (flag !== undefined && flag !== "true" && flag !== "false")

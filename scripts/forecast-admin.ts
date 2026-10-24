@@ -7,11 +7,6 @@ import {
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
-    "agent-id": { type: "string" },
-    role: { type: "string" },
-    model: { type: "string" },
-    "prompt-hash": { type: "string" },
-    "policy-version": { type: "string" },
     "submission-id": { type: "string" },
     kind: { type: "string" },
     reason: { type: "string" },
@@ -31,26 +26,6 @@ try {
   if (positionals.length !== 1 || !values.reason)
     throw new Error("INVALID_ARGUMENTS");
   if (
-    positionals[0] === "register-platform-agent" &&
-    values["agent-id"] &&
-    values.role &&
-    values.model &&
-    values["prompt-hash"] &&
-    values["policy-version"]
-  ) {
-    console.log(
-      JSON.stringify(
-        await admin.registerPlatformAgent({
-          agentId: values["agent-id"],
-          role: values.role as "FORECASTER_A" | "FORECASTER_B" | "BASELINE",
-          model: values.model,
-          promptHash: values["prompt-hash"],
-          policyVersion: values["policy-version"],
-          reason: values.reason,
-        }),
-      ),
-    );
-  } else if (
     positionals[0] === "annotate" &&
     values["submission-id"] &&
     values.kind

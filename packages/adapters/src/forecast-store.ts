@@ -4,7 +4,6 @@ import type {
   ForecastStore,
   ForecastTransaction,
   ForecastWindow,
-  ForecastSnapshot,
 } from "@blink/ports";
 import { createUnitOfWork } from "./database.js";
 import { identityTransaction } from "./identity-store.js";
@@ -160,39 +159,6 @@ function forecastTransaction(db: PoolClient): ForecastTransaction {
         ],
       );
       return result.rows.length > 0;
-    },
-    async latestSnapshot(deploymentId, marketId) {
-      const candidates = await db.query(
-        `WITH stamp AS MATERIALIZED (SELECT blink.now() AS now)
-    SELECT w.id,w.deadline,a.id AS a,b.id AS b,((a.probability+b.probability)*1000000)::integer AS sum
-    FROM forecasts.windows w CROSS JOIN stamp
-    JOIN forecasts.platform_agents pa ON pa.role='FORECASTER_A'
-    JOIN forecasts.platform_agents pb ON pb.role='FORECASTER_B'
-    JOIN forecasts.submissions a ON a.window_id=w.id AND a.agent_id=pa.agent_id
-    JOIN forecasts.submissions b ON b.window_id=w.id AND b.agent_id=pb.agent_id
-    WHERE w.deployment_id=$1 AND w.market_id=$2 AND w.deadline<=stamp.now AND w.deadline>=stamp.now-interval '24 hours'
-    AND NOT EXISTS(SELECT 1 FROM forecasts.annotations n WHERE n.submission_id IN (a.id,b.id))
-    ORDER BY w.deadline DESC,w.horizon_type,w.id LIMIT 1`,
-        [deploymentId, marketId],
-      );
-      const candidate = candidates.rows[0];
-      if (!candidate) return null;
-      await db.query(
-        `INSERT INTO forecasts.snapshots(id,window_id,forecaster_a_submission,forecaster_b_submission,probability_sum_millionths)
-    VALUES($1,$2,$3,$4,$5) ON CONFLICT(window_id) DO NOTHING`,
-        [randomUUID(), candidate.id, candidate.a, candidate.b, candidate.sum],
-      );
-      const result = await db.query<ForecastSnapshot>(
-        `WITH stamp AS MATERIALIZED (SELECT blink.now() AS now)
-         SELECT s.id AS "snapshotId",s.window_id AS "windowId",s.probability_sum_millionths AS "probabilitySumMillionths"
-         FROM forecasts.snapshots s JOIN forecasts.windows w ON w.id=s.window_id CROSS JOIN stamp
-         WHERE s.window_id=$1 AND w.deadline<=stamp.now AND w.deadline>=stamp.now-interval '24 hours'
-         AND NOT EXISTS(SELECT 1 FROM forecasts.annotations n WHERE n.submission_id IN (s.forecaster_a_submission,s.forecaster_b_submission))`,
-        [candidate.id],
-      );
-      return result.rows[0]
-        ? { ...result.rows[0], deadline: new Date(candidate.deadline) }
-        : null;
     },
   };
 }

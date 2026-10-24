@@ -10,10 +10,8 @@ import {
 } from "@blink/ports";
 import { createUnitOfWork } from "./database.js";
 import {
-  DAILY_BUDGET_CLOSED_SQL,
   INDEXER_FRESH_SQL,
   INDEXER_LAGGING_SQL,
-  QUESTION_GATES_CLOSED_SQL,
 } from "./health-reader.js";
 import { postgresOperatorStatusStore } from "./operator-status-store.js";
 
@@ -73,32 +71,6 @@ export function postgresAlertEvaluateStore(
     ).rows[0]?.ok === true;
 
   const families = {
-    // Global: today's daily gate (the health SQL) and closed question gates.
-    async budgetGlobal(db: Pool): Promise<FamilyResult> {
-      const found: AlertObservation[] = [];
-      const daily = await db.query<{ reason: string }>(
-        `SELECT COALESCE(d.gate_closed_reason,'DAILY_CAP_REACHED') AS reason FROM budgets.daily d
-         WHERE ${DAILY_BUDGET_CLOSED_SQL} LIMIT 1`,
-      );
-      if (daily.rows[0])
-        found.push({
-          family: "budget",
-          subject: "daily",
-          reason: reasonOf(daily.rows[0].reason, "DAILY_GATE_CLOSED"),
-        });
-      const questions = (
-        await db.query<{ count: string }>(QUESTION_GATES_CLOSED_SQL)
-      ).rows[0]!.count;
-      if (questions !== "0")
-        found.push({
-          family: "budget",
-          subject: "questions",
-          reason: "QUESTION_GATE_CLOSED",
-          fields: { count: questions },
-          monotonic: true,
-        });
-      return { observations: found };
-    },
     // The indexed pause projection (A3 operator status) for markets still open to trading.
     // Unknown while the cursor is gated or missing.
     async pauseProjection(
@@ -283,7 +255,6 @@ export function postgresAlertEvaluateStore(
         }
       };
       if (scope === GLOBAL_ALERT_SCOPE) {
-        await attempt("budget", families.budgetGlobal);
         await attempt("jobs_dead", families.jobsDead);
         return result;
       }

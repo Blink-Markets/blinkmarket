@@ -15,11 +15,14 @@ export async function assertRuntimeRole(
       AND pg_has_role(session_user, r.oid, 'MEMBER'))
     AND NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = current_database() AND datdba = s.oid)
     AND NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname IN
-      ('blink','operations','identity','evidence','discovery','markets','chain',
-       'budgets','forecasts','resolution','analytics')
+      ('blink','operations','identity','evidence','markets','chain',
+       'forecasts','resolution','analytics')
       AND has_schema_privilege(session_user, oid, 'CREATE')) AS allowed
     FROM pg_roles s WHERE s.rolname = session_user`,
     [role],
   );
   if (rows[0]?.allowed !== true) throw new Error(errorCode);
 }
+
+export const assertIndexerRuntimeRole = (client: Pick<PoolClient, "query">) =>
+  assertRuntimeRole(client, "blink_indexer", "UNSAFE_INDEXER_DATABASE_ROLE");

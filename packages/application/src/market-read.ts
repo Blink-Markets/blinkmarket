@@ -23,11 +23,6 @@ export function createMarketReadService(deps: {
     ): Promise<IdentityPrincipal & { wallet: string | null }>;
   };
   hooks?: {
-    forecastSnapshotId?(
-      deploymentId: string,
-      marketId: string,
-    ): Promise<string | null>;
-    costMicros?(deploymentId: string, marketId: string): Promise<string>;
     canTrade?(
       market: IndexedMarketRow,
       cursor: IndexCursorRow | null,
@@ -214,13 +209,6 @@ export function createMarketReadService(deps: {
             ...(await summary(m)),
             spec,
             resolution: resolution(m),
-            forecastSnapshotId:
-              (await deps.hooks?.forecastSnapshotId?.(
-                deployment,
-                m.marketId,
-              )) ?? null,
-            costMicros:
-              (await deps.hooks?.costMicros?.(deployment, m.marketId)) ?? "0",
           },
         };
       } catch (error) {

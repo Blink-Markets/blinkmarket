@@ -9,10 +9,6 @@ export const HealthDetails = z.strictObject({
     headNumber: Uint256.nullable(),
     fresh: z.boolean(),
   }),
-  budgetGates: z.strictObject({
-    dailyClosed: z.boolean(),
-    questionsClosed: Uint256,
-  }),
   // Informational only: an alert outage does not make quotes unsafe, so it never closes readiness.
   alerts: z.strictObject({
     stalled: z.boolean(),
@@ -27,7 +23,6 @@ export const HealthResponse = z.strictObject({
     z.enum([
       "TRADING_DISABLED",
       "INDEXER_LAG",
-      "BUDGET_GATE_CLOSED",
       "SERVICE_NOT_READY",
     ]),
   ),

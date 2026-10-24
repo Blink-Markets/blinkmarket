@@ -11,12 +11,7 @@ import {
 import { createAlertDeliveryHandler } from "@blink/application";
 import { createService, startService } from "@blink/runtime";
 import { alertSinkFor } from "./alerts.js";
-import {
-  alertConfig,
-  alertEvaluateConfig,
-  researchConfig,
-  workerConfig,
-} from "./config.js";
+import { alertConfig, alertEvaluateConfig, workerConfig } from "./config.js";
 import {
   buildResearch,
   handlers,
@@ -24,11 +19,9 @@ import {
   registerAlertEvaluate,
   registerEvaluationHandler,
   registerOperationsPrune,
-  registerResolutionHandlers,
   scheduleAlertEvaluate,
   scheduleEvaluation,
   scheduleOperationsPrune,
-  scheduleResolution,
 } from "./handlers.js";
 import { startJobLoops } from "./loops.js";
 import { jobs } from "./registry.js";
@@ -73,13 +66,7 @@ try {
     registerAlertEvaluate(database, alertEvaluateConfig(process.env));
     registerEvaluationHandler(database);
     registerOperationsPrune(database);
-    registerResolutionHandlers(database, process.env.EVIDENCE_OBJECT_DIRECTORY);
-    const researchSettings = researchConfig(process.env);
-    const research = await buildResearch({
-      pool: database,
-      queue,
-      config: researchSettings,
-    });
+    const research = buildResearch({ pool: database, queue });
     worker = startJobLoops({
       queue,
       alertHandler,
@@ -109,7 +96,6 @@ try {
         research.tick(),
         scheduleEvaluation(database),
         scheduleOperationsPrune(database),
-        scheduleResolution(database),
         scheduleAlertEvaluate(database),
       ])
         .then((results) => {

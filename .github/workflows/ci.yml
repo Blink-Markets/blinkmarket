@@ -44,7 +44,6 @@ jobs:
       - run: pnpm test:contracts
       - run: pnpm test:anvil
       - run: pnpm test:contracts:seeds
-      - run: pnpm replay
       - run: pnpm build
       - run: pnpm build:services
       - run: pnpm test:service-build

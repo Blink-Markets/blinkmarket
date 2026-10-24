@@ -33,7 +33,7 @@ function fakeService(
   return { service, calls };
 }
 const key = { "idempotency-key": "route-service-test" };
-const candidate = { fixture: "raw request body" };
+const rawBody = { fixture: "raw request body" };
 
 test("a service owns its path: status, body, request fields and default no-store", async () => {
   const { service, calls } = fakeService(["/v1/markets"], () => ({
@@ -163,17 +163,19 @@ test("invalid params or query are rejected with 400 before the service runs", as
 });
 
 test("POST needs a valid Idempotency-Key and passes the raw body through", async () => {
-  const { service, calls } = fakeService(["/v1/candidates"], () => ({
+  const { service, calls } = fakeService(["/v1/markets/:id/forecasts"], () => ({
     status: 200,
     body: { ok: true },
   }));
   const app = buildApi({ services: [service] });
   try {
-    const send = (
-      headers: Record<string, string>,
-      payload: object = candidate,
-    ) =>
-      app.inject({ method: "POST", url: "/v1/candidates", headers, payload });
+    const send = (headers: Record<string, string>, payload: object = rawBody) =>
+      app.inject({
+        method: "POST",
+        url: "/v1/markets/1/forecasts?deploymentId=x",
+        headers,
+        payload,
+      });
     for (const headers of [
       {},
       { "idempotency-key": "" },

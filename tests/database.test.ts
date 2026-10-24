@@ -159,7 +159,7 @@ test("0025 retires platform execution objects", async () => {
     await migrate({
       async query(sql: string, params?: unknown[]) {
         if (params) return db.query<Record<string, unknown>>(sql, params);
-        if (sql.startsWith("-- P2: retire")) {
+        if (sql.startsWith("-- P2: retire platform-owned")) {
           await db.exec(`INSERT INTO operations.jobs(id,type,dedupe_key,payload,state,lease_owner,lease_until,lease_token)
           SELECT gen_random_uuid(),type,type || ':' || state,'{}'::jsonb,state,
             CASE WHEN state='LEASED' THEN 'old-worker' END,
@@ -221,6 +221,151 @@ test("0025 retires platform execution objects", async () => {
         )
       ).rows,
       [],
+    );
+  } finally {
+    await db.close();
+  }
+});
+
+test("0026 retires research and approval objects", async () => {
+  const retiredJobs = [
+    "evidence.fetch",
+    "discovery.scan",
+    "candidate.validate",
+    "market.deploy",
+    "forecast.dispatch",
+    "forecast.run",
+    "baseline.run",
+    "budget.reconcile",
+    "resolution.parse",
+    "resolution.alerts",
+  ];
+  const keptJobs = [
+    "forecast.schedule",
+    "alert.deliver",
+    "alert.evaluate",
+    "evaluation.score",
+    "operations.prune",
+  ];
+  const db = new PGlite();
+  try {
+    await migrate({
+      async query(sql: string, params?: unknown[]) {
+        if (params) return db.query<Record<string, unknown>>(sql, params);
+        if (sql.startsWith("-- P2: retire platform research")) {
+          await db.exec(`INSERT INTO operations.alert_episodes(deployment_id,family,subject,active)
+            VALUES ('*','budget','daily',false),('*','rpc','global',false)`);
+          await db.exec(`INSERT INTO operations.jobs(id,type,dedupe_key,payload,state,lease_owner,lease_until,lease_token)
+          SELECT gen_random_uuid(),type,type || ':' || state,'{}'::jsonb,state,
+            CASE WHEN state='LEASED' THEN 'old-worker' END,
+            CASE WHEN state='LEASED' THEN blink.now()+interval '1 hour' END,7
+          FROM unnest(ARRAY['${[...retiredJobs, ...keptJobs].join("','")}']) type
+          CROSS JOIN unnest(ARRAY['QUEUED','LEASED','SUCCEEDED']) state`);
+        }
+        const results = await db.exec(sql);
+        return {
+          rows: (results.at(-1)?.rows as Record<string, unknown>[]) ?? [],
+        };
+      },
+    });
+    const gone = [
+      "discovery.candidates",
+      "discovery.candidate_revisions",
+      "discovery.candidate_evidence",
+      "discovery.scan_runs",
+      "discovery.daily_counters",
+      "budgets.daily",
+      "budgets.questions",
+      "budgets.reservations",
+      "budgets.cost_entries",
+      "markets.approvals",
+      "markets.creation_intents",
+      "markets.active_slots",
+      "chain.creation_projections",
+      "chain.creation_observations",
+      "chain.creation_tracking_schedule",
+      "forecasts.platform_agents",
+      "forecasts.snapshots",
+      "forecasts.model_runs",
+      "forecasts.pending_answers",
+      "resolution.report_events",
+      "resolution.suggestions",
+      "resolution.alerts_sent",
+      "resolution.reports",
+      "evidence.fetch_attempts",
+    ];
+    const present = (
+      await db.query<{ name: string }>(
+        `SELECT schemaname || '.' || tablename AS name FROM pg_tables
+         WHERE schemaname || '.' || tablename = ANY($1)`,
+        [gone],
+      )
+    ).rows;
+    assert.deepEqual(present, []);
+    assert.deepEqual(
+      (
+        await db.query(
+          "SELECT nspname FROM pg_namespace WHERE nspname IN ('discovery','budgets')",
+        )
+      ).rows,
+      [],
+    );
+    // What survives: submissions and windows, evidence, the markets schema and the resolution schema.
+    const kept = (
+      await db.query<{ name: string }>(
+        `SELECT schemaname || '.' || tablename AS name FROM pg_tables
+         WHERE schemaname || '.' || tablename IN ('forecasts.windows','forecasts.submissions',
+           'forecasts.annotations','evidence.sources','evidence.records','markets.deployments','markets.specs')`,
+      )
+    ).rows;
+    assert.equal(kept.length, 7);
+    // The scoring view no longer depends on platform agents.
+    assert.deepEqual(
+      (
+        await db.query(
+          "SELECT column_name FROM information_schema.columns WHERE table_schema='analytics' AND table_name='final_forecasts' AND column_name='role'",
+        )
+      ).rows,
+      [],
+    );
+    const retired = (
+      await db.query<{
+        state: string;
+        last_error_code: string;
+        lease_owner: string | null;
+        lease_until: string | null;
+        lease_token: string;
+      }>(
+        "SELECT state,last_error_code,lease_owner,lease_until,lease_token::text FROM operations.jobs WHERE type = ANY($1) AND state<>'SUCCEEDED'",
+        [retiredJobs],
+      )
+    ).rows;
+    assert.equal(retired.length, retiredJobs.length * 2);
+    for (const job of retired)
+      assert.deepEqual(job, {
+        state: "DEAD",
+        last_error_code: "RETIRED_P2",
+        lease_owner: null,
+        lease_until: null,
+        lease_token: "8",
+      });
+    assert.equal(
+      (await db.query("SELECT * FROM operations.jobs WHERE state='SUCCEEDED'"))
+        .rows.length,
+      retiredJobs.length + keptJobs.length,
+    );
+    assert.equal(
+      (
+        await db.query(
+          "SELECT * FROM operations.jobs WHERE type = ANY($1) AND state IN ('QUEUED','LEASED')",
+          [keptJobs],
+        )
+      ).rows.length,
+      keptJobs.length * 2,
+    );
+    assert.deepEqual(
+      (await db.query("SELECT family FROM operations.alert_episodes")).rows,
+      [{ family: "rpc" }],
     );
   } finally {
     await db.close();
