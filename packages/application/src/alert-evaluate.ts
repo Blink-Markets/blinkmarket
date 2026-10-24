@@ -150,8 +150,7 @@ export function decideEpisodeChanges(input: {
 
 /**
  * alert.evaluate: observes every alert family, opens/re-announces/clears episodes, and leaves the
- * alerts in the outbox for the normal alert.deliver path. It needs no keeper, signer or execution
- * configuration, only the worker's own database login (and the RPC URL when one is configured).
+ * alerts in the outbox for the normal alert.deliver path. It needs only the worker's own database login (and the RPC URL when one is configured).
  * Conditions without a deployment (budget gates, DEAD jobs, the RPC) are evaluated once per tick
  * under the global scope; the rest once per deployment.
  */
@@ -159,7 +158,6 @@ export function createAlertEvaluateHandler(deps: {
   store: AlertEvaluateStore;
   rpc: RpcProbe | null;
   policy: AlertEvaluatePolicy;
-  keeperOverdueSeconds: number;
   /** Fixed deployments; when null every enabled deployment is evaluated. */
   deploymentIds: string[] | null;
   /** Called with a fixed code when a tick is skipped because another evaluator is running. */
@@ -170,9 +168,7 @@ export function createAlertEvaluateHandler(deps: {
     scopeFamilies: readonly AlertFamily[],
     rpc: RpcProbeResult | null,
   ) => {
-    const observed = await deps.store.observe(scope, {
-      keeperOverdueSeconds: deps.keeperOverdueSeconds,
-    });
+    const observed = await deps.store.observe(scope);
     // Unknown subjects neither open nor clear; truncated families may open but never clear.
     const unknown = (episode: { family: AlertFamily; subject: string }) =>
       observed.unknown.some(

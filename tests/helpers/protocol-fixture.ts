@@ -1,19 +1,7 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { mnemonicToAccount } from "viem/accounts";
 import { keccak256, toBytes, toHex, type Hex } from "viem";
 import type { DeploymentManifest } from "../../packages/schemas/src/index.js";
-import { signingIntentWriter } from "../../packages/adapters/src/signing-store.js";
-import {
-  intentRole,
-  SIGNING_POLICY_VERSION,
-  type IntentKind,
-} from "../../packages/domain/src/signing-policy.js";
-import {
-  quoteRequestHash,
-  transactionRequestHash,
-} from "../../packages/application/src/signer.js";
-import type { SigningSqlClient } from "../../packages/ports/src/index.js";
-
 // Public Anvil fixture mnemonic: never funded on a live network.
 const mnemonic = "test test test test test test test test test test test junk";
 const account = (addressIndex: number) =>
@@ -43,7 +31,7 @@ export function testManifest(
   return {
     status: "DEPLOYED",
     chainId: 84532,
-    deploymentId: "signer-test",
+    deploymentId: "fixture-test",
     deploymentBlock: "1",
     contracts: { BlinkTestUSD: testToken, BlinkMarket: testMarket },
     artifacts: {
@@ -81,7 +69,7 @@ export function testManifest(
   };
 }
 
-// --- database and request fixtures shared by the signer tests ---------------------------------
+// Public test accounts and observation fixtures.
 export const sha256Hex = (text: string) =>
   createHash("sha256").update(text, "utf8").digest("hex");
 export const privateKeyOf = (key: (typeof testAccounts)["maker"]) =>
@@ -103,7 +91,7 @@ export const testQuote = {
 };
 
 type Db = { query(sql: string, params?: unknown[]): Promise<unknown> };
-// Owner-level writes: the deployment row and the indexer-written chain projection the signer reads.
+// Owner-level writes: the deployment row and the indexer-written chain projection used by infrastructure.
 export async function seedDeployment(db: Db, manifest: DeploymentManifest) {
   await db.query(
     "INSERT INTO markets.deployments(id, manifest, market_address) VALUES ($1, $2::jsonb, decode($3, 'hex'))",
@@ -141,45 +129,4 @@ export async function seedChain(
     VALUES ($1, 1000000000, $2, decode($3, 'hex'))`,
     [input.deploymentId, input.epoch ?? 3, blockHash],
   );
-}
-
-// Creates an intent plus its sign request the way an API or worker would.
-export async function prepareRequest(
-  client: SigningSqlClient,
-  manifest: DeploymentManifest,
-  input: {
-    kind: IntentKind;
-    payload: Record<string, unknown>;
-    intentId?: string;
-    version?: number;
-  },
-) {
-  const writer = signingIntentWriter();
-  const role = intentRole(input.kind);
-  const unsignedPayload = input.payload;
-  const intentId =
-    input.intentId ??
-    (
-      await writer.createIntent(client, {
-        deploymentId: manifest.deploymentId,
-        kind: input.kind,
-        role,
-        dedupeKey: randomUUID(),
-        payload: unsignedPayload,
-        createdBy: "test",
-      })
-    ).intentId;
-  const requestHash =
-    input.kind === "MAKER_QUOTE"
-      ? quoteRequestHash(manifest, unsignedPayload)
-      : transactionRequestHash(unsignedPayload);
-  const { signRequestId } = await writer.createSignRequest(client, {
-    intentId,
-    role,
-    unsignedPayload,
-    requestHash,
-    policyVersion: SIGNING_POLICY_VERSION,
-    ...(input.version ? { artifactVersion: input.version } : {}),
-  });
-  return { intentId, signRequestId, requestHash };
 }

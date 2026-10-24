@@ -1,18 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hashTypedData, type Hex } from "viem";
-import { encodeAllowedCall } from "../packages/adapters/src/signing-calldata.js";
+import { encodeFunctionData, hashTypedData, type Hex } from "viem";
 import {
   DEFAULT_MIN_VALIDITY_SECONDS,
   QuoteVerificationError,
   verifySignedQuote,
   type QuoteVerificationCode,
 } from "../packages/client/src/index.js";
-import { quoteCosts } from "../packages/domain/src/pricing.js";
-import {
-  parseQuoteMessage,
-  quoteDomain,
-} from "../packages/domain/src/signing-policy.js";
+import { blinkMarketAbi } from "../packages/adapters/src/blink-abi.js";
 import {
   ConfigResponse,
   PublicDeployment,
@@ -20,7 +15,7 @@ import {
   SignedQuoteResponse,
   quoteTypes,
 } from "../packages/schemas/src/index.js";
-import { testAccounts, testManifest } from "./helpers/signer-fixture.js";
+import { testAccounts, testManifest } from "./helpers/protocol-fixture.js";
 
 // Every quote here is signed offline with a public Anvil development key.
 const manifest = testManifest({ deploymentId: "client-verify" });
@@ -74,7 +69,12 @@ type Message = typeof baseMessage;
 const NOW = 1010n;
 
 const typed = (message: Message, verifyingContract: Hex = market) => ({
-  domain: { ...quoteDomain(manifest), verifyingContract },
+  domain: {
+    name: "Blink RFQ",
+    version: "0.1",
+    chainId: 84532,
+    verifyingContract,
+  },
   types: quoteTypes,
   primaryType: "Quote" as const,
   message: {
@@ -92,13 +92,13 @@ const typed = (message: Message, verifyingContract: Hex = market) => ({
   },
 });
 const encode = (message: Message, signature: Hex) =>
-  encodeAllowedCall({
-    to: market,
+  encodeFunctionData({
+    abi: blinkMarketAbi,
     functionName: "fillQuote",
-    args: [parseQuoteMessage(message)!, signature],
+    args: [typed(message).message, signature],
   });
 
-/** A response as `POST /v1/rfqs` builds it, signed by `signer` (the maker unless a test says otherwise). */
+/** A legacy quote envelope signed offline by an external maker fixture. */
 async function envelopeFor(
   overrides: Partial<Message> = {},
   signer = testAccounts.maker,
@@ -106,10 +106,11 @@ async function envelopeFor(
   const message = { ...baseMessage, ...overrides };
   const data = typed(message);
   const signature = await signer.signTypedData(data);
-  const { takerCostMicros, makerCostMicros } = quoteCosts(
-    BigInt(message.quantity),
-    Number(message.priceBps),
-  );
+  const takerCostMicros =
+    (BigInt(message.quantity) * BigInt(message.priceBps) * 1_000_000n + 9999n) /
+    10_000n;
+  const makerCostMicros =
+    BigInt(message.quantity) * 1_000_000n - takerCostMicros;
   return SignedQuoteResponse.parse({
     deploymentId: "client-verify",
     quoteId: hashTypedData(data),

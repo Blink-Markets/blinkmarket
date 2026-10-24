@@ -1,12 +1,8 @@
-// Adapters may not import @blink/domain: the gas-cap codes and the keeper due rule come through here.
-export { checkGasCaps, keeperDueSince } from "@blink/domain";
-
 export const ALERT_FAMILIES = [
   "budget",
   "pause",
   "rpc",
   "indexer_lag",
-  "keeper_overdue",
   "jobs_dead",
 ] as const;
 export type AlertFamily = (typeof ALERT_FAMILIES)[number];
@@ -14,7 +10,7 @@ export type AlertFamily = (typeof ALERT_FAMILIES)[number];
 export const GLOBAL_ALERT_SCOPE = "*";
 export const ALERT_SCOPE_FAMILIES = {
   global: ["budget", "jobs_dead", "rpc"],
-  deployment: ["budget", "pause", "indexer_lag", "keeper_overdue"],
+  deployment: ["pause", "indexer_lag"],
 } as const satisfies Record<string, readonly AlertFamily[]>;
 export type AlertState = "OPEN" | "STILL_OPEN" | "CLEARED";
 
@@ -23,7 +19,6 @@ export interface AlertFields {
   blockNumber?: string;
   headNumber?: string;
   count?: string;
-  overdueSeconds?: string;
   failures?: string;
   jobTypes?: string[];
   /** The family hit its subject bound: only the first subjects are reported and none is cleared. */
@@ -82,10 +77,7 @@ export interface AlertEvaluateStore {
    * Every condition that holds now in the scope (a deployment id, or GLOBAL_ALERT_SCOPE). Each family
    * is read and bounded on its own; one that fails is reported as unknown, not as healthy.
    */
-  observe(
-    scope: string,
-    options: { keeperOverdueSeconds: number },
-  ): Promise<AlertObserved>;
+  observe(scope: string): Promise<AlertObserved>;
   /**
    * Under a per-scope lock: reads the active episodes, the rpc streak and the episodes of the
    * subjects observed now, applies `decide`, writes the new episodes and one outbox alert per

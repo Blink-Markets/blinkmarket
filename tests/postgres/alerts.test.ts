@@ -57,7 +57,6 @@ test(
           store: postgresAlertEvaluateStore(worker),
           rpc: { probe: (signal) => target.probe(signal) },
           policy: { reAlertMs: 60 * 60_000, rpcFailures: 3 },
-          keeperOverdueSeconds: 600,
           deploymentIds: ["drill"],
         });
         const signal = new AbortController().signal;
@@ -110,15 +109,10 @@ test(
         // Real conditions, written the way the system would.
         await owner.query(`
           INSERT INTO budgets.daily(day,gate_closed_reason) VALUES((to_timestamp(${NOW}) AT TIME ZONE 'UTC')::date,'OVERRUN');
-          INSERT INTO signing.economic_intents(id,deployment_id,kind,role,dedupe_key,payload,payload_hash,created_by)
-          VALUES('00000000-0000-4000-8000-000000000001','drill','FINALIZE_TIMEOUT','keeper','drill-intent','{}',decode(repeat('aa',32),'hex'),'drill');
-          INSERT INTO signing.sign_requests(id,intent_id,role,request_hash,unsigned_payload,policy_version,state,reject_code,updated_at)
-          VALUES('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','keeper',decode(repeat('bb',32),'hex'),'{}','v1','REJECTED','GAS_DAILY_CAP_EXCEEDED',to_timestamp(${NOW - 60}));
           UPDATE chain.markets SET paused=true WHERE market_id=1;
           UPDATE chain.maker_state SET global_paused=true;
-          INSERT INTO trading.maker_pools(deployment_id,gate_reason) VALUES('drill','OVERCOMMITTED');
           UPDATE chain.cursors SET synced_at=to_timestamp(${NOW - 1000});
-          INSERT INTO operations.jobs(id,type,dedupe_key,payload,state) VALUES('00000000-0000-4000-8000-000000000003','tx.dispatch','drill-dead','{"private":"private-fixture"}','DEAD');
+          INSERT INTO operations.jobs(id,type,dedupe_key,payload,state) VALUES('00000000-0000-4000-8000-000000000003','evaluation.score','drill-dead','{"private":"private-fixture"}','DEAD');
           UPDATE operations.jobs SET finished_at=to_timestamp(${NOW - 30}) WHERE state='DEAD';`);
         // The RPC streak: two failures are not an incident yet.
         await tick();
@@ -133,25 +127,18 @@ test(
         const opened = (await delivered()).slice(1);
         assert.deepEqual(opened.map(sign).sort(), [
           "alert.budget|OPEN|daily",
-          "alert.budget|OPEN|role:keeper",
           "alert.indexer_lag|OPEN|indexer",
           "alert.jobs_dead|OPEN|jobs",
-          "alert.keeper_overdue|OPEN|market:2",
           "alert.pause|OPEN|global",
           "alert.pause|OPEN|market:1",
-          "alert.pause|OPEN|pool",
           "alert.rpc|OPEN|rpc",
         ]);
         const rpcAlert = opened.find((a) => a.type === "alert.rpc")!;
         assert.equal(rpcAlert.reason, "RPC_UNREACHABLE");
         assert.equal(rpcAlert.failures, "3");
         assert.equal(
-          opened.find((a) => a.type === "alert.keeper_overdue")!.overdueSeconds,
-          "1000",
-        );
-        assert.equal(
           new Set((await delivered()).map((a) => a.dedupeKey)).size,
-          10,
+          7,
         );
         // Every alert.* row came from a real producer: no injected fixtures.
         assert.equal(
@@ -190,10 +177,8 @@ test(
         );
         await owner.query(`
           UPDATE budgets.daily SET gate_closed_reason=NULL;
-          UPDATE signing.sign_requests SET updated_at=to_timestamp(${NOW - 90_000});
           UPDATE chain.markets SET paused=false;
           UPDATE chain.maker_state SET global_paused=false;
-          UPDATE trading.maker_pools SET gate_reason=NULL;
           UPDATE chain.cursors SET synced_at=to_timestamp(${NOW});
           UPDATE chain.markets SET state='FINAL' WHERE market_id=2;
           UPDATE operations.jobs SET state='SUCCEEDED',finished_at=to_timestamp(${NOW}) WHERE state='DEAD';`);
@@ -201,15 +186,12 @@ test(
         await tick();
         await flush();
         const all = await delivered();
-        assert.deepEqual(all.slice(10).map(sign).sort(), [
+        assert.deepEqual(all.slice(7).map(sign).sort(), [
           "alert.budget|CLEARED|daily",
-          "alert.budget|CLEARED|role:keeper",
           "alert.indexer_lag|CLEARED|indexer",
           "alert.jobs_dead|CLEARED|jobs",
-          "alert.keeper_overdue|CLEARED|market:2",
           "alert.pause|CLEARED|global",
           "alert.pause|CLEARED|market:1",
-          "alert.pause|CLEARED|pool",
           "alert.rpc|CLEARED|rpc",
         ]);
 
@@ -233,7 +215,7 @@ test(
 
 const RACE_SETUP = `INSERT INTO markets.deployments(id,manifest,market_address) VALUES('race','{}',decode(repeat('11',20),'hex'));
   INSERT INTO operations.jobs(id,type,dedupe_key,payload,state,finished_at)
-  VALUES('00000000-0000-4000-8000-000000000009','tx.dispatch','race-dead','{}','DEAD',now());`;
+  VALUES('00000000-0000-4000-8000-000000000009','evaluation.score','race-dead','{}','DEAD',now());`;
 const evaluator = (
   worker: Parameters<typeof postgresAlertEvaluateStore>[0],
   options: Parameters<typeof postgresAlertEvaluateStore>[1] = {},
@@ -243,7 +225,6 @@ const evaluator = (
     store: postgresAlertEvaluateStore(worker, options),
     rpc: null,
     policy: { reAlertMs: 60 * 60_000, rpcFailures: 3 },
-    keeperOverdueSeconds: 600,
     deploymentIds: ["race"],
     ...(onSkip ? { onSkip } : {}),
   });

@@ -1,20 +1,16 @@
-import { readFile, stat } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { apiConfig } from "../apps/api/src/config.js";
 import {
   alertConfig,
   alertEvaluateConfig,
-  executionConfig,
   researchConfig,
-  traderConfig,
   workerConfig,
 } from "../apps/worker/src/config.js";
 import {
   chainIndexerConfig,
   indexerConfig,
 } from "../apps/indexer/src/config.js";
-import { signerConfig } from "../apps/signer/src/config.js";
 import { isClientHttpLoopbackHost } from "../packages/client/src/url-policy.ts";
 
 type Env = Map<string, string>;
@@ -49,20 +45,6 @@ function isLoopback(hostname: string): boolean {
   if (isIP(host) === 4) return Number(host.split(".")[0]) === 127;
   if (isIP(host) === 6) return host === "::1";
   return false;
-}
-
-function isPrivateHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (isLoopback(host)) return true;
-  if (isIP(host) === 4) {
-    const octets = host.split(".").map(Number);
-    return (
-      octets[0] === 10 ||
-      (octets[0] === 172 && octets[1]! >= 16 && octets[1]! <= 31) ||
-      (octets[0] === 192 && octets[1] === 168)
-    );
-  }
-  return isIP(host) === 6 && /^(fc|fd)/i.test(host);
 }
 
 /** The prefix length of the loopback or private block holding an IP address, or null. */
@@ -146,46 +128,6 @@ async function main() {
     )
       fail("PREFLIGHT_PUBLIC_SECRET", name);
 
-  const keyNames = [
-    "SIGNER_MAKER_KEY_FILE",
-    "SIGNER_KEEPER_KEY_FILE",
-    "SIGNER_FAUCET_KEY_FILE",
-    "SIGNER_TRADER_KEY_FILE",
-  ];
-  if (
-    env.get("SIGNER_ENABLED") === "true" &&
-    !keyNames.some((name) => env.get(name)?.trim())
-  )
-    fail("PREFLIGHT_KEY_FILE_MISSING", "SIGNER_*_KEY_FILE");
-  for (const name of keyNames) {
-    const value = env.get(name);
-    if (!value) continue;
-    let mode: number;
-    try {
-      mode = (await stat(value)).mode & 0o777;
-    } catch {
-      fail("PREFLIGHT_KEY_FILE_MISSING", name);
-    }
-    if (mode! !== 0o600) fail("PREFLIGHT_KEY_FILE_MODE", name);
-  }
-
-  const signer = env.get("SIGNER_URL");
-  if (signer) {
-    let parsed: URL;
-    try {
-      parsed = new URL(signer);
-    } catch {
-      fail("PREFLIGHT_SIGNER_URL", "SIGNER_URL");
-    }
-    if (
-      !isPrivateHost(parsed!.hostname) ||
-      !["http:", "https:"].includes(parsed!.protocol) ||
-      parsed!.username ||
-      parsed!.password
-    )
-      fail("PREFLIGHT_SIGNER_URL", "SIGNER_URL");
-  }
-
   const workerApi = env.get("WORKER_API_URL");
   if (workerApi) {
     let parsed: URL;
@@ -244,50 +186,23 @@ async function main() {
   // Reuse the production parsers; they are pure config checks and perform no I/O.
   const values = Object.fromEntries(env) as NodeJS.ProcessEnv;
   if (
-    values.BLINK_API_MODE !== "trading" ||
+    values.BLINK_API_MODE !== "markets" ||
     values.WORKER_ENABLED !== "true" ||
-    values.CHAIN_INDEXER_ENABLED !== "true" ||
-    values.SIGNER_ENABLED !== "true"
+    values.CHAIN_INDEXER_ENABLED !== "true"
   )
     fail("PREFLIGHT_SERVICE_CONFIGURATION");
-  let callers: ReturnType<typeof signerConfig>["callers"];
   try {
     apiConfig(values);
     workerConfig(values);
     researchConfig(values);
-    executionConfig(values);
-    traderConfig(values);
     alertConfig(values);
     alertEvaluateConfig(values);
     indexerConfig(values);
     chainIndexerConfig(values);
-    callers = signerConfig(values).callers;
   } catch {
     fail("PREFLIGHT_SERVICE_CONFIGURATION");
   }
 
-  // Signer caller tokens are split by service: the API may only make, the worker keeps and fills.
-  const sha256 = (token: string) =>
-    createHash("sha256").update(token).digest("hex");
-  const rolesMatch = (actual: readonly string[], expected: string[]) =>
-    actual.length === expected.length &&
-    expected.every((role) => actual.includes(role));
-  const apiToken = env.get("SIGNER_CALLER_TOKEN");
-  const workerToken = env.get("WORKER_SIGNER_CALLER_TOKEN");
-  if (env.get("SIGNER_CALLERS") && apiToken) {
-    const caller = callers!.find((c) => c.tokenSha256 === sha256(apiToken));
-    if (!caller || !rolesMatch(caller.roles, ["maker"]))
-      fail("PREFLIGHT_SIGNER_CALLERS", "SIGNER_CALLER_TOKEN");
-  }
-  if (env.get("SIGNER_CALLERS") && workerToken) {
-    if (workerToken === apiToken)
-      fail("PREFLIGHT_SIGNER_CALLERS", "WORKER_SIGNER_CALLER_TOKEN");
-    const caller = callers!.find((c) => c.tokenSha256 === sha256(workerToken));
-    const expected = ["keeper", "faucet"];
-    if (env.get("WORKER_TRADER_API_KEY")?.trim()) expected.push("trader");
-    if (!caller || !rolesMatch(caller.roles, expected))
-      fail("PREFLIGHT_SIGNER_CALLERS", "WORKER_SIGNER_CALLER_TOKEN");
-  }
   console.log(
     "DEPLOY PREFLIGHT ok: Base Sepolia profile, environment rules passed (offline)",
   );

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { tradingWorld, DEPLOYMENT } from "./helpers/trading.js";
+import { statusWorld, DEPLOYMENT } from "./helpers/status.js";
 import { inviteAgent } from "./helpers/database.js";
 import { opsStatusCommand } from "../scripts/ops-status.js";
 import { buildApi } from "../apps/api/src/server.js";
@@ -12,7 +12,7 @@ import { createOperatorStatusService } from "../packages/application/src/operato
 import { postgresOperatorStatusStore } from "../packages/adapters/src/operator-status-store.js";
 
 test("operator candidates: admin only, own operator only, safe review and approval metadata", async () => {
-  const w = await tradingWorld();
+  const w = await statusWorld();
   const other = await inviteAgent(w.t, {
     name: "other-admin",
     scopes: ["admin"],
@@ -89,7 +89,7 @@ test("operator candidates: admin only, own operator only, safe review and approv
 });
 
 test("operator jobs and budgets expose safe metadata and exact current-day money", async () => {
-  const w = await tradingWorld();
+  const w = await statusWorld();
   const identity = createIdentityService(
     postgresIdentityStore(w.apiPool),
     identityCrypto,
@@ -161,7 +161,7 @@ test("operator jobs and budgets expose safe metadata and exact current-day money
 });
 
 test("pause and resolution queue reuse authenticated health and hide report content", async () => {
-  const w = await tradingWorld();
+  const w = await statusWorld();
   const { createHealthService } =
     await import("../packages/application/src/health.js");
   const { postgresHealthReader } =
@@ -176,7 +176,6 @@ test("pause and resolution queue reuse authenticated health and hide report cont
   const health = createHealthService({
     reader: postgresHealthReader(w.apiPool, DEPLOYMENT),
     authenticateAdmin,
-    signerReachable: async () => true,
   });
   const app = buildApi({
     services: [
@@ -194,7 +193,6 @@ test("pause and resolution queue reuse authenticated health and hide report cont
       headers: { authorization: "Bearer " + key },
     });
   try {
-    await w.setCursor(w.chain.state.head);
     await w.owner(async () => {
       await w.t.db.query(
         "UPDATE chain.maker_state SET global_paused=true WHERE deployment_id=$1",
@@ -258,7 +256,7 @@ test("pause and resolution queue reuse authenticated health and hide report cont
   }
 });
 
-async function statusApp(w: Awaited<ReturnType<typeof tradingWorld>>) {
+async function statusApp(w: Awaited<ReturnType<typeof statusWorld>>) {
   const { createHealthService } =
     await import("../packages/application/src/health.js");
   const { postgresHealthReader } =
@@ -278,7 +276,6 @@ async function statusApp(w: Awaited<ReturnType<typeof tradingWorld>>) {
         health: createHealthService({
           reader: postgresHealthReader(w.apiPool, DEPLOYMENT),
           authenticateAdmin,
-          signerReachable: async () => true,
         }),
       }),
     ],
@@ -295,7 +292,7 @@ const ROUTES = [
 ];
 
 test("every operator-status route is 404 for another operator's admin key and for a revoked admin key", async () => {
-  const w = await tradingWorld();
+  const w = await statusWorld();
   const otherAdmin = await inviteAgent(w.t, {
     name: "other-admin-all",
     scopes: ["admin"],
@@ -311,7 +308,6 @@ test("every operator-status route is 404 for another operator's admin key and fo
       headers: { authorization: "Bearer " + key },
     });
   try {
-    await w.setCursor(w.chain.state.head);
     // Before revocation the key works, so the later 404 is caused by revocation.
     for (const path of ROUTES)
       assert.equal((await get(path, revoked.apiKey)).statusCode, 200, path);
@@ -364,7 +360,7 @@ test("every operator-status route is 404 for another operator's admin key and fo
 });
 
 test("candidates, jobs and resolutions return the newest 100 rows newest first and flag truncation", async () => {
-  const w = await tradingWorld();
+  const w = await statusWorld();
   const app = await statusApp(w);
   const get = (path: string) =>
     app.inject({

@@ -2,36 +2,24 @@ import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import pg from "pg";
 
-// The first thing to do to a database that was just restored from a backup, before any service
-// connects to it (`pnpm restore:prepare <deploymentId>`; the restore drill runs this same function):
-//   1. close the maker pool's quote gate. Only the reservation reconciler clears it, and it
-//      refuses to while the chain cursor is stale, gated or lagging, so quoting stays closed until
-//      the indexer has caught up and the reservations have been judged against the chain;
-//   2. release the cursor lease the dead indexer held in the dump. Commits are fenced by the
-//      lease token, so this cannot let two indexers write; it only spares the new one the wait.
-// It needs a login that owns the schema (the one that restored the dump), never a service login.
+// Release the restored indexer lease before services reconnect. Requires the schema owner.
 const DEPLOYMENT = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/;
 
 export async function prepareRestoredDatabase(
   db: pg.Pool,
   deploymentId: string,
-): Promise<{ gateClosed: true; leaseCleared: boolean }> {
+): Promise<{ leaseCleared: boolean }> {
   if (!DEPLOYMENT.test(deploymentId))
     throw new Error("RESTORE_PREPARE_INVALID_DEPLOYMENT_ID");
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    await client.query(
-      `INSERT INTO trading.maker_pools(deployment_id, gate_reason) VALUES($1,'OVERCOMMITTED')
-      ON CONFLICT (deployment_id) DO UPDATE SET gate_reason='OVERCOMMITTED', version=trading.maker_pools.version+1`,
-      [deploymentId],
-    );
     const lease = await client.query(
       "UPDATE chain.cursors SET lease_owner=NULL, lease_until=NULL WHERE deployment_id=$1 AND lease_owner IS NOT NULL",
       [deploymentId],
     );
     await client.query("COMMIT");
-    return { gateClosed: true, leaseCleared: lease.rowCount === 1 };
+    return { leaseCleared: lease.rowCount === 1 };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
     throw error;

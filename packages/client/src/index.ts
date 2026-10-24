@@ -3,6 +3,7 @@ import { isClientHttpLoopbackHost } from "./url-policy.ts";
 import { keccak256 } from "viem";
 import {
   ApiError,
+  type SignedQuoteResponse,
   ConfigResponse,
   IdempotencyHeaders,
   MarketSpec,
@@ -53,10 +54,7 @@ export function createBlinkClient(
   const base = new URL(baseUrl);
   if (
     base.protocol !== "https:" &&
-    !(
-      base.protocol === "http:" &&
-      isClientHttpLoopbackHost(base.hostname)
-    )
+    !(base.protocol === "http:" && isClientHttpLoopbackHost(base.hostname))
   )
     throw new Error("HTTPS_REQUIRED");
   const maxAttempts = options.maxAttempts ?? 3;
@@ -242,10 +240,16 @@ export function createBlinkClient(
         query: { deploymentId: ref.deploymentId, ...query },
       }),
     // --- quotes and transactions ---
-    requestQuote: (input: unknown, key?: string) =>
-      call("POST", "/v1/rfqs", { body: input, key }),
-    getQuote: (quoteId: string) =>
-      call("GET", "/v1/quotes/:quoteId", { params: { quoteId } }),
+    // Legacy methods fail closed until the P2 client is replaced.
+    requestQuote: async (
+      _input: unknown,
+      _key?: string,
+    ): Promise<(typeof SignedQuoteResponse)["_output"]> => {
+      throw new Error("RETIRED_P2");
+    },
+    getQuote: async (_quoteId: string): Promise<never> => {
+      throw new Error("RETIRED_P2");
+    },
     trackTransaction: (input: unknown, key?: string) =>
       call("POST", "/v1/transactions", {
         body: input,
@@ -273,11 +277,9 @@ export function createBlinkClient(
       }),
     getResolution: (ref: MarketKey) =>
       call("GET", "/v1/markets/:id/resolution", marketParams(ref)),
-    claimFaucet: (input: unknown, key?: string) =>
-      call("POST", "/v1/faucet/claims", {
-        body: input,
-        key,
-      }),
+    claimFaucet: async (_input: unknown, _key?: string): Promise<never> => {
+      throw new Error("RETIRED_P2");
+    },
     getMetrics: (mode: "LIVE" | "REPLAY") =>
       call("GET", "/v1/metrics", { query: { mode } }),
   };

@@ -7,7 +7,6 @@ const modes = [
   "preparation",
   "approval",
   "markets",
-  "trading",
 ] as const;
 export type ApiMode = (typeof modes)[number];
 export const modeAtLeast = (mode: ApiMode, minimum: ApiMode) =>
@@ -55,11 +54,6 @@ export function apiConfig(env: NodeJS.ProcessEnv) {
   }
   if (atLeast("markets") && !env.BLINK_DEPLOYMENT_ID)
     throw new Error("MARKETS_CONFIGURATION_REQUIRED");
-  if (
-    atLeast("trading") &&
-    (!env.SIGNER_URL || !env.SIGNER_CALLER_TOKEN || !env.BASE_SEPOLIA_RPC_URL)
-  )
-    throw new Error("TRADING_CONFIGURATION_REQUIRED");
   return {
     mode,
     host,
@@ -70,8 +64,6 @@ export function apiConfig(env: NodeJS.ProcessEnv) {
     evidenceDirectory: env.EVIDENCE_OBJECT_DIRECTORY,
     specOrigin: env.SPEC_PUBLIC_ORIGIN,
     deploymentId: env.BLINK_DEPLOYMENT_ID,
-    signerUrl: env.SIGNER_URL,
-    signerToken: env.SIGNER_CALLER_TOKEN,
     rpcUrl: env.BASE_SEPOLIA_RPC_URL,
     trustedProxies: parseTrustedProxies(env.API_TRUSTED_PROXIES),
   };

@@ -8,7 +8,6 @@ export interface HealthService {
 export function createHealthService(deps: {
   reader: HealthReader;
   now?: () => number;
-  signerReachable(): Promise<boolean>;
   authenticateAdmin(authorization: string | undefined): Promise<unknown>;
 }): HealthService & RouteService {
   const now = deps.now ?? Date.now;
@@ -34,17 +33,7 @@ export function createHealthService(deps: {
       return pending;
     };
   }
-  const signerReachable = cached(
-    () => deps.signerReachable().catch(() => false),
-    2000,
-  );
-  const snapshotRead = cached(async () => {
-    const [health, signer] = await Promise.all([
-      deps.reader.health(),
-      signerReachable(),
-    ]);
-    return { health, signer };
-  }, 2000);
+  const snapshotRead = cached(() => deps.reader.health(), 2000);
   return {
     paths: ["/v1/admin/metrics"],
     async read(authorization) {
@@ -52,18 +41,13 @@ export function createHealthService(deps: {
       if (authorization !== undefined)
         await deps.authenticateAdmin(authorization);
       try {
-        const { health: snapshot, signer } = await snapshotRead();
-        const reasons = [
-          ...snapshot.reasons,
-          ...(!signer ? ["SIGNER_UNAVAILABLE"] : []),
-        ];
+        const snapshot = await snapshotRead();
+        const reasons = snapshot.reasons;
         return HealthResponse.parse({
           status: reasons.length ? "not-ready" : "ready",
-          tradingEnabled: reasons.length === 0,
+          tradingEnabled: false,
           reasons: [...new Set(reasons)],
-          ...(authorization !== undefined
-            ? { details: { ...snapshot.details, signerReachable: signer } }
-            : {}),
+          ...(authorization !== undefined ? { details: snapshot.details } : {}),
         });
       } catch {
         return {

@@ -106,20 +106,6 @@ export const routes = [
   },
   {
     "method": "POST",
-    "path": "/v1/rfqs",
-    "module": "trading",
-    "access": "trade:quote + wallet",
-    "summary": "詢價"
-  },
-  {
-    "method": "GET",
-    "path": "/v1/quotes/:quoteId",
-    "module": "trading",
-    "access": "taker/admin",
-    "summary": "報價狀態"
-  },
-  {
-    "method": "POST",
     "path": "/v1/transactions",
     "module": "chain",
     "access": "verified-wallet",
@@ -152,13 +138,6 @@ export const routes = [
     "module": "resolution",
     "access": "public",
     "summary": "結果與裁決證據"
-  },
-  {
-    "method": "POST",
-    "path": "/v1/faucet/claims",
-    "module": "faucet",
-    "access": "allowed-wallet",
-    "summary": "測試資產領取申請"
   },
   {
     "method": "GET",

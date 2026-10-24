@@ -8,7 +8,7 @@ import {
   seedDeployment,
   seedChain,
   testManifest,
-} from "../helpers/signer-fixture.js";
+} from "../helpers/protocol-fixture.js";
 import { postgresOperatorStatusStore } from "../../packages/adapters/src/operator-status-store.js";
 
 const adminUrl = process.env.TEST_POSTGRES_ADMIN_URL;
@@ -159,10 +159,6 @@ test("real PostgreSQL: operator status reads under blink_api grants, approval is
     await assert.rejects(
       api.query("UPDATE budgets.daily SET cap_usd_micros=0"),
       /read-only|permission denied/,
-    );
-    await assert.rejects(
-      api.query("SELECT raw_transaction FROM signing.artifacts"),
-      /permission denied/,
     );
   } finally {
     await Promise.all([owner.end(), api.end()]);

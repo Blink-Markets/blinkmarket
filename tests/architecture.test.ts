@@ -6,10 +6,13 @@ import {
   Quote,
   quoteTypes,
 } from "../packages/schemas/src/index.js";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import ts from "typescript";
 
 test("scaffold never advertises deployment or transaction readiness", async () => {
   const app = buildApi();
+  app.log.level = "silent";
   try {
     assert.equal((await app.inject("/health/live")).statusCode, 200);
     assert.equal((await app.inject("/health/ready")).statusCode, 503);
@@ -29,9 +32,14 @@ test("scaffold never advertises deployment or transaction readiness", async () =
         maxCostMicros: "6500000",
       },
     });
-    assert.equal(write.statusCode, 501);
-    assert.equal(write.json().code, "NOT_IMPLEMENTED");
+    assert.equal(write.statusCode, 404);
     const openapi = (await app.inject("/openapi.json")).json();
+    for (const path of [
+      "/v1/rfqs",
+      "/v1/quotes/{quoteId}",
+      "/v1/faucet/claims",
+    ])
+      assert.equal(openapi.paths[path], undefined);
     assert.equal(
       openapi.paths["/v1/markets/{id}"].get["x-status"],
       "not-implemented",
@@ -84,4 +92,58 @@ test("EIP-712 field order and types match the Solidity interface", () => {
     type: m[1],
   }));
   assert.deepEqual(fields, quoteTypes.Quote);
+});
+
+test("platform has no signer workspace", () => {
+  assert.equal(existsSync("apps/signer"), false);
+  const deleted =
+    /(?:^|[/@-])(?:signer(?:[-/.]|$)|signing(?:[-/.]|$)|tx-dispatcher(?:[/.]|$)|keeper(?:[-/.]|$)|faucet(?:[-/.]|$)|trader(?:[-/.]|$)|quote-reconcile(?:[/.]|$)|trading-store(?:[/.]|$))/;
+  function scan(directory: string) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (["node_modules", "dist", ".next", "out"].includes(entry.name))
+        continue;
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) scan(path);
+      else if (/\.[cm]?[jt]sx?$/.test(entry.name)) {
+        const source = ts.createSourceFile(
+          path,
+          readFileSync(path, "utf8"),
+          ts.ScriptTarget.Latest,
+          true,
+        );
+        function visit(node: ts.Node) {
+          const specifier =
+            ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
+              ? node.moduleSpecifier
+              : ts.isCallExpression(node) &&
+                  (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+                    node.expression.getText(source) === "require")
+                ? node.arguments[0]
+                : undefined;
+          if (specifier && ts.isStringLiteralLike(specifier))
+            assert.equal(
+              deleted.test(specifier.text),
+              false,
+              `${path}: ${specifier.text}`,
+            );
+          ts.forEachChild(node, visit);
+        }
+        visit(source);
+      }
+    }
+  }
+  for (const root of ["apps", "packages"]) {
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const directory = join(root, entry.name);
+      const manifest = join(directory, "package.json");
+      if (existsSync(manifest))
+        assert.notEqual(
+          JSON.parse(readFileSync(manifest, "utf8")).name,
+          "@blink/signer",
+        );
+      const source = root === "apps" ? directory : join(directory, "src");
+      if (existsSync(source)) scan(source);
+    }
+  }
 });

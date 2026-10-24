@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 
-// Opt-in: builds the four service images, so it needs a Docker daemon (and the network for
+// Opt-in: builds the three service images, so it needs a Docker daemon (and the network for
 // `pnpm install` inside the build). Run it with `pnpm test:images`; the default checks never do.
 const docker = (args, options = {}) =>
   spawnSync("docker", args, { encoding: "utf8", ...options });
@@ -24,10 +24,6 @@ const services = {
   indexer: {
     env: { INDEXER_CREATION_POLLING_ENABLED: "true" },
     code: "INDEXER_TRACKER_CONFIGURATION_REQUIRED",
-  },
-  signer: {
-    env: { SIGNER_ENABLED: "true" },
-    code: "SIGNER_CONFIGURATION_REQUIRED",
   },
 };
 const image = (name) => "blink-" + name + ":test";
@@ -215,7 +211,7 @@ for (const name of Object.keys(services)) {
           id,
           "node",
           "-e",
-          "fetch('http://127.0.0.1:'+(process.env.API_PORT||process.env.INDEXER_PORT||process.env.SIGNER_PORT||'3002')+'/health/ready').then(r=>console.log(r.status))",
+          "fetch('http://127.0.0.1:'+(process.env.API_PORT||process.env.INDEXER_PORT||'3002')+'/health/ready').then(r=>console.log(r.status))",
         ]);
         assert.equal(ready.stdout.trim(), "503", ready.stderr);
       } finally {

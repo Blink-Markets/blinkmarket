@@ -9,7 +9,7 @@ import {
   createBlinkClient,
 } from "../packages/client/src/index.js";
 import { configFromEnv, runAgent } from "../examples/agent/run.js";
-import { testAccounts } from "./helpers/signer-fixture.js";
+import { testAccounts } from "./helpers/protocol-fixture.js";
 
 const DEPLOYMENT = "client-test";
 const MARKET = "7";
@@ -112,65 +112,12 @@ const resolution = {
   hardDeadline: "2025-05-10T00:00:00.000Z",
   chainCursor: cursor,
 };
-const quote = {
-  deploymentId: DEPLOYMENT,
-  quoteId: HASH,
-  marketId: MARKET,
-  mode: "REPLAY",
-  chainId: 84532,
-  verifyingContract: testAccounts.admin.address,
-  domain: {
-    name: "Blink RFQ",
-    version: "0.1",
-    chainId: 84532,
-    verifyingContract: testAccounts.admin.address,
-  },
-  types: {
-    Quote: [
-      "marketId:uint256",
-      "specHash:bytes32",
-      "maker:address",
-      "taker:address",
-      "side:uint8",
-      "quantity:uint64",
-      "priceBps:uint16",
-      "validAfter:uint64",
-      "expiresAt:uint64",
-      "nonce:uint256",
-      "epoch:uint256",
-    ].map((entry) => {
-      const [name, type] = entry.split(":");
-      return { name, type };
-    }),
-  },
-  message: {
-    marketId: MARKET,
-    specHash: HASH,
-    maker: testAccounts.maker.address.toLowerCase(),
-    taker: WALLET,
-    side: "0",
-    quantity: "10",
-    priceBps: "6000",
-    validAfter: "1000",
-    expiresAt: "1030",
-    nonce: "1",
-    epoch: "1",
-  },
-  signature: "0x" + "11".repeat(65),
-  takerCostMicros: "6000000",
-  makerCostMicros: "4000000",
-  expiresAt: "1030",
-  calldata: "0x00",
-  forecastSnapshotId: UUID,
-  chainCursor: cursor,
+const report = {
+  outcome: "YES",
+  evidenceIds: [UUID],
+  reason: "the release says so",
 };
-const rfq = {
-  deploymentId: DEPLOYMENT,
-  marketId: MARKET,
-  side: "YES",
-  quantity: "10",
-  maxCostMicros: "6500000",
-} as const;
+const reportAnswer = { reportId: UUID, state: "RECEIVED" };
 const horizonKey = {
   horizonType: "DAILY",
   scheduledAt: "2026-10-15T00:00:00.000Z",
@@ -314,21 +261,6 @@ const cases: Case[] = [
     }),
   },
   {
-    name: "requestQuote",
-    call: (c) => c.requestQuote(rfq, "rfq-key"),
-    method: "POST",
-    path: "/v1/rfqs",
-    body: rfq,
-    answer: quote,
-  },
-  {
-    name: "getQuote",
-    call: (c) => c.getQuote(HASH),
-    method: "GET",
-    path: "/v1/quotes/" + HASH,
-    answer: { quote, status: "SIGNED", chainCursor: cursor },
-  },
-  {
     name: "trackTransaction",
     call: (c) =>
       c.trackTransaction(
@@ -411,15 +343,6 @@ const cases: Case[] = [
     path: `/v1/markets/${MARKET}/resolution`,
     query: { deploymentId: DEPLOYMENT },
     answer: resolution,
-  },
-  {
-    name: "claimFaucet",
-    call: (c) => c.claimFaucet({ deploymentId: DEPLOYMENT }, "faucet-key"),
-    method: "POST",
-    path: "/v1/faucet/claims",
-    body: { deploymentId: DEPLOYMENT },
-    answer: { claimId: UUID, intentId: UUID, state: "QUEUED" },
-    status: 202,
   },
   {
     name: "getMetrics",
@@ -520,13 +443,13 @@ test("the identity-and-preparation helpers keep their endpoints", async () => {
 test("a POST without a key gets a fresh UUID per call; a given key is sent as it is", async () => {
   const server = await scripted(() => ({
     status: 202,
-    body: { claimId: UUID, intentId: UUID, state: "QUEUED" },
+    body: reportAnswer,
   }));
   try {
     const client = createBlinkClient(server.origin, API_KEY);
-    await client.claimFaucet({ deploymentId: DEPLOYMENT });
-    await client.claimFaucet({ deploymentId: DEPLOYMENT });
-    await client.claimFaucet({ deploymentId: DEPLOYMENT }, "my-own-key");
+    await client.submitResolutionReport(marketRef, report);
+    await client.submitResolutionReport(marketRef, report);
+    await client.submitResolutionReport(marketRef, report, "my-own-key");
     const keys = server.seen.map((s) => s.headers["idempotency-key"]);
     assert.match(String(keys[0]), /^[0-9a-f-]{36}$/);
     assert.match(String(keys[1]), /^[0-9a-f-]{36}$/);
@@ -541,10 +464,18 @@ test("a malformed key or a body that breaks the contract never leaves the proces
   const server = await scripted(() => ({ body: {} }));
   try {
     const client = createBlinkClient(server.origin, API_KEY);
-    await assert.rejects(client.requestQuote(rfq, "has space"));
-    await assert.rejects(client.requestQuote(rfq, "x".repeat(129)));
-    await assert.rejects(client.requestQuote({ ...rfq, quantity: "101" }));
-    await assert.rejects(client.requestQuote({ ...rfq, side: "BUY" } as never));
+    await assert.rejects(
+      client.submitResolutionReport(marketRef, report, "has space"),
+    );
+    await assert.rejects(
+      client.submitResolutionReport(marketRef, report, "x".repeat(129)),
+    );
+    await assert.rejects(
+      client.submitResolutionReport(marketRef, { ...report, outcome: "OTHER" }),
+    );
+    await assert.rejects(
+      client.submitResolutionReport(marketRef, { ...report, reason: "" }),
+    );
     await assert.rejects(
       client.getTransaction({ deploymentId: DEPLOYMENT, txHash: "0x12" }),
     );
@@ -570,7 +501,7 @@ test("a retryable refusal is retried with the same key and the same body, waitin
             headers: { "Retry-After": "2" },
             body: apiError("REQUEST_IN_PROGRESS", true),
           }
-        : { body: quote },
+        : { body: reportAnswer },
   );
   try {
     const client = createBlinkClient(server.origin, API_KEY, {
@@ -579,7 +510,10 @@ test("a retryable refusal is retried with the same key and the same body, waitin
       },
     });
     // No key given: the client picks one and keeps it for every attempt.
-    assert.deepEqual(await client.requestQuote(rfq), quote);
+    assert.deepEqual(
+      await client.submitResolutionReport(marketRef, report),
+      reportAnswer,
+    );
     assert.equal(server.seen.length, 3);
     const keys = new Set(server.seen.map((s) => s.headers["idempotency-key"]));
     assert.equal(keys.size, 1);
@@ -604,7 +538,7 @@ test("without Retry-After the wait grows, and the answer after the last attempt 
       },
     });
     await assert.rejects(
-      client.requestQuote(rfq, "stuck"),
+      client.submitResolutionReport(marketRef, report, "stuck"),
       (error) =>
         error instanceof BlinkApiError &&
         error.status === 503 &&
@@ -622,7 +556,7 @@ test("without Retry-After the wait grows, and the answer after the last attempt 
         sleep: async (milliseconds) => {
           slept.push(milliseconds);
         },
-      }).requestQuote(rfq, "once"),
+      }).submitResolutionReport(marketRef, report, "once"),
       BlinkApiError,
     );
     assert.deepEqual([server.seen.length, slept.length], [1, 0]);
@@ -653,10 +587,11 @@ test("a business refusal is final, and reads are retried too", async () => {
   };
   try {
     await assert.rejects(
-      createBlinkClient(noQuote.origin, API_KEY, options).requestQuote(
-        rfq,
-        "k",
-      ),
+      createBlinkClient(
+        noQuote.origin,
+        API_KEY,
+        options,
+      ).submitResolutionReport(marketRef, report, "k"),
       (error) =>
         error instanceof BlinkApiError &&
         error.body.details["reason"] === "CAP_EXCEEDED",
@@ -679,11 +614,15 @@ test("the default policy really waits, and never longer than ten seconds", async
           headers: { "Retry-After": "0" },
           body: apiError("INDEXER_LAG", true),
         }
-      : { body: quote },
+      : { body: reportAnswer },
   );
   try {
     const started = Date.now();
-    await createBlinkClient(server.origin, API_KEY).requestQuote(rfq, "k");
+    await createBlinkClient(server.origin, API_KEY).submitResolutionReport(
+      marketRef,
+      report,
+      "k",
+    );
     assert.equal(server.seen.length, 2);
     assert.ok(Date.now() - started < 5000);
   } finally {
@@ -697,14 +636,14 @@ test("the default policy really waits, and never longer than ten seconds", async
           headers: { "Retry-After": "3600" },
           body: apiError("INDEXER_LAG", true),
         }
-      : { body: quote },
+      : { body: reportAnswer },
   );
   try {
     await createBlinkClient(slow.origin, API_KEY, {
       sleep: async (milliseconds) => {
         slept.push(milliseconds);
       },
-    }).requestQuote(rfq, "k");
+    }).submitResolutionReport(marketRef, report, "k");
     assert.deepEqual(slept, [10_000]);
   } finally {
     await slow.close();
@@ -755,28 +694,16 @@ test("getMarketSpec returns the spec only when the bytes hash to the expected sp
   }
 });
 
-test("the faucet's own refusals reach the caller as BlinkApiError codes", async () => {
-  for (const [status, code] of [
-    [409, "FAUCET_PENDING"],
-    [409, "FAUCET_NOT_ALLOWED"],
-  ] as const) {
-    const server = await scripted(() => ({
-      status,
-      body: apiError(code, false),
-    }));
-    try {
-      await assert.rejects(
-        createBlinkClient(server.origin, API_KEY).claimFaucet({
-          deploymentId: DEPLOYMENT,
-        }),
-        (error) =>
-          error instanceof BlinkApiError &&
-          error.status === status &&
-          error.body.code === code,
-      );
-    } finally {
-      await server.close();
-    }
+test("retired execution client methods refuse without issuing HTTP requests", async () => {
+  const server = await scripted(() => ({ body: {} }));
+  try {
+    const client = createBlinkClient(server.origin, API_KEY);
+    await assert.rejects(client.requestQuote({}), /RETIRED_P2/);
+    await assert.rejects(client.getQuote(HASH), /RETIRED_P2/);
+    await assert.rejects(client.claimFaucet({}), /RETIRED_P2/);
+    assert.deepEqual(server.seen, []);
+  } finally {
+    await server.close();
   }
 });
 
@@ -793,7 +720,7 @@ test("an answer that breaks the contract is an error, an API refusal is a BlinkA
       (error) => !(error instanceof BlinkApiError),
     );
     await assert.rejects(
-      client.getQuote(HASH),
+      client.getMarket({ ...marketRef, mode: "REPLAY" }),
       (error) => error instanceof BlinkApiError && error.status === 404,
     );
   } finally {
@@ -856,7 +783,7 @@ test("the example agent refuses a node that is not local or not chain 84532 befo
   );
 });
 
-test("SDK refuses mainnet config and quote domains before response parsing", async () => {
+test("SDK refuses mainnet config and embedded domains before response parsing", async () => {
   for (const body of [
     { chainId: 8453 },
     { deployment: { chainId: 8453 } },
@@ -866,7 +793,6 @@ test("SDK refuses mainnet config and quote domains before response parsing", asy
     try {
       const client = createBlinkClient(server.origin);
       await assert.rejects(client.getConfig(), /MAINNET_REFUSED/);
-      await assert.rejects(client.getQuote(HASH), /MAINNET_REFUSED/);
     } finally {
       await server.close();
     }

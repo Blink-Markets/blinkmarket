@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { postgresJobQueue } from "../packages/adapters/src/job-queue.js";
 import { startWorker } from "../packages/application/src/worker-runtime.js";
-import { TxDispatchError } from "../packages/application/src/tx-dispatcher.js";
 import { JobError } from "../packages/domain/src/jobs.js";
 import type { JobHandler } from "../packages/ports/src/index.js";
 import { reportJobFailures } from "./helpers/job-failures.js";
@@ -40,30 +39,30 @@ const ending = (
 test("a job that will not be retried ends the run at once naming its type and error code, and still fails for the worker", async () => {
   for (const [type, error, attempt, named] of [
     [
-      "faucet.mint",
+      "evidence.fetch",
       new JobError("INVALID_JOB_PAYLOAD", false),
       1,
-      "faucet.mint INVALID_JOB_PAYLOAD",
+      "evidence.fetch INVALID_JOB_PAYLOAD",
     ],
-    // Dispatcher errors keep their code and retry policy in the worker.
+    // Job errors keep their code and retry policy in the worker.
     [
-      "tx.dispatch",
-      new TxDispatchError("SIGN_REJECTED:POLICY", false),
+      "forecast.run",
+      new JobError("MODEL_REJECTED:POLICY", false),
       1,
-      "tx.dispatch SIGN_REJECTED:POLICY",
+      "forecast.run MODEL_REJECTED:POLICY",
     ],
     // Retryable, but on its last attempt: the queue dead-letters it.
     [
-      "keeper.finalize",
-      new JobError("SIGN_UNKNOWN", true),
+      "evaluation.score",
+      new JobError("MODEL_UNAVAILABLE", true),
       3,
-      "keeper.finalize SIGN_UNKNOWN",
+      "evaluation.score MODEL_UNAVAILABLE",
     ],
     [
-      "keeper.finalize",
+      "evaluation.score",
       new Error("connect ECONNREFUSED"),
       3,
-      "keeper.finalize INTERNAL_ERROR: connect ECONNREFUSED",
+      "evaluation.score INTERNAL_ERROR: connect ECONNREFUSED",
     ],
   ] as const) {
     let thrown: unknown;
@@ -88,85 +87,67 @@ test("a retryable job failure followed by success does not fail the run", async 
   let calls = 0;
   const outcome = await ending(
     {
-      "faucet.mint": async () => {
-        if (++calls === 1) throw new JobError("SIGN_UNKNOWN", true);
+      "evidence.fetch": async () => {
+        if (++calls === 1) throw new JobError("MODEL_UNAVAILABLE", true);
       },
-      "tx.dispatch": failing(
-        new TxDispatchError("ATTEMPT_UPDATE_CONFLICT", true),
-      ),
-      "keeper.finalize": failing(new Error("connect ECONNREFUSED")),
+      "forecast.run": failing(new JobError("ATTEMPT_UPDATE_CONFLICT", true)),
+      "evaluation.score": failing(new Error("connect ECONNREFUSED")),
     },
     async (wrapped) => {
-      await assert.rejects(wrapped["faucet.mint"]!(context(1)), /SIGN_UNKNOWN/);
-      await wrapped["faucet.mint"]!(context(2));
-      await assert.rejects(wrapped["tx.dispatch"]!(context(1)));
-      await assert.rejects(wrapped["keeper.finalize"]!(context(2)));
+      await assert.rejects(
+        wrapped["evidence.fetch"]!(context(1)),
+        /MODEL_UNAVAILABLE/,
+      );
+      await wrapped["evidence.fetch"]!(context(2));
+      await assert.rejects(wrapped["forecast.run"]!(context(1)));
+      await assert.rejects(wrapped["evaluation.score"]!(context(2)));
     },
   );
   assert.equal(outcome, "completed");
 });
 
-test("worker reports dispatcher codes and honors the dispatcher's retry flag", async () => {
-  const dispatchError = new TxDispatchError("SIGN_REJECTED:POLICY", false);
-  assert.ok(dispatchError instanceof JobError);
-  assert.equal(dispatchError.code, "SIGN_REJECTED:POLICY");
-  assert.equal(dispatchError.retryable, false);
+test("worker reports job codes and honors the handler's retry flag", async () => {
+  const jobError = new JobError("MODEL_REJECTED:POLICY", false);
+  assert.ok(jobError instanceof JobError);
+  assert.equal(jobError.code, "MODEL_REJECTED:POLICY");
+  assert.equal(jobError.retryable, false);
   const failed = await ending(
-    { "tx.dispatch": failing(dispatchError) },
+    { "forecast.run": failing(jobError) },
     async (wrapped) => {
-      await wrapped["tx.dispatch"]!(context(1));
+      await wrapped["forecast.run"]!(context(1));
       await never();
     },
   );
-  assert.match(failed, /tx\.dispatch SIGN_REJECTED:POLICY/);
+  assert.match(failed, /forecast\.run MODEL_REJECTED:POLICY/);
   assert.doesNotMatch(failed, /INTERNAL_ERROR/);
 });
 
 test("retryable job failures are named, counted once per kind, in a later failure of the run", async () => {
   const outcome = await ending(
     {
-      "keeper.finalize": failing(new JobError("SIGN_UNKNOWN", true)),
-      "tx.dispatch": failing(new Error("connect ECONNREFUSED")),
+      "evaluation.score": failing(new JobError("MODEL_UNAVAILABLE", true)),
+      "forecast.run": failing(new Error("connect ECONNREFUSED")),
     },
     async (wrapped) => {
       for (const attempt of [1, 2])
-        await assert.rejects(wrapped["keeper.finalize"]!(context(attempt)));
-      await assert.rejects(wrapped["tx.dispatch"]!(context(1)));
-      throw new Error("ALPHA_KEEPER_DID_NOT_FINALIZE");
+        await assert.rejects(wrapped["evaluation.score"]!(context(attempt)));
+      await assert.rejects(wrapped["forecast.run"]!(context(1)));
+      throw new Error("ALPHA_SCORE_FAILED");
     },
   );
   assert.equal(
     outcome,
-    "Error: ALPHA_KEEPER_DID_NOT_FINALIZE; recorded: keeper.finalize SIGN_UNKNOWN (retryable) x2, tx.dispatch INTERNAL_ERROR: connect ECONNREFUSED (retryable)",
+    "Error: ALPHA_SCORE_FAILED; recorded: evaluation.score MODEL_UNAVAILABLE (retryable) x2, forecast.run INTERNAL_ERROR: connect ECONNREFUSED (retryable)",
   );
 });
 
-test("a transaction that is only waiting for finality is neither a failure nor recorded", async () => {
-  const outcome = await ending(
-    {
-      "tx.dispatch": failing(new TxDispatchError("TX_PENDING", true)),
-      "faucet.mint": async () => {},
-    },
-    async (wrapped) => {
-      // Not even its last attempt: Anvil never finalizes, so every dispatch job runs out.
-      await assert.rejects(
-        wrapped["tx.dispatch"]!(context(10, 10)),
-        /TX_PENDING/,
-      );
-      await wrapped["faucet.mint"]!(context());
-      throw new Error("ALPHA_KEEPER_DID_NOT_FINALIZE");
-    },
-  );
-  assert.equal(outcome, "Error: ALPHA_KEEPER_DID_NOT_FINALIZE");
-});
-
-test("a non-retryable dispatcher failure is reported and dead-lettered with its actual code", async () => {
+test("a non-retryable job failure is reported and dead-lettered with its actual code", async () => {
   const s = await migratedPglite();
   try {
     const queue = postgresJobQueue(s.pool);
     const { jobId } = await queue.enqueue({
-      type: "tx.dispatch",
-      dedupeKey: "dispatch",
+      type: "forecast.run",
+      dedupeKey: "forecast",
       payload: {},
     });
     const outcome = await runWithCleanup({}, async (life) => {
@@ -174,9 +155,7 @@ test("a non-retryable dispatcher failure is reported and dead-lettered with its 
       const worker = startWorker({
         queue,
         handlers: reportJobFailures(life, {
-          "tx.dispatch": failing(
-            new TxDispatchError("SIGN_REJECTED:POLICY", false),
-          ),
+          "forecast.run": failing(new JobError("MODEL_REJECTED:POLICY", false)),
         }),
         workerId: "w",
         pollIntervalMs: 5,
@@ -186,7 +165,7 @@ test("a non-retryable dispatcher failure is reported and dead-lettered with its 
     }).catch((error: unknown) => String(error));
     assert.equal(
       outcome,
-      "Error: LIFECYCLE_ABORTED during scenario dispute: external agent: ALPHA_JOB_FAILED: tx.dispatch SIGN_REJECTED:POLICY",
+      "Error: LIFECYCLE_ABORTED during scenario dispute: external agent: ALPHA_JOB_FAILED: forecast.run MODEL_REJECTED:POLICY",
     );
     // The queue dead-letters it as it always did.
     const { rows } = await s.pool.query(
@@ -195,7 +174,7 @@ test("a non-retryable dispatcher failure is reported and dead-lettered with its 
     );
     assert.deepEqual(rows[0], {
       state: "DEAD",
-      last_error_code: "SIGN_REJECTED:POLICY",
+      last_error_code: "MODEL_REJECTED:POLICY",
     });
   } finally {
     await s.db.close();
@@ -207,15 +186,15 @@ test("a job the real worker retries is recorded, not failed, until its last atte
   try {
     const queue = postgresJobQueue(s.pool);
     await queue.enqueue({
-      type: "faucet.mint",
-      dedupeKey: "mint",
+      type: "evidence.fetch",
+      dedupeKey: "fetch",
       payload: {},
     });
     const outcome = await runWithCleanup({}, async (life) => {
       const worker = startWorker({
         queue,
         handlers: reportJobFailures(life, {
-          "faucet.mint": failing(new JobError("SIGN_UNKNOWN", true)),
+          "evidence.fetch": failing(new JobError("MODEL_UNAVAILABLE", true)),
         }),
         workerId: "w",
         pollIntervalMs: 5,
@@ -233,7 +212,7 @@ test("a job the real worker retries is recorded, not failed, until its last atte
     }).catch((error: unknown) => String(error));
     assert.match(
       outcome,
-      /^Error: ALPHA_AGENT_FAILED; recorded: faucet\.mint SIGN_UNKNOWN \(retryable\)( x\d+)?$/,
+      /^Error: ALPHA_AGENT_FAILED; recorded: evidence\.fetch MODEL_UNAVAILABLE \(retryable\)( x\d+)?$/,
     );
   } finally {
     await s.db.close();
@@ -244,10 +223,10 @@ test("a job aborted because the harness stopped its worker does not fail the run
   const stopped = new AbortController();
   stopped.abort();
   const ended = await ending(
-    { "tx.dispatch": failing(new TxDispatchError("DISPATCH_ABORTED", false)) },
+    { "forecast.run": failing(new JobError("JOB_ABORTED", false)) },
     async (wrapped) => {
       await assert.rejects(
-        wrapped["tx.dispatch"]!({
+        wrapped["forecast.run"]!({
           ...context(3, 3),
           signal: stopped.signal,
         }),

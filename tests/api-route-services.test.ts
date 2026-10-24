@@ -33,13 +33,7 @@ function fakeService(
   return { service, calls };
 }
 const key = { "idempotency-key": "route-service-test" };
-const rfq = {
-  deploymentId: "test",
-  marketId: "1",
-  side: "YES",
-  quantity: "10",
-  maxCostMicros: "6500000",
-};
+const candidate = { fixture: "raw request body" };
 
 test("a service owns its path: status, body, request fields and default no-store", async () => {
   const { service, calls } = fakeService(["/v1/markets"], () => ({
@@ -169,14 +163,17 @@ test("invalid params or query are rejected with 400 before the service runs", as
 });
 
 test("POST needs a valid Idempotency-Key and passes the raw body through", async () => {
-  const { service, calls } = fakeService(["/v1/rfqs"], () => ({
+  const { service, calls } = fakeService(["/v1/candidates"], () => ({
     status: 200,
     body: { ok: true },
   }));
   const app = buildApi({ services: [service] });
   try {
-    const send = (headers: Record<string, string>, payload: object = rfq) =>
-      app.inject({ method: "POST", url: "/v1/rfqs", headers, payload });
+    const send = (
+      headers: Record<string, string>,
+      payload: object = candidate,
+    ) =>
+      app.inject({ method: "POST", url: "/v1/candidates", headers, payload });
     for (const headers of [
       {},
       { "idempotency-key": "" },
@@ -558,7 +555,7 @@ test("/v1/config can be supplied, with a public deployment and an explicit stage
   const { manifest } = deploymentFixture();
   const config = ConfigResponse.parse({
     chainId: 84532,
-    stage: "m2-trading",
+    stage: "m2-markets",
     tradingEnabled: true,
     deployment: PublicDeployment.parse({
       deploymentId: manifest.deploymentId,
@@ -579,10 +576,10 @@ test("/v1/config can be supplied, with a public deployment and an explicit stage
       hasValue: false,
     },
   });
-  const app = buildApi({ stage: "m2-trading", config: async () => config });
+  const app = buildApi({ stage: "m2-markets", config: async () => config });
   try {
     assert.deepEqual((await app.inject("/v1/config")).json(), config);
-    assert.equal((await app.inject("/health/live")).json().stage, "m2-trading");
+    assert.equal((await app.inject("/health/live")).json().stage, "m2-markets");
   } finally {
     await app.close();
   }

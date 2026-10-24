@@ -152,3 +152,77 @@ test("UnitOfWork rejects PostgreSQL's implicit rollback and supports savepoint r
     await db.close();
   }
 });
+
+test("0025 retires platform execution objects", async () => {
+  const db = new PGlite();
+  try {
+    await migrate({
+      async query(sql: string, params?: unknown[]) {
+        if (params) return db.query<Record<string, unknown>>(sql, params);
+        if (sql.startsWith("-- P2: retire")) {
+          await db.exec(`INSERT INTO operations.jobs(id,type,dedupe_key,payload,state,lease_owner,lease_until,lease_token)
+          SELECT gen_random_uuid(),type,type || ':' || state,'{}'::jsonb,state,
+            CASE WHEN state='LEASED' THEN 'old-worker' END,
+            CASE WHEN state='LEASED' THEN blink.now()+interval '1 hour' END,7
+          FROM unnest(ARRAY['tx.dispatch','keeper.finalize','faucet.mint','trader.evaluate','quote.reconcile','evaluation.score']) type
+          CROSS JOIN unnest(ARRAY['QUEUED','LEASED','SUCCEEDED']) state`);
+        }
+        const results = await db.exec(sql);
+        return {
+          rows: (results.at(-1)?.rows as Record<string, unknown>[]) ?? [],
+        };
+      },
+    });
+    assert.deepEqual(
+      (
+        await db.query(`SELECT schemaname, tablename FROM pg_tables
+      WHERE schemaname IN ('signing', 'faucet') OR (schemaname = 'trading' AND tablename IN
+      ('quotes','maker_pools','quote_gates','collateral_reservations','reservation_events','mandates','risk_reservations'))`)
+      ).rows,
+      [],
+    );
+    const retired = (
+      await db.query<{
+        state: string;
+        last_error_code: string;
+        lease_owner: string | null;
+        lease_until: string | null;
+        lease_token: string;
+      }>(
+        "SELECT state,last_error_code,lease_owner,lease_until,lease_token::text FROM operations.jobs WHERE type<>'evaluation.score' AND state<>'SUCCEEDED'",
+      )
+    ).rows;
+    assert.equal(retired.length, 10);
+    for (const job of retired)
+      assert.deepEqual(job, {
+        state: "DEAD",
+        last_error_code: "RETIRED_P2",
+        lease_owner: null,
+        lease_until: null,
+        lease_token: "8",
+      });
+    assert.equal(
+      (await db.query("SELECT * FROM operations.jobs WHERE state='SUCCEEDED'"))
+        .rows.length,
+      6,
+    );
+    assert.equal(
+      (
+        await db.query(
+          "SELECT * FROM operations.jobs WHERE type='evaluation.score' AND state IN ('QUEUED','LEASED')",
+        )
+      ).rows.length,
+      2,
+    );
+    assert.deepEqual(
+      (
+        await db.query(
+          "SELECT rolname FROM pg_roles WHERE rolname IN ('blink_signer','blink_trading_admin')",
+        )
+      ).rows,
+      [],
+    );
+  } finally {
+    await db.close();
+  }
+});

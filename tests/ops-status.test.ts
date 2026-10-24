@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { decodeFunctionData } from "viem";
 import { opsStatusCommand } from "../scripts/ops-status.js";
 import { blinkMarketAbi } from "../packages/adapters/src/blink-abi.js";
-import { testManifest } from "./helpers/signer-fixture.js";
+import { testManifest } from "./helpers/protocol-fixture.js";
 
 test("pause CLI prints unsigned ADMIN drafts and only makes authenticated GETs", async () => {
   const manifest = testManifest({ deploymentId: "ops-test" });

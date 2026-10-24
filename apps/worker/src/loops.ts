@@ -4,7 +4,7 @@ import { startWorker } from "@blink/application";
 
 /**
  * Alert delivery retries forever and may block on a slow sink, so it gets its own loop: the other
- * jobs (keeper.finalize, tx.dispatch, quote.reconcile, ...) never wait behind a hung alert.
+ * infrastructure and research jobs never wait behind a hung alert.
  * Each loop leases only the types it has handlers for.
  */
 export function startJobLoops(options: {

@@ -3,7 +3,7 @@ import type { PoolClient } from "pg";
 // Validate the authenticated login, including indirect membership and SET ROLE impersonation.
 export async function assertRuntimeRole(
   client: Pick<PoolClient, "query">,
-  role: "blink_api" | "blink_worker" | "blink_signer" | "blink_indexer",
+  role: "blink_api" | "blink_worker" | "blink_indexer",
   errorCode: string,
 ) {
   const { rows } = await client.query<{ allowed: boolean }>(
@@ -16,7 +16,7 @@ export async function assertRuntimeRole(
     AND NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = current_database() AND datdba = s.oid)
     AND NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname IN
       ('blink','operations','identity','evidence','discovery','markets','chain',
-       'budgets','forecasts','signing','trading','faucet','resolution','analytics')
+       'budgets','forecasts','resolution','analytics')
       AND has_schema_privilege(session_user, oid, 'CREATE')) AS allowed
     FROM pg_roles s WHERE s.rolname = session_user`,
     [role],

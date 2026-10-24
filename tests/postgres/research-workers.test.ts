@@ -202,7 +202,7 @@ test("the worker role reads only what the research jobs need", async () => {
       worker.query("UPDATE forecasts.pending_answers SET answer='{}'"),
       /permission denied/,
     );
-    for (const role of ["blink_api", "blink_indexer", "blink_signer"])
+    for (const role of ["blink_api", "blink_indexer"])
       assert.equal(
         (
           await owner.query(

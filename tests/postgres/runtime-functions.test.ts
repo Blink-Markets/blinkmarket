@@ -11,13 +11,7 @@ test("real PostgreSQL: fresh migrations remove PUBLIC EXECUTE and preserve expli
       WHERE n.nspname IN ('blink','operations','identity','evidence','discovery','markets','chain','budgets','forecasts','signing','trading','faucet','resolution','analytics')
       AND a.grantee=0 AND a.privilege_type='EXECUTE'`);
     assert.deepEqual(publicGrants.rows, []);
-    for (const role of [
-      "blink_api",
-      "blink_worker",
-      "blink_signer",
-      "blink_indexer",
-      "blink_trading_admin",
-    ]) {
+    for (const role of ["blink_api", "blink_worker", "blink_indexer"]) {
       const db = await login({ memberOf: [role] });
       assert.ok((await db.query("SELECT blink.now() AS now")).rows[0].now);
     }

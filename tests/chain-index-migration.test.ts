@@ -47,12 +47,7 @@ test("0007 is applied and blink.now() follows the clock plus the local test offs
     await t.db.exec("SET blink.test_clock_offset_seconds = '3600'");
     const shifted = await skew();
     assert.ok(shifted > 3595 && shifted < 3605, String(shifted));
-    for (const role of [
-      "blink_api",
-      "blink_worker",
-      "blink_indexer",
-      "blink_signer",
-    ]) {
+    for (const role of ["blink_api", "blink_worker", "blink_indexer"]) {
       await t.setRole(role);
       assert.ok(Math.abs((await skew()) - 3600) < 5, role);
     }
@@ -135,20 +130,6 @@ test("the indexer owns the projections, the API only reads, and events are immut
     await assert.rejects(t.db.exec(market(3)), /permission denied/);
     await t.setRole("blink_worker");
     await assert.rejects(t.db.exec(market(3)), /permission denied/);
-    await t.setRole("blink_signer");
-    for (const table of [
-      "cursors",
-      "markets",
-      "maker_state",
-      "quote_digests",
-      "takers",
-    ])
-      await t.db.exec(`SELECT * FROM chain.${table}`);
-    for (const table of ["blocks", "events", "positions"])
-      await assert.rejects(
-        t.db.exec(`SELECT * FROM chain.${table}`),
-        /permission denied/,
-      );
   } finally {
     await t.close();
   }

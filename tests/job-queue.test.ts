@@ -9,10 +9,7 @@ import {
   postgresJobQueue,
 } from "../packages/adapters/src/job-queue.js";
 import { dispatchOutbox } from "../packages/adapters/src/outbox-dispatcher.js";
-import {
-  retryDelayMs,
-  TX_DISPATCH_MAX_ATTEMPTS,
-} from "../packages/domain/src/jobs.js";
+import { retryDelayMs } from "../packages/domain/src/jobs.js";
 import { migratedPglite } from "./helpers/serial-pglite-pool.js";
 
 async function withQueue(
@@ -53,7 +50,7 @@ test("the worker accepts only a plain blink_worker login and an installed migrat
       /UNSAFE_WORKER_DATABASE_ROLE/,
     );
     await assertJobsMigrationInstalled(s.pool);
-    for (const role of ["blink_api", "blink_indexer", "blink_signer"]) {
+    for (const role of ["blink_api", "blink_indexer"]) {
       await s.db.exec(`SET ROLE ${role}`);
       await assert.rejects(
         assertWorkerRuntimeRole(s.pool),
@@ -103,7 +100,7 @@ test("lease takes due jobs in run order, skips future and other types", () =>
     );
     await queue.enqueue(fetchJob("future", { runAt: new Date(now + 60_000) }));
     await queue.enqueue({
-      type: "keeper.finalize",
+      type: "evaluation.score",
       dedupeKey: "other-type",
       payload: {},
       runAt: new Date(now - 9000),
@@ -395,13 +392,6 @@ test("a failing mapping rolls the whole dispatch batch back", () =>
       2,
     );
   }));
-
-test("tx.dispatch backoff outlasts the measured Base Sepolia finality lag", () => {
-  assert.equal(TX_DISPATCH_MAX_ATTEMPTS, 20);
-  let total = 0;
-  for (let a = 1; a < TX_DISPATCH_MAX_ATTEMPTS; a++) total += retryDelayMs(a);
-  assert.equal(total, 4_215_000); // about 70 minutes; the measured lag peaked at 1968 s
-});
 
 test("jobs accept up to 20 max attempts and reject more", () =>
   withQueue(async (s) => {

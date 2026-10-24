@@ -1,6 +1,6 @@
-# Local container smoke for the four service images: PostgreSQL + Anvil (chain ID 84532) + api, worker,
-# indexer and signer. Local only: test keys, no real RPC, nothing is deployed. `pnpm images:smoke` provisions
-# the database, deployment and key files and passes every value below in the environment; the file itself
+# Local container smoke for the three service images: PostgreSQL + Anvil (chain ID 84532) + api, worker,
+# and indexer. Local only: test keys, no real RPC, nothing is deployed. `pnpm images:smoke` provisions
+# the database and deployment, and passes every value below in the environment; the file itself
 # holds no secret, and `docker compose` refuses to start a service whose required value is missing.
 name: blink-alpha
 
@@ -52,36 +52,18 @@ services:
       timeout: 3s
       retries: 30
 
-  signer:
-    <<: *service
-    image: blink-signer:local
-    build: { context: .., dockerfile: infra/Dockerfile.signer }
-    environment:
-      SIGNER_ENABLED: "true"
-      SIGNER_DATABASE_URL: ${ALPHA_SIGNER_DATABASE_URL:?set by images:smoke}
-      BASE_SEPOLIA_RPC_URL: http://anvil:8545
-      SIGNER_DEPLOYMENT_ID: ${ALPHA_DEPLOYMENT_ID:?set by images:smoke}
-      SIGNER_CALLERS: ${ALPHA_SIGNER_CALLERS:?set by images:smoke}
-      SIGNER_MAKER_KEY_FILE: /run/keys/maker.key
-      SIGNER_KEEPER_KEY_FILE: /run/keys/keeper.key
-      SIGNER_FAUCET_KEY_FILE: /run/keys/faucet.key
-    volumes:
-      - keys:/run/keys:ro
-
   api:
     <<: *service
     image: blink-api:local
     build: { context: .., dockerfile: infra/Dockerfile.api }
     environment:
-      BLINK_API_MODE: trading
+      BLINK_API_MODE: markets
       API_DATABASE_URL: ${ALPHA_API_DATABASE_URL:?set by images:smoke}
       WALLET_BINDING_ORIGIN: http://127.0.0.1:${ALPHA_API_PORT:-3001}
       SPEC_OBJECT_DIRECTORY: /data/specs
       SPEC_PUBLIC_ORIGIN: http://127.0.0.1:${ALPHA_API_PORT:-3001}
       EVIDENCE_OBJECT_DIRECTORY: /data/evidence
       BLINK_DEPLOYMENT_ID: ${ALPHA_DEPLOYMENT_ID:?set by images:smoke}
-      SIGNER_URL: http://signer:3004
-      SIGNER_CALLER_TOKEN: ${ALPHA_API_SIGNER_TOKEN:?set by images:smoke}
       BASE_SEPOLIA_RPC_URL: http://anvil:8545
     ports:
       - "127.0.0.1:${ALPHA_API_PORT:-3001}:3001"
@@ -119,8 +101,6 @@ services:
       WORKER_ENABLED: "true"
       WORKER_DATABASE_URL: ${ALPHA_WORKER_DATABASE_URL:?set by images:smoke}
       BLINK_DEPLOYMENT_ID: ${ALPHA_DEPLOYMENT_ID:?set by images:smoke}
-      SIGNER_URL: http://signer:3004
-      WORKER_SIGNER_CALLER_TOKEN: ${ALPHA_WORKER_SIGNER_TOKEN:?set by images:smoke}
       BASE_SEPOLIA_RPC_URL: http://anvil:8545
       EVIDENCE_OBJECT_DIRECTORY: /data/evidence
       WORKER_API_URL: http://127.0.0.1:3001
@@ -134,5 +114,4 @@ services:
       - ../fixtures/replay/models/gm-replay.json:/fixtures/gm-replay.json:ro
 
 volumes:
-  keys:
   data:

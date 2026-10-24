@@ -367,7 +367,7 @@ test("only job types with a handler are leased, and an empty map never polls", a
 
   await withDb(async (s, queue) => {
     const other = await queue.enqueue({
-      type: "keeper.finalize",
+      type: "evaluation.score",
       dedupeKey: "not-mine",
       payload: {},
     });
