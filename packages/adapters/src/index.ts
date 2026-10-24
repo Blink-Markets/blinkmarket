@@ -7,7 +7,12 @@ export {
 } from "./spec-archive.js";
 export { fileObjectStore } from "./file-object-store.js";
 export { keccak256Hex } from "./content-hash.js";
-export { verifyDeploymentOnChain } from "./deployment-verifier.js";
+export {
+  verifyDeploymentOnChain,
+  verifyProtocolDeployment,
+  type VerificationCheck,
+  type VerificationReport,
+} from "./deployment-verifier.js";
 export {
   postgresIdentityStore,
   assertIdentityRuntimeRole,
@@ -19,7 +24,11 @@ export { postgresPreparationStore } from "./preparation-store.js";
 export { evidenceAdmin } from "./evidence-admin.js";
 export { postgresApprovalStore } from "./approval-store.js";
 export { encodeMarketCreation } from "./creation-calldata.js";
-export { registerVerifiedDeployment } from "./deployment-registry.js";
+export {
+  registerVerifiedDeployment,
+  registerProtocolDeployment,
+  loadProtocolDeployment,
+} from "./deployment-registry.js";
 export { evidenceIntegrity } from "./evidence-integrity.js";
 export { postgresCreationTrackerStore } from "./creation-tracker-store.js";
 export { creationReceiptReader } from "./creation-receipt-reader.js";
@@ -33,9 +42,21 @@ export {
   planDeployment,
   deployContracts,
   assertDeployChain,
-  readReleaseCommit,
   type RoleAddresses,
 } from "./contract-deployer.js";
+export {
+  planProtocolDeployment,
+  deployProtocol,
+  loadProtocolArtifacts,
+  assertProtocolDeployChain,
+  generationIndexOf,
+  readReleaseCommit,
+  ProtocolDeployError,
+  type DeploymentPlan,
+  type DeployMeta,
+  type PlannedTransaction,
+  type ProtocolArtifactName,
+} from "./protocol-deployer.js";
 export {
   blinkMarketAbi,
   blinkTestUsdAbi,

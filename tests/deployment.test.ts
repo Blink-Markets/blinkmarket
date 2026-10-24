@@ -1,7 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { keccak256, toBytes, type PublicClient, type Abi } from "viem";
+import { getContractAddress } from "viem";
+import { readFileSync } from "node:fs";
 import { verifyDeploymentOnChain } from "../packages/adapters/src/deployment-verifier.js";
+import { planProtocolDeployment } from "../packages/adapters/src/protocol-deployer.js";
+import {
+  parseProtocolDeployment,
+  presets,
+} from "../packages/schemas/src/index.js";
 
 test("deployment verification rejects wrong bytecode, roles, ABI and reorg", async () => {
   const addr = (n: number) => "0x" + n.toString(16).padStart(40, "0");
@@ -172,4 +179,120 @@ test("deployment verification rejects wrong bytecode, roles, ABI and reorg", asy
     verifyDeploymentOnChain(input, "test", client, abis),
     /ABI_HASH/,
   );
+});
+
+const DEPLOYER = "0x" + "d".repeat(40);
+const TREASURY = "0x" + "e".repeat(40);
+const planInput = {
+  deployer: DEPLOYER as `0x${string}`,
+  nonce: 7,
+  params: presets.alpha,
+  treasury: TREASURY as `0x${string}`,
+};
+
+test("a protocol plan lists eight transactions with consecutive nonces and predicted addresses", () => {
+  const plan = planProtocolDeployment(planInput);
+  assert.deepEqual(
+    plan.transactions.map((t) => [t.name, t.phase, t.nonce]),
+    [
+      ["BlinkFaucet", "shared", 7],
+      ["FixedPriceSource", "shared", 8],
+      ["BlinkGovernor", "shared", 9],
+      ["BlinkAnchor", "shared", 10],
+      ["BlinkRegistry", "generation", 11],
+      ["BlinkJurors", "generation", 12],
+      ["BlinkMarkets", "generation", 13],
+      ["BlinkResolution", "generation", 14],
+    ],
+  );
+  for (const t of plan.transactions)
+    assert.equal(
+      t.address,
+      getContractAddress({ from: plan.deployer, nonce: BigInt(t.nonce) }),
+    );
+  // BlinkFaucet creates bUSD then the platform token: its CREATE nonces 1 and 2.
+  assert.equal(
+    plan.shared.busd,
+    getContractAddress({
+      from: plan.shared.faucet as `0x${string}`,
+      nonce: 1n,
+    }),
+  );
+  assert.equal(
+    plan.shared.token,
+    getContractAddress({
+      from: plan.shared.faucet as `0x${string}`,
+      nonce: 2n,
+    }),
+  );
+  assert.deepEqual(planProtocolDeployment(planInput), plan);
+  for (const t of plan.transactions)
+    assert.match(t.constructorArgsHash, /^0x[0-9a-f]{64}$/);
+});
+
+test("a plan that reuses shared contracts only lists the generation", () => {
+  const first = planProtocolDeployment(planInput);
+  const second = planProtocolDeployment({
+    ...planInput,
+    nonce: 20,
+    shared: first.shared,
+    previousRegistry: first.generation.registry,
+  });
+  assert.deepEqual(
+    second.transactions.map((t) => t.nonce),
+    [20, 21, 22, 23],
+  );
+  assert.deepEqual(second.shared, first.shared);
+  assert.equal(second.previousRegistry, first.generation.registry);
+  // The registry hash covers the previous registry; generation 1's does not.
+  assert.notEqual(
+    second.transactions[0]!.constructorArgsHash,
+    first.transactions[4]!.constructorArgsHash,
+  );
+});
+
+test("a plan refuses bad input before anything is listed", () => {
+  const first = planProtocolDeployment(planInput);
+  assert.throws(
+    () => planProtocolDeployment({ ...planInput, nonce: -1 }),
+    /INVALID_NONCE/,
+  );
+  assert.throws(
+    () =>
+      planProtocolDeployment({
+        ...planInput,
+        treasury: ("0x" + "0".repeat(40)) as `0x${string}`,
+      }),
+    /INVALID_ADDRESS/,
+  );
+  assert.throws(
+    () =>
+      planProtocolDeployment({
+        ...planInput,
+        deployer: "0x1234" as `0x${string}`,
+      }),
+    /INVALID_ADDRESS/,
+  );
+  assert.throws(
+    () =>
+      planProtocolDeployment({
+        ...planInput,
+        previousRegistry: first.generation.registry,
+      }),
+    /PREVIOUS_REGISTRY_REQUIRES_SHARED/,
+  );
+  assert.throws(() =>
+    planProtocolDeployment({
+      ...planInput,
+      params: { ...presets.alpha, feeBps: 1, treasuryShareBps: 1 },
+    }),
+  );
+});
+
+test("the v2 template is not a deployable manifest", () => {
+  const template = JSON.parse(
+    readFileSync("deployments/base-sepolia/manifest.template.json", "utf8"),
+  );
+  assert.equal(template.schema, "blink.deployment/2");
+  assert.equal(parseProtocolDeployment(template).ok, false);
 });

@@ -1,13 +1,14 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import pg from "pg";
-import { createPublicClient, http, type Abi } from "viem";
-import { registerVerifiedDeployment } from "../packages/adapters/src/deployment-registry.js";
+import { createPublicClient, http } from "viem";
+import { parseProtocolDeployment } from "../packages/schemas/src/index.js";
+import { registerProtocolDeployment } from "../packages/adapters/src/deployment-registry.js";
+import { verifyProtocolDeployment } from "../packages/adapters/src/deployment-verifier.js";
 
-const [file, id, reason] = process.argv.slice(2);
+const [file, id] = process.argv.slice(2);
 const connectionString = process.env.DEPLOYMENT_ADMIN_DATABASE_URL,
   rpc = process.env.BASE_SEPOLIA_RPC_URL;
-if (!file || !id || !reason || !connectionString || !rpc)
+if (!file || !id || !connectionString || !rpc)
   throw new Error("DEPLOYMENT_REGISTRATION_CONFIGURATION_REQUIRED");
 const pool = new pg.Pool({
   connectionString,
@@ -16,27 +17,25 @@ const pool = new pg.Pool({
   statement_timeout: 10000,
 });
 try {
-  const artifacts =
-    process.env.CONTRACT_ARTIFACT_DIRECTORY ?? "contracts/artifacts";
-  const [input, market, token] = await Promise.all([
-    readFile(file, "utf8"),
-    readFile(join(artifacts, "BlinkMarket.json"), "utf8"),
-    readFile(join(artifacts, "BlinkTestUSD.json"), "utf8"),
-  ]);
-  const result = await registerVerifiedDeployment(
-    pool,
-    JSON.parse(input),
-    id,
+  const parsed = parseProtocolDeployment(
+    JSON.parse(await readFile(file, "utf8")),
+  );
+  if (!parsed.ok || parsed.manifest.deploymentId !== id)
+    throw new Error("MANIFEST_INVALID");
+  const report = await verifyProtocolDeployment(
     createPublicClient({
       transport: http(rpc, { timeout: 10000, retryCount: 1 }),
     }),
+    parsed.manifest,
     {
-      BlinkMarket: JSON.parse(market).abi as Abi,
-      BlinkTestUSD: JSON.parse(token).abi as Abi,
+      artifactsDir:
+        process.env.CONTRACT_ARTIFACT_DIRECTORY ?? "contracts/artifacts",
     },
-    reason,
   );
-  console.log(JSON.stringify(result));
+  await registerProtocolDeployment(pool, parsed.manifest, report);
+  console.log(
+    JSON.stringify({ deploymentId: id, blockHash: report.blockHash }),
+  );
 } catch {
   console.error(
     "DEPLOYMENT_REGISTRATION_FAILED: check manifest, RPC, artifacts, permissions and registry identity",

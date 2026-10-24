@@ -1,28 +1,26 @@
 import { readFile } from "node:fs/promises";
-import { createPublicClient, http, type Abi } from "viem";
-import { verifyDeploymentOnChain } from "../packages/adapters/src/deployment-verifier.js";
+import { createPublicClient, http } from "viem";
+import { parseProtocolDeployment } from "../packages/schemas/src/index.js";
+import { verifyProtocolDeployment } from "../packages/adapters/src/deployment-verifier.js";
 const [path, id] = process.argv.slice(2);
 const rpc = process.env["BASE_SEPOLIA_RPC_URL"];
 if (!path || !id || !rpc)
   throw new Error(
     "Usage: BASE_SEPOLIA_RPC_URL=... pnpm manifest:verify <manifest> <expected-deployment-id>",
   );
-const [input, m, t] = await Promise.all([
-  readFile(path, "utf8"),
-  readFile("contracts/artifacts/BlinkMarket.json", "utf8"),
-  readFile("contracts/artifacts/BlinkTestUSD.json", "utf8"),
-]);
-const result = await verifyDeploymentOnChain(
-  JSON.parse(input),
-  id,
+const parsed = parseProtocolDeployment(
+  JSON.parse(await readFile(path, "utf8")),
+);
+if (!parsed.ok) throw new Error(parsed.reason);
+if (parsed.manifest.deploymentId !== id)
+  throw new Error("DEPLOYMENT_ID_MISMATCH");
+const report = await verifyProtocolDeployment(
   createPublicClient({ transport: http(rpc) }),
+  parsed.manifest,
   {
-    BlinkMarket: JSON.parse(m).abi as Abi,
-    BlinkTestUSD: JSON.parse(t).abi as Abi,
+    artifactsDir:
+      process.env["CONTRACT_ARTIFACT_DIRECTORY"] ?? "contracts/artifacts",
   },
 );
-console.log({
-  deploymentId: result.manifest.deploymentId,
-  asOfBlockHash: result.asOfBlockHash,
-  status: "verified; does not enable trading",
-});
+console.log(report);
+if (!report.ok) process.exitCode = 1;

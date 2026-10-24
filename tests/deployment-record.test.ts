@@ -1,13 +1,27 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { DeploymentManifest } from "../packages/schemas/src/index.ts";
+import {
+  DeploymentManifest,
+  parseProtocolDeployment,
+} from "../packages/schemas/src/index.ts";
 
 const manifest = DeploymentManifest.parse(
   JSON.parse(
     readFileSync("deployments/base-sepolia/alpha-2.manifest.json", "utf8"),
   ),
 );
+// alpha-2 is the v0.1 record, kept byte-identical as history; manifest v2 refuses it by name.
+test("alpha-2 is a historical v0.1 manifest, not a protocol deployment", () => {
+  assert.deepEqual(
+    parseProtocolDeployment(
+      JSON.parse(
+        readFileSync("deployments/base-sepolia/alpha-2.manifest.json", "utf8"),
+      ),
+    ),
+    { ok: false, reason: "HISTORICAL_V1_MANIFEST" },
+  );
+});
 const deploymentPage = readFileSync(
   "apps/web/content/docs/deployment.md",
   "utf8",
