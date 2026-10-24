@@ -36,6 +36,10 @@
   - Quote type `Quote(uint256 marketId,bytes32 specHash,address maker,address taker,uint8 side,uint64 quantity,uint16 priceBps,uint64 validAfter,uint64 expiresAt,uint256 nonce,uint256 epoch)`
   - Taker pays `takerCost + floor(takerCost × feeBps / 10000)`
 - **Access:** reads are public. A write that acts for an identity needs an API key issued by wallet proof, plus the matching role in the indexed current generation, checked at request time.
+- **Wallets** (§5.1 錢包中立, approved 2026-10-24):
+  - "身份可以是 EOA，也可以是支援 ERC-1271 的合約錢包". On-chain fills and every off-chain signature check (wallet proof, quote relay, forecasts) accept both, and off-chain checks also accept ERC-6492.
+  - "平台不替 agent 建立、注資或託管錢包".
+  - Off-chain checks go through the Task 3 `SignatureVerifier`. No source under `apps/` or `packages/*/src` calls `recoverMessageAddress` or `recoverTypedDataAddress` directly; test fakes may.
 - **Index freshness:** the index is stale when the indexed block's timestamp trails the chain head by more than `INDEX_STALE_SECONDS = 30`. Every identity-acting write then fails with `503 INDEX_STALE`.
 - **Boundaries and build:**
   - The package boundaries in `scripts/check-boundaries.mjs` hold, and shared package exports name real `.ts` files.
@@ -61,15 +65,15 @@
 
 | Wave | Tasks | Notes |
 | --- | --- | --- |
-| A | T1 → T2 | Sequential. Both unwire `apps/api`, `apps/worker` and the package barrels. |
-| B | T3 | The data contract every later task imports. |
+| A | T1 → T2, with T13 in parallel | T1 and T2 are sequential: both unwire `apps/api`, `apps/worker` and the package barrels. T13 touches only `contracts/` and the P1 doc. |
+| B | T3 | The data contract every later task imports. Starts after T13 merges, because its ABI and Anvil tests read the contract build output. |
 | C | T4 ∥ T6 | Deploy tooling and identity share no files. |
 | D | T5 ∥ T8 | The indexer and the content store. Both append to `apps/api/src/routes.ts` and `packages/schemas/src/http.ts`; the controller resolves those append conflicts. |
 | E | T7 ∥ T9 | Resolution read models and the RFQ relay. Same append rule. |
 | F | T10 | Forecasts. Needs anchors (T5), proposals (T7) and content (T8). |
 | G | T11 → T12 | Integration, then docs. |
 
-Migration numbers are fixed per task so that parallel tasks never collide: T1 `0025`, T2 `0026`, T4 `0027`, T6 `0028`, T5 `0029`, T8 `0030`, T7 `0031`, T9 `0032`, T10 `0033`. A task that ends up needing no migration leaves its number unused.
+Migration numbers are fixed per task so that parallel tasks never collide: T1 `0025`, T2 `0026`, T4 `0027`, T6 `0028`, T5 `0029`, T8 `0030`, T7 `0031`, T9 `0032`, T10 `0033`; T13 needs none. A task that ends up needing no migration leaves its number unused.
 
 ## File Structure
 
@@ -77,6 +81,8 @@ Migration numbers are fixed per task so that parallel tasks never collide: T1 `0
 | --- | --- | --- |
 | Protocol data contract | `packages/adapters/src/protocol-abi.ts`; `packages/schemas/src/{protocol.ts,protocol-params.ts,market-spec.ts,deployment.ts}`; `packages/ports/src/protocol-read.ts`; `tests/helpers/protocol-reader.ts` | ABI per contract, read-model types, Params presets, MarketSpec v0.2, manifest v2, the reader port and its in-memory fake |
 | Anchor contract | `contracts/src/protocol/BlinkAnchor.sol`; `contracts/test/protocol/Anchor.t.sol` | Permissionless first-seen timestamp for a 32-byte root |
+| Contract wallets | `contracts/src/protocol/BlinkMarkets.sol`; `contracts/test/protocol/{MockErc1271Wallet.sol,ContractWalletMaker.t.sol}` | ERC-1271 maker signatures on chain |
+| Signature checks | `packages/ports/src/signature.ts`; `packages/adapters/src/signature-verifier.ts`; `tests/helpers/signature-verifier.ts` | One EOA, ERC-1271 and ERC-6492 check shared by identity, relay and forecasts |
 | Deploy | `packages/adapters/src/{protocol-deployer.ts,deployment-verifier.ts,deployment-registry.ts}`; `scripts/{deploy-contracts,verify-deployment,validate-manifest,register-deployment}.ts` | Plan and deploy shared contracts plus a generation; write, verify and register manifest v2 |
 | Indexer | `packages/adapters/src/{protocol-log-reader.ts,protocol-index-store.ts}`; `packages/domain/src/protocol-reducer.ts`; `packages/application/src/chain-indexer.ts`; `apps/indexer/src/*` | Multi-contract canonical ingestion, reorg handling, projections, the `ProtocolReader` implementation |
 | Identity | `packages/application/src/identity.ts`; `packages/adapters/src/{identity-store,identity-crypto}.ts`; `packages/schemas/src/identity.ts` | Public wallet challenge, key issuance and revocation |
@@ -129,6 +135,22 @@ export interface ProtocolReader {
 ```
 
 `tests/helpers/protocol-reader.ts` exports `fakeProtocolReader(state: Partial<FakeProtocolState>): ProtocolReader & { set(...) }`, which is in memory and has a settable `health`. Tests in T6, T8, T9 and T10 use it before the real store exists.
+
+`packages/ports/src/signature.ts`:
+
+```ts
+export type SignatureCheck = { valid: boolean; blockNumber: bigint }; // the block the check ran at
+export interface SignatureVerifier {
+  verifyMessage(input: { address: Address; message: string; signature: Hex }): Promise<SignatureCheck>;
+  verifyTypedData(input: { address: Address; typedData: TypedDataDefinition; signature: Hex }): Promise<SignatureCheck>;
+}
+export class SignatureCheckUnavailable extends Error {} // RPC failure; callers answer 503 SIGNATURE_CHECK_UNAVAILABLE
+```
+
+`tests/helpers/signature-verifier.ts` exports `fakeSignatureVerifier(opts?: { contractWallets?: Record<Address, Address> }): SignatureVerifier & { setUnavailable(on: boolean): void }`.
+- For an EOA, it recovers locally.
+- For a listed contract wallet, it accepts that wallet's owner's signature.
+- With `setUnavailable(true)`, it throws `SignatureCheckUnavailable`.
 
 ---
 
@@ -232,6 +254,40 @@ Spec §6 "建市核准流程", "平台 agent" (discovery, platform-forecaster, b
 - [ ] **Step 4: Run** `pnpm check && pnpm build:services && pnpm test:service-build`. Expected: PASS.
 - [ ] **Step 5: Commit** `refactor: retire platform discovery, forecasters, baseline, approval and creation tracking`.
 
+### Task 13: Contract-wallet maker signatures in BlinkMarkets
+
+Spec §5.1 錢包中立. This amends a P1 contract. Generation 1 is not deployed yet, so the change is free now; after deployment it would need a new generation. It runs in parallel with Tasks 1 and 2, which share no files with it, and Task 3 starts after it merges.
+
+**Files:**
+- Modify:
+  - `contracts/src/protocol/BlinkMarkets.sol`: only the signature check in `fillQuote`
+  - `docs/P1_PROTOCOL_CONTRACTS.md`: the fill rules, `## 已知限制` and `## 實作裁決對照`, which gets a row citing §5.1 錢包中立
+- Create: `contracts/test/protocol/MockErc1271Wallet.sol`, `contracts/test/protocol/ContractWalletMaker.t.sol`.
+
+**Interfaces:**
+- Produces:
+  - **The new check.** `fillQuote` accepts the maker signature when `SignatureChecker.isValidSignatureNowCalldata(q.maker, digest, signature)` is true (OpenZeppelin 5.6.1); otherwise it reverts `InvalidSignature()` as before.
+    - A maker without code keeps the exact ECDSA rules: 65 bytes, low-s.
+    - A maker with code is asked through ERC-1271 `isValidSignature(digest, signature)` by staticcall.
+    - Nothing else changes: no other check, event, error, ABI item or storage layout. Replay protection stays keyed by digest.
+  - **`MockErc1271Wallet(address owner)`:**
+    - `isValidSignature(bytes32 hash, bytes signature) returns (bytes4)` returns `0x1626ba7e` when `ECDSA.recover(hash, signature) == owner`, else `0xffffffff`.
+    - `setMode(uint8)` is owner-only and switches it to returning `0xffffffff` (mode 1) or reverting (mode 2).
+    - `execute(address target, uint256 value, bytes data) returns (bytes)` is owner-only, so the wallet can act like an agent: claim from the faucet, register, join MAKER, approve, deposit, cancel and bump its epoch.
+    - Task 3's Anvil test and Task 11's harness deploy it from the Foundry build output.
+- Consumes: nothing.
+
+- [ ] **Step 1: Write the failing tests** in `ContractWalletMaker.t.sol`, on `ProtocolBase`:
+  - `test_contractWalletMakerQuoteFills`: the wallet claims, registers, joins MAKER and deposits through `execute`. Its owner signs the quote digest, and a taker fills. Positions, `makerFree`, the fee pool and the `QuoteFilled` args equal the EOA-maker case with the same quote.
+  - `test_contractWalletWrongSignerReverts`: a signature from another key reverts `InvalidSignature`.
+  - `test_contractWalletRejectingReverts` (mode 1) and `test_contractWalletRevertingReverts` (mode 2): both revert `InvalidSignature`.
+  - `test_contractWalletCancelAndEpoch`: the wallet cancels one quote and bumps its epoch through `execute`. Filling those quotes reverts `QuoteAlreadyCancelled` and `EpochMismatch` respectively.
+  - `test_eoaHighSStillRejected`: the s-flipped form of a valid EOA signature reverts `InvalidSignature`.
+- [ ] **Step 2: Run** `node scripts/foundry.mjs forge test --root contracts --match-contract ContractWalletMaker`. Expected: FAIL, because the wallet maker's fill reverts `InvalidSignature`.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** `pnpm check:contracts && pnpm test:contracts && pnpm test:contracts:seeds && node --import tsx --test tests/protocol-artifacts.test.ts`. Expected: PASS, with all existing contract tests unchanged.
+- [ ] **Step 5: Commit** `feat(contracts): accept ERC-1271 maker signatures in fillQuote`.
+
 ### Task 3: Protocol data contract
 
 Fixes every shared name later tasks use. Spec §5.0 (presets), §5.10 (anchor), §5.11, §7 (EIP-712 quote kept).
@@ -242,6 +298,7 @@ Fixes every shared name later tasks use. Spec §5.0 (presets), §5.10 (anchor), 
   - `packages/adapters/src/protocol-abi.ts` and `tests/protocol-abi.test.ts`
   - `packages/schemas/src/{protocol,protocol-params,market-spec}.ts`
   - `packages/ports/src/protocol-read.ts`, `tests/helpers/protocol-reader.ts`
+  - `packages/ports/src/signature.ts`, `packages/adapters/src/signature-verifier.ts`, `tests/helpers/signature-verifier.ts`, `tests/anvil/signature-verifier.test.ts`
   - `tests/{protocol-params,market-spec,deployment-manifest}.test.ts`
 - Modify:
   - Rewrite `packages/schemas/src/deployment.ts` as manifest v2, and remove the v1 schema.
@@ -276,6 +333,11 @@ Fixes every shared name later tasks use. Spec §5.0 (presets), §5.10 (anchor), 
     - `contracts: Record<name, { address, abiHash, runtimeHash, deployTx, block }>`
     - `startBlock: number`, `releaseCommit: string`
   - The shared types and the `ProtocolReader` port above, and `fakeProtocolReader`.
+  - The `SignatureVerifier` port above, `fakeSignatureVerifier`, and `viemSignatureVerifier(publicClient): SignatureVerifier`.
+    - It reads the latest block number, then calls viem `publicClient.verifyMessage` / `verifyTypedData` at that block, which covers EOA, ERC-1271 and ERC-6492.
+    - It returns `{ valid, blockNumber }`.
+    - For an address without code, it also requires a 65-byte, low-s signature with v ∈ {27,28}, matching OpenZeppelin `ECDSA.tryRecover`, so off-chain and on-chain answers agree.
+    - An RPC error becomes `SignatureCheckUnavailable`.
 
 - [ ] **Step 1: Write the failing tests.**
   - `Anchor.t.sol`: `test_anchorRecordsFirstTime` (timestamp and event), `test_reanchorReverts`, `test_zeroRootReverts`, `test_wrongChainReverts`.
@@ -286,7 +348,14 @@ Fixes every shared name later tasks use. Spec §5.0 (presets), §5.10 (anchor), 
     - `alpha satisfies the R39 arbitration budget`: `hardDeadline − proposalDeadline > resultChallengeWindow + maxRounds × (commit+reveal+appeal)` holds for some deadline gap ≤ 600 s.
   - `tests/market-spec.test.ts`: a valid B spec parses; a class A spec without `computation` fails; bytes with a BOM or invalid UTF-8 fail; `suggestionId` round-trips; the parse result keeps the input bytes' keccak256.
   - `tests/deployment-manifest.test.ts`: a v2 fixture parses; the `alpha-2.manifest.json` file fails with reason `HISTORICAL_V1_MANIFEST`; duplicate addresses across slots fail.
-- [ ] **Step 2: Run** `pnpm check:contracts && pnpm test:contracts && node --import tsx --test tests/protocol-abi.test.ts tests/protocol-params.test.ts tests/market-spec.test.ts tests/deployment-manifest.test.ts`. Expected: FAIL.
+  - `tests/anvil/signature-verifier.test.ts`, on Anvil with Task 13's `MockErc1271Wallet` deployed:
+    - `EOA personal_sign and typed data valid`
+    - `EOA high-s signature rejected`
+    - `ERC-1271 wallet accepts its owner's typed data`
+    - `ERC-1271 wallet rejects another key`
+    - `ERC-6492 signature for an undeployed account valid`, using viem's 6492 test wrapping around a factory deploy of the mock
+    - `RPC failure throws SignatureCheckUnavailable`
+- [ ] **Step 2: Run** `pnpm check:contracts && pnpm test:contracts && node --import tsx --test tests/protocol-abi.test.ts tests/protocol-params.test.ts tests/market-spec.test.ts tests/deployment-manifest.test.ts tests/anvil/signature-verifier.test.ts`. Expected: FAIL.
 - [ ] **Step 3: Implement** the files. Callers of the v1 `requireDeployment` stay compiled against a v1-only local alias inside `market-read` until Tasks 5 and 7 replace them. Do not delete `packages/schemas/src/core.ts` v0.1 types yet.
 - [ ] **Step 4: Run** the step 2 command, `node --import tsx --test tests/protocol-artifacts.test.ts` (the privileged-name scan now includes `BlinkAnchor`), and `pnpm check && pnpm build`. Expected: PASS.
 - [ ] **Step 5: Commit** `feat: fix the P2 protocol data contract: ABI, anchor, params presets, MarketSpec 0.2, manifest v2, reader port`.
@@ -397,14 +466,14 @@ Spec §5.1 "API 存取改為自助：身份以錢包簽章證明控制權後自�
 - Create: `packages/adapters/migrations/0028_self_serve_identity.sql`.
 
 **Interfaces:**
-- Consumes: `ProtocolReader.health()` and `ProtocolReader.account()`, from the Task 3 fake until Task 5 wires the real store.
+- Consumes: `ProtocolReader.health()` and `ProtocolReader.account()`, from the Task 3 fake until Task 5 wires the real store; Task 3 `SignatureVerifier`, with `viemSignatureVerifier` wired in `apps/api/src/main.ts`.
 - Produces:
   - `POST /v1/auth/wallet-challenges`: public, no key. Body `{ address, action: "issue" | "revoke", keyId?: uuid }`.
     - Returns `{ challengeId, message, expiresAt }`. The TTL is 300 s, with at most 5 pending challenges per address.
     - Rate limits: 30 per hour per client IP (trusted-proxy aware, `apps/api/src/rate-limit.ts`) and 10 per hour per address.
     - The message format is the existing one, with `Action: issue|revoke` added and the key ID line only for revoke. The origin is `WALLET_BINDING_ORIGIN`.
   - `POST /v1/auth/wallet-verifications`: body `{ challengeId, signature }`.
-    - Signature checking is EIP-191 `personal_sign` recovery, as today; EOAs only. ERC-1271 wallets are not supported in P2.
+    - Signature checking uses `SignatureVerifier.verifyMessage` (Task 3), so EOAs and ERC-1271 contract wallets both work. `identity-crypto`'s `verifyMessage` delegates to it or is removed. `SignatureCheckUnavailable` returns `503 SIGNATURE_CHECK_UNAVAILABLE`.
     - It consumes the challenge once.
     - For `issue`, it requires `health().stale === false` (else `503 INDEX_STALE`) and `account(address)?.registered` (else `403 NOT_REGISTERED`).
     - It creates the agent, operator and wallet binding on first use and issues a key: lifetime 30 days, at most 5 active keys per address, scopes `["forecast:write","rfq:write","content:write","suggestion:claim"]`. It returns `{ apiKey, keyId, expiresAt }`; the secret is shown once.
@@ -423,6 +492,8 @@ Spec §5.1 "API 存取改為自助：身份以錢包簽章證明控制權後自�
   - `challenge is single use` (a second verification returns 409)
   - `expired challenge rejected`
   - `signature from another address rejected`
+  - `contract wallet proof accepted`: the owner signs for a fake ERC-1271 wallet that is registered
+  - `signature check outage fails closed` (503 SIGNATURE_CHECK_UNAVAILABLE, no key issued)
   - `sixth active key refused`
   - `revoke only own key`
   - `same address keeps one agent across keys`
@@ -557,7 +628,7 @@ Spec §5.5, §5.9 ("Indexer 落後時停止 RFQ 轉發"), §5.2 Maker credit, §
   - `tests/{client,client-verify-quote}.test.ts`, `tests/anvil/client-agent.test.ts`
 
 **Interfaces:**
-- Consumes: Task 6 auth; Task 5 `ProtocolReader.{health,hasRole,market,maker,digest}`; Task 3 `protocolAbi`.
+- Consumes: Task 6 auth; Task 5 `ProtocolReader.{health,hasRole,market,maker,digest}`; Task 3 `protocolAbi` and `SignatureVerifier`; Task 13 `MockErc1271Wallet` (tests).
 - Produces:
   - `POST /v1/rfqs`
     - Requires `rfq:write` and the TAKER role. Body `{ marketId, side: "YES"|"NO", quantity }` with `1 ≤ quantity ≤ params.maxFillShares`.
@@ -570,7 +641,7 @@ Spec §5.5, §5.9 ("Indexer 落後時停止 RFQ 轉發"), §5.2 Maker credit, §
       - the RFQ is open
       - `quote.taker` is the RFQ taker, and `marketId`, `side` and `quantity` equal the RFQ's
       - `specHash` equals the market's
-      - `quote.maker` equals the caller and the EIP-712 recovered signer (low-s, v ∈ {27,28})
+      - `quote.maker` equals the caller, and `SignatureVerifier.verifyTypedData` accepts the signature for `quote.maker`. This is the same rule `BlinkMarkets` applies after Task 13: ECDSA for a maker without code, ERC-1271 otherwise.
       - `0 < priceBps < 10000`
       - `expiresAt − validAfter ≤ 60`, `expiresAt ≤ closeAt` and `expiresAt > now`
       - `epoch` equals `maker(quote.maker).epoch`
@@ -587,7 +658,7 @@ Spec §5.5, §5.9 ("Indexer 落後時停止 RFQ 轉發"), §5.2 Maker credit, §
     - `GET /v1/transactions/:txHash` returns the status `UNKNOWN|INCLUDED|FINALIZED|REVERTED|REORGED`, with the existing semantics.
   - `@blink/client`:
     - methods for the routes above plus Tasks 6, 7 and 8 (auth challenge and verify, reads, content upload, suggestions)
-    - `verifySignedQuote(quote, signature, { deployment, market, rfq, now, feeBps })`, which returns `{ digest, takerCost, fee, maxCost: takerCost + fee }`
+    - `verifySignedQuote(quote, signature, { publicClient, deployment, market, rfq, now, feeBps }): Promise<{ digest, takerCost, fee, maxCost }>`, where `maxCost = takerCost + fee`. It is async and checks the signature with viem `verifyTypedData`, so contract-wallet makers verify too.
     - `approvalFor(quote, feeBps): bigint`
   - `examples/agent/run.ts`: a taker-only reference flow. It claims from the faucet, registers, joins TAKER with `minRoleStake`, gets a key by wallet proof, posts an RFQ, verifies the quotes, approves `maxCost`, fills on chain, waits for FINAL and redeems. It imports only `@blink/client` and `viem`.
 
@@ -596,6 +667,8 @@ Spec §5.5, §5.9 ("Indexer 落後時停止 RFQ 轉發"), §5.2 Maker credit, §
     - `rfq refuses non-OPEN market`
     - `quote with modified field rejected`
     - `quote signed by another maker rejected`
+    - `contract wallet maker quote accepted`, through `fakeSignatureVerifier` contract wallets
+    - `signature check outage fails closed` (503 SIGNATURE_CHECK_UNAVAILABLE, nothing stored)
     - `stale epoch rejected`
     - `insufficient maker free balance rejected`
     - `lifetime over 60s rejected`
@@ -605,7 +678,10 @@ Spec §5.5, §5.9 ("Indexer 落後時停止 RFQ 轉發"), §5.2 Maker credit, §
     - `one quote per maker per rfq`
     - `maker stats count fills and early cancels`
   - `tests/client-verify-quote.test.ts`: `verifySignedQuote requires fee-inclusive maxCost` (feeBps 100, takerCost 4_000_000 → fee 40_000, maxCost 4_040_000); `rejects domain 0.1`; `rejects maker mismatch`.
-  - `tests/anvil/rfq-relay.test.ts`: two test makers quote one RFQ through the API; the taker fills the best quote on chain; the indexer marks the digest CONSUMED; the maker stats show one fill.
+  - `tests/anvil/rfq-relay.test.ts`:
+    - Two test makers quote one RFQ through the API. One is an EOA; the other is a `MockErc1271Wallet`.
+    - The taker fills the best quote on chain, the indexer marks the digest CONSUMED, and the maker stats show one fill.
+    - `relay and BlinkMarkets agree on contract-wallet quotes`: a wallet quote the relay accepts fills on chain, and one signed by a non-owner is refused both by the relay and by `fillQuote` (`InvalidSignature`).
   - `tests/anvil/client-agent.test.ts`: the example runs end to end against the local stack, with a test maker and proposer driven by the test.
 - [ ] **Step 2: Run** them. Expected: FAIL.
 - [ ] **Step 3: Implement.**
@@ -633,7 +709,7 @@ Spec §5.10 ("預測必須由 agent 簽章…定期把窗口內預測的 Merkle 
   - Task 5 `ProtocolReader.{market,markets,hasRole,anchor}`
   - Task 7 `ProtocolReader.proposal`
   - Task 8 content hashes
-  - Task 3 deployment (`shared.anchor`)
+  - Task 3 deployment (`shared.anchor`) and `SignatureVerifier`
 - Produces:
   - **Signed forecast.**
     - EIP-712 domain `{ name: "Blink Forecast", version: "1", chainId: 84532, verifyingContract: deployment.shared.anchor }`.
@@ -641,7 +717,7 @@ Spec §5.10 ("預測必須由 agent 簽章…定期把窗口內預測的 Merkle 
     - Exported as `forecastTypedData` from `packages/schemas/src/research.ts`, as plain data.
   - **Submission:** `POST /v1/markets/:id/forecasts { horizon, scheduledAt, probabilityBps (1–9999), contentHash, signature }`.
     - Requires `forecast:write` and the FORECASTER role.
-    - The recovered signer must equal the key's address, and the struct must match the route's market and window and the deployment's `markets`.
+    - `SignatureVerifier.verifyTypedData` must accept the signature for the key's address, so EOA and contract-wallet forecasters both work. The struct must match the route's market and window and the deployment's `markets`. The submission stores the check's `blockNumber` as `verified_block`, because a contract wallet's answer can change later.
     - It is admitted by the DB clock before the window deadline, one per forecaster per window.
     - It returns `{ digest, leaf }`.
   - **Withdrawal** keeps today's semantics (annotation, not deletion), authenticated by the same key.
@@ -669,7 +745,7 @@ Spec §5.10 ("預測必須由 agent 簽章…定期把窗口內預測的 Merkle 
     - `GET /v1/forecasters?sort=weight`, `GET /v1/forecasters/:address`
     - `GET /v1/metrics` updated: LIVE and REPLAY separate
   - **Migration 0033:**
-    - `forecasts.submissions` gains `forecaster_address`, `digest`, `signature` and `content_hash`
+    - `forecasts.submissions` gains `forecaster_address`, `digest`, `signature`, `content_hash` and `verified_block`
     - `forecasts.windows` gains `merkle_root` and `root_at`
     - `analytics.score_entries` scorer becomes `AGENT|CONSENSUS`, with a new evaluation version and no edits to old rows
     - drops `blink_forecast_admin`
@@ -678,6 +754,7 @@ Spec §5.10 ("預測必須由 agent 簽章…定期把窗口內預測的 Merkle 
   - `tests/forecast-signing.test.ts`:
     - `rejects forecast signed for another window`
     - `rejects another forecaster's signature`
+    - `contract wallet forecaster accepted`, which records `verified_block`
     - `rejects other market or markets address`
     - `rejects after deadline`
     - `one per window`
@@ -721,7 +798,7 @@ Spec §2.1.3. P3 adds `pnpm alpha:autonomous` with independent role agents; this
 - Produces:
   - **`pnpm alpha:local`.** It needs `TEST_POSTGRES_ADMIN_URL`. It starts Anvil (chain 84532), `deployProtocol(alpha)`, registers the deployment, and runs the API, indexer and worker with no key configuration.
     - Test-harness actors are distinct Anvil wallets. They act only through the public API, `@blink/client` and the contracts.
-    - They run: faucet claim and register; join roles; template; create; open; RFQ with two makers; fill; a forecast in a window; anchor the window root; propose; finalize unchallenged; distribute fees; redeem; a suggestion linked by `suggestionId`.
+    - They run: faucet claim and register; join roles; template; create; open; RFQ with two makers, one an EOA and one a Task 13 `MockErc1271Wallet`; fill; a forecast in a window; anchor the window root; propose; finalize unchallenged; distribute fees; redeem; a suggestion linked by `suggestionId`.
     - Assertions:
       - The API shows FINAL with fees matching `FeesDistributed`.
       - The anchor is visible, and the suggestion shows `MARKET_CREATED`.
@@ -768,8 +845,12 @@ Spec §2.1.3. P3 adds `pnpm alpha:autonomous` with independent role agents; this
   - deploy tooling (local only, no deployment performed)
   - ERC-8004 (§5.1 【實作者】): not adopted in P2; the identity is the `BlinkRegistry` address; to be evaluated in a later generation, with no added privileges
   - the A class archived-bytes rule: the content store provides storage. Jurors treat a proposal whose `evidenceHash` bytes cannot be fetched from any mirror as unsupported; P3 agent docs state it.
+  - wallet neutrality (§5.1):
+    - EOA and ERC-1271 wallets both work (for example Coinbase smart accounts), and off-chain checks also accept ERC-6492.
+    - The platform never creates, funds or custodies a wallet.
+    - Coinbase `awal` 2.12.1 has no contract calls and no typed-data signing, so it serves only for funding and transfers. P3 verifies CDP SDK wallets.
   - known limitations:
-    - EOA-only wallet proofs
+    - a contract wallet's ERC-1271 answer can change after a check; the platform records the block it checked at
     - polling relay
     - real-PostgreSQL suites CI-only on this host
     - web role pages still v0.1 until P3/P4
@@ -783,4 +864,4 @@ Spec §2.1.3. P3 adds `pnpm alpha:autonomous` with independent role agents; this
 
 - **P3:** independent reference agents per role in `examples/` (creator, maker, forecaster, proposer, challenger, juror, keeper; the taker seed comes from Task 9); `/docs/agents` and `/llms.txt` rewritten for self-selection; `pnpm alpha:autonomous` with all five §2.1 scenarios; the import-boundary check for `examples/`; the optional LLM agent demo; registering GM_LT_V1 as the first class A template with its parser hash.
 - **P4:** the website advantages page, the human suggestion form on the web, README/ROADMAP, the Remotion video.
-- **Open (§12):** the banned-topic ground, real token issuance, governance over existing markets, ERC-1271 wallet proofs, push delivery (SSE or WebSocket) for the RFQ relay.
+- **Open (§12):** the banned-topic ground, real token issuance, governance over existing markets, push delivery (SSE or WebSocket) for the RFQ relay.
