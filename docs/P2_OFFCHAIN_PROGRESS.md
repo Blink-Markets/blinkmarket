@@ -94,3 +94,71 @@ and cost fields; the list loses the `entity` filter.
 
 This completes only the Task 2 scope, not the P2 milestone. No push, merge,
 deployment or live transaction was performed.
+
+## Task 5 — multi-contract protocol index, part 1 (2026-10-24)
+
+The indexer now reads the registry, jurors, markets, resolution, faucet, anchor
+and governor of a registered protocol generation. Logs retain their emitter and
+contract, decode strictly, and are ordered by block and log index. Unknown,
+removed, pending or foreign logs fail the batch. Juror/resolution events needed
+by Task 7 and non-adoption governor events remain explicitly journaled; this
+stage never executes governance.
+
+The pure fold covers registration, roles, obligations, stored credit, templates,
+PENDING/OPEN/PROPOSED/DISPUTED/FINAL/CANCELLED markets, fills, positions, per-maker
+balances and epochs, digest status, fee pools, redemptions, anchors and successor
+adoptions. `tradable` accepts only OPEN markets before their close time.
+`postgresProtocolReader` implements the shared reader contract, including the
+30-second timestamp-lag gate and refusal of missing, gated or stopped indexes.
+
+Migration 0029 replaces the retired chain projection tables with protocol event
+and projection tables. It preserves the cursor, block history, lease tokens,
+version fencing and reorg tombstones. Pinned contract-view checks protect each
+advancing range; ranges ending before a contract's deployment also advance
+correctly. Rebuilds use a consistent snapshot and repair every projection from
+the canonical journal. Three temporary protocol read views keep the surviving
+public-read, forecast, evaluation and monitoring services working until their
+Task 7/10 replacements; their fixtures now write the protocol tables.
+
+The v0.1 market contract, its interface/tests, reducer, ABI, log/store adapters
+and deployer are removed. The artifact compiler removes stale v0.1 artifacts;
+BlinkTestUSD and its interface remain. Image-smoke deployment now uses the alpha
+protocol preset and manifest v2. The API receives an additive ProtocolReader
+parameter; Task 6 owns consuming it for identity authorization when merged.
+
+### Verification
+
+- RED: the required three-file command failed with all three new modules absent.
+- Final required reducer/indexer/Anvil command: 18 passed, 0 failed.
+- Reorg and cursor safety suite: 15 passed, 0 failed, including restoration of
+  accounts, roles, credit, templates, market state, balances, positions, fills,
+  digests, anchors and successor observations.
+- Real BlinkRegistry Foundry traces confirm credit 100 becomes 100, 50, 25 and 0
+  after 0, 1, 2.5 and 40 half-lives. Partial-period materialization is covered.
+- `pnpm test:contracts`: 237 passed; ProtocolInvariantTest seeds 0x01 and 0x02:
+  4 passed per seed, no failures.
+- `pnpm test`: 419 passed, 0 failed on the final complete run.
+- Root and web TypeScript, contract compilation/EIP-170, dependency boundaries,
+  service bundles and all four service-bundle checks pass.
+- `pnpm check` was invoked once and stopped at a viem test-fixture inference
+  error. After narrowing the fixture ABI types, the constituent gates were run.
+  The first complete unit run found one reference to the deleted interface;
+  it was changed to IBlinkMarkets.sol, then the full unit suite was rerun.
+- PostgreSQL concurrency suites and Docker smoke were updated but were not run
+  locally. `pnpm build` cannot run on this host because Turbopack requires a
+  newer glibc; web typechecking passed.
+
+### Credit-clock concern
+
+BlinkRegistry can materialize already-decayed-to-zero credit during reportLoss
+without emitting CreditLost. A later CreditGained or CreditImported event alone
+cannot identify the resulting private updatedAt exactly. A Foundry regression
+uses the real registry to demonstrate two such clock histories with different
+future creditOf results. The fold refuses this ambiguous case and leaves the
+index gated instead of inventing a clock. Continuous indexing through this case
+needs a controller decision: reconstruct every silent reporter call (including
+Task 7 settlement semantics), or expose sufficient on-chain credit-clock data.
+The registry runtime was not changed in this task.
+
+This delivers only the Task 5 slice, with the credit-clock concern above; it does
+not complete P2. No push, merge, rebase, deployment or live transaction was made.

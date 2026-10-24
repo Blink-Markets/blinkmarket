@@ -123,7 +123,7 @@ test("episode lifecycle: OPEN once, no duplicate across ticks, STILL_OPEN after 
   try {
     const gate = (reason: string | null) =>
       w.sql(
-        "UPDATE chain.maker_state SET global_paused=($2::text IS NOT NULL) WHERE deployment_id=$1",
+        "UPDATE protocol.makers SET data=data||jsonb_build_object('globalPaused',($2::text IS NOT NULL)) WHERE deployment_id=$1",
         [DEPLOYMENT, reason],
       );
     await gate("OVERCOMMITTED");
@@ -180,8 +180,8 @@ test("alert.pause fires from the indexed global and per-market pause projection"
   const w = await world();
   try {
     await w.sql(
-      `UPDATE chain.markets SET paused=true;
-       UPDATE chain.maker_state SET global_paused=true`,
+      `UPDATE protocol.markets SET data=data||jsonb_build_object('paused',true);
+       UPDATE protocol.makers SET data=data||jsonb_build_object('globalPaused',true)`,
     );
     await w.run();
     const open = await w.alerts("pause");
@@ -190,7 +190,7 @@ test("alert.pause fires from the indexed global and per-market pause projection"
       ["market:1", "MARKET_PAUSED", "OPEN"],
     ]);
     await w.sql(
-      `UPDATE chain.markets SET paused=false; UPDATE chain.maker_state SET global_paused=false`,
+      `UPDATE protocol.markets SET data=data||jsonb_build_object('paused',false); UPDATE protocol.makers SET data=data||jsonb_build_object('globalPaused',false)`,
     );
     await w.run();
     const all = await w.alerts("pause");
@@ -596,7 +596,11 @@ test("episode transitions are decided from the stored state only", () => {
     [["STILL_OPEN", "OTHER_REASON"]],
   );
   assert.deepEqual(
-    decideEpisodeChanges({ ...base, episodes: [ep()], observations: [reasoned] }),
+    decideEpisodeChanges({
+      ...base,
+      episodes: [ep()],
+      observations: [reasoned],
+    }),
     [],
   );
   // The clear is limited to the families that were evaluated.
@@ -666,7 +670,9 @@ const deadJob = (w: Awaited<ReturnType<typeof world>>, type: string, age = 0) =>
 test("a gated or missing chain cursor makes pause unknown: no CLEARED, no second OPEN", async () => {
   const w = await world();
   try {
-    await w.sql("UPDATE chain.markets SET paused=true");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',true)",
+    );
     await w.sql("UPDATE chain.cursors SET block_timestamp=4601");
     await w.run();
     assert.deepEqual(states(await w.alerts("pause")), ["OPEN"]);
@@ -693,7 +699,9 @@ test("a gated or missing chain cursor makes pause unknown: no CLEARED, no second
     await w.run();
     assert.deepEqual(states(await w.alerts("pause")), ["OPEN"]);
     // Once the source is readable and the market is no longer due, it does clear.
-    await w.sql("UPDATE chain.markets SET state='FINAL'");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('state','FINAL')",
+    );
     await w.run();
     assert.deepEqual(states(await w.alerts("pause")), ["OPEN", "CLEARED"]);
   } finally {
@@ -709,7 +717,9 @@ test("episodes beyond 1000 historical rows never cause a duplicate OPEN or stall
        SELECT '${DEPLOYMENT}','pause','market:'||g,false,'MARKET_PAUSED',blink.now(),blink.now()
        FROM generate_series(1000,2400) g`,
     );
-    await w.sql("UPDATE chain.markets SET paused=true");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',true)",
+    );
     for (let n = 0; n < 5; n++) await w.run();
     assert.deepEqual(states(await w.alerts("pause")), ["OPEN"]);
     const rpc = await w.alerts("rpc");
@@ -758,7 +768,10 @@ test("jobs_dead is active for DEAD jobs of the last 24 hours, re-alerts on growt
     dead = await w.alerts("jobs_dead");
     assert.deepEqual(states(dead), ["OPEN", "STILL_OPEN"]);
     assert.equal(dead[1].count, "2");
-    assert.deepEqual(dead[1].jobTypes, ["evaluation.score", "forecast.schedule"]);
+    assert.deepEqual(dead[1].jobTypes, [
+      "evaluation.score",
+      "forecast.schedule",
+    ]);
     // No hourly heartbeat while the count is unchanged.
     await w.clock(3 * 3600);
     await w.run();
@@ -780,9 +793,13 @@ test("jobs_dead is active for DEAD jobs of the last 24 hours, re-alerts on growt
 test("a paused market that resolves clears its pause episode even though the pause flag stays", async () => {
   const w = await world();
   try {
-    await w.sql("UPDATE chain.markets SET paused=true");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',true)",
+    );
     await w.run();
-    await w.sql("UPDATE chain.markets SET state='FINAL'");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('state','FINAL')",
+    );
     await w.run();
     assert.deepEqual(states(await w.alerts("pause")), ["OPEN", "CLEARED"]);
   } finally {
@@ -817,10 +834,14 @@ test("a failing family is unknown and logged by code only; the other families st
   const errors: string[] = [];
   const w = await world({ onError: (code) => errors.push(code) });
   try {
-    await w.sql("UPDATE chain.markets SET paused=true");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',true)",
+    );
     await w.run();
-    await w.sql("UPDATE chain.markets SET paused=false");
-    await w.sql("REVOKE SELECT ON chain.maker_state FROM blink_worker");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',false)",
+    );
+    await w.sql("REVOKE SELECT ON protocol.maker_reads FROM blink_worker");
     await deadJob(w, "forecast.schedule", 10);
     await w.run();
     // The pause family could not be judged: its open episode neither clears nor changes.
@@ -838,24 +859,29 @@ test("more subjects than the bound are truncated, flagged, and never cleared whi
   const w = await world();
   try {
     await w.sql(
-      `INSERT INTO chain.markets(deployment_id,market_id,spec_hash,spec_uri,mode,close_at,proposal_deadline,hard_deadline,challenge_seconds,max_pairs,max_taker_shares,state,created_block_number,created_tx_hash,as_of_block_hash)
-       SELECT deployment_id,g,decode(md5('s'||g)||md5('s'||g),'hex'),spec_uri,mode,close_at,proposal_deadline,hard_deadline,challenge_seconds,max_pairs,max_taker_shares,state,created_block_number,
-              decode(md5('t'||g)||md5('t'||g),'hex'),as_of_block_hash FROM chain.markets,generate_series(2,150) g WHERE market_id=1`,
+      `INSERT INTO protocol.markets(deployment_id,key,data,as_of_block_hash)
+       SELECT deployment_id,g::text,data||jsonb_build_object('marketId',g::text,'specHash','0x'||md5('s'||g)||md5('s'||g)),as_of_block_hash FROM protocol.markets,generate_series(2,150) g WHERE key='1'`,
     );
-    await w.sql("UPDATE chain.markets SET paused=true");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',true)",
+    );
     await w.run();
     let pause = await w.alerts("pause");
     assert.equal(pause.length, 100);
     assert.ok(pause.every((a) => a.truncated === true));
     // Market 1 is no longer paused, but while truncated nothing is cleared; the window moves on
     // to market 101, which opens.
-    await w.sql("UPDATE chain.markets SET paused=false WHERE market_id=1");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',false) WHERE key::numeric=1",
+    );
     await w.run();
     pause = await w.alerts("pause");
     assert.equal(pause.length, 101);
     assert.equal(pause.filter((a) => a.state === "CLEARED").length, 0);
     // Back under the bound: the clearing resumes.
-    await w.sql("UPDATE chain.markets SET paused=false");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',false)",
+    );
     await w.run();
     pause = await w.alerts("pause");
     assert.equal(pause.filter((a) => a.state === "CLEARED").length, 101);

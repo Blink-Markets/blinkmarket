@@ -16,6 +16,7 @@ import {
   type IdentityService,
   type RouteService,
   type HealthService,
+  type ProtocolReader,
 } from "@blink/application";
 import type { ApiScope } from "@blink/schemas";
 
@@ -56,6 +57,7 @@ const databaseUnavailable = () =>
 export function buildApi(
   options: {
     identity?: IdentityService;
+    protocolReader?: ProtocolReader;
     health?: HealthService;
     services?: RouteService[];
     stage?: "architecture" | "m2-identity" | "m2-markets";

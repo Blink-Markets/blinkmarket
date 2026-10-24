@@ -7,7 +7,11 @@ import {
   PublicDeployment,
   PositiveUint256,
 } from "../packages/schemas/src/index.ts";
-import { blinkMarketAbi } from "../packages/adapters/src/blink-abi.js";
+import { parseAbi } from "viem";
+const blinkMarketAbi = parseAbi([
+  "function setMarketTradingPaused(uint256 id,bool paused)",
+  "function setGlobalTradingPaused(bool paused)",
+]);
 
 type Options = {
   apiUrl: string;

@@ -1,3 +1,4 @@
+import { seedReadMarket } from "../helpers/protocol-index.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -13,11 +14,16 @@ import {
 import { IdentityError } from "../../packages/application/src/identity.js";
 
 const adminUrl = process.env.TEST_POSTGRES_ADMIN_URL;
-const marketFixture = (
-  closeInSeconds: number,
-) => `INSERT INTO markets.deployments(id,manifest,market_address) VALUES('test','{}',decode(repeat('11',20),'hex'));
-   INSERT INTO chain.markets(deployment_id,market_id,spec_hash,spec_uri,mode,close_at,proposal_deadline,hard_deadline,challenge_seconds,max_pairs,max_taker_shares,state,created_block_number,created_tx_hash,as_of_block_hash)
-   VALUES('test',1,decode(repeat('22',32),'hex'),'fixture','REPLAY',floor(extract(epoch from blink.now()))+${closeInSeconds},9999999999,9999999999,120,100,100,'OPEN',1,decode(repeat('33',32),'hex'),decode(repeat('44',32),'hex'));`;
+const marketFixture = async (owner: pg.Pool, closeInSeconds: number) => {
+  await owner.query(
+    "INSERT INTO markets.deployments(id,manifest,market_address) VALUES('test','{}',decode(repeat('11',20),'hex'))",
+  );
+  await seedReadMarket(owner, "test", 1, {
+    specHash: "0x" + "22".repeat(32),
+    specUri: "fixture",
+    closeAt: Math.floor(Date.now() / 1000) + closeInSeconds,
+  });
+};
 
 // Creates and drops a random database; never touches the supplied one.
 async function withDatabase(
@@ -79,7 +85,7 @@ test(
   { skip: !adminUrl, timeout: 30000 },
   () =>
     withDatabase(async ({ name, owner, api, agents }) => {
-      await owner.query(marketFixture(7200));
+      await marketFixture(owner, 7200);
       const source = randomUUID(),
         evidence = randomUUID(),
         windowId = randomUUID();
@@ -194,7 +200,7 @@ test(
   { skip: !adminUrl, timeout: 30000 },
   () =>
     withDatabase(async ({ owner, worker }) => {
-      await owner.query(marketFixture(3 * 86400 + 600));
+      await marketFixture(owner, 3 * 86400 + 600);
       const scheduler = createWindowScheduler(postgresForecastStore(worker));
       assert.ok((await scheduler.scheduleOnce()) >= 4);
       assert.equal(await scheduler.scheduleOnce(), 0);

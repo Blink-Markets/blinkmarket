@@ -1,11 +1,12 @@
 import {
-  foldEvents,
-  type DecodedEvent,
-} from "../../packages/domain/src/chain-reducer.ts";
+  foldProtocolEvents,
+  projectionChanges,
+  type ProtocolEvent,
+} from "../../packages/domain/src/protocol-reducer.ts";
 import type {
   ChainBlock,
   ChainLogReader,
-  ChainViews,
+  ProtocolProjection,
 } from "../../packages/ports/src/index.js";
 
 export const MARKET_ADDRESS = "0x" + "aa".repeat(20);
@@ -15,7 +16,8 @@ export const TAKER2 = "0x" + "b2".repeat(20);
 
 export const hashOf = (n: number | bigint) =>
   "0x" + BigInt(n).toString(16).padStart(64, "0");
-export type NewEvent = Pick<DecodedEvent, "name" | "args">;
+export type NewEvent = Pick<ProtocolEvent, "name" | "args"> &
+  Partial<Pick<ProtocolEvent, "contract" | "emitter">>;
 
 export const marketCreated = (id: number): NewEvent => ({
   name: "MarketCreated",
@@ -23,7 +25,12 @@ export const marketCreated = (id: number): NewEvent => ({
     marketId: String(id),
     specHash: hashOf(0x700 + id),
     specURI: "fixture://REPLAY/" + id,
-    mode: "1",
+    creator: MAKER,
+    templateId: hashOf(99),
+    cls: "0",
+    replay: true,
+    openAt: "1020",
+    creationBond: "1000000",
     closeAt: "5000",
     proposalDeadline: "6000",
     hardDeadline: "7000",
@@ -34,11 +41,7 @@ export const marketCreated = (id: number): NewEvent => ({
 });
 export const makerDeposited = (micros: bigint): NewEvent => ({
   name: "MakerDeposited",
-  args: { amountMicros: String(micros) },
-});
-export const takerAllowed = (account: string): NewEvent => ({
-  name: "TakerAllowedChanged",
-  args: { account, allowed: true },
+  args: { maker: MAKER, amount: String(micros) },
 });
 export const quoteFilled = (
   digest: number,
@@ -65,20 +68,17 @@ export const quoteFilled = (
       priceBps: String(priceBps),
       takerCost: String(takerCost),
       makerCost: String(quantity * 1_000_000n - takerCost),
+      fee: "0",
     },
   };
 };
-export const marketPaused = (id: number, paused: boolean): NewEvent => ({
-  name: "TradingPauseChanged",
-  args: { marketId: String(id), globalPause: false, paused },
-});
 export const quoteCancelled = (digest: number): NewEvent => ({
   name: "QuoteCancelled",
   args: { digest: hashOf(0x900 + digest) },
 });
 
 interface FakeBlock extends ChainBlock {
-  events: DecodedEvent[];
+  events: ProtocolEvent[];
 }
 export interface FakeReaderOptions {
   chainId?: number;
@@ -90,7 +90,10 @@ export interface FakeReaderOptions {
   overlappingLogs?: boolean;
   headOverride?: bigint;
   /** Replaces the contract reads. */
-  views?: (truth: ChainViews) => ChainViews;
+  agrees?: (
+    truth: ProtocolProjection,
+    candidate: ProtocolProjection,
+  ) => boolean;
   /** Called with the number of block() calls so far, after the call has been answered. */
   afterBlockCall?: (calls: number) => void | Promise<void>;
   /** Called after logs() computed its answer and before it returns. */
@@ -127,6 +130,8 @@ export class FakeChain {
         number === 0n ? hashOf(0) : this.blocks.get(number - 1n)!.hash,
       timestamp: 1000n + number * 2n,
       events: events.map((event, index) => ({
+        contract: "MARKETS",
+        emitter: MARKET_ADDRESS,
         ...event,
         blockNumber: number,
         blockHash: hash,
@@ -223,31 +228,17 @@ export class FakeChain {
           ? found.flatMap((e) => [e, { ...e }])
           : found;
       },
-      async views(_address, blockHash, marketIds) {
-        viewCalls.push([...marketIds]);
+      async agrees(blockHash, projection) {
+        viewCalls.push([...projection.markets.keys()].map(BigInt));
         const block = [...self.blocks.values()].find(
           (b) => b.hash === blockHash,
         );
         if (!block) throw new Error("UNKNOWN_BLOCK");
-        const truth = foldEvents(self.allEvents(block.number));
-        const views: ChainViews = {
-          makerFreeMicros: truth.maker.freeMicros,
-          epoch: truth.maker.epoch,
-          markets: new Map(
-            marketIds.map((id) => {
-              const market = truth.markets.get(id.toString())!;
-              return [
-                id.toString(),
-                {
-                  totalPairs: market.totalPairs,
-                  escrowMicros: market.escrowMicros,
-                  state: market.state,
-                },
-              ];
-            }),
-          ),
-        };
-        return options.views ? options.views(views) : views;
+        const truth = foldProtocolEvents(self.allEvents(block.number));
+        if (options.agrees) return options.agrees(truth, projection);
+        return Object.values(projectionChanges(truth, projection)).every(
+          (keys) => keys.length === 0,
+        );
       },
     };
   }

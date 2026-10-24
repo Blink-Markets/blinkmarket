@@ -5,12 +5,14 @@ import {
   writeFileSync,
   readdirSync,
   renameSync,
+  rmSync,
 } from "node:fs";
 import { keccak256, toBytes } from "viem";
 const EIP170_MAX_RUNTIME_BYTES = 24_576;
+for (const name of ["BlinkMarket", "IBlinkMarket"])
+  rmSync(`contracts/artifacts/${name}.json`, { force: true });
 const protocolDir = "contracts/src/protocol";
 const paths = [
-  "contracts/src/BlinkMarket.sol",
   "contracts/src/BlinkTestUSD.sol",
   ...readdirSync(protocolDir, { recursive: true })
     .map((f) => f.replaceAll("\\", "/"))

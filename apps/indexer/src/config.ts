@@ -89,7 +89,7 @@ export interface ChainIndexerConfig {
   rangeSize: number;
 }
 
-// The canonical chain indexer is enabled on its own, independent of transaction tracking.
+// The protocol-generation indexer is enabled on its own, independent of transaction tracking.
 export function chainIndexerConfig(env: NodeJS.ProcessEnv): ChainIndexerConfig {
   const flag = env.CHAIN_INDEXER_ENABLED;
   if (flag !== undefined && flag !== "true" && flag !== "false")

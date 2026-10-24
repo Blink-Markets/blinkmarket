@@ -2,7 +2,7 @@ import type { NewMarketSpec } from "@blink/schemas";
 export type * from "./identity.js";
 export * from "./jobs.js";
 export * from "./source-fetcher.js";
-export type * from "./chain-index.js";
+export * from "./chain-index.js";
 export type * from "./protocol-read.js";
 export * from "./signature.js";
 

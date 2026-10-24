@@ -1,3 +1,4 @@
+import { seedReadMarket } from "./helpers/protocol-index.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -25,10 +26,13 @@ async function setup() {
   $$`);
   const a = await inviteAgent(t, { name: "A", scopes: ["forecast:write"] });
   const b = await inviteAgent(t, { name: "B", scopes: ["forecast:write"] });
-  await t.db
-    .exec(`INSERT INTO markets.deployments(id,manifest,market_address) VALUES('test','{}',decode(repeat('11',20),'hex'));
- INSERT INTO chain.markets(deployment_id,market_id,spec_hash,spec_uri,mode,close_at,proposal_deadline,hard_deadline,challenge_seconds,max_pairs,max_taker_shares,state,created_block_number,created_tx_hash,as_of_block_hash)
- VALUES('test',1,decode(repeat('22',32),'hex'),'fixture','REPLAY',floor(extract(epoch from blink.now()))+7200,9999999999,9999999999,120,100,100,'OPEN',1,decode(repeat('33',32),'hex'),decode(repeat('44',32),'hex'));`);
+  await t.db.exec(
+    "INSERT INTO markets.deployments(id,manifest,market_address) VALUES('test','{}',decode(repeat('11',20),'hex'))",
+  );
+  await seedReadMarket(t.db, "test", 1, {
+    specHash: "0x" + "22".repeat(32),
+    closeAt: Math.floor(Date.now() / 1000) + 7200,
+  });
   const source = randomUUID(),
     evidence = randomUUID();
   await t.db.query(
@@ -367,12 +371,14 @@ test("forecast rejection is atomic for absent windows, closed markets, invalid i
     await s.t.setRole("blink_api");
     assert.equal((await s.post("scope", unscoped)).statusCode, 403);
     await s.t.setRole(null);
-    await s.t.db.exec("UPDATE chain.markets SET state='FINAL'");
+    await s.t.db.exec(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('state','FINAL')",
+    );
     await s.t.setRole("blink_api");
     assert.equal((await s.post("closed")).json().code, "MARKET_CLOSED");
     await s.t.setRole(null);
     await s.t.db.exec(
-      "UPDATE chain.markets SET state='OPEN',close_at=floor(extract(epoch from blink.now()))",
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('state','OPEN','closeAt',floor(extract(epoch from blink.now())))",
     );
     await s.t.setRole("blink_api");
     assert.equal((await s.post("expired-market")).json().code, "MARKET_CLOSED");

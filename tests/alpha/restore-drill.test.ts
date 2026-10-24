@@ -36,7 +36,7 @@ test(
       assert.equal(report.schemaIdentical, true);
       assert.equal(report.leaseCleared, true);
       for (const sql of [
-        "UPDATE chain.markets SET max_pairs=max_pairs+1",
+        "UPDATE protocol.markets SET data=data||jsonb_build_object('maxPairs',((data->>'maxPairs')::numeric+1)::text)",
         "UPDATE chain.cursors SET head_number=head_number+1",
       ])
         await assert.rejects(

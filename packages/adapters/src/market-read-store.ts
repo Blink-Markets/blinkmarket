@@ -23,8 +23,8 @@ const columns = `m.deployment_id AS "deploymentId", m.market_id::text AS "market
  m.proposed_at::text AS "proposedAt",m.challenge_seconds AS "challengeSeconds",m.hard_deadline::text AS "hardDeadline",
  CASE WHEN c.deployment_id IS NULL THEN NULL ELSE json_build_object('blockNumber',c.block_number::text,'blockHash','0x'||encode(c.block_hash,'hex'),
  'finalizedNumber',c.finalized_number::text,'gateReason',c.gate_reason,'stale',${indexerStaleSql("c")}) END AS cursor`;
-const joins = `FROM chain.markets m LEFT JOIN markets.specs s ON s.hash=m.spec_hash
- LEFT JOIN chain.cursors c ON c.deployment_id=m.deployment_id LEFT JOIN chain.maker_state ms ON ms.deployment_id=m.deployment_id`;
+const joins = `FROM protocol.market_reads m LEFT JOIN markets.specs s ON s.hash=m.spec_hash
+ LEFT JOIN chain.cursors c ON c.deployment_id=m.deployment_id LEFT JOIN protocol.maker_reads ms ON ms.deployment_id=m.deployment_id`;
 const order = `m.created_block_number DESC,m.deployment_id COLLATE "C",m.market_id DESC`;
 const digest = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -75,7 +75,7 @@ export function postgresMarketReadStore(pool: Pool): MarketReadStore {
         `(CASE WHEN m.state='OPEN' AND extract(epoch FROM blink.now())>=m.close_at THEN 'CLOSED' ELSE m.state END)=${bind(query.status)}`,
       );
     const positionJoin = wallet
-      ? ` JOIN chain.positions p ON p.deployment_id=m.deployment_id AND p.market_id=m.market_id AND p.account=decode(${bind(wallet.slice(2))},'hex')`
+      ? ` JOIN protocol.position_reads p ON p.deployment_id=m.deployment_id AND p.market_id=m.market_id AND p.account=decode(${bind(wallet.slice(2))},'hex')`
       : "";
     if (wallet) where.push("(p.yes_shares+p.no_shares > 0)");
     const filtered = where.length ? where.join(" AND ") : "true";

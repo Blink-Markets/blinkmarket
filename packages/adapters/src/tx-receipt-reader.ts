@@ -9,7 +9,9 @@ import {
 } from "viem";
 import { quoteTypes } from "@blink/schemas";
 import type { TxReceiptReader, TxObservation } from "@blink/ports";
-import { blinkMarketAbi, blinkTestUsdAbi } from "./blink-abi.js";
+import { protocolAbi } from "./protocol-abi.js";
+import { erc20Abi as blinkTestUsdAbi } from "viem";
+const blinkMarketAbi = protocolAbi.markets;
 
 export function txReceiptReader(client: PublicClient): TxReceiptReader {
   async function canonical(number: string, hash: string) {

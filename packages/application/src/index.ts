@@ -37,3 +37,5 @@ export {
   decideEpisodeChanges,
   type AlertEvaluatePolicy,
 } from "./alert-evaluate.js";
+
+export type { ProtocolReader } from "@blink/ports";

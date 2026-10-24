@@ -1,3 +1,4 @@
+import { seedReadMarket } from "./protocol-index.ts";
 import { buildApi } from "../../apps/api/src/server.js";
 import { createMarketReadService } from "../../packages/application/src/market-read.js";
 import { postgresMarketReadStore } from "../../packages/adapters/src/market-read-store.js";
@@ -17,13 +18,7 @@ export async function fixture(
     "INSERT INTO markets.deployments(id,manifest,market_address) VALUES ('d1','{}',decode($1,'hex'))",
     [address.slice(2)],
   );
-  for (let id = 1; id <= 5; id++)
-    await t.db.query(
-      `INSERT INTO chain.markets
-    (deployment_id,market_id,spec_hash,spec_uri,mode,close_at,proposal_deadline,hard_deadline,challenge_seconds,max_pairs,max_taker_shares,state,created_block_number,created_tx_hash,as_of_block_hash)
-    VALUES ('d1',$1,decode($2,'hex'),'memory:spec','REPLAY',4102444800,4102445000,4102446000,120,10000,500,'OPEN',$1,decode($3,'hex'),decode($3,'hex'))`,
-      [id, hash(id).slice(2), hash(10).slice(2)],
-    );
+  for (let id = 1; id <= 5; id++) await seedReadMarket(t.db, "d1", id);
   await t.db.query(
     `INSERT INTO chain.cursors(deployment_id,block_number,block_hash,block_timestamp,head_number,finalized_number,synced_at)
     VALUES ('d1',10,decode($1,'hex'),1000,10,3,blink.now())`,

@@ -9,10 +9,7 @@ import {
   type AlertObserved,
 } from "@blink/ports";
 import { createUnitOfWork } from "./database.js";
-import {
-  INDEXER_FRESH_SQL,
-  INDEXER_LAGGING_SQL,
-} from "./health-reader.js";
+import { INDEXER_FRESH_SQL, INDEXER_LAGGING_SQL } from "./health-reader.js";
 import { postgresOperatorStatusStore } from "./operator-status-store.js";
 
 const MAX_DEPLOYMENTS = 10;
@@ -97,7 +94,7 @@ export function postgresAlertEvaluateStore(
         // A resolved market stays flagged paused until an admin unpauses it; it is no longer an incident.
         live = (
           await db.query<{ id: string }>(
-            `SELECT market_id::text AS id FROM chain.markets
+            `SELECT market_id::text AS id FROM protocol.market_reads
              WHERE deployment_id=$1 AND state<>'FINAL' AND market_id::text=ANY($2::text[])`,
             [deploymentId, paused],
           )

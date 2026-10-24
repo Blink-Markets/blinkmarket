@@ -2,8 +2,8 @@ import { hostname } from "node:os";
 import pg from "pg";
 import {
   assertChainIndexInstalled,
-  postgresChainIndexStore,
-} from "../packages/adapters/src/chain-index-store.js";
+  postgresProtocolIndexStore,
+} from "../packages/adapters/src/protocol-index-store.js";
 import { assertIndexerRuntimeRole } from "../packages/adapters/src/runtime-role.js";
 import { rebuildChainProjection } from "../packages/application/src/chain-indexer.js";
 
@@ -30,7 +30,7 @@ try {
   await assertIndexerRuntimeRole(pool);
   await assertChainIndexInstalled(pool);
   const report = await rebuildChainProjection(
-    postgresChainIndexStore(pool),
+    postgresProtocolIndexStore(pool),
     deploymentId,
     {
       verify,

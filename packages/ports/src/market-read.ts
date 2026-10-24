@@ -15,8 +15,16 @@ export interface IndexedMarketRow {
   mode: "LIVE" | "REPLAY";
   specHash: string;
   specUri: string;
-  storedState: "OPEN" | "PROPOSED" | "DISPUTED" | "FINAL";
-  effectiveState: "OPEN" | "CLOSED" | "PROPOSED" | "DISPUTED" | "FINAL";
+  storedState:
+    "PENDING" | "CANCELLED" | "OPEN" | "PROPOSED" | "DISPUTED" | "FINAL";
+  effectiveState:
+    | "PENDING"
+    | "CANCELLED"
+    | "OPEN"
+    | "CLOSED"
+    | "PROPOSED"
+    | "DISPUTED"
+    | "FINAL";
   paused: boolean;
   createdBlockNumber: string;
   cursor: IndexCursorRow | null;

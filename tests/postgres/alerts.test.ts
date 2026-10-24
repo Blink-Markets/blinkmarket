@@ -1,3 +1,4 @@
+import { seedReadMarket, seedReadMaker } from "../helpers/protocol-index.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -32,11 +33,18 @@ test(
         const worker = pool("blink_worker", 3);
         await owner.query(`CREATE OR REPLACE FUNCTION blink.now() RETURNS timestamptz LANGUAGE sql VOLATILE AS $$ SELECT to_timestamp(${NOW}) $$;
           INSERT INTO markets.deployments(id,manifest,market_address) VALUES('drill','{}',decode(repeat('11',20),'hex'));
-          INSERT INTO chain.markets(deployment_id,market_id,spec_hash,spec_uri,mode,close_at,proposal_deadline,hard_deadline,challenge_seconds,max_pairs,max_taker_shares,state,created_block_number,created_tx_hash,as_of_block_hash)
-          VALUES('drill',1,decode(repeat('22',32),'hex'),'fixture','REPLAY',999000,1000030,1000045,120,100,100,'OPEN',1,decode(repeat('33',32),'hex'),decode(repeat('44',32),'hex'));
-          INSERT INTO chain.maker_state(deployment_id,free_balance_micros,epoch,as_of_block_hash) VALUES('drill',0,0,decode(repeat('44',32),'hex'));
           INSERT INTO chain.cursors(deployment_id,block_number,block_hash,block_timestamp,head_number,synced_at)
           VALUES('drill',10,decode(repeat('55',32),'hex'),${NOW},10,to_timestamp(${NOW}));`);
+        await seedReadMarket(owner, "drill", 1, {
+          specHash: "0x" + "22".repeat(32),
+          specUri: "fixture",
+          closeAt: 999000,
+          proposalDeadline: 1000030,
+          hardDeadline: 1000045,
+          maxPairs: "100",
+          maxTakerShares: "100",
+        });
+        await seedReadMaker(owner, "drill", { freeMicros: "0", epoch: "0" });
         const queue = postgresJobQueue(worker);
         const path = join(directory, "alerts.jsonl");
         const deliver = createAlertDeliveryHandler(fileAlertSink(path));
@@ -85,8 +93,8 @@ test(
 
         // Real conditions, written the way the system would.
         await owner.query(`
-          UPDATE chain.markets SET paused=true WHERE market_id=1;
-          UPDATE chain.maker_state SET global_paused=true;
+          UPDATE protocol.markets SET data=data||jsonb_build_object('paused',true) WHERE key::numeric=1;
+          UPDATE protocol.makers SET data=data||jsonb_build_object('globalPaused',true);
           UPDATE chain.cursors SET synced_at=to_timestamp(${NOW - 1000});
           INSERT INTO operations.jobs(id,type,dedupe_key,payload,state) VALUES('00000000-0000-4000-8000-000000000003','evaluation.score','drill-dead','{"private":"private-fixture"}','DEAD');
           UPDATE operations.jobs SET finished_at=to_timestamp(${NOW - 30}) WHERE state='DEAD';`);
@@ -151,8 +159,8 @@ test(
           `http://127.0.0.1:${(rpcServer.address() as { port: number }).port}`,
         );
         await owner.query(`
-          UPDATE chain.markets SET paused=false;
-          UPDATE chain.maker_state SET global_paused=false;
+          UPDATE protocol.markets SET data=data||jsonb_build_object('paused',false);
+          UPDATE protocol.makers SET data=data||jsonb_build_object('globalPaused',false);
           UPDATE chain.cursors SET synced_at=to_timestamp(${NOW});
           UPDATE operations.jobs SET state='SUCCEEDED',finished_at=to_timestamp(${NOW}) WHERE state='DEAD';`);
         await tick();

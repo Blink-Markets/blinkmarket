@@ -12,6 +12,7 @@ import {
 } from "@blink/application";
 import {
   identityCrypto,
+  postgresProtocolReader,
   postgresIdentityStore,
   assertIdentityRuntimeRole,
   assertProductionClock,
@@ -66,6 +67,14 @@ try {
     pool
       ? {
           trustedProxies: config.trustedProxies,
+          ...(config.deploymentId
+            ? {
+                protocolReader: postgresProtocolReader(
+                  pool,
+                  config.deploymentId,
+                ),
+              }
+            : {}),
           ...(health ? { health } : {}),
           assertReady: () => assertProductionClock(pool, false),
           identity: createIdentityService(
