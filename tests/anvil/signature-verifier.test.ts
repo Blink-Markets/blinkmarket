@@ -356,6 +356,8 @@ test("eth_call failure during an ERC-1271 check throws SignatureCheckUnavailable
     const signature = await owner.signTypedData(data);
     for (const failure of [
       { code: -32603, message: "upstream unavailable" },
+      // Error data alone is not evidence of a revert.
+      { code: -32603, message: "upstream unavailable", data: "0x1234" },
       new Error("transport disconnected"),
     ]) {
       let calls = 0;
@@ -405,32 +407,37 @@ test("eth_call failure during an ERC-6492 check throws SignatureCheckUnavailable
         data: counterfactual.factoryData,
         signature,
       });
-    let calls = 0;
-    const verifier = viemSignatureVerifier(
-      observedClient(anvil, (method) => {
-        if (method === "eth_call") {
-          calls++;
-          throw { code: -32603, message: "upstream unavailable" };
-        }
-      }),
-    );
-    await assert.rejects(
-      verifier.verifyMessage({
-        address: counterfactual.address,
-        message: MESSAGE,
-        signature: wrap(await owner.signMessage({ message: MESSAGE })),
-      }),
-      SignatureCheckUnavailable,
-    );
-    await assert.rejects(
-      verifier.verifyTypedData({
-        address: counterfactual.address,
-        typedData: data,
-        signature: wrap(await owner.signTypedData(data)),
-      }),
-      SignatureCheckUnavailable,
-    );
-    assert.equal(calls, 2);
+    for (const failure of [
+      { code: -32603, message: "upstream unavailable" },
+      { code: -32603, message: "upstream unavailable", data: "0x1234" },
+    ]) {
+      let calls = 0;
+      const verifier = viemSignatureVerifier(
+        observedClient(anvil, (method) => {
+          if (method === "eth_call") {
+            calls++;
+            throw failure;
+          }
+        }),
+      );
+      await assert.rejects(
+        verifier.verifyMessage({
+          address: counterfactual.address,
+          message: MESSAGE,
+          signature: wrap(await owner.signMessage({ message: MESSAGE })),
+        }),
+        SignatureCheckUnavailable,
+      );
+      await assert.rejects(
+        verifier.verifyTypedData({
+          address: counterfactual.address,
+          typedData: data,
+          signature: wrap(await owner.signTypedData(data)),
+        }),
+        SignatureCheckUnavailable,
+      );
+      assert.equal(calls, 2);
+    }
   } finally {
     await anvil.stop();
   }

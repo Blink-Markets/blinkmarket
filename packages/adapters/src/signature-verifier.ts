@@ -39,15 +39,11 @@ function isCanonicalEcdsa(signature: Hex): boolean {
 
 type Client = Pick<PublicClient, "getBlockNumber" | "getCode" | "call">;
 
+// Only viem's mapping of the node's "execution reverted" answer counts as a rejection. Error data
+// alone is not evidence: an RPC internal error can carry data too.
 function isRevert(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   if (error instanceof ExecutionRevertedError) return true;
-  if (
-    "data" in error &&
-    isHex(error.data, { strict: true }) &&
-    error.data !== "0x"
-  )
-    return true;
   return "cause" in error && isRevert(error.cause);
 }
 
