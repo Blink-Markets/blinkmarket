@@ -3,13 +3,11 @@ import { PGlite } from "@electric-sql/pglite";
 import type { Pool } from "pg";
 import { migrate } from "../../packages/adapters/src/migrations.js";
 import { identityFixture } from "./identity-fixture.js";
-import type { ApiScope } from "../../packages/schemas/src/index.js";
 
 const roles = new Set([
   "blink_api",
   "blink_worker",
   "blink_indexer",
-  "blink_identity_admin",
   "blink_evidence_admin",
   "blink_deployment_admin",
 ]);
@@ -82,7 +80,7 @@ async function asOwner<T>(t: TestDatabase, run: () => Promise<T>) {
 
 export async function inviteAgent(
   t: TestDatabase,
-  input: { name: string; scopes: ApiScope[] },
+  input: { name: string; scopes: string[] },
 ) {
   const invited = await asOwner(t, () =>
     identityFixture(t.pool).invite({
@@ -115,8 +113,8 @@ export async function bindWallet(
     const challengeId = randomUUID();
     await t.db.query(
       `INSERT INTO identity.wallet_challenges
-      (id,key_id,agent_id,address,chain_id,origin,nonce_hash,message,issued_at,expires_at,consumed_at)
-      VALUES ($1,$2,$3,decode($4,'hex'),84532,'https://blink.example',decode($5,'hex'),'test binding',
+      (id,key_id,agent_id,address,action,chain_id,origin,nonce_hash,message,issued_at,expires_at,consumed_at)
+      VALUES ($1,$2,$3,decode($4,'hex'),'bind',84532,'https://blink.example',decode($5,'hex'),'test binding',
         $6::timestamptz,$6::timestamptz + interval '5 minutes',$6::timestamptz)`,
       [
         challengeId,

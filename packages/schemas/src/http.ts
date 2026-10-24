@@ -214,7 +214,7 @@ const contracts = [
   operation("GET", "/v1/specs/:specHash", MarketSpec),
   operation("POST", "/v1/auth/wallet-challenges", WalletChallengeResponse, {
     body: WalletChallengeRequest,
-    access: "invited-key",
+    access: "public",
     status: 201,
   }),
   operation(
@@ -223,7 +223,7 @@ const contracts = [
     WalletVerificationResponse,
     {
       body: WalletVerificationRequest,
-      access: "invited-key",
+      access: "public",
     },
   ),
   operation("GET", "/v1/markets", list(Summary), {

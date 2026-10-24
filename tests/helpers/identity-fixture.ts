@@ -1,19 +1,18 @@
 import type { Pool } from "pg";
-import {
-  IdentityInvitation,
-  type ApiScope,
-} from "../../packages/schemas/src/index.js";
 import { createUnitOfWork } from "../../packages/adapters/src/database.js";
 import { identityCrypto as crypto } from "../../packages/adapters/src/identity-crypto.js";
 
-// Test fixture only: seeds operators, agents and API keys directly. The platform ships no invitation
-// tooling; identities arrive through wallet proof (a later P2 task replaces this fixture).
+// Test fixture only: seeds operators, agents and API keys directly as the database owner. The platform
+// ships no invitation tooling (identities arrive through wallet proof). Scopes are free strings so
+// tests of the remaining operator-status checks can still seed the legacy "admin" scope.
+type KeyRequest = { scopes: string[]; lifetimeDays?: number; reason: string };
+type Invitation = KeyRequest & { operatorName: string; agentName: string };
 export function identityFixture(pool: Pool) {
   const uow = createUnitOfWork(pool);
   async function issue(
     tx: Parameters<typeof uow.client>[0],
     agentId: string,
-    scopes: ApiScope[],
+    scopes: string[],
     days: number,
     reason: string,
   ) {
@@ -52,8 +51,8 @@ export function identityFixture(pool: Pool) {
     };
   }
   return {
-    async invite(input: unknown) {
-      const parsed = IdentityInvitation.parse(input);
+    async invite(input: Invitation) {
+      const parsed = { lifetimeDays: 30, ...input };
       return uow.run(async (tx) => {
         const operatorId = crypto.id();
         const agentId = crypto.id();
@@ -78,17 +77,13 @@ export function identityFixture(pool: Pool) {
         );
       });
     },
-    async issue(agentId: string, input: unknown) {
-      const parsed = IdentityInvitation.omit({
-        operatorName: true,
-        agentName: true,
-      }).parse(input);
+    async issue(agentId: string, input: KeyRequest) {
+      const parsed = { lifetimeDays: 30, ...input };
       return uow.run((tx) =>
         issue(tx, agentId, parsed.scopes, parsed.lifetimeDays, parsed.reason),
       );
     },
     async revoke(keyId: string, reason: string) {
-      IdentityInvitation.shape.reason.parse(reason);
       return uow.run(async (tx) => {
         const result = await uow.client(tx).query(
           `UPDATE identity.api_keys SET revoked_at=clock_timestamp()

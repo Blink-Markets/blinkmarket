@@ -1,4 +1,5 @@
 import {
+  createPublicClient,
   encodeDeployData,
   erc6492SignatureValidatorAbi,
   erc6492SignatureValidatorByteCode,
@@ -7,6 +8,7 @@ import {
   hashTypedData,
   hexToBigInt,
   hexToBool,
+  http,
   isErc6492Signature,
   isHex,
   size,
@@ -94,3 +96,15 @@ export function viemSignatureVerifier(client: Client): SignatureVerifier {
       ),
   };
 }
+
+const noRpc = async (): Promise<never> => {
+  throw new SignatureCheckUnavailable("RPC_NOT_CONFIGURED");
+};
+
+/** The verifier over a plain JSON-RPC endpoint. Without an endpoint every check is unavailable. */
+export const rpcSignatureVerifier = (
+  rpcUrl: string | undefined,
+): SignatureVerifier =>
+  rpcUrl
+    ? viemSignatureVerifier(createPublicClient({ transport: http(rpcUrl) }))
+    : { verifyMessage: noRpc, verifyTypedData: noRpc };

@@ -336,10 +336,14 @@ const cases: Case[] = [
   },
   {
     name: "createWalletChallenge",
-    call: (c) => c.createWalletChallenge({ address: WALLET }, "challenge-key"),
+    call: (c) =>
+      c.createWalletChallenge(
+        { address: WALLET, action: "issue" },
+        "challenge-key",
+      ),
     method: "POST",
     path: "/v1/auth/wallet-challenges",
-    body: { address: WALLET },
+    body: { address: WALLET, action: "issue" },
     answer: {
       challengeId: UUID,
       message: "Bind this wallet to Blink",
@@ -357,7 +361,11 @@ const cases: Case[] = [
     method: "POST",
     path: "/v1/auth/wallet-verifications",
     body: { challengeId: UUID, signature: "0x" + "22".repeat(65) },
-    answer: { wallet: WALLET, verifiedAt: "2026-10-15T00:00:00.000Z" },
+    answer: {
+      apiKey: API_KEY,
+      keyId: UUID,
+      expiresAt: "2026-11-14T00:00:00.000Z",
+    },
   },
 ];
 

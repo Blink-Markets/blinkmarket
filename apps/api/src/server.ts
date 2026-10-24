@@ -4,6 +4,7 @@ import {
   apiContracts,
   generateOpenApi,
   IdempotencyHeaders,
+  WalletChallengeRequest,
   type ConfigResponse,
 } from "@blink/schemas";
 import { modules } from "@blink/domain";
@@ -45,6 +46,15 @@ function sendIdentityError(
   });
 }
 
+// Wallet challenges are public and cost a database row and a later chain read, so each client IP and
+// each address gets its own hourly allowance. In-process, like the public read limit (one API instance).
+const HOUR_SECONDS = 3600;
+const defaultChallengeLimits = {
+  perIp: { capacity: 30, refillPerSecond: 30 / HOUR_SECONDS },
+  perAddress: { capacity: 10, refillPerSecond: 10 / HOUR_SECONDS },
+};
+type BucketOptions = Parameters<typeof createTokenBucket>[0];
+
 // The database could not be reached: not a fault of the request, and the same request may be repeated.
 const databaseUnavailable = () =>
   new IdentityError(503, "SERVICE_NOT_READY", {
@@ -67,12 +77,11 @@ export function buildApi(
       now?: () => number;
     };
     trustedProxies?: readonly string[];
+    walletChallengeLimits?: { perIp: BucketOptions; perAddress: BucketOptions };
   } = {},
 ) {
   // A contract path has exactly one owner: a built-in option or one route service.
-  const builtIn = new Set<string>([
-    ...(options.identity ? identityPaths : []),
-  ]);
+  const builtIn = new Set<string>([...(options.identity ? identityPaths : [])]);
   const contractPaths = new Set(apiContracts.map((c) => c.path));
   const owners = new Map<string, RouteService>();
   for (const service of options.services ?? [])
@@ -84,8 +93,7 @@ export function buildApi(
       owners.set(path, service);
     }
   const stage =
-    options.stage ??
-    (options.identity ? "m2-identity" : "architecture");
+    options.stage ?? (options.identity ? "m2-identity" : "architecture");
   const app = createService(
     "api",
     stage,
@@ -95,6 +103,10 @@ export function buildApi(
     },
     { trustProxy: options.trustedProxies ?? [] },
   );
+  const challengeLimits =
+    options.walletChallengeLimits ?? defaultChallengeLimits;
+  const challengesByIp = createTokenBucket(challengeLimits.perIp);
+  const challengesByAddress = createTokenBucket(challengeLimits.perAddress);
   // Reads of public data are unauthenticated; bound them per client IP (HEAD runs the same handlers).
   const publicReads = options.publicReadLimit
     ? createTokenBucket(options.publicReadLimit)
@@ -247,12 +259,23 @@ export function buildApi(
                 !contract.query.safeParse(request.query).success
               )
                 throw new IdentityError(400, "INVALID_REQUEST");
+              if (contract.path === identityPaths[0]) {
+                const wanted = WalletChallengeRequest.safeParse(request.body);
+                const taken = [
+                  challengesByIp.take(request.ip),
+                  // An unparsable body is refused by the service; it must not spend an address allowance.
+                  wanted.success
+                    ? challengesByAddress.take(
+                        wanted.data.address.toLowerCase(),
+                      )
+                    : ({ allowed: true } as const),
+                ].find((t) => !t.allowed);
+                if (taken && !taken.allowed)
+                  throw new IdentityError(429, "RATE_LIMITED", {
+                    retryAfterSeconds: taken.retryAfterSeconds,
+                  });
+              }
               const result = await options.identity.mutate(contract.path, {
-                authorization: request.headers.authorization,
-                idempotencyKey:
-                  typeof request.headers["idempotency-key"] === "string"
-                    ? request.headers["idempotency-key"]
-                    : undefined,
                 body: request.body,
                 requestId: request.id,
               });
@@ -268,9 +291,8 @@ export function buildApi(
             const scope = (
               {
                 "forecast:write": "forecast:write",
-                "trade:quote + wallet": "trade:quote",
                 admin: "admin",
-              } as Record<string, ApiScope>
+              } as Record<string, ApiScope | "admin">
             )[contract.access];
             if (
               scope ||

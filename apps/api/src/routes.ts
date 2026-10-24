@@ -9,15 +9,15 @@ export const routes = [
     "method": "POST",
     "path": "/v1/auth/wallet-challenges",
     "module": "identity",
-    "access": "invited-key",
-    "summary": "建立 wallet 綁定挑戰"
+    "access": "public",
+    "summary": "建立 wallet 證明挑戰"
   },
   {
     "method": "POST",
     "path": "/v1/auth/wallet-verifications",
     "module": "identity",
-    "access": "invited-key",
-    "summary": "驗證 wallet"
+    "access": "public",
+    "summary": "驗證 wallet 並簽發或撤銷 API key"
   },
   {
     "method": "GET",

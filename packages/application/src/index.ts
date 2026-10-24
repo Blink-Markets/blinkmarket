@@ -3,6 +3,7 @@ export {
   IdentityError,
   identityPaths,
   type IdentityService,
+  type WalletProof,
 } from "./identity.js";
 export const implementationStage = "m2-identity" as const;
 export type {

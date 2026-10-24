@@ -12,6 +12,7 @@ import {
 } from "@blink/application";
 import {
   identityCrypto,
+  rpcSignatureVerifier,
   postgresIdentityStore,
   assertIdentityRuntimeRole,
   assertProductionClock,
@@ -24,6 +25,18 @@ import {
   postgresOperatorStatusStore,
 } from "@blink/adapters";
 import { apiConfig, modeAtLeast } from "./config.js";
+
+// Task 5 replaces this with the reader over the indexed store. Until then the index counts as
+// stale, so no key is issued.
+const protocolReaderFor = (_pool: pg.Pool) => ({
+  health: async () => ({
+    headBlock: 0,
+    indexedBlock: 0,
+    lagSeconds: 0,
+    stale: true,
+  }),
+  account: async () => null,
+});
 
 const config = apiConfig(process.env);
 const pool =
@@ -72,6 +85,10 @@ try {
             postgresIdentityStore(pool),
             identityCrypto,
             config.walletOrigin!,
+            {
+              verifier: rpcSignatureVerifier(config.rpcUrl),
+              reader: protocolReaderFor(pool),
+            },
           ),
           services: modeAtLeast(config.mode, "markets")
             ? [
