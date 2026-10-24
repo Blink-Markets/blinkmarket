@@ -469,8 +469,8 @@ Spec §5.1 "API access becomes self-service: an identity proves control of its w
 - Consumes: `ProtocolReader.health()` and `ProtocolReader.account()`, from the Task 3 fake until Task 5 wires the real store; Task 3 `SignatureVerifier`, with `viemSignatureVerifier` wired in `apps/api/src/main.ts`.
 - Produces:
   - `POST /v1/auth/wallet-challenges`: public, no key. Body `{ address, action: "issue" | "revoke", keyId?: uuid }`.
-    - Returns `{ challengeId, message, expiresAt }`. The TTL is 300 s, with at most 5 pending challenges per address.
-    - Rate limits: 30 per hour per client IP (trusted-proxy aware, `apps/api/src/rate-limit.ts`) and 10 per hour per address.
+    - Returns `{ challengeId, message, expiresAt }`. The TTL is 300 s, with at most 5 pending challenges per (address, client IP).
+    - Rate limits: 30 per hour per client IP (trusted-proxy aware, `apps/api/src/rate-limit.ts`) and 10 per hour per (address, client IP), charged only after the IP allowance passes. (Execution ruling: keying these by address alone let an anonymous party lock a wallet out.)
     - The message format is the existing one, with `Action: issue|revoke` added and the key ID line only for revoke. The origin is `WALLET_BINDING_ORIGIN`.
   - `POST /v1/auth/wallet-verifications`: body `{ challengeId, signature }`.
     - Signature checking uses `SignatureVerifier.verifyMessage` (Task 3), so EOAs and ERC-1271 contract wallets both work. `identity-crypto`'s `verifyMessage` delegates to it or is removed. `SignatureCheckUnavailable` returns `503 SIGNATURE_CHECK_UNAVAILABLE`.
