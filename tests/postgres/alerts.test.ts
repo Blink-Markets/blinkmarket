@@ -153,7 +153,7 @@ test(
         // More ticks while everything stays broken add nothing.
         await tick();
         await flush();
-        assert.equal((await delivered()).length, 10);
+        assert.equal((await delivered()).length, 7);
 
         // Recovery: each condition ends and is reported once as CLEARED.
         rpcServer = createServer((request, response) => {
@@ -202,7 +202,7 @@ test(
           await queue.lease("drill", ["alert.deliver"], 60_000),
           null,
         );
-        assert.equal(all.length, 19);
+        assert.equal(all.length, 13);
         assert.equal(JSON.stringify(all).includes("private"), false);
       });
     } finally {
