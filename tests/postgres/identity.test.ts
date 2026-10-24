@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { privateKeyToAccount } from "viem/accounts";
 import { migrate } from "../../packages/adapters/src/migrations.js";
+import { withDatabase } from "../helpers/postgres-database.js";
 import { identityCrypto } from "../../packages/adapters/src/identity-crypto.js";
 import { postgresIdentityStore } from "../../packages/adapters/src/identity-store.js";
 import {
@@ -106,15 +107,21 @@ test(
       const verify = (body: { challengeId: string; signature: string }) =>
         service.mutate(verifyPath, { body, requestId: "pg-test" });
 
-      // One challenge, eight simultaneous verifications: one key, seven "used".
+      // One challenge, eight simultaneous verifications: one key. The others are refused as used,
+      // or as out of attempts when more than the budget arrive before the winner commits.
       const single = await challenge(wallet);
       const raced = await Promise.all(
         Array.from({ length: 8 }, () => attempt(verify(single))),
       );
       assert.equal(raced.filter((r) => r.code === "OK").length, 1);
-      assert.equal(
-        raced.filter((r) => r.code === "WALLET_CHALLENGE_USED").length,
-        7,
+      assert.deepEqual(
+        raced
+          .filter((r) => r.code !== "OK")
+          .filter(
+            (r) =>
+              r.code !== "WALLET_CHALLENGE_USED" && r.code !== "RATE_LIMITED",
+          ),
+        [],
       );
       assert.equal(await count("identity.api_keys"), 1);
       assert.equal(await count("identity.agents"), 1);
@@ -190,3 +197,187 @@ test(
     }
   },
 );
+
+// Polls the database until `sql` returns a row with ok = true. The condition is the wait, not a
+// fixed delay, so the test does not depend on how fast the application runs.
+async function until(
+  owner: pg.Pool,
+  what: string,
+  sql: string,
+  params: unknown[] = [],
+  timeoutMs = 15_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if ((await owner.query<{ ok: boolean }>(sql, params)).rows[0]?.ok) return;
+    if (Date.now() > deadline) throw new Error("TIMEOUT_WAITING_FOR: " + what);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+// Holds `lock` (a statement run in an open owner transaction) across the challenge's expiry while
+// a verification of `payload` waits behind it, then releases it and returns the verification's fate.
+async function verifyBehindLock(
+  owner: pg.Pool,
+  challengeId: string,
+  lock: { sql: string; params: unknown[] },
+  verifyNow: () => Promise<{ status: number; code: string }>,
+) {
+  // Expires six seconds from now: long enough to reach the lock wait first, short enough to outwait.
+  await owner.query(
+    `UPDATE identity.wallet_challenges c
+    SET issued_at = t.t - interval '294 seconds', expires_at = t.t + interval '6 seconds'
+    FROM (SELECT clock_timestamp() AS t) t WHERE c.id = $1`,
+    [challengeId],
+  );
+  const holder = await owner.connect();
+  try {
+    await holder.query("BEGIN");
+    await holder.query(lock.sql, lock.params);
+    const pending = verifyNow();
+    // The verification is queued behind the lock, and the challenge is still valid at that moment.
+    await until(
+      owner,
+      "a backend waiting for a lock",
+      `SELECT count(*) > 0 AS ok FROM pg_stat_activity
+      WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+      [],
+      5_000,
+    );
+    await until(
+      owner,
+      "the challenge to be unexpired while queued",
+      "SELECT clock_timestamp() < expires_at AS ok FROM identity.wallet_challenges WHERE id = $1",
+      [challengeId],
+    );
+    await until(
+      owner,
+      "the challenge to expire",
+      "SELECT clock_timestamp() > expires_at AS ok FROM identity.wallet_challenges WHERE id = $1",
+      [challengeId],
+    );
+    await holder.query("COMMIT");
+    return await pending;
+  } finally {
+    await holder.query("ROLLBACK").catch(() => undefined);
+    holder.release();
+  }
+}
+
+for (const action of ["issue", "revoke"] as const)
+  test(
+    `real PostgreSQL: a ${action} that waits behind a lock past expiry is refused and changes nothing`,
+    { timeout: 90_000 },
+    async () => {
+      await withDatabase(async ({ owner, pool }) => {
+        const wallet = privateKeyToAccount(`0x${"1".padStart(64, "0")}`);
+        const service = createIdentityService(
+          postgresIdentityStore(pool("blink_api", 4)),
+          identityCrypto,
+          "https://blink.example",
+          {
+            verifier: fakeSignatureVerifier(),
+            reader: fakeProtocolReader({
+              accounts: [
+                {
+                  address: wallet.address,
+                  registered: true,
+                  roles: {},
+                  credit: {},
+                } as ProtocolAccount,
+              ],
+            }),
+          },
+        );
+        const proof = async (
+          body: Record<string, unknown>,
+        ): Promise<{ challengeId: string; signature: string }> => {
+          const c = (
+            await service.mutate(challengePath, {
+              body: { address: wallet.address, ...body },
+              requestId: "pg-test",
+            })
+          ).body;
+          return {
+            challengeId: c.challengeId as string,
+            signature: await wallet.signMessage({
+              message: c.message as string,
+            }),
+          };
+        };
+        const verify = (payload: { challengeId: string; signature: string }) =>
+          service
+            .mutate(verifyPath, { body: payload, requestId: "pg-test" })
+            .then(
+              (r) => ({ status: r.status, code: "OK" }),
+              (error: unknown) => {
+                assert.ok(error instanceof IdentityError, String(error));
+                return { status: error.status, code: error.code };
+              },
+            );
+        const counts = async () =>
+          (
+            await owner.query<Record<string, string>>(
+              `SELECT (SELECT count(*) FROM identity.api_keys)::text AS keys,
+              (SELECT count(*) FROM identity.api_keys WHERE revoked_at IS NOT NULL)::text AS revoked,
+              (SELECT count(*) FROM identity.agents)::text AS agents,
+              (SELECT count(*) FROM identity.wallet_bindings)::text AS bindings,
+              (SELECT count(*) FROM identity.wallet_challenges WHERE consumed_at IS NOT NULL)::text AS consumed`,
+            )
+          ).rows[0]!;
+
+        if (action === "issue") {
+          const payload = await proof({ action: "issue" });
+          // Issuance serializes per address behind an advisory lock.
+          const outcome = await verifyBehindLock(
+            owner,
+            payload.challengeId,
+            {
+              sql: "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+              params: ["identity.wallet:" + wallet.address.toLowerCase()],
+            },
+            () => verify(payload),
+          );
+          assert.deepEqual(outcome, {
+            status: 409,
+            code: "WALLET_CHALLENGE_EXPIRED",
+          });
+          assert.deepEqual(await counts(), {
+            keys: "0",
+            revoked: "0",
+            agents: "0",
+            bindings: "0",
+            consumed: "0",
+          });
+          return;
+        }
+        // Revocation waits for the row lock of the key it revokes.
+        const issued = await service.mutate(verifyPath, {
+          body: await proof({ action: "issue" }),
+          requestId: "pg-test",
+        });
+        const keyId = issued.body.keyId as string;
+        const payload = await proof({ action: "revoke", keyId });
+        const outcome = await verifyBehindLock(
+          owner,
+          payload.challengeId,
+          {
+            sql: "SELECT id FROM identity.api_keys WHERE id = $1 FOR UPDATE",
+            params: [keyId],
+          },
+          () => verify(payload),
+        );
+        assert.deepEqual(outcome, {
+          status: 409,
+          code: "WALLET_CHALLENGE_EXPIRED",
+        });
+        assert.deepEqual(await counts(), {
+          keys: "1",
+          revoked: "0",
+          agents: "1",
+          bindings: "1",
+          consumed: "1",
+        });
+      });
+    },
+  );

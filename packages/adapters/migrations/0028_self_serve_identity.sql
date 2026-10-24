@@ -19,6 +19,8 @@ ALTER TABLE identity.wallet_challenges
   ADD COLUMN action TEXT NOT NULL DEFAULT 'bind' CHECK (action IN ('bind','issue','revoke'));
 ALTER TABLE identity.wallet_challenges ALTER COLUMN action DROP DEFAULT;
 ALTER TABLE identity.wallet_challenges ADD COLUMN target_key_id UUID;
+-- Verification attempts spent so far; the application stops accepting attempts at its budget.
+ALTER TABLE identity.wallet_challenges ADD COLUMN attempts SMALLINT NOT NULL DEFAULT 0;
 ALTER TABLE identity.wallet_challenges
   ADD CONSTRAINT wallet_challenges_target_matches_action CHECK ((action = 'revoke') = (target_key_id IS NOT NULL));
 CREATE INDEX wallet_challenges_pending_by_address ON identity.wallet_challenges(address, expires_at)
@@ -30,6 +32,7 @@ UPDATE identity.api_keys SET revoked_at = now() WHERE revoked_at IS NULL;
 -- Bindings and consumption now happen only inside the functions below.
 REVOKE INSERT ON identity.wallet_bindings FROM blink_api;
 REVOKE UPDATE (consumed_at) ON identity.wallet_challenges FROM blink_api;
+GRANT UPDATE (attempts) ON identity.wallet_challenges TO blink_api;
 
 -- Result columns are prefixed so they cannot shadow table columns inside the bodies.
 CREATE FUNCTION identity.issue_self_serve_key(
@@ -54,11 +57,17 @@ BEGIN
   IF c.consumed_at IS NOT NULL THEN
     RETURN QUERY SELECT 'USED'::TEXT, NULL::UUID, NULL::TIMESTAMPTZ; RETURN;
   END IF;
+  -- Waiting for a lock must not extend the challenge: the clock is read again after every wait.
+  v_now := clock_timestamp();
   IF c.expires_at <= v_now THEN
     RETURN QUERY SELECT 'EXPIRED'::TEXT, NULL::UUID, NULL::TIMESTAMPTZ; RETURN;
   END IF;
   v_name := '0x' || encode(c.address, 'hex');
   PERFORM pg_advisory_xact_lock(hashtextextended('identity.wallet:' || v_name, 0));
+  v_now := clock_timestamp();
+  IF c.expires_at <= v_now THEN
+    RETURN QUERY SELECT 'EXPIRED'::TEXT, NULL::UUID, NULL::TIMESTAMPTZ; RETURN;
+  END IF;
   SELECT b.agent_id INTO v_agent FROM identity.wallet_bindings b
     WHERE b.chain_id = 84532 AND b.address = c.address;
   IF v_agent IS NULL THEN
@@ -73,6 +82,11 @@ BEGIN
         WHERE k.agent_id = v_agent AND k.revoked_at IS NULL AND k.expires_at > v_now) >= 5 THEN
       RETURN QUERY SELECT 'KEY_LIMIT'::TEXT, NULL::UUID, NULL::TIMESTAMPTZ; RETURN;
     END IF;
+  END IF;
+  -- Last read of the clock before the credential is written.
+  v_now := clock_timestamp();
+  IF c.expires_at <= v_now THEN
+    RETURN QUERY SELECT 'EXPIRED'::TEXT, NULL::UUID, NULL::TIMESTAMPTZ; RETURN;
   END IF;
   v_expires := v_now + interval '30 days';
   INSERT INTO identity.api_keys (id, operator_id, agent_id, secret_hash, scopes, expires_at)
@@ -107,6 +121,7 @@ BEGIN
   IF c.consumed_at IS NOT NULL THEN
     RETURN QUERY SELECT 'USED'::TEXT, NULL::UUID, NULL::TIMESTAMPTZ; RETURN;
   END IF;
+  v_now := clock_timestamp();
   IF c.expires_at <= v_now THEN
     RETURN QUERY SELECT 'EXPIRED'::TEXT, NULL::UUID, NULL::TIMESTAMPTZ; RETURN;
   END IF;
@@ -117,6 +132,16 @@ BEGIN
     RETURN QUERY SELECT 'NOT_FOUND'::TEXT, NULL::UUID, NULL::TIMESTAMPTZ; RETURN;
   END IF;
   -- Only a key of the agent bound to the signing address can be revoked by that address.
+  PERFORM 1 FROM identity.api_keys k
+    WHERE k.id = c.target_key_id AND k.agent_id = v_agent FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN QUERY SELECT 'NOT_FOUND'::TEXT, NULL::UUID, NULL::TIMESTAMPTZ; RETURN;
+  END IF;
+  -- The key row lock may have been a wait: read the clock again before revoking.
+  v_now := clock_timestamp();
+  IF c.expires_at <= v_now THEN
+    RETURN QUERY SELECT 'EXPIRED'::TEXT, NULL::UUID, NULL::TIMESTAMPTZ; RETURN;
+  END IF;
   UPDATE identity.api_keys k SET revoked_at = COALESCE(k.revoked_at, v_now)
     WHERE k.id = c.target_key_id AND k.agent_id = v_agent
     RETURNING k.revoked_at INTO v_revoked;

@@ -163,6 +163,9 @@ export type HttpContract = {
   response: z.ZodType;
   status: number;
   access: string;
+  /** false: the operation takes no Idempotency-Key header (default true for POST). */
+  idempotencyKey?: boolean;
+  description?: string;
 };
 // The literal method, path and response types stay visible, so clients can type each call.
 function operation<
@@ -216,6 +219,9 @@ const contracts = [
     body: WalletChallengeRequest,
     access: "public",
     status: 201,
+    idempotencyKey: false,
+    description:
+      "Public; no API key. Not idempotent: every call creates a new challenge (valid 300 seconds, at most 5 pending per address, rate limited per client IP and per address).",
   }),
   operation(
     "POST",
@@ -224,6 +230,9 @@ const contracts = [
     {
       body: WalletVerificationRequest,
       access: "public",
+      idempotencyKey: false,
+      description:
+        "Public; no API key. Single use: a challenge issues or revokes once, then answers 409. Verification attempts are limited per challenge and per client IP. The apiKey secret is shown only in the first successful issue response.",
     },
   ),
   operation("GET", "/v1/markets", list(Summary), {
@@ -353,7 +362,7 @@ export function generateOpenApi(enabledPaths: readonly string[] = []) {
         required: !(s as z.ZodType).isOptional(),
         schema: json(s as z.ZodType),
       })),
-      ...(c.method === "POST"
+      ...(c.method === "POST" && c.idempotencyKey !== false
         ? [
             {
               name: "Idempotency-Key",
@@ -387,6 +396,7 @@ export function generateOpenApi(enabledPaths: readonly string[] = []) {
         c.method.toLowerCase() + c.path.replace(/[^a-zA-Z0-9]/g, "_"),
       "x-status": enabledPaths.includes(c.path) ? "enabled" : "not-implemented",
       "x-planned-access": c.access,
+      ...(c.description ? { description: c.description } : {}),
       parameters,
       security:
         c.access === "public"

@@ -40,6 +40,8 @@ export const identityPaths = [
 
 const CHALLENGE_TTL_MS = 5 * 60_000;
 const MAX_PENDING_CHALLENGES = 5;
+/** Verification attempts one challenge accepts before it is dead, spent before the signature check. */
+export const MAX_VERIFICATION_ATTEMPTS = 5;
 
 // The 30-day lifetime, four scopes and five-key limit live in the issuing SQL function.
 /** What wallet proof needs beyond the database: a signature check and the indexed chain state. */
@@ -208,17 +210,19 @@ export function createIdentityService(
     if (!input.success) return fail(400, "INVALID_REQUEST");
     const wallet = proof!;
     // The signature check calls the chain, so no database transaction stays open across it. The
-    // SQL functions re-check use and expiry under the challenge row lock.
-    const { challenge, now } = await store.run(async (tx) => ({
-      challenge: await tx.challenge(input.data.challengeId),
-      now: await tx.now(),
-    }));
-    if (!challenge) return fail(404, "NOT_FOUND");
-    if (challenge.origin !== origin)
-      return fail(400, "INVALID_WALLET_SIGNATURE");
-    if (challenge.consumedAt) return fail(409, "WALLET_CHALLENGE_USED");
-    if (challenge.expiresAt <= now)
-      return fail(409, "WALLET_CHALLENGE_EXPIRED");
+    // SQL functions re-check use and expiry under the challenge row lock. One attempt is spent
+    // (and committed) before the check, so a challenge cannot drive unlimited chain calls.
+    const challenge = await store.run(async (tx) => {
+      const found = await tx.challenge(input.data.challengeId);
+      if (!found) return fail(404, "NOT_FOUND");
+      if (found.origin !== origin) return fail(400, "INVALID_WALLET_SIGNATURE");
+      if (found.consumedAt) return fail(409, "WALLET_CHALLENGE_USED");
+      if (found.expiresAt <= (await tx.now()))
+        return fail(409, "WALLET_CHALLENGE_EXPIRED");
+      if (!(await tx.spendAttempt(found.id, MAX_VERIFICATION_ATTEMPTS)))
+        return fail(429, "RATE_LIMITED");
+      return found;
+    });
     await checkSignature(
       wallet,
       challenge.address,

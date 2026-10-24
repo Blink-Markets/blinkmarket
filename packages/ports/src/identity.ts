@@ -68,6 +68,8 @@ export interface IdentityTransaction {
   pendingChallenges(address: string): Promise<number>;
   addChallenge(challenge: WalletChallenge): Promise<void>;
   challenge(id: string): Promise<WalletChallenge | null>;
+  /** Spends one verification attempt; false when the challenge's budget is already used up. */
+  spendAttempt(challengeId: string, budget: number): Promise<boolean>;
   /** Atomically consumes the challenge, creates the agent on first use and issues the key. */
   issueKey(input: {
     challengeId: string;

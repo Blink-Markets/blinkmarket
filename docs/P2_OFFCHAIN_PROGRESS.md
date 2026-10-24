@@ -166,8 +166,16 @@ after revoking its grants.
   dropped role. CI must run them.
 - `pnpm build` cannot run on this host (Turbopack needs a newer glibc).
 
-Known limits: the verification endpoint spends one RPC call per attempt and is not
-rate limited beyond the challenge allowances; a lost issue response leaves an
+Fix round 1 (review): verification is now bounded before the signature check, by
+60 attempts per hour per client IP and 5 attempts per challenge (`attempts`
+column, then `429 RATE_LIMITED`). Both SQL functions read the clock again after
+every blocking lock (challenge row, address advisory lock, revoked key row), so a
+lock wait cannot extend the 300 s challenge. The generated contract and
+`@blink/client` no longer claim an `Idempotency-Key` for the two wallet
+endpoints. The lock-wait expiry test is in `tests/postgres/identity.test.ts` and
+has not run here (no PostgreSQL).
+
+Known limits: a lost issue response leaves an
 unrevocable key that counts toward the five until it expires; the in-process
 buckets assume one API instance.
 

@@ -129,6 +129,14 @@ export function identityTransaction(client: PoolClient): IdentityTransaction {
           }
         : null;
     },
+    async spendAttempt(challengeId, budget) {
+      const { rows } = await client.query(
+        `UPDATE identity.wallet_challenges SET attempts=attempts+1
+        WHERE id=$1 AND action IN ('issue','revoke') AND attempts < $2 RETURNING id`,
+        [challengeId, budget],
+      );
+      return rows.length === 1;
+    },
     async issueKey(input): Promise<KeyIssueOutcome> {
       const { rows } = await client.query<{
         status: KeyIssueOutcome["status"];

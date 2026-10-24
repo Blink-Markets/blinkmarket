@@ -17,9 +17,13 @@ import {
   assertIdentityRuntimeRole,
 } from "../packages/adapters/src/identity-store.js";
 import { createBlinkClient } from "../packages/client/src/index.js";
-import { createIdentityService } from "../packages/application/src/identity.js";
+import {
+  createIdentityService,
+  MAX_VERIFICATION_ATTEMPTS,
+} from "../packages/application/src/identity.js";
 import type { ProtocolAccount } from "../packages/schemas/src/index.js";
 import { buildApi } from "../apps/api/src/server.js";
+import { generateOpenApi } from "../packages/schemas/src/index.js";
 import { apiConfig } from "../apps/api/src/config.js";
 import { fakeProtocolReader } from "./helpers/protocol-reader.js";
 import { fakeSignatureVerifier } from "./helpers/signature-verifier.js";
@@ -60,6 +64,9 @@ async function setup(
     limits?: NonNullable<
       NonNullable<Parameters<typeof buildApi>[0]>["walletChallengeLimits"]
     >;
+    verifyLimit?: NonNullable<
+      Parameters<typeof buildApi>[0]
+    >["walletVerificationLimit"];
   } = {},
 ) {
   const { db } = await migratedDatabase();
@@ -90,14 +97,26 @@ async function setup(
   const verifier = fakeSignatureVerifier({
     contractWallets: { [contractWallet]: alice.address },
   });
+  // Every call that reaches the external signature check is counted.
+  const calls = { verify: 0 };
+  const countingVerifier = {
+    verifyMessage(input: Parameters<typeof verifier.verifyMessage>[0]) {
+      calls.verify++;
+      return verifier.verifyMessage(input);
+    },
+    verifyTypedData: verifier.verifyTypedData,
+  };
   const store = postgresIdentityStore(pool);
   const service = createIdentityService(store, identityCrypto, origin, {
-    verifier,
+    verifier: countingVerifier,
     reader,
   });
   const app = buildApi({
     identity: service,
     ...(options.limits ? { walletChallengeLimits: options.limits } : {}),
+    ...(options.verifyLimit
+      ? { walletVerificationLimit: options.verifyLimit }
+      : {}),
   });
   app.log.level = "silent";
   const post = (path: string, body: unknown) =>
@@ -105,8 +124,8 @@ async function setup(
   const challenge = (address: string, action = "issue", keyId?: string) =>
     post(challengePath, { address, action, ...(keyId ? { keyId } : {}) });
   type Signer = { signMessage(a: { message: string }): Promise<`0x${string}`> };
-  // One full proof: challenge, signature by `signer`, verification. Returns the verification.
-  async function prove(
+  // A challenge signed by `signer`: the payload a retry must send again, unchanged.
+  async function payload(
     signer: Signer,
     address: string,
     action = "issue",
@@ -116,7 +135,16 @@ async function setup(
     assert.equal(response.statusCode, 201, response.body);
     const c = response.json();
     const signature = await signer.signMessage({ message: c.message });
-    return post(verifyPath, { challengeId: c.challengeId, signature });
+    return { challengeId: c.challengeId as string, signature };
+  }
+  // One full proof: challenge, signature by `signer`, verification. Returns the verification.
+  async function prove(
+    signer: Signer,
+    address: string,
+    action = "issue",
+    keyId?: string,
+  ) {
+    return post(verifyPath, await payload(signer, address, action, keyId));
   }
   const owner = async <T>(work: () => Promise<T>) => {
     await db.exec("RESET ROLE");
@@ -140,11 +168,13 @@ async function setup(
     db,
     reader,
     verifier,
+    calls,
     store,
     service,
     app,
     post,
     challenge,
+    payload,
     prove,
     owner,
     count,
@@ -231,15 +261,17 @@ test("issue requires on-chain registration", async () => {
 test("issue refuses when index is stale", async () => {
   const s = await setup();
   try {
+    // The same refused payload is retried each time, never a fresh proof.
+    const retry = await s.payload(alice, alice.address);
     s.reader.set({
       health: { headBlock: 10, indexedBlock: 1, lagSeconds: 99, stale: true },
     });
-    const stale = await s.prove(alice, alice.address);
+    const stale = await s.post(verifyPath, retry);
     assert.equal(stale.statusCode, 503);
     assert.equal(stale.json().code, "INDEX_STALE");
     // A reader that cannot answer is treated as a stale index, never as "registered".
     s.reader.set({ health: undefined as never });
-    const broken = await s.prove(alice, alice.address);
+    const broken = await s.post(verifyPath, retry);
     assert.equal(broken.statusCode, 503);
     assert.equal(broken.json().code, "INDEX_STALE");
     assert.equal(await s.count("identity.api_keys"), 0);
@@ -247,7 +279,8 @@ test("issue refuses when index is stale", async () => {
     s.reader.set({
       health: { headBlock: 10, indexedBlock: 10, lagSeconds: 0, stale: false },
     });
-    assert.equal((await s.prove(alice, alice.address)).statusCode, 200);
+    assert.equal((await s.post(verifyPath, retry)).statusCode, 200);
+    assert.equal(await s.count("identity.api_keys"), 1);
   } finally {
     await s.close();
   }
@@ -357,11 +390,12 @@ test("contract wallet proof accepted", async () => {
     const { apiKey } = response.json();
     const principal = await s.service.authenticate("Bearer " + apiKey);
     assert.equal(principal.address, contractWallet);
+    assert.equal(await s.count("identity.api_keys"), 1);
     // The owner's signature is not accepted for a wallet owned by someone else.
-    assert.equal(
-      (await s.prove(bob, contractWallet)).json().code,
-      "INVALID_WALLET_SIGNATURE",
-    );
+    const refused = await s.prove(bob, contractWallet);
+    assert.equal(refused.statusCode, 400);
+    assert.equal(refused.json().code, "INVALID_WALLET_SIGNATURE");
+    assert.equal(await s.count("identity.api_keys"), 1);
   } finally {
     await s.close();
   }
@@ -370,15 +404,18 @@ test("contract wallet proof accepted", async () => {
 test("signature check outage fails closed", async () => {
   const s = await setup();
   try {
+    const retry = await s.payload(alice, alice.address);
     s.verifier.setUnavailable(true);
-    const response = await s.prove(alice, alice.address);
+    const response = await s.post(verifyPath, retry);
     assert.equal(response.statusCode, 503);
     assert.equal(response.json().code, "SIGNATURE_CHECK_UNAVAILABLE");
     assert.equal(response.json().retryable, true);
     assert.equal(await s.count("identity.api_keys"), 0);
     assert.equal(await s.count("identity.agents"), 0);
+    // The same challenge works once the chain answers again.
     s.verifier.setUnavailable(false);
-    assert.equal((await s.prove(alice, alice.address)).statusCode, 200);
+    assert.equal((await s.post(verifyPath, retry)).statusCode, 200);
+    assert.equal(await s.count("identity.api_keys"), 1);
   } finally {
     await s.close();
   }
@@ -465,11 +502,12 @@ test("sixth active key refused", async () => {
       assert.equal(response.statusCode, 200, response.body);
       keys.push(response.json());
     }
-    const sixth = await s.prove(alice, alice.address);
-    assert.equal(sixth.statusCode, 409);
-    assert.equal(sixth.json().code, "KEY_LIMIT_REACHED");
+    const sixth = await s.payload(alice, alice.address);
+    const refused = await s.post(verifyPath, sixth);
+    assert.equal(refused.statusCode, 409);
+    assert.equal(refused.json().code, "KEY_LIMIT_REACHED");
     assert.equal(await s.count("identity.api_keys"), 5);
-    // Revoking one frees a slot; the refused challenge stayed unconsumed but a fresh one works too.
+    // Revoking one frees a slot, and the refused challenge itself then succeeds.
     const revoked = await s.prove(
       alice,
       alice.address,
@@ -477,11 +515,30 @@ test("sixth active key refused", async () => {
       keys[0]!.keyId,
     );
     assert.equal(revoked.statusCode, 200, revoked.body);
-    assert.equal((await s.prove(alice, alice.address)).statusCode, 200);
-    // Expired keys do not count as active.
+    assert.equal((await s.post(verifyPath, sixth)).statusCode, 200);
+    assert.equal(await s.count("identity.api_keys"), 6);
+    // Five are active again, so the next proof is refused.
+    const seventh = await s.payload(alice, alice.address);
     assert.equal(
-      (await s.prove(alice, alice.address)).json().code,
+      (await s.post(verifyPath, seventh)).json().code,
       "KEY_LIMIT_REACHED",
+    );
+    // A stored key that has expired no longer counts: the same challenge now succeeds.
+    await s.owner(() =>
+      s.db.query(
+        "UPDATE identity.api_keys SET created_at=clock_timestamp()-interval '2 days',expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",
+        [keys[1]!.keyId],
+      ),
+    );
+    const replacement = await s.post(verifyPath, seventh);
+    assert.equal(replacement.statusCode, 200, replacement.body);
+    assert.equal(await s.count("identity.api_keys"), 7);
+    assert.equal(
+      await s.count(
+        "identity.api_keys",
+        "revoked_at IS NULL AND expires_at > clock_timestamp()",
+      ),
+      5,
     );
   } finally {
     await s.close();
@@ -589,8 +646,11 @@ test("rate limit per address", async () => {
     assert.equal(limited.statusCode, 429);
     assert.equal(limited.json().code, "RATE_LIMITED");
     assert.ok(Number(limited.headers["retry-after"]) >= 1);
+    assert.equal(await s.count("identity.wallet_challenges"), 2);
     // The allowance is per address.
     assert.equal((await s.challenge(bob.address)).statusCode, 201);
+    assert.equal(await s.count("identity.wallet_challenges"), 3);
+    assert.equal(await s.count("identity.api_keys"), 0);
   } finally {
     await s.close();
   }
@@ -600,10 +660,91 @@ test("rate limit per address", async () => {
   try {
     assert.equal((await byIp.challenge(alice.address)).statusCode, 201);
     assert.equal((await byIp.challenge(bob.address)).statusCode, 201);
-    assert.equal((await byIp.challenge(contractWallet)).statusCode, 429);
+    const limited = await byIp.challenge(contractWallet);
+    assert.equal(limited.statusCode, 429);
+    assert.equal(limited.json().code, "RATE_LIMITED");
+    assert.equal(await byIp.count("identity.wallet_challenges"), 2);
+    assert.equal(await byIp.count("identity.api_keys"), 0);
   } finally {
     await byIp.close();
   }
+});
+
+test("verification attempts are bounded per challenge before the signature check", async () => {
+  const s = await setup();
+  try {
+    const c = (await s.challenge(alice.address)).json();
+    const bad = await bob.signMessage({ message: c.message });
+    const good = await alice.signMessage({ message: c.message });
+    // Wrong signatures spend the budget; each one reaches the verifier.
+    for (let i = 0; i < MAX_VERIFICATION_ATTEMPTS; i++) {
+      const wrong = await s.post(verifyPath, {
+        challengeId: c.challengeId,
+        signature: bad,
+      });
+      assert.equal(wrong.json().code, "INVALID_WALLET_SIGNATURE");
+    }
+    assert.equal(s.calls.verify, MAX_VERIFICATION_ATTEMPTS);
+    // After the budget even the correct signature is refused without a verifier call.
+    const dead = await s.post(verifyPath, {
+      challengeId: c.challengeId,
+      signature: good,
+    });
+    assert.equal(dead.statusCode, 429);
+    assert.equal(dead.json().code, "RATE_LIMITED");
+    assert.equal(s.calls.verify, MAX_VERIFICATION_ATTEMPTS);
+    assert.equal(await s.count("identity.api_keys"), 0);
+    assert.equal(await s.count("identity.agents"), 0);
+    // A new challenge starts a new budget.
+    assert.equal((await s.prove(alice, alice.address)).statusCode, 200);
+    assert.equal(s.calls.verify, MAX_VERIFICATION_ATTEMPTS + 1);
+  } finally {
+    await s.close();
+  }
+});
+
+test("verification attempts are bounded per client IP before the signature check", async () => {
+  const s = await setup({
+    verifyLimit: { capacity: 2, refillPerSecond: 2 / 3600, now: () => 0 },
+  });
+  try {
+    const first = await s.payload(alice, alice.address);
+    const second = await s.payload(bob, bob.address);
+    const third = await s.payload(alice, alice.address);
+    assert.equal((await s.post(verifyPath, first)).statusCode, 200);
+    assert.equal((await s.post(verifyPath, second)).statusCode, 200);
+    assert.equal(s.calls.verify, 2);
+    const limited = await s.post(verifyPath, third);
+    assert.equal(limited.statusCode, 429);
+    assert.equal(limited.json().code, "RATE_LIMITED");
+    assert.ok(Number(limited.headers["retry-after"]) >= 1);
+    assert.equal(s.calls.verify, 2);
+    assert.equal(await s.count("identity.api_keys"), 2);
+    // The refused request spent no attempt on its challenge.
+    assert.equal(
+      await s.count(
+        "identity.wallet_challenges",
+        "attempts > 0 AND consumed_at IS NULL",
+      ),
+      0,
+    );
+  } finally {
+    await s.close();
+  }
+});
+
+test("the wallet endpoints take no Idempotency-Key and say so in the contract", () => {
+  const paths = generateOpenApi().paths as Record<
+    string,
+    Record<string, { parameters: { name: string }[]; description?: string }>
+  >;
+  const has = (path: string) =>
+    paths[path]!.post!.parameters.some((p) => p.name === "Idempotency-Key");
+  assert.equal(has(challengePath), false);
+  assert.equal(has(verifyPath), false);
+  assert.equal(has("/v1/markets/{id}/forecasts"), true);
+  assert.match(paths[challengePath]!.post!.description!, /not idempotent/i);
+  assert.match(paths[verifyPath]!.post!.description!, /single use/i);
 });
 
 test("pending challenges per address are capped at five", async () => {
@@ -611,7 +752,13 @@ test("pending challenges per address are capped at five", async () => {
   try {
     for (let i = 0; i < 5; i++)
       assert.equal((await s.challenge(alice.address)).statusCode, 201);
-    assert.equal((await s.challenge(alice.address)).statusCode, 429);
+    const sixth = await s.challenge(alice.address);
+    assert.equal(sixth.statusCode, 429);
+    assert.equal(sixth.json().code, "RATE_LIMITED");
+    assert.equal(await s.count("identity.wallet_challenges"), 5);
+    assert.equal(await s.count("identity.api_keys"), 0);
+    // Another address is unaffected.
+    assert.equal((await s.challenge(bob.address)).statusCode, 201);
   } finally {
     await s.close();
   }
@@ -765,16 +912,16 @@ test("public client proves a wallet and receives a key without a private signing
       });
     });
     const client = createBlinkClient(origin);
-    const challenge = await client.createWalletChallenge(
-      { address: alice.address, action: "issue" },
-      "client-challenge",
-    );
+    const challenge = await client.createWalletChallenge({
+      address: alice.address,
+      action: "issue",
+    });
     // The client does not auto-sign: the caller inspects the fixed message and signs locally.
     const signature = await alice.signMessage({ message: challenge.message });
-    const result = await client.verifyWallet(
-      { challengeId: challenge.challengeId, signature },
-      "client-verify",
-    );
+    const result = await client.verifyWallet({
+      challengeId: challenge.challengeId,
+      signature,
+    });
     assert.ok("apiKey" in result && result.apiKey.startsWith("blink_"));
   } finally {
     await s.close();

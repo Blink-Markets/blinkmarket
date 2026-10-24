@@ -53,6 +53,12 @@ const defaultChallengeLimits = {
   perIp: { capacity: 30, refillPerSecond: 30 / HOUR_SECONDS },
   perAddress: { capacity: 10, refillPerSecond: 10 / HOUR_SECONDS },
 };
+// Each verification reaches the chain through the signature check, so it has its own per-IP allowance
+// (a legitimate proof needs one or two) on top of the per-challenge attempt budget.
+const defaultVerificationLimit = {
+  capacity: 60,
+  refillPerSecond: 60 / HOUR_SECONDS,
+};
 type BucketOptions = Parameters<typeof createTokenBucket>[0];
 
 // The database could not be reached: not a fault of the request, and the same request may be repeated.
@@ -78,6 +84,7 @@ export function buildApi(
     };
     trustedProxies?: readonly string[];
     walletChallengeLimits?: { perIp: BucketOptions; perAddress: BucketOptions };
+    walletVerificationLimit?: BucketOptions;
   } = {},
 ) {
   // A contract path has exactly one owner: a built-in option or one route service.
@@ -107,6 +114,9 @@ export function buildApi(
     options.walletChallengeLimits ?? defaultChallengeLimits;
   const challengesByIp = createTokenBucket(challengeLimits.perIp);
   const challengesByAddress = createTokenBucket(challengeLimits.perAddress);
+  const verificationsByIp = createTokenBucket(
+    options.walletVerificationLimit ?? defaultVerificationLimit,
+  );
   // Reads of public data are unauthenticated; bound them per client IP (HEAD runs the same handlers).
   const publicReads = options.publicReadLimit
     ? createTokenBucket(options.publicReadLimit)
@@ -271,6 +281,12 @@ export function buildApi(
                     : ({ allowed: true } as const),
                 ].find((t) => !t.allowed);
                 if (taken && !taken.allowed)
+                  throw new IdentityError(429, "RATE_LIMITED", {
+                    retryAfterSeconds: taken.retryAfterSeconds,
+                  });
+              } else {
+                const taken = verificationsByIp.take(request.ip);
+                if (!taken.allowed)
                   throw new IdentityError(429, "RATE_LIMITED", {
                     retryAfterSeconds: taken.retryAfterSeconds,
                   });
