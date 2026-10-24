@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   createPublicClient,
+  custom,
   http,
+  numberToHex,
   serializeErc6492Signature,
   serializeSignature,
   hexToBigInt,
@@ -64,6 +66,26 @@ async function fixture() {
     factory,
     verifier: viemSignatureVerifier(anvil.publicClient),
   };
+}
+
+function observedClient(
+  anvil: Anvil,
+  observe: (method: string, params: readonly unknown[] | undefined) => void,
+  cacheTime = 0,
+) {
+  return createPublicClient({
+    chain: anvil.publicClient.chain,
+    cacheTime,
+    transport: custom(
+      {
+        async request({ method, params }) {
+          observe(method, params);
+          return anvil.publicClient.transport.request({ method, params });
+        },
+      },
+      { retryCount: 0 },
+    ),
+  });
 }
 
 test("EOA personal_sign and typed data valid", async () => {
@@ -324,4 +346,203 @@ test("RPC failure throws SignatureCheckUnavailable", async () => {
     }),
     SignatureCheckUnavailable,
   );
+});
+
+test("eth_call failure during an ERC-1271 check throws SignatureCheckUnavailable", async () => {
+  const { anvil, owner, wallet } = await fixture();
+  try {
+    const data = typed(wallet);
+    const personal = await owner.signMessage({ message: MESSAGE });
+    const signature = await owner.signTypedData(data);
+    for (const failure of [
+      { code: -32603, message: "upstream unavailable" },
+      new Error("transport disconnected"),
+    ]) {
+      let calls = 0;
+      const verifier = viemSignatureVerifier(
+        observedClient(anvil, (method) => {
+          if (method === "eth_call") {
+            calls++;
+            throw failure;
+          }
+        }),
+      );
+      await assert.rejects(
+        verifier.verifyMessage({
+          address: wallet,
+          message: MESSAGE,
+          signature: personal,
+        }),
+        SignatureCheckUnavailable,
+      );
+      await assert.rejects(
+        verifier.verifyTypedData({
+          address: wallet,
+          typedData: data,
+          signature,
+        }),
+        SignatureCheckUnavailable,
+      );
+      assert.equal(calls, 2);
+    }
+  } finally {
+    await anvil.stop();
+  }
+});
+
+test("eth_call failure during an ERC-6492 check throws SignatureCheckUnavailable", async () => {
+  const { anvil, owner, factory } = await fixture();
+  try {
+    const counterfactual = counterfactualWallet(
+      factory,
+      owner.address,
+      saltOf(2),
+    );
+    const data = typed(counterfactual.address);
+    const wrap = (signature: Hex) =>
+      serializeErc6492Signature({
+        address: factory,
+        data: counterfactual.factoryData,
+        signature,
+      });
+    let calls = 0;
+    const verifier = viemSignatureVerifier(
+      observedClient(anvil, (method) => {
+        if (method === "eth_call") {
+          calls++;
+          throw { code: -32603, message: "upstream unavailable" };
+        }
+      }),
+    );
+    await assert.rejects(
+      verifier.verifyMessage({
+        address: counterfactual.address,
+        message: MESSAGE,
+        signature: wrap(await owner.signMessage({ message: MESSAGE })),
+      }),
+      SignatureCheckUnavailable,
+    );
+    await assert.rejects(
+      verifier.verifyTypedData({
+        address: counterfactual.address,
+        typedData: data,
+        signature: wrap(await owner.signTypedData(data)),
+      }),
+      SignatureCheckUnavailable,
+    );
+    assert.equal(calls, 2);
+  } finally {
+    await anvil.stop();
+  }
+});
+
+test("a wallet that rejects the signature still returns valid false", async () => {
+  const { anvil, owner, wallet, verifier } = await fixture();
+  try {
+    const data = typed(wallet);
+    const signature = await owner.signTypedData(data);
+    const personal = await owner.signMessage({ message: MESSAGE });
+    for (const mode of [1, 2]) {
+      const receipt = await anvil.publicClient.waitForTransactionReceipt({
+        hash: await anvil.wallet(owner).writeContract({
+          address: wallet,
+          abi: contractWalletArtifacts().wallet.abi,
+          functionName: "setMode",
+          args: [mode],
+        }),
+      });
+      assert.equal(receipt.status, "success");
+      assert.equal(
+        (
+          await verifier.verifyMessage({
+            address: wallet,
+            message: MESSAGE,
+            signature: personal,
+          })
+        ).valid,
+        false,
+        `mode ${mode}: personal_sign`,
+      );
+      assert.equal(
+        (
+          await verifier.verifyTypedData({
+            address: wallet,
+            typedData: data,
+            signature,
+          })
+        ).valid,
+        false,
+        `mode ${mode}: typed data`,
+      );
+    }
+    assert.equal(
+      (
+        await verifier.verifyMessage({
+          address: wallet,
+          message: MESSAGE,
+          signature: "0x1234",
+        })
+      ).valid,
+      false,
+    );
+  } finally {
+    await anvil.stop();
+  }
+});
+
+test("each check reads the latest head", async () => {
+  const { anvil, owner, wallet } = await fixture();
+  try {
+    const requests: {
+      method: string;
+      params: readonly unknown[] | undefined;
+    }[] = [];
+    const client = observedClient(
+      anvil,
+      (method, params) => {
+        requests.push({ method, params });
+      },
+      60_000,
+    );
+    const verifier = viemSignatureVerifier(client);
+    const signature = await owner.signMessage({ message: MESSAGE });
+    const input = { address: wallet, message: MESSAGE, signature };
+    const first = await verifier.verifyMessage(input);
+    assert.equal(first.valid, true);
+    for (const method of ["eth_getCode", "eth_call"]) {
+      const reads = requests.filter((request) => request.method === method);
+      assert.ok(reads.length > 0, method);
+      assert.ok(
+        reads.every(
+          ({ params }) => params?.[1] === numberToHex(first.blockNumber),
+        ),
+        method,
+      );
+    }
+    requests.length = 0;
+    await anvil.mine();
+    const second = await verifier.verifyTypedData({
+      address: wallet,
+      typedData: typed(wallet),
+      signature: await owner.signTypedData(typed(wallet)),
+    });
+    assert.equal(second.valid, true);
+    assert.equal(second.blockNumber, first.blockNumber + 1n);
+    assert.equal(
+      requests.filter(({ method }) => method === "eth_blockNumber").length,
+      1,
+    );
+    for (const method of ["eth_getCode", "eth_call"]) {
+      const reads = requests.filter((request) => request.method === method);
+      assert.ok(reads.length > 0, method);
+      assert.ok(
+        reads.every(
+          ({ params }) => params?.[1] === numberToHex(second.blockNumber),
+        ),
+        method,
+      );
+    }
+  } finally {
+    await anvil.stop();
+  }
 });

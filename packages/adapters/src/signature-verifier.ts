@@ -1,5 +1,12 @@
 import {
+  encodeDeployData,
+  erc6492SignatureValidatorAbi,
+  erc6492SignatureValidatorByteCode,
+  ExecutionRevertedError,
+  hashMessage,
+  hashTypedData,
   hexToBigInt,
+  hexToBool,
   isErc6492Signature,
   isHex,
   size,
@@ -30,10 +37,19 @@ function isCanonicalEcdsa(signature: Hex): boolean {
   );
 }
 
-type Client = Pick<
-  PublicClient,
-  "getBlockNumber" | "getCode" | "verifyMessage" | "verifyTypedData"
->;
+type Client = Pick<PublicClient, "getBlockNumber" | "getCode" | "call">;
+
+function isRevert(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  if (error instanceof ExecutionRevertedError) return true;
+  if (
+    "data" in error &&
+    isHex(error.data, { strict: true }) &&
+    error.data !== "0x"
+  )
+    return true;
+  return "cause" in error && isRevert(error.cause);
+}
 
 /**
  * One check for EOA, ERC-1271 and ERC-6492, pinned to the head block read first so the caller
@@ -43,10 +59,10 @@ export function viemSignatureVerifier(client: Client): SignatureVerifier {
   async function check(
     address: Hex,
     signature: Hex,
-    verify: (blockNumber: bigint) => Promise<boolean>,
+    hash: () => Hex,
   ): Promise<SignatureCheck> {
     try {
-      const blockNumber = await client.getBlockNumber();
+      const blockNumber = await client.getBlockNumber({ cacheTime: 0 });
       if (!isHex(signature, { strict: true }))
         return { valid: false, blockNumber };
       if (!isErc6492Signature(signature)) {
@@ -56,29 +72,29 @@ export function viemSignatureVerifier(client: Client): SignatureVerifier {
             return { valid: false, blockNumber };
         }
       }
-      return { valid: await verify(blockNumber), blockNumber };
+      const data = encodeDeployData({
+        abi: erc6492SignatureValidatorAbi,
+        bytecode: erc6492SignatureValidatorByteCode,
+        args: [address, hash(), signature],
+      });
+      try {
+        // Call viem's validator directly: verifyHash also turns RPC failures into false.
+        const result = await client.call({ data, blockNumber });
+        return { valid: hexToBool(result.data ?? "0x0"), blockNumber };
+      } catch (cause) {
+        if (isRevert(cause)) return { valid: false, blockNumber };
+        throw cause;
+      }
     } catch (cause) {
       throw new SignatureCheckUnavailable(undefined, { cause });
     }
   }
   return {
     verifyMessage: ({ address, message, signature }) =>
-      check(address as Hex, signature, (blockNumber) =>
-        client.verifyMessage({
-          address: address as Hex,
-          message,
-          signature,
-          blockNumber,
-        }),
-      ),
+      check(address as Hex, signature, () => hashMessage(message)),
     verifyTypedData: ({ address, typedData, signature }) =>
-      check(address as Hex, signature, (blockNumber) =>
-        client.verifyTypedData({
-          ...typedData,
-          address: address as Hex,
-          signature,
-          blockNumber,
-        } as Parameters<Client["verifyTypedData"]>[0]),
+      check(address as Hex, signature, () =>
+        hashTypedData(typedData as Parameters<typeof hashTypedData>[0]),
       ),
   };
 }
