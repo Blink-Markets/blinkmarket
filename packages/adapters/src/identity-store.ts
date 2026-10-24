@@ -1,5 +1,4 @@
 import { assertRuntimeRole } from "./runtime-role.js";
-import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type {
   IdentityStore,
@@ -7,6 +6,8 @@ import type {
   IdentityKey,
   WalletChallenge,
   IdentityResponse,
+  KeyIssueOutcome,
+  KeyRevokeOutcome,
 } from "@blink/ports";
 import { createUnitOfWork } from "./database.js";
 
@@ -38,12 +39,6 @@ export function identityTransaction(client: PoolClient): IdentityTransaction {
             revokedAt: key.revokedAt ? date(key.revokedAt) : null,
           }
         : null;
-    },
-    async lockAgent(id) {
-      await client.query(
-        "SELECT id FROM identity.agents WHERE id=$1 FOR UPDATE",
-        [id],
-      );
     },
     async claimRequest(operatorId, scope, key, hash) {
       const lock = await client.query<{ acquired: boolean }>(
@@ -84,24 +79,31 @@ export function identityTransaction(client: PoolClient): IdentityTransaction {
         [operatorId, scope, key, result.status, result.body],
       );
     },
-    async pendingChallenges(keyId) {
+    async lockAddress(address, clientIp) {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        ["identity.challenge:" + clientIp + "|" + address.toLowerCase()],
+      );
+    },
+    async pendingChallenges(address, clientIp) {
       const { rows } = await client.query<{ count: string }>(
         `SELECT count(*)::text AS count FROM identity.wallet_challenges
-        WHERE key_id=$1 AND consumed_at IS NULL AND expires_at > clock_timestamp()`,
-        [keyId],
+        WHERE address=decode($1,'hex') AND client_ip=$2 AND consumed_at IS NULL AND expires_at > clock_timestamp()`,
+        [address.slice(2), clientIp],
       );
       return Number(rows[0]!.count);
     },
     async addChallenge(c) {
       await client.query(
         `INSERT INTO identity.wallet_challenges
-        (id,key_id,agent_id,address,chain_id,origin,nonce_hash,message,issued_at,expires_at)
-        VALUES ($1,$2,$3,decode($4,'hex'),84532,$5,decode($6,'hex'),$7,$8,$9)`,
+        (id,address,action,target_key_id,client_ip,chain_id,origin,nonce_hash,message,issued_at,expires_at)
+        VALUES ($1,decode($2,'hex'),$3,$4,$5,84532,$6,decode($7,'hex'),$8,$9,$10)`,
         [
           c.id,
-          c.keyId,
-          c.agentId,
           c.address.slice(2),
+          c.action,
+          c.targetKeyId,
+          c.clientIp,
           c.origin,
           c.nonceHash,
           c.message,
@@ -110,13 +112,13 @@ export function identityTransaction(client: PoolClient): IdentityTransaction {
         ],
       );
     },
-    async challenge(id, keyId, agentId) {
+    async challenge(id) {
       const { rows } = await client.query<WalletChallenge>(
-        `SELECT id,key_id AS "keyId",agent_id AS "agentId",
-        '0x'||encode(address,'hex') AS address,origin,encode(nonce_hash,'hex') AS "nonceHash",message,
+        `SELECT id,'0x'||encode(address,'hex') AS address,action,target_key_id AS "targetKeyId",client_ip AS "clientIp",
+        origin,encode(nonce_hash,'hex') AS "nonceHash",message,
         issued_at AS "issuedAt",expires_at AS "expiresAt",consumed_at AS "consumedAt"
-        FROM identity.wallet_challenges WHERE id=$1 AND key_id=$2 AND agent_id=$3 FOR UPDATE`,
-        [id, keyId, agentId],
+        FROM identity.wallet_challenges WHERE id=$1 AND action IN ('issue','revoke')`,
+        [id],
       );
       const c = rows[0];
       return c
@@ -128,19 +130,50 @@ export function identityTransaction(client: PoolClient): IdentityTransaction {
           }
         : null;
     },
-    async consumeChallenge(id) {
-      await client.query(
-        "UPDATE identity.wallet_challenges SET consumed_at=clock_timestamp() WHERE id=$1",
-        [id],
-      );
-    },
-    async bindWallet(agentId, address, challengeId) {
+    async spendAttempt(challengeId, budget) {
       const { rows } = await client.query(
-        `INSERT INTO identity.wallet_bindings(agent_id,chain_id,address,challenge_id)
-        VALUES ($1,84532,decode($2,'hex'),$3) ON CONFLICT DO NOTHING RETURNING agent_id`,
-        [agentId, address.slice(2), challengeId],
+        `UPDATE identity.wallet_challenges SET attempts=attempts+1
+        WHERE id=$1 AND action IN ('issue','revoke') AND attempts < $2 RETURNING id`,
+        [challengeId, budget],
       );
       return rows.length === 1;
+    },
+    async issueKey(input): Promise<KeyIssueOutcome> {
+      const { rows } = await client.query<{
+        status: KeyIssueOutcome["status"];
+        keyId: string | null;
+        expiresAt: Date | null;
+      }>(
+        `SELECT out_status AS status, out_key_id AS "keyId", out_expires_at AS "expiresAt"
+        FROM identity.issue_self_serve_key($1,$2,decode($3,'hex'),$4,$5,$6)`,
+        [
+          input.challengeId,
+          input.keyId,
+          input.secretHash,
+          input.operatorId,
+          input.agentId,
+          input.requestId,
+        ],
+      );
+      const row = rows[0]!;
+      return row.status === "OK"
+        ? { status: "OK", keyId: row.keyId!, expiresAt: date(row.expiresAt!) }
+        : ({ status: row.status } as KeyIssueOutcome);
+    },
+    async revokeKey(challengeId, requestId): Promise<KeyRevokeOutcome> {
+      const { rows } = await client.query<{
+        status: KeyRevokeOutcome["status"];
+        keyId: string | null;
+        revokedAt: Date | null;
+      }>(
+        `SELECT out_status AS status, out_key_id AS "keyId", out_revoked_at AS "revokedAt"
+        FROM identity.revoke_self_serve_key($1,$2)`,
+        [challengeId, requestId],
+      );
+      const row = rows[0]!;
+      return row.status === "OK"
+        ? { status: "OK", keyId: row.keyId!, revokedAt: date(row.revokedAt!) }
+        : ({ status: row.status } as KeyRevokeOutcome);
     },
     async wallet(agentId) {
       const { rows } = await client.query<{ address: string }>(
@@ -148,13 +181,6 @@ export function identityTransaction(client: PoolClient): IdentityTransaction {
         [agentId],
       );
       return rows[0]?.address ?? null;
-    },
-    async audit(actor, action, resource, requestId) {
-      await client.query(
-        `INSERT INTO operations.audit_log(id,actor,action,resource,reason,request_id)
-        VALUES ($1,$2,$3,$4,'Invited wallet identity binding only',$5)`,
-        [randomUUID(), actor, action, resource, requestId],
-      );
     },
   };
 }

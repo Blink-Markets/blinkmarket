@@ -94,3 +94,103 @@ and cost fields; the list loses the `entity` filter.
 
 This completes only the Task 2 scope, not the P2 milestone. No push, merge,
 deployment or live transaction was performed.
+
+## Task 6 — self-serve wallet identity (2026-10-24)
+
+An identity is now a wallet address. It proves control with a signature and
+receives an API key, with no invitation and no operator console.
+
+- `POST /v1/auth/wallet-challenges` (public) takes `{ address, action: "issue" |
+  "revoke", keyId? }` and returns `{ challengeId, message, expiresAt }`. The TTL
+  is 300 s. The limits are 30 per hour per trusted client IP, and, per
+  (client IP, address) pair, 10 per hour and at most 5 pending challenges. They
+  are keyed by pair because asking for a challenge needs no proof of control: an
+  address-only key would let anyone lock a victim out of issue and revoke. The
+  IP allowance is charged first and stops the request, so a refused request
+  spends no address token. The
+  message keeps the v1 text, adds `Action:`, and carries a `Key ID:` line only for
+  revoke. The `Agent ID:` line is gone because no agent exists yet.
+- `POST /v1/auth/wallet-verifications` (public) takes `{ challengeId, signature }`.
+  The check goes through the `SignatureVerifier`, so EOAs, ERC-1271 contract
+  wallets and ERC-6492 signatures all work; an RPC failure answers `503
+  SIGNATURE_CHECK_UNAVAILABLE`. `issue` also needs a fresh index (`503
+  INDEX_STALE`, including when the reader errors) and a registered account (`403
+  NOT_REGISTERED`). It creates the operator, agent and wallet binding on first use
+  and returns `{ apiKey, keyId, expiresAt }`: 30 days, at most 5 active keys per
+  address (`409 KEY_LIMIT_REACHED`), scopes `forecast:write`, `rfq:write`,
+  `content:write`, `suggestion:claim`. `revoke` needs neither registration nor a
+  fresh index and revokes the key only if the signing address owns it.
+- A challenge is single use (`409 WALLET_CHALLENGE_USED`) and expires
+  (`409 WALLET_CHALLENGE_EXPIRED`). It is consumed only when a key is issued or
+  revoked, so a refusal for index or registration reasons leaves it usable.
+- `ApiScope` is exactly the four scopes above. `authenticateIdentity` returns
+  `{ keyId, agentId, address, scopes }` plus the internal `operatorId` that the
+  forecast and idempotency code still keys on. The legacy `admin` scope is not an
+  `ApiScope`; only the operator-status and health checks (deleted by a later task)
+  still ask for it, and nothing can issue it any more.
+- `identity-crypto` no longer recovers addresses; no source under `apps/` or
+  `packages/*/src` calls `recoverMessageAddress` or `recoverTypedDataAddress`.
+  `apps/api/src/main.ts` wires `rpcSignatureVerifier(BASE_SEPOLIA_RPC_URL)` and a
+  reader parameter (`protocolReaderFor`). Until Task 5 plugs in the real reader it
+  reports a stale index, so no key is issued; without an RPC URL every signature
+  check is unavailable.
+
+Migration `0028_self_serve_identity.sql` adds the `SECURITY DEFINER` functions
+`identity.issue_self_serve_key` and `identity.revoke_self_serve_key` (EXECUTE for
+`blink_api` only, fixed search path). They lock the challenge row, so concurrent
+verifications issue one key, and they hardcode the lifetime, scopes and key limit.
+It makes challenge `key_id` and `agent_id` nullable and adds `action` and
+`target_key_id`, widens the scope check for the three new scopes, revokes every
+active invite key (`revoked_at = now()`), takes INSERT on `wallet_bindings` and
+UPDATE of `consumed_at` away from `blink_api`, and drops `blink_identity_admin`
+after revoking its grants.
+
+### Verification
+
+- RED: `node --import tsx --test tests/identity.test.ts` against the unchanged
+  sources failed 19 of 20 tests (the first with `401 !== 201`: the challenge
+  endpoint still demanded a key). The tests were written after the implementation
+  and the sources were stashed to capture this run.
+- GREEN: the same command passes 20 of 20.
+- `node --import tsx --test tests/anvil/wallet-identity.test.ts`: a real
+  `MockErc1271Wallet` proof through `viemSignatureVerifier` and the endpoints
+  passes; a stranger's signature is refused.
+- `pnpm check` (run once): typecheck and contract checks passed; the unit run had
+  452 passing and 7 failing tests, all from one stale fixture (the direct
+  `bindWallet` insert in `tests/helpers/database.ts` lacked the new NOT NULL
+  `action` column). After the fix the affected suites passed, and a full
+  `pnpm test` then passed 459 of 459. Typecheck (root and web) and the boundary
+  check were rerun and passed.
+- `pnpm build:services` and `pnpm test:service-build`: 4 passed.
+- Not run locally: `tests/postgres/*` (no PostgreSQL on this host). Task 6 rewrote
+  `tests/postgres/identity.test.ts` (eight concurrent verifications of one
+  challenge issue exactly one key; a five-way race for the last key slots; a new
+  address racing three keys gets one agent; `blink_api` cannot INSERT into
+  `identity.api_keys`) and edited `runtime-roles` and `runtime-functions` for the
+  dropped role. CI must run them.
+- `pnpm build` cannot run on this host (Turbopack needs a newer glibc).
+
+Fix round 1 (review): verification is now bounded before the signature check, by
+60 attempts per hour per client IP and 5 attempts per challenge (`attempts`
+column, then `429 RATE_LIMITED`). Both SQL functions read the clock again after
+every blocking lock (challenge row, address advisory lock, revoked key row), so a
+lock wait cannot extend the 300 s challenge. The generated contract and
+`@blink/client` no longer claim an `Idempotency-Key` for the two wallet
+endpoints. The lock-wait expiry test is in `tests/postgres/identity.test.ts` and
+has not run here (no PostgreSQL).
+
+Fix round 2 (re-review): the address allowance and the pending cap are keyed by
+(client IP, address) and charged only after the IP allowance passes (migration
+column `client_ip`). A refused issue or revoke now throws inside the transaction,
+so nothing it wrote can commit, and the issue function reads the clock before its
+first write, so it never returns a refusal after writing. The PostgreSQL lock-wait
+tests run with connection and statement limits, observe the blocked backend and
+its blocker through `pg_blocking_pids`, and retry a setup that was too slow
+instead of counting it.
+
+Known limits: a lost issue response leaves an
+unrevocable key that counts toward the five until it expires; the in-process
+buckets assume one API instance.
+
+This completes only the Task 6 scope, not the P2 milestone. No push, merge,
+deployment or live transaction was performed.

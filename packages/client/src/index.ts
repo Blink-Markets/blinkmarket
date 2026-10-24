@@ -134,15 +134,17 @@ export function createBlinkClient(
     if (method === "GET")
       return contract.response.parse(json(await send(url))) as Out<M, P>;
     const body = contract.body!.parse(args.body);
+    // The public wallet endpoints define no Idempotency-Key: a challenge is single use instead.
+    const keyed = contract.idempotencyKey !== false;
     const key = args.key ?? crypto.randomUUID();
-    IdempotencyHeaders.parse({ "idempotency-key": key });
+    if (keyed) IdempotencyHeaders.parse({ "idempotency-key": key });
     return contract.response.parse(
       json(
         await send(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Idempotency-Key": key,
+            ...(keyed ? { "Idempotency-Key": key } : {}),
           },
           body: JSON.stringify(body),
         }),
@@ -155,16 +157,12 @@ export function createBlinkClient(
   });
   return {
     // --- identity ---
-    createWalletChallenge: (input: unknown, key?: string) =>
-      call("POST", "/v1/auth/wallet-challenges", {
-        body: input,
-        key,
-      }),
-    verifyWallet: (input: unknown, key?: string) =>
-      call("POST", "/v1/auth/wallet-verifications", {
-        body: input,
-        key,
-      }),
+    /** Public and not idempotent: each call creates a new challenge (300 s; limits are per client IP, and per client IP and address). */
+    createWalletChallenge: (input: unknown) =>
+      call("POST", "/v1/auth/wallet-challenges", { body: input }),
+    /** Public and single use: sign the challenge message, then verify once to receive the key. */
+    verifyWallet: (input: unknown) =>
+      call("POST", "/v1/auth/wallet-verifications", { body: input }),
     // --- evidence ---
     getEvidence: (id: string) =>
       call("GET", "/v1/evidence/:id", { params: { id } }),

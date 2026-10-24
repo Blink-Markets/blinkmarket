@@ -140,6 +140,8 @@ type Case = {
   body?: unknown;
   answer: unknown;
   status?: number;
+  /** false: the contract defines no Idempotency-Key for this call. */
+  idempotent?: boolean;
 };
 const cases: Case[] = [
   {
@@ -336,10 +338,11 @@ const cases: Case[] = [
   },
   {
     name: "createWalletChallenge",
-    call: (c) => c.createWalletChallenge({ address: WALLET }, "challenge-key"),
+    call: (c) => c.createWalletChallenge({ address: WALLET, action: "issue" }),
+    idempotent: false,
     method: "POST",
     path: "/v1/auth/wallet-challenges",
-    body: { address: WALLET },
+    body: { address: WALLET, action: "issue" },
     answer: {
       challengeId: UUID,
       message: "Bind this wallet to Blink",
@@ -350,14 +353,16 @@ const cases: Case[] = [
   {
     name: "verifyWallet",
     call: (c) =>
-      c.verifyWallet(
-        { challengeId: UUID, signature: "0x" + "22".repeat(65) },
-        "verify-key",
-      ),
+      c.verifyWallet({ challengeId: UUID, signature: "0x" + "22".repeat(65) }),
+    idempotent: false,
     method: "POST",
     path: "/v1/auth/wallet-verifications",
     body: { challengeId: UUID, signature: "0x" + "22".repeat(65) },
-    answer: { wallet: WALLET, verifiedAt: "2026-10-15T00:00:00.000Z" },
+    answer: {
+      apiKey: API_KEY,
+      keyId: UUID,
+      expiresAt: "2026-11-14T00:00:00.000Z",
+    },
   },
 ];
 
@@ -379,7 +384,10 @@ for (const c of cases) {
       if (c.method === "POST") {
         assert.deepEqual(JSON.parse(request!.body), c.body);
         assert.equal(request!.headers["content-type"], "application/json");
-        assert.ok(request!.headers["idempotency-key"]);
+        // The wallet endpoints are public and single use: no key is sent for them.
+        if (c.idempotent === false)
+          assert.equal(request!.headers["idempotency-key"], undefined);
+        else assert.ok(request!.headers["idempotency-key"]);
       } else assert.equal(request!.headers["idempotency-key"], undefined);
     } finally {
       await server.close();

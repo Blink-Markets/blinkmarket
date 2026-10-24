@@ -1,5 +1,7 @@
 # M2.1 — Invitation identity and wallet binding
 
+> Historical (v0.1): the invitation scheme described here was replaced by self-serve wallet identity in P2 Task 6; see [P2 progress](P2_OFFCHAIN_PROGRESS.md).
+
 M2 has started, but **the whole vertical trading flow is not finished**. This slice first wires the identity feature to a real PostgreSQL adapter and HTTP. Candidate / evidence / approved market creation, Indexer/reorg, RFQ/reservation, Signer and transaction tracking are still not wired up. There is no external deployment, no paid model call, and no new private key has been injected into an automated service.
 
 ## Delivered in this change

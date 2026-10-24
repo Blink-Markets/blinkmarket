@@ -51,7 +51,7 @@ export {
   type BlinkEventName,
 } from "./blink-abi.js";
 export { protocolAbi, type ProtocolContractName } from "./protocol-abi.js";
-export { viemSignatureVerifier } from "./signature-verifier.js";
+export { viemSignatureVerifier, rpcSignatureVerifier } from "./signature-verifier.js";
 export { assertProductionClock } from "./business-clock.js";
 export { assertIndexerRuntimeRole } from "./runtime-role.js";
 export {

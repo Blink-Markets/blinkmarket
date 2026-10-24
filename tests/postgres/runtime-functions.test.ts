@@ -15,8 +15,8 @@ test("real PostgreSQL: fresh migrations remove PUBLIC EXECUTE and preserve expli
       const db = await login({ memberOf: [role] });
       assert.ok((await db.query("SELECT blink.now() AS now")).rows[0].now);
     }
-    const ungranted = await login({ memberOf: ["blink_identity_admin"] });
-    await owner.query("GRANT USAGE ON SCHEMA blink TO blink_identity_admin");
+    const ungranted = await login({ memberOf: ["blink_forecast_admin"] });
+    await owner.query("GRANT USAGE ON SCHEMA blink TO blink_forecast_admin");
     await assert.rejects(
       ungranted.query("SELECT blink.now()"),
       /permission denied for function now/,

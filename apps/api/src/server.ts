@@ -4,6 +4,7 @@ import {
   apiContracts,
   generateOpenApi,
   IdempotencyHeaders,
+  WalletChallengeRequest,
   type ConfigResponse,
 } from "@blink/schemas";
 import { modules } from "@blink/domain";
@@ -45,6 +46,21 @@ function sendIdentityError(
   });
 }
 
+// Wallet challenges are public and cost a database row and a later chain read, so each client IP and
+// each address gets its own hourly allowance. In-process, like the public read limit (one API instance).
+const HOUR_SECONDS = 3600;
+const defaultChallengeLimits = {
+  perIp: { capacity: 30, refillPerSecond: 30 / HOUR_SECONDS },
+  perAddress: { capacity: 10, refillPerSecond: 10 / HOUR_SECONDS },
+};
+// Each verification reaches the chain through the signature check, so it has its own per-IP allowance
+// (a legitimate proof needs one or two) on top of the per-challenge attempt budget.
+const defaultVerificationLimit = {
+  capacity: 60,
+  refillPerSecond: 60 / HOUR_SECONDS,
+};
+type BucketOptions = Parameters<typeof createTokenBucket>[0];
+
 // The database could not be reached: not a fault of the request, and the same request may be repeated.
 const databaseUnavailable = () =>
   new IdentityError(503, "SERVICE_NOT_READY", {
@@ -67,12 +83,12 @@ export function buildApi(
       now?: () => number;
     };
     trustedProxies?: readonly string[];
+    walletChallengeLimits?: { perIp: BucketOptions; perAddress: BucketOptions };
+    walletVerificationLimit?: BucketOptions;
   } = {},
 ) {
   // A contract path has exactly one owner: a built-in option or one route service.
-  const builtIn = new Set<string>([
-    ...(options.identity ? identityPaths : []),
-  ]);
+  const builtIn = new Set<string>([...(options.identity ? identityPaths : [])]);
   const contractPaths = new Set(apiContracts.map((c) => c.path));
   const owners = new Map<string, RouteService>();
   for (const service of options.services ?? [])
@@ -84,8 +100,7 @@ export function buildApi(
       owners.set(path, service);
     }
   const stage =
-    options.stage ??
-    (options.identity ? "m2-identity" : "architecture");
+    options.stage ?? (options.identity ? "m2-identity" : "architecture");
   const app = createService(
     "api",
     stage,
@@ -94,6 +109,13 @@ export function buildApi(
       return (await options.health?.read())?.status === "ready";
     },
     { trustProxy: options.trustedProxies ?? [] },
+  );
+  const challengeLimits =
+    options.walletChallengeLimits ?? defaultChallengeLimits;
+  const challengesByIp = createTokenBucket(challengeLimits.perIp);
+  const challengesByAddress = createTokenBucket(challengeLimits.perAddress);
+  const verificationsByIp = createTokenBucket(
+    options.walletVerificationLimit ?? defaultVerificationLimit,
   );
   // Reads of public data are unauthenticated; bound them per client IP (HEAD runs the same handlers).
   const publicReads = options.publicReadLimit
@@ -247,14 +269,35 @@ export function buildApi(
                 !contract.query.safeParse(request.query).success
               )
                 throw new IdentityError(400, "INVALID_REQUEST");
+              if (contract.path === identityPaths[0]) {
+                // The client IP is charged first and stops the request; only an IP-approved request
+                // spends an address token. The address allowance is per (client IP, address): no
+                // proof of control is needed to ask for a challenge, so one client must not be able
+                // to use up an address's allowance for everyone else.
+                const byIp = challengesByIp.take(request.ip);
+                const wanted = WalletChallengeRequest.safeParse(request.body);
+                // An unparsable body is refused by the service; it must not spend an address token.
+                const byAddress =
+                  byIp.allowed && wanted.success
+                    ? challengesByAddress.take(
+                        request.ip + "|" + wanted.data.address.toLowerCase(),
+                      )
+                    : byIp;
+                if (!byAddress.allowed)
+                  throw new IdentityError(429, "RATE_LIMITED", {
+                    retryAfterSeconds: byAddress.retryAfterSeconds,
+                  });
+              } else {
+                const taken = verificationsByIp.take(request.ip);
+                if (!taken.allowed)
+                  throw new IdentityError(429, "RATE_LIMITED", {
+                    retryAfterSeconds: taken.retryAfterSeconds,
+                  });
+              }
               const result = await options.identity.mutate(contract.path, {
-                authorization: request.headers.authorization,
-                idempotencyKey:
-                  typeof request.headers["idempotency-key"] === "string"
-                    ? request.headers["idempotency-key"]
-                    : undefined,
                 body: request.body,
                 requestId: request.id,
+                clientIp: request.ip,
               });
               reply.header("Cache-Control", "no-store");
               return reply
@@ -268,9 +311,8 @@ export function buildApi(
             const scope = (
               {
                 "forecast:write": "forecast:write",
-                "trade:quote + wallet": "trade:quote",
                 admin: "admin",
-              } as Record<string, ApiScope>
+              } as Record<string, ApiScope | "admin">
             )[contract.access];
             if (
               scope ||
