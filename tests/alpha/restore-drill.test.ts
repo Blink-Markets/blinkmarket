@@ -19,8 +19,8 @@ test(
       await seedDeployment(owner, manifest);
       await seedChain(owner, { deploymentId: manifest.deploymentId });
       await owner.query(
-        `INSERT INTO chain.cursors(deployment_id,block_number,block_hash,block_timestamp,head_number,lease_owner,lease_until)
-      VALUES($1,10,decode(repeat('11',32),'hex'),1000,10,'dead-indexer',clock_timestamp()+interval '1 hour')`,
+        `INSERT INTO chain.cursors(deployment_id,block_number,block_hash,block_timestamp,head_number,synced_at,lease_owner,lease_until)
+      VALUES($1,10,decode(repeat('11',32),'hex'),1000,10,clock_timestamp(),'dead-indexer',clock_timestamp()+interval '1 hour')`,
         [manifest.deploymentId],
       );
       const context = {
