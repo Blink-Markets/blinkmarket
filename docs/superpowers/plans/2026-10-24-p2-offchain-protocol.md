@@ -195,7 +195,7 @@ Spec §6 "建市核准流程", "平台 agent" (discovery, platform-forecaster, b
   - `packages/ports/src/{approval,creation-tracker,budgets,evidence-fetch}.ts`. Keep `FetchError`, `checkFetchUrl` and `isPublicAddress` by re-exporting them from `packages/domain/src/network-policy.ts`.
   - `packages/adapters/src/{approval-store,creation-tracker-store,creation-tracking-schedule,creation-receipt-reader,creation-calldata,discovery-store,platform-run-store,budget-ledger,fixture-model-gateway,model-fixtures,identity-admin,resolution-draft,evidence-fetch-store}.ts`
   - `packages/schemas/src/{creation-status,preparation}.ts`
-  - `scripts/{identity-admin,reconcile-creation,resolution-draft}.ts` and `fixtures/replay/models/**`
+  - `scripts/{identity-admin,reconcile-creation,resolution-draft,local-replay}.ts` and `fixtures/replay/models/**`. `local-replay.ts` imports the deleted creation reader, so it goes here, not in Task 5.
   - the matching tests:
     - `tests/{approval-policy,creation-receipt,creation-poller,discovery,platform-forecaster,budgeted-model,budget-ledger,model-fixtures,preparation,evidence-fetch}.test.ts`
     - `tests/postgres/research-workers.test.ts`
@@ -207,7 +207,7 @@ Spec §6 "建市核准流程", "平台 agent" (discovery, platform-forecaster, b
   - `apps/indexer/src/{main,config}.ts` (drop the creation poller and its `INDEXER_*` poll keys)
   - `apps/api/src/{main,server,config,routes}.ts` and `packages/schemas/src/http.ts`. Drop the `/v1/admin/*` candidate, budget, resolution and creation-intent routes; `/v1/candidates*`; and `/v1/markets/:id/resolution-reports`. Drop the `preparation` and `approval` modes.
   - `packages/domain/src/{index,modules}.ts` and the `packages/domain/src/*/README.md` of removed modules
-  - `package.json` (drop `identity:admin`, `creation:reconcile`, `resolution:draft`, `replay`) and the `scripts/build-services.mjs` tool list
+  - `package.json` (drop `identity:admin`, `creation:reconcile`, `resolution:draft`, `replay`), `.github/workflows/ci.yml` (drop the `pnpm replay` step) and the `scripts/build-services.mjs` tool list
 - Create: `packages/adapters/migrations/0026_retire_platform_research.sql`.
 
 **Interfaces:**
@@ -349,7 +349,7 @@ Spec §5.10 Indexer, §7 (reorg, canonical cursor). Replaces the v0.1 single-con
   - `packages/adapters/src/{blink-abi,chain-log-reader,chain-snapshot-reader,chain-index-store}.ts`
   - `contracts/src/BlinkMarket.sol`, `contracts/src/interfaces/IBlinkMarket.sol`
   - `contracts/test/{BlinkMarket.t.sol,Adversarial.t.sol,Invariant.t.sol,TestBase.sol}`
-  - `tests/{blink-abi,chain-log-reader,chain-reducer,m0}.test.ts`, `scripts/local-replay.ts`, `tests/anvil/chain-indexer.test.ts`
+  - `tests/{blink-abi,chain-log-reader,chain-reducer,m0}.test.ts`, `tests/anvil/chain-indexer.test.ts`
   - Keep `contracts/src/BlinkTestUSD.sol` and its interface, because the faucet deploys it.
 
 **Interfaces:**
