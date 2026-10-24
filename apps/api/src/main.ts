@@ -5,7 +5,6 @@ import {
   createIdentityService,
   createHealthService,
   createOperatorStatusService,
-  createFaucetService,
   createPreparationService,
   createApprovalService,
   createForecastService,
@@ -16,7 +15,6 @@ import {
 } from "@blink/application";
 import {
   identityCrypto,
-  postgresFaucetStore,
   postgresIdentityStore,
   assertIdentityRuntimeRole,
   assertProductionClock,
@@ -35,7 +33,6 @@ import {
   postgresOperatorStatusStore,
 } from "@blink/adapters";
 import { apiConfig, modeAtLeast } from "./config.js";
-import { createRfqPool, tradingServices } from "./trading.js";
 
 const config = apiConfig(process.env);
 const pool =
@@ -48,7 +45,6 @@ const pool =
         idle_in_transaction_session_timeout: 10000,
       })
     : null;
-const rfqPool = pool && config.mode === "trading" ? createRfqPool(pool) : null;
 pool?.on("error", () => {
   console.error("API_DATABASE_CONNECTION_ERROR");
 });
@@ -57,9 +53,6 @@ try {
   if (pool) {
     await assertIdentityRuntimeRole(pool);
     await assertProductionClock(pool, false);
-    if (config.mode === "trading") {
-      await pool.query("SELECT id FROM faucet.claims LIMIT 0");
-    }
     if (modeAtLeast(config.mode, "markets"))
       await pool.query("SELECT id FROM chain.transactions LIMIT 0");
     await pool.query("SELECT id FROM identity.api_keys LIMIT 0");
@@ -74,18 +67,8 @@ try {
     if (modeAtLeast(config.mode, "markets"))
       await pool.query("SELECT id FROM forecasts.windows LIMIT 0");
   }
-  // Trading mode adds the RFQ service, a truthful /v1/config and the canTrade hook of market reads.
-  const trading =
-    pool && config.mode === "trading"
-      ? await tradingServices(pool, rfqPool!, {
-          deploymentId: config.deploymentId!,
-          signerUrl: config.signerUrl!,
-          signerToken: config.signerToken!,
-          rpcUrl: config.rpcUrl!,
-        })
-      : null;
   const health =
-    pool && config.mode === "trading"
+    pool && config.mode === "markets"
       ? createHealthService({
           reader: postgresHealthReader(pool, config.deploymentId!),
           authenticateAdmin: (authorization) =>
@@ -94,23 +77,6 @@ try {
               identityCrypto,
               config.walletOrigin!,
             ).authenticate(authorization, "admin"),
-          signerReachable: async () => {
-            const response = await fetch(
-              new URL("/health/ready", config.signerUrl!),
-              {
-                signal: AbortSignal.timeout(3000),
-              },
-            );
-            const body = (await response.json()) as {
-              service?: string;
-              status?: string;
-            };
-            return (
-              response.ok &&
-              body.service === "signer" &&
-              body.status === "ready"
-            );
-          },
         })
       : undefined;
   const app = buildApi(
@@ -168,15 +134,6 @@ try {
                       }),
                     ]
                   : []),
-                ...(config.mode === "trading"
-                  ? [
-                      createFaucetService({
-                        store: postgresFaucetStore(pool),
-                        crypto: identityCrypto,
-                        deploymentId: config.deploymentId!,
-                      }),
-                    ]
-                  : []),
                 createMetricsService({
                   store: postgresEvaluationStore(pool),
                   budgets: postgresBudgetLedger(pool),
@@ -189,15 +146,11 @@ try {
                   store: postgresForecastStore(pool),
                   crypto: identityCrypto,
                 }),
-                ...(trading ? [trading.rfq] : []),
                 createMarketReadService({
                   store: postgresMarketReadStore(pool),
                   archive: createSpecArchive(
                     fileObjectStore(config.specDirectory!),
                   ),
-                  ...(trading
-                    ? { hooks: { canTrade: trading.readiness.canTrade } }
-                    : {}),
                   identity: {
                     authenticate: (authorization) =>
                       postgresIdentityStore(pool).run(async (tx) => {
@@ -215,10 +168,9 @@ try {
                 }),
               ]
             : [],
-          ...(config.mode === "markets" || config.mode === "trading"
+          ...(config.mode === "markets"
             ? {
                 stage: `m2-${config.mode}` as const,
-                ...(trading ? { config: trading.readiness.config } : {}),
                 publicReadLimit: { capacity: 60, refillPerSecond: 1 },
               }
             : {}),
@@ -227,11 +179,11 @@ try {
   );
   if (pool)
     app.addHook("onClose", async () => {
-      await Promise.all([pool.end(), rfqPool?.end()]);
+      await pool.end();
     });
   await startService(app, config.port, config.host);
 } catch {
-  await Promise.all([pool?.end(), rfqPool?.end()]);
+  await pool?.end();
   console.error(
     "API_STARTUP_FAILED: check mode, origin, database permissions and migrations",
   );

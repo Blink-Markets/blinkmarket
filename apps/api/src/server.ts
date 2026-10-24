@@ -69,8 +69,7 @@ export function buildApi(
       | "m2-identity"
       | "m2-preparation"
       | "m2-approval"
-      | "m2-markets"
-      | "m2-trading";
+      | "m2-markets";
     config?: () => Promise<ConfigResponse>;
     assertReady?: () => Promise<void>;
     publicReadLimit?: {
@@ -372,7 +371,6 @@ export function buildApi(
                 "trade:quote + wallet": "trade:quote",
                 "report:write": "report:write",
                 admin: "admin",
-                "allowed-wallet": "faucet:claim",
               } as Record<string, ApiScope>
             )[contract.access];
             if (

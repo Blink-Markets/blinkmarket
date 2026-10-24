@@ -90,19 +90,3 @@ test("prune works in bounded batches", async () => {
   assert.equal(result.jobs, 4);
   assert.equal((await remaining(s, "jobs")).size, 1);
 });
-
-test("the worker's recovery lookups can use the active-job indexes", async () => {
-  const s = await migratedPglite();
-  await s.db.exec("SET enable_seqscan = off");
-  const id = randomUUID();
-  const plan = async (type: string, field: string) =>
-    (
-      await s.db.query<Record<string, string>>(
-        `EXPLAIN SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM operations.jobs j WHERE j.type='${type}' AND j.payload->>'${field}'='${id}' AND j.state IN ('QUEUED','LEASED'))`,
-      )
-    ).rows
-      .map((r) => r["QUERY PLAN"])
-      .join("\n");
-  assert.match(await plan("tx.dispatch", "intentId"), /jobs_active_intent/);
-  assert.match(await plan("faucet.mint", "claimId"), /jobs_active_claim/);
-});

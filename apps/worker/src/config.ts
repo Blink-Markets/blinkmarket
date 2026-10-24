@@ -102,44 +102,6 @@ function isPlainHttpUrl(value: string): boolean {
   );
 }
 
-export interface ExecutionConfig {
-  deploymentId: string;
-  signerUrl: string;
-  signerToken: string;
-  rpcUrl: string;
-}
-export function executionConfig(
-  env: NodeJS.ProcessEnv,
-): ExecutionConfig | null {
-  const signerUrl = env.SIGNER_URL?.trim();
-  const signerToken = env.WORKER_SIGNER_CALLER_TOKEN?.trim();
-  const rpcUrl = env.BASE_SEPOLIA_RPC_URL?.trim();
-  // Other worker features may share deployment/RPC settings without enabling execution.
-  if (!signerUrl && !signerToken) return null;
-  const deploymentId = env.BLINK_DEPLOYMENT_ID?.trim();
-  if (!deploymentId || !signerUrl || !signerToken || !rpcUrl)
-    throw new Error("WORKER_EXECUTION_CONFIGURATION_INCOMPLETE");
-  for (const url of [signerUrl, rpcUrl])
-    if (!isPlainHttpUrl(url)) throw new Error("INVALID_WORKER_EXECUTION_URL");
-  return { deploymentId, signerUrl, signerToken, rpcUrl };
-}
-
-/** The internal trader: its own API key and the platform forecaster whose probability it follows. */
-export interface TraderConfig {
-  apiKey: string;
-  forecasterRole: "FORECASTER_A" | "FORECASTER_B";
-}
-export function traderConfig(env: NodeJS.ProcessEnv): TraderConfig | null {
-  const apiKey = env.WORKER_TRADER_API_KEY?.trim() || null;
-  const role = env.WORKER_TRADER_FORECASTER_ROLE?.trim() || null;
-  if (apiKey === null && role === null) return null;
-  if (apiKey === null || role === null)
-    throw new Error("WORKER_TRADER_CONFIGURATION_INCOMPLETE");
-  if (role !== "FORECASTER_A" && role !== "FORECASTER_B")
-    throw new Error("INVALID_WORKER_TRADER_FORECASTER_ROLE");
-  return { apiKey, forecasterRole: role };
-}
-
 export type AlertConfig =
   | { sink: "stdout" }
   | { sink: "file"; path: string }
@@ -158,7 +120,7 @@ export function alertConfig(env: NodeJS.ProcessEnv): AlertConfig {
 }
 
 /**
- * alert.evaluate. It runs in every worker, with or without execution/keeper. The RPC probe uses
+ * alert.evaluate. It runs in every worker, using the database and optional RPC. The RPC probe uses
  * the worker's existing BASE_SEPOLIA_RPC_URL when set; without one the RPC family is not evaluated.
  */
 export interface AlertEvaluateConfig {
@@ -167,7 +129,6 @@ export interface AlertEvaluateConfig {
   deploymentIds: string[] | null;
   rpcFailures: number;
   reAlertMs: number;
-  keeperOverdueSeconds: number;
 }
 export function alertEvaluateConfig(
   env: NodeJS.ProcessEnv,
@@ -194,6 +155,5 @@ export function alertEvaluateConfig(
     deploymentIds: deploymentId === null ? null : [deploymentId],
     rpcFailures: integer("ALERT_RPC_FAILURES", 3, 100),
     reAlertMs: integer("ALERT_REALERT_MINUTES", 60, 10_080) * 60_000,
-    keeperOverdueSeconds: integer("ALERT_KEEPER_OVERDUE_SECONDS", 600, 604_800),
   };
 }

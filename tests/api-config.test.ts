@@ -13,12 +13,7 @@ const approval = {
   EVIDENCE_OBJECT_DIRECTORY: "/var/blink/evidence",
 };
 const markets = { ...approval, BLINK_DEPLOYMENT_ID: "local-anvil" };
-const signer = {
-  SIGNER_URL: "http://127.0.0.1:3003",
-  SIGNER_CALLER_TOKEN: "caller-token",
-  BASE_SEPOLIA_RPC_URL: "http://127.0.0.1:8545",
-};
-const trading = { ...markets, ...signer };
+
 const without = <T extends object>(env: T, name: keyof T) => {
   const copy = { ...env };
   delete copy[name];
@@ -53,7 +48,6 @@ test("markets mode needs everything approval needs plus the deployment id", () =
   const config = apiConfig({ BLINK_API_MODE: "markets", ...markets });
   assert.equal(config.mode, "markets");
   assert.equal(config.deploymentId, "local-anvil");
-  assert.equal(config.signerUrl, undefined);
   assert.throws(
     () =>
       apiConfig({
@@ -80,27 +74,11 @@ test("markets mode needs everything approval needs plus the deployment id", () =
   );
 });
 
-test("trading mode additionally needs the signer and the RPC", () => {
-  const config = apiConfig({ BLINK_API_MODE: "trading", ...trading });
-  assert.equal(config.mode, "trading");
-  assert.equal(config.deploymentId, "local-anvil");
-  assert.equal(config.signerUrl, signer.SIGNER_URL);
-  assert.equal(config.signerToken, signer.SIGNER_CALLER_TOKEN);
-  assert.equal(config.rpcUrl, signer.BASE_SEPOLIA_RPC_URL);
+test("retired trading mode is refused", () => {
   assert.throws(
-    () =>
-      apiConfig({
-        BLINK_API_MODE: "trading",
-        ...without(trading, "BLINK_DEPLOYMENT_ID"),
-      }),
-    /MARKETS_CONFIGURATION_REQUIRED/,
+    () => apiConfig({ BLINK_API_MODE: "trading", ...markets }),
+    /INVALID_API_MODE/,
   );
-  for (const name of Object.keys(signer) as (keyof typeof signer)[])
-    assert.throws(
-      () => apiConfig({ BLINK_API_MODE: "trading", ...without(trading, name) }),
-      /TRADING_CONFIGURATION_REQUIRED/,
-      name,
-    );
 });
 
 test("trusted proxies parse to exact addresses or CIDRs and refuse anything broad or malformed", () => {

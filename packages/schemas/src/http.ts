@@ -374,26 +374,6 @@ const contracts = [
     query: ListQuery.extend({ deploymentId: DeploymentId, windowId: Id }),
     access: "public; own before deadline",
   }),
-  operation("POST", "/v1/rfqs", SignedQuoteResponse, {
-    body: RfqRequest,
-    access: "trade:quote + wallet",
-  }),
-  operation(
-    "GET",
-    "/v1/quotes/:quoteId",
-    z.strictObject({
-      quote: SignedQuoteResponse,
-      status: z.enum([
-        "SIGNED",
-        "SIGN_UNKNOWN",
-        "EXPIRED",
-        "CANCELLED",
-        "CONSUMED",
-      ]),
-      chainCursor: ChainCursor,
-    }),
-    { access: "taker/admin" },
-  ),
   operation(
     "POST",
     "/v1/transactions",
@@ -493,16 +473,6 @@ const contracts = [
     },
   ),
   operation("GET", "/v1/markets/:id/resolution", Resolution),
-  operation(
-    "POST",
-    "/v1/faucet/claims",
-    z.strictObject({ claimId: Id, intentId: Id, state: z.literal("QUEUED") }),
-    {
-      body: z.strictObject({ deploymentId: DeploymentId }),
-      access: "allowed-wallet",
-      status: 202,
-    },
-  ),
   operation(
     "GET",
     "/v1/metrics",

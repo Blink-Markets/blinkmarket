@@ -45,14 +45,8 @@ export const modules = [
   {
     id: "trading",
     title: "RFQ 與交易政策",
-    tables: [
-      "rfqs",
-      "quotes",
-      "collateral_reservations",
-      "mandates",
-      "risk_reservations",
-    ],
-    responsibility: "報價、資金預留、mandate；不託管外部 taker",
+    tables: [],
+    responsibility: "外部 agent 的交易協定；平台不定價或持有簽章金鑰",
     status: "planned",
   },
   {
@@ -73,14 +67,7 @@ export const modules = [
     id: "resolution",
     title: "結果與爭議",
     tables: ["resolution_reports", "resolution_actions"],
-    responsibility: "證據報告、人工裁決流程與 keeper 排程；結果以鏈為準",
-    status: "planned",
-  },
-  {
-    id: "faucet",
-    title: "測試資產",
-    tables: ["faucet_claims"],
-    responsibility: "邀請地址額度、mint intent 與 gas 限制",
+    responsibility: "證據報告與結果觀測；結果以鏈為準",
     status: "planned",
   },
   {

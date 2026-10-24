@@ -14,26 +14,20 @@ import { alertSinkFor } from "./alerts.js";
 import {
   alertConfig,
   alertEvaluateConfig,
-  executionConfig,
   researchConfig,
-  traderConfig,
   workerConfig,
 } from "./config.js";
 import {
   buildResearch,
-  buildExecution,
-  buildTrader,
   handlers,
   outboxMapping,
   registerAlertEvaluate,
   registerEvaluationHandler,
   registerOperationsPrune,
-  registerQuoteReconcile,
   registerResolutionHandlers,
   scheduleAlertEvaluate,
   scheduleEvaluation,
   scheduleOperationsPrune,
-  scheduleQuoteReconcile,
   scheduleResolution,
 } from "./handlers.js";
 import { startJobLoops } from "./loops.js";
@@ -41,7 +35,6 @@ import { jobs } from "./registry.js";
 
 const OUTBOX_DISPATCH_INTERVAL_MS = 1000;
 const PERIODIC_SCHEDULE_INTERVAL_MS = 15_000;
-const QUOTE_RECONCILE_INTERVAL_MS = 5000;
 
 let pool: pg.Pool | null = null;
 let worker: ReturnType<typeof startJobLoops> | null = null;
@@ -49,8 +42,6 @@ let outboxTimer: ReturnType<typeof setInterval> | null = null;
 let outboxRun: Promise<unknown> = Promise.resolve();
 let scheduleTimer: ReturnType<typeof setInterval> | null = null;
 let scheduleRun: Promise<unknown> = Promise.resolve();
-let quoteTimer: ReturnType<typeof setInterval> | null = null;
-let quoteRun: Promise<unknown> = Promise.resolve();
 
 try {
   const config = workerConfig(process.env);
@@ -83,25 +74,11 @@ try {
     registerEvaluationHandler(database);
     registerOperationsPrune(database);
     registerResolutionHandlers(database, process.env.EVIDENCE_OBJECT_DIRECTORY);
-    registerQuoteReconcile(database);
     const researchSettings = researchConfig(process.env);
-    const executionSettings = executionConfig(process.env);
     const research = await buildResearch({
       pool: database,
       queue,
       config: researchSettings,
-    });
-    const execution = await buildExecution({
-      pool: database,
-      queue,
-      config: executionSettings,
-    });
-    const trader = await buildTrader({
-      pool: database,
-      queue,
-      config: traderConfig(process.env),
-      api: researchSettings.api,
-      execution: executionSettings,
     });
     worker = startJobLoops({
       queue,
@@ -109,8 +86,6 @@ try {
       handlers: {
         ...handlers,
         ...research.handlers,
-        ...execution.handlers,
-        ...trader.handlers,
       },
       workerId: hostname() + ":" + process.pid + ":" + randomUUID(),
       onError: (code) => console.error("WORKER_JOB_ERROR:" + code),
@@ -132,8 +107,6 @@ try {
       // Each periodic family enqueues independently, deduplicated per time bucket.
       scheduleRun = Promise.allSettled([
         research.tick(),
-        execution.tick(),
-        trader.tick(),
         scheduleEvaluation(database),
         scheduleOperationsPrune(database),
         scheduleResolution(database),
@@ -149,16 +122,6 @@ try {
     };
     schedule();
     scheduleTimer = setInterval(schedule, PERIODIC_SCHEDULE_INTERVAL_MS);
-    let reconciling = false;
-    quoteTimer = setInterval(() => {
-      if (reconciling) return;
-      reconciling = true;
-      quoteRun = scheduleQuoteReconcile(database)
-        .catch(() => console.error("WORKER_QUOTE_RECONCILE_SCHEDULE_FAILED"))
-        .finally(() => {
-          reconciling = false;
-        });
-    }, QUOTE_RECONCILE_INTERVAL_MS);
     app.get("/health/jobs", async (_request, reply) => {
       try {
         await assertProductionClock(database, false);
@@ -168,8 +131,6 @@ try {
       }
     });
     app.addHook("onClose", async () => {
-      if (quoteTimer) clearInterval(quoteTimer);
-      await quoteRun;
       if (scheduleTimer) clearInterval(scheduleTimer);
       await scheduleRun;
       if (outboxTimer) clearInterval(outboxTimer);
@@ -180,8 +141,6 @@ try {
   }
   await startService(app, 3002);
 } catch (error) {
-  if (quoteTimer) clearInterval(quoteTimer);
-  await quoteRun;
   if (scheduleTimer) clearInterval(scheduleTimer);
   await scheduleRun;
   if (outboxTimer) clearInterval(outboxTimer);

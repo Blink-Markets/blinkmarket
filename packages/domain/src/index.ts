@@ -3,9 +3,6 @@ export * from "./chain-reducer.ts";
 export * from "./execution.ts";
 export * from "./jobs.ts";
 export * from "./costs.ts";
-export * from "./signing-policy.ts";
-export * from "./pricing.ts";
-export * from "./trader-rule.ts";
 export type { MarketRef, ChainCursor, MarketSpec, Quote } from "@blink/schemas";
 
 export type JobType =
@@ -18,17 +15,10 @@ export type JobType =
   | "forecast.run"
   | "baseline.run"
   | "budget.reconcile"
-  | "quote.reconcile"
-  | "chain.reconcile"
-  | "tx.dispatch"
-  | "tx.track"
   | "resolution.parse"
   | "resolution.alerts"
   | "alert.deliver"
   | "alert.evaluate"
-  | "keeper.finalize"
-  | "faucet.mint"
-  | "trader.evaluate"
   | "evaluation.score"
   | "operations.prune";
 export type Job<T extends JobType = JobType> = {
@@ -57,5 +47,3 @@ export * from "./brier.ts";
 
 export * from "./gm-parser.ts";
 export * from "./prompts.ts";
-
-export * from "./keeper.ts";

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, copyFile, rm } from "node:fs/promises";
+import { mkdtemp, copyFile, rm, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -87,76 +87,15 @@ test("actual worker entry bundle fails closed when enabled without a database lo
   }
 });
 
-test("actual signer entry bundle fails closed when enabled without configuration", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "blink-signer-entry-"));
-  try {
-    await copyFile(
-      resolve("dist/services/signer.mjs"),
-      join(directory, "signer.mjs"),
-    );
-    const result = spawnSync(process.execPath, ["signer.mjs"], {
-      cwd: directory,
-      encoding: "utf8",
-      env: {
-        PATH: process.env.PATH,
-        NODE_ENV: "production",
-        SIGNER_ENABLED: "true",
-      },
-    });
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /SIGNER_CONFIGURATION_REQUIRED/);
-    assert.doesNotMatch(result.stderr, /MODULE_NOT_FOUND|Cannot find package/);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("actual signer entry bundle prints a code only for an invalid configuration", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "blink-signer-config-"));
-  try {
-    await copyFile(
-      resolve("dist/services/signer.mjs"),
-      join(directory, "signer.mjs"),
-    );
-    for (const [variable, value, code] of [
-      ["SIGNER_ENABLED", "maybe", "INVALID_SIGNER_ENABLED"],
-      ["SIGNER_PORT", "70000", "INVALID_SIGNER_PORT"],
-      ["SIGNER_L1_FEE_MODE", "none", "INVALID_SIGNER_L1_FEE_MODE"],
-    ]) {
-      const result = spawnSync(process.execPath, ["signer.mjs"], {
-        cwd: directory,
-        encoding: "utf8",
-        env: {
-          PATH: process.env.PATH,
-          NODE_ENV: "production",
-          [variable]: value,
-        },
-      });
-      assert.equal(result.status, 1, variable);
-      // The code and nothing else: no stack trace, no Node banner.
-      assert.equal(result.stderr, code + "\n", variable);
-    }
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("actual restore-prepare tool bundle fails closed without configuration", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "blink-restore-prepare-"));
-  try {
-    await copyFile(
-      resolve("dist/tools/restore-prepare.mjs"),
-      join(directory, "restore-prepare.mjs"),
-    );
-    const result = spawnSync(process.execPath, ["restore-prepare.mjs"], {
-      cwd: directory,
-      encoding: "utf8",
-      env: { PATH: process.env.PATH, NODE_ENV: "production" },
-    });
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /RESTORE_PREPARE_CONFIGURATION_REQUIRED/);
-    assert.doesNotMatch(result.stderr, /MODULE_NOT_FOUND|Cannot find package/);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
+test("service output contains only the infrastructure bundles", async () => {
+  assert.deepEqual((await readdir("dist/services")).sort(), [
+    "api-server.mjs",
+    "api.mjs",
+    "indexer.mjs",
+    "worker.mjs",
+  ]);
+  assert.equal(
+    (await readdir("dist/tools")).includes("trading-admin.mjs"),
+    false,
+  );
 });

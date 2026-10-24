@@ -9,14 +9,9 @@ export const HealthDetails = z.strictObject({
     headNumber: Uint256.nullable(),
     fresh: z.boolean(),
   }),
-  signerReachable: z.boolean(),
   budgetGates: z.strictObject({
     dailyClosed: z.boolean(),
     questionsClosed: Uint256,
-  }),
-  poolGate: z.strictObject({
-    closed: z.boolean(),
-    reconcileRequired: z.boolean(),
   }),
   // Informational only: an alert outage does not make quotes unsafe, so it never closes readiness.
   alerts: z.strictObject({
@@ -32,9 +27,6 @@ export const HealthResponse = z.strictObject({
     z.enum([
       "TRADING_DISABLED",
       "INDEXER_LAG",
-      "POOL_GATE_CLOSED",
-      "RECONCILE_REQUIRED",
-      "SIGNER_UNAVAILABLE",
       "BUDGET_GATE_CLOSED",
       "SERVICE_NOT_READY",
     ]),
@@ -42,27 +34,10 @@ export const HealthResponse = z.strictObject({
   details: HealthDetails.optional(),
 });
 export type HealthResponse = z.infer<typeof HealthResponse>;
-const Latency = z.strictObject({
-  samples: Uint256,
-  p50Ms: z.number().nonnegative().nullable(),
-  p95Ms: z.number().nonnegative().nullable(),
-});
 export const AdminMetricsResponse = z.strictObject({
-  rfqLatency: Latency,
-  txInclusionLatency: Latency,
   counts: z.strictObject({
-    quotes: Counts,
-    transactions: Counts,
     jobs: Counts,
     errors: Counts,
   }),
-  gasSpent: z.array(
-    z.strictObject({
-      role: z.enum(["maker", "trader", "keeper", "faucet"]),
-      day: z.iso.date(),
-      spentWei: Uint256,
-      reservedWei: Uint256,
-    }),
-  ),
 });
 export type AdminMetricsResponse = z.infer<typeof AdminMetricsResponse>;

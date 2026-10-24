@@ -118,7 +118,7 @@ export async function opsStatusCommand(
   return [
     `Operator status — ${pause.deploymentId} (Base Sepolia, indexed)`,
     `Health: ${health.status}; reasons: ${health.reasons.join(", ") || "none"}`,
-    `Index: ${health.details?.chainIndex.blockNumber ?? "unknown"} / ${health.details?.chainIndex.headNumber ?? "unknown"}; signer: ${health.details?.signerReachable ?? "unknown"}`,
+    `Index: ${health.details?.chainIndex.blockNumber ?? "unknown"} / ${health.details?.chainIndex.headNumber ?? "unknown"}`,
     `Candidates (${shown(candidates)}, own operator): ${candidates.items.length}; approvals: ${candidates.items.filter((c) => c.approval).length}`,
     `Failed jobs (${shown(jobs)}): ${jobs.items.length}; queue: ${health.details?.queue.map((q) => q.name + "=" + q.count).join(", ") ?? "unknown"}`,
     `Budget ${b.day} (USD micros): cap=${b.capUsdMicros}, spent=${b.spentUsdMicros}, reserved=${b.reservedUsdMicros}, unknown=${b.unknownUsdMicros}`,

@@ -8,7 +8,7 @@ import {
   seedChain,
   seedDeployment,
   testManifest,
-} from "./helpers/signer-fixture.js";
+} from "./helpers/protocol-fixture.js";
 import { postgresAlertEvaluateStore } from "../packages/adapters/src/alert-evaluate-store.js";
 import { alertPayload } from "../packages/adapters/src/alert-payload.js";
 import { dispatchOutbox } from "../packages/adapters/src/outbox-dispatcher.js";
@@ -19,7 +19,6 @@ import {
   decideEpisodeChanges,
 } from "../packages/application/src/alert-evaluate.js";
 import {
-  buildExecution,
   handlers,
   registerAlertEvaluate,
   scheduleAlertEvaluate,
@@ -57,7 +56,6 @@ async function world(
     }),
     rpc: options.rpc ?? null,
     policy,
-    keeperOverdueSeconds: 600,
     deploymentIds:
       options.deploymentIds === undefined
         ? [DEPLOYMENT]
@@ -125,7 +123,7 @@ test("episode lifecycle: OPEN once, no duplicate across ticks, STILL_OPEN after 
   try {
     const gate = (reason: string | null) =>
       w.sql(
-        "INSERT INTO trading.maker_pools(deployment_id,gate_reason) VALUES($1,$2) ON CONFLICT (deployment_id) DO UPDATE SET gate_reason=$2",
+        "UPDATE chain.maker_state SET global_paused=($2::text IS NOT NULL) WHERE deployment_id=$1",
         [DEPLOYMENT, reason],
       );
     await gate("OVERCOMMITTED");
@@ -135,8 +133,8 @@ test("episode lifecycle: OPEN once, no duplicate across ticks, STILL_OPEN after 
     let pool = await w.alerts("pause");
     assert.deepEqual(states(pool), ["OPEN"]);
     assert.equal(pool[0].family, "pause");
-    assert.equal(pool[0].subject, "pool");
-    assert.equal(pool[0].reason, "OVERCOMMITTED");
+    assert.equal(pool[0].subject, "global");
+    assert.equal(pool[0].reason, "GLOBAL_PAUSED");
     assert.equal(pool[0].deploymentId, DEPLOYMENT);
     assert.match(pool[0].since, /^[0-9]+$/);
     // Still inside the interval 59 minutes later: nothing new.
@@ -178,47 +176,27 @@ test("episode lifecycle: OPEN once, no duplicate across ticks, STILL_OPEN after 
   }
 });
 
-test("alert.budget fires from the daily gate, a closed question gate and signer gas-cap refusals", async () => {
+test("alert.budget fires from the daily gate and a closed question gate", async () => {
   const w = await world();
   try {
     await w.sql(
       `INSERT INTO budgets.daily(day,gate_closed_reason) VALUES((blink.now() AT TIME ZONE 'UTC')::date,'OVERRUN');
        INSERT INTO budgets.questions(question_key,cap_usd_micros,gate_closed_reason) VALUES('private question text',1000,'OVERRUN')`,
     );
-    const refuse = async (code: string, ageSeconds: number) => {
-      const id = randomUUID();
-      await w.sql(
-        `INSERT INTO signing.economic_intents(id,deployment_id,kind,role,dedupe_key,payload,payload_hash,created_by)
-         VALUES($1,$2,'FINALIZE_TIMEOUT','keeper',$3,'{}',decode(repeat('aa',32),'hex'),'test')`,
-        [id, DEPLOYMENT, randomUUID()],
-      );
-      await w.sql(
-        `INSERT INTO signing.sign_requests(id,intent_id,role,request_hash,unsigned_payload,policy_version,state,reject_code,updated_at)
-         VALUES($1,$2,'keeper',decode(repeat('bb',32),'hex'),'{}','v1','REJECTED',$3,blink.now()-$4*interval '1 second')`,
-        [randomUUID(), id, code, ageSeconds],
-      );
-    };
-    await refuse("GAS_DAILY_CAP_EXCEEDED", 60);
-    await refuse("GAS_CAP_EXCEEDED", 3600);
-    await refuse("GAS_CAP_EXCEEDED", 25 * 3600); // too old
-    await refuse("SIGNER_UNAVAILABLE", 60); // not a gas cap
     await w.run();
     const budget = await w.alerts("budget");
     assert.deepEqual(budget.map((a) => a.subject).sort(), [
       "daily",
       "questions",
-      "role:keeper",
     ]);
     const bySubject = Object.fromEntries(budget.map((a) => [a.subject, a]));
     assert.equal(bySubject.daily.reason, "OVERRUN");
     assert.equal(bySubject.questions.reason, "QUESTION_GATE_CLOSED");
     assert.equal(bySubject.questions.count, "1");
-    assert.equal(bySubject["role:keeper"].reason, "GAS_DAILY_CAP_EXCEEDED");
-    assert.equal(bySubject["role:keeper"].count, "2");
     assert.equal(JSON.stringify(budget).includes("private question"), false);
     // The daily cap used up without any gate reason is reported with its own code.
     await w.sql(
-      "UPDATE budgets.daily SET gate_closed_reason=NULL,cap_usd_micros=1; UPDATE budgets.questions SET gate_closed_reason=NULL; DELETE FROM signing.sign_requests",
+      "UPDATE budgets.daily SET gate_closed_reason=NULL,cap_usd_micros=1; UPDATE budgets.questions SET gate_closed_reason=NULL",
     );
     await w.sql(
       `INSERT INTO budgets.reservations(id,day,question_key,run_id,provider,model,max_usd_micros,state)
@@ -229,13 +207,10 @@ test("alert.budget fires from the daily gate, a closed question gate and signer 
     const after = await w.alerts("budget");
     assert.deepEqual(
       after
-        .slice(3)
+        .slice(2)
         .map((a) => [a.subject, a.state, a.reason])
         .sort(),
-      [
-        ["questions", "CLEARED", "QUESTION_GATE_CLOSED"],
-        ["role:keeper", "CLEARED", "GAS_DAILY_CAP_EXCEEDED"],
-      ],
+      [["questions", "CLEARED", "QUESTION_GATE_CLOSED"]],
     );
     // Gate cleared and the cap raised above the reservation: the daily episode ends too.
     await w.sql("UPDATE budgets.daily SET cap_usd_micros=20000000");
@@ -247,36 +222,32 @@ test("alert.budget fires from the daily gate, a closed question gate and signer 
   }
 });
 
-test("alert.pause fires from the indexed global and per-market pause projection and the maker pool gate", async () => {
+test("alert.pause fires from the indexed global and per-market pause projection", async () => {
   const w = await world();
   try {
     await w.sql(
       `UPDATE chain.markets SET paused=true;
-       UPDATE chain.maker_state SET global_paused=true;
-       INSERT INTO trading.maker_pools(deployment_id,gate_reason) VALUES('${DEPLOYMENT}','OVERCOMMITTED')`,
+       UPDATE chain.maker_state SET global_paused=true`,
     );
     await w.run();
     const open = await w.alerts("pause");
     assert.deepEqual(open.map((a) => [a.subject, a.reason, a.state]).sort(), [
       ["global", "GLOBAL_PAUSED", "OPEN"],
       ["market:1", "MARKET_PAUSED", "OPEN"],
-      ["pool", "OVERCOMMITTED", "OPEN"],
     ]);
     await w.sql(
-      `UPDATE chain.markets SET paused=false; UPDATE chain.maker_state SET global_paused=false;
-       UPDATE trading.maker_pools SET gate_reason=NULL`,
+      `UPDATE chain.markets SET paused=false; UPDATE chain.maker_state SET global_paused=false`,
     );
     await w.run();
     const all = await w.alerts("pause");
     assert.deepEqual(
       all
-        .slice(3)
+        .slice(2)
         .map((a) => [a.subject, a.state])
         .sort(),
       [
         ["global", "CLEARED"],
         ["market:1", "CLEARED"],
-        ["pool", "CLEARED"],
       ],
     );
   } finally {
@@ -321,59 +292,6 @@ test("alert.indexer_lag uses the health freshness rule and carries block numbers
     await w.sql("UPDATE chain.cursors SET gate_reason=NULL");
     await w.run();
     assert.equal((await w.alerts("indexer_lag")).at(-1).state, "CLEARED");
-  } finally {
-    await w.close();
-  }
-});
-
-test("alert.keeper_overdue: a due market left unfinalized for more than 600 chain-seconds, separate from alert.deadline", async () => {
-  const w = await world();
-  try {
-    // The seeded market has hard_deadline 4000; the cursor's chain time is the "now" of the keeper.
-    const chainTime = (seconds: number) =>
-      w.sql(
-        "UPDATE chain.cursors SET block_timestamp=$1 WHERE deployment_id=$2",
-        [seconds, DEPLOYMENT],
-      );
-    await chainTime(3999);
-    await w.run();
-    await chainTime(4600); // due for exactly 600 chain-seconds: not yet
-    await w.run();
-    assert.deepEqual(await w.alerts("keeper_overdue"), []);
-    await chainTime(4601);
-    await w.run();
-    await w.run();
-    const overdue = await w.alerts("keeper_overdue");
-    assert.deepEqual(states(overdue), ["OPEN"]);
-    assert.equal(overdue[0].subject, "market:1");
-    assert.equal(overdue[0].reason, "KEEPER_OVERDUE");
-    assert.equal(overdue[0].overdueSeconds, "601");
-    assert.deepEqual(await w.alerts("deadline"), []);
-    // The keeper finalizes it.
-    await w.sql("UPDATE chain.markets SET state='FINAL'");
-    await w.run();
-    assert.deepEqual(states(await w.alerts("keeper_overdue")), [
-      "OPEN",
-      "CLEARED",
-    ]);
-  } finally {
-    await w.close();
-  }
-});
-
-test("alert.keeper_overdue also covers a proposal whose challenge window has ended", async () => {
-  const w = await world();
-  try {
-    await w.sql(
-      "UPDATE chain.markets SET state='PROPOSED',proposed_at=1000,challenge_seconds=120,hard_deadline=100000",
-    );
-    await w.sql("UPDATE chain.cursors SET block_timestamp=1720");
-    await w.run();
-    assert.deepEqual(await w.alerts("keeper_overdue"), []);
-    await w.sql("UPDATE chain.cursors SET block_timestamp=1721");
-    await w.run();
-    const overdue = await w.alerts("keeper_overdue");
-    assert.equal(overdue[0].overdueSeconds, "601");
   } finally {
     await w.close();
   }
@@ -507,22 +425,16 @@ test("the RPC probe reports a closed port, a wrong chain, bad answers and a hang
   }
 });
 
-test("alert.evaluate runs with no keeper, signer or execution configuration", async () => {
+test("alert.evaluate runs with infrastructure configuration only", async () => {
   const w = await world();
   try {
     delete handlers["alert.evaluate"];
-    const execution = await buildExecution({
-      pool: w.t.pool,
-      queue: postgresJobQueue(w.t.pool),
-      config: null,
-    });
-    assert.deepEqual(execution.handlers, {});
     registerAlertEvaluate(
       w.t.pool,
       alertEvaluateConfig({ BLINK_DEPLOYMENT_ID: DEPLOYMENT }),
       { jobLock: false },
     );
-    await deadJob(w, "tx.dispatch", 5);
+    await deadJob(w, "evidence.fetch", 5);
     await scheduleAlertEvaluate(w.t.pool);
     await scheduleAlertEvaluate(w.t.pool);
     const queue = postgresJobQueue(w.t.pool);
@@ -543,7 +455,7 @@ test("alert.evaluate runs with no keeper, signer or execution configuration", as
 test("without a configured deployment every enabled deployment is evaluated", async () => {
   const w = await world({ deploymentIds: null });
   try {
-    await deadJob(w, "tx.dispatch", 5);
+    await deadJob(w, "evidence.fetch", 5);
     await w.run();
     assert.equal((await w.alerts("jobs_dead")).length, 1);
   } finally {
@@ -567,7 +479,6 @@ test("a failed observation neither clears nor emits anything", async () => {
     },
     rpc: null,
     policy,
-    keeperOverdueSeconds: 600,
     deploymentIds: null,
   });
   await assert.rejects(
@@ -580,7 +491,7 @@ test("a failed observation neither clears nor emits anything", async () => {
 test("the episode row and its outbox alert commit together", async () => {
   const w = await world();
   try {
-    await deadJob(w, "tx.dispatch", 5);
+    await deadJob(w, "evidence.fetch", 5);
     // The alert cannot be written, so the episode must not be either.
     await w.sql("REVOKE INSERT ON operations.outbox FROM blink_worker");
     await assert.rejects(w.run());
@@ -597,7 +508,7 @@ test("alert_episodes is readable and writable by the worker login only", async (
   const w = await world();
   try {
     await w.t.pool.query("SELECT count(*) FROM operations.alert_episodes");
-    for (const role of ["blink_api", "blink_indexer", "blink_signer"]) {
+    for (const role of ["blink_api", "blink_indexer"]) {
       await w.t.setRole(role);
       await assert.rejects(
         w.t.pool.query("SELECT 1 FROM operations.alert_episodes"),
@@ -614,7 +525,7 @@ test("alert_episodes is readable and writable by the worker login only", async (
 test("episode alerts reach delivery through a closed allow-list: codes and numbers only", async () => {
   const w = await world();
   try {
-    await deadJob(w, "tx.dispatch", 5);
+    await deadJob(w, "evidence.fetch", 5);
     await w.run();
     // A hostile or buggy row cannot smuggle text through the projection.
     await w.t.pool.query(
@@ -629,7 +540,7 @@ test("episode alerts reach delivery through a closed allow-list: codes and numbe
           reason: "lower case reason https://secret.example",
           since: "yesterday",
           count: "12 apples",
-          jobTypes: ["tx.dispatch", "https://secret.example", 7],
+          jobTypes: ["evidence.fetch", "https://secret.example", 7],
           error: "stack trace",
           evidence: "private",
           apiKey: "key",
@@ -657,7 +568,7 @@ test("episode alerts reach delivery through a closed allow-list: codes and numbe
         reason: "DEAD_JOBS",
         since: "s",
         count: "1",
-        jobTypes: ["tx.dispatch"],
+        jobTypes: ["evidence.fetch"],
       },
     );
     const hostile = payloads.find((p) => p.type === "alert.budget")!;
@@ -667,7 +578,7 @@ test("episode alerts reach delivery through a closed allow-list: codes and numbe
       "jobTypes",
       "type",
     ]);
-    assert.deepEqual(hostile.jobTypes, ["tx.dispatch"]);
+    assert.deepEqual(hostile.jobTypes, ["evidence.fetch"]);
     assert.equal(JSON.stringify(payloads).includes("secret"), false);
     // The projection is closed for any input.
     assert.deepEqual(
@@ -737,7 +648,6 @@ test("alert.evaluate configuration has defaults, reuses the worker RPC and fails
     deploymentIds: null,
     rpcFailures: 3,
     reAlertMs: 60 * 60_000,
-    keeperOverdueSeconds: 600,
   });
   assert.deepEqual(
     alertEvaluateConfig({
@@ -745,14 +655,12 @@ test("alert.evaluate configuration has defaults, reuses the worker RPC and fails
       BLINK_DEPLOYMENT_ID: "base-sepolia-1",
       ALERT_RPC_FAILURES: "5",
       ALERT_REALERT_MINUTES: "30",
-      ALERT_KEEPER_OVERDUE_SECONDS: "900",
     }),
     {
       rpcUrl: "http://127.0.0.1:8545",
       deploymentIds: ["base-sepolia-1"],
       rpcFailures: 5,
       reAlertMs: 30 * 60_000,
-      keeperOverdueSeconds: 900,
     },
   );
   for (const env of [
@@ -760,7 +668,6 @@ test("alert.evaluate configuration has defaults, reuses the worker RPC and fails
     { ALERT_RPC_FAILURES: "many" },
     { ALERT_REALERT_MINUTES: "-1" },
     { ALERT_REALERT_MINUTES: "99999" },
-    { ALERT_KEEPER_OVERDUE_SECONDS: "1.5" },
     { BASE_SEPOLIA_RPC_URL: "not a url" },
     { BASE_SEPOLIA_RPC_URL: "ftp://rpc.invalid" },
     { BASE_SEPOLIA_RPC_URL: "https://name:secret@rpc.invalid" },
@@ -788,18 +695,16 @@ const deadJob = (w: Awaited<ReturnType<typeof world>>, type: string, age = 0) =>
     [randomUUID(), type, randomUUID(), age],
   );
 
-test("a gated or missing chain cursor makes keeper_overdue and pause unknown: no CLEARED, no second OPEN", async () => {
+test("a gated or missing chain cursor makes pause unknown: no CLEARED, no second OPEN", async () => {
   const w = await world();
   try {
     await w.sql("UPDATE chain.markets SET paused=true");
     await w.sql("UPDATE chain.cursors SET block_timestamp=4601");
     await w.run();
-    assert.deepEqual(states(await w.alerts("keeper_overdue")), ["OPEN"]);
     assert.deepEqual(states(await w.alerts("pause")), ["OPEN"]);
     await w.sql("UPDATE chain.cursors SET gate_reason='REORG_IN_PROGRESS'");
     await w.run();
     await w.run();
-    assert.deepEqual(states(await w.alerts("keeper_overdue")), ["OPEN"]);
     assert.deepEqual(states(await w.alerts("pause")), ["OPEN"]);
     // The indexer's own problem is still reported, by its own family.
     assert.equal(
@@ -809,7 +714,6 @@ test("a gated or missing chain cursor makes keeper_overdue and pause unknown: no
     await w.clock(11 * MINUTE, true); // a reason change is announced at most every 10 minutes
     await w.sql("DELETE FROM chain.cursors");
     await w.run();
-    assert.deepEqual(states(await w.alerts("keeper_overdue")), ["OPEN"]);
     assert.equal(
       (await w.alerts("indexer_lag")).at(-1).reason,
       "CURSOR_MISSING",
@@ -819,15 +723,11 @@ test("a gated or missing chain cursor makes keeper_overdue and pause unknown: no
        VALUES('${DEPLOYMENT}',10,decode(repeat('11',32),'hex'),4601,10,blink.now())`,
     );
     await w.run();
-    assert.deepEqual(states(await w.alerts("keeper_overdue")), ["OPEN"]);
     assert.deepEqual(states(await w.alerts("pause")), ["OPEN"]);
     // Once the source is readable and the market is no longer due, it does clear.
     await w.sql("UPDATE chain.markets SET state='FINAL'");
     await w.run();
-    assert.deepEqual(states(await w.alerts("keeper_overdue")), [
-      "OPEN",
-      "CLEARED",
-    ]);
+    assert.deepEqual(states(await w.alerts("pause")), ["OPEN", "CLEARED"]);
   } finally {
     await w.close();
   }
@@ -838,7 +738,7 @@ test("episodes beyond 1000 historical rows never cause a duplicate OPEN or stall
   try {
     await w.sql(
       `INSERT INTO operations.alert_episodes(deployment_id,family,subject,active,reason,opened_at,last_alert_at)
-       SELECT '${DEPLOYMENT}','keeper_overdue','market:'||g,false,'KEEPER_OVERDUE',blink.now(),blink.now()
+       SELECT '${DEPLOYMENT}','pause','market:'||g,false,'MARKET_PAUSED',blink.now(),blink.now()
        FROM generate_series(1000,2400) g`,
     );
     await w.sql("UPDATE chain.markets SET paused=true");
@@ -876,7 +776,7 @@ test("jobs_dead is active for DEAD jobs of the last 24 hours, re-alerts on growt
     await deadJob(w, "evidence.fetch", 25 * 3600); // too old to count
     await w.run();
     assert.deepEqual(await w.alerts("jobs_dead"), []);
-    await deadJob(w, "tx.dispatch", 60);
+    await deadJob(w, "evidence.fetch", 60);
     await w.run();
     await w.run();
     let dead = await w.alerts("jobs_dead");
@@ -884,13 +784,13 @@ test("jobs_dead is active for DEAD jobs of the last 24 hours, re-alerts on growt
     assert.equal(dead[0].count, "1");
     assert.equal(dead[0].deploymentId, undefined);
     // A new DEAD job is announced at once, with the new count and types.
-    await deadJob(w, "keeper.finalize", 30);
+    await deadJob(w, "evaluation.score", 30);
     await w.run();
     await w.run();
     dead = await w.alerts("jobs_dead");
     assert.deepEqual(states(dead), ["OPEN", "STILL_OPEN"]);
     assert.equal(dead[1].count, "2");
-    assert.deepEqual(dead[1].jobTypes, ["keeper.finalize", "tx.dispatch"]);
+    assert.deepEqual(dead[1].jobTypes, ["evaluation.score", "evidence.fetch"]);
     // No hourly heartbeat while the count is unchanged.
     await w.clock(3 * 3600);
     await w.run();
@@ -1003,7 +903,7 @@ test("global conditions alert once per tick under one global scope, not once per
     await w.sql(
       "INSERT INTO budgets.daily(day,gate_closed_reason) VALUES((blink.now() AT TIME ZONE 'UTC')::date,'OVERRUN')",
     );
-    await deadJob(w, "tx.dispatch", 10);
+    await deadJob(w, "evidence.fetch", 10);
     for (let n = 0; n < 3; n++) await w.run();
     for (const [family, subject] of [
       ["jobs_dead", "jobs"],
@@ -1031,7 +931,7 @@ test("a failing family is unknown and logged by code only; the other families st
     await w.run();
     await w.sql("UPDATE budgets.daily SET gate_closed_reason=NULL");
     await w.sql("REVOKE SELECT ON budgets.questions FROM blink_worker");
-    await deadJob(w, "tx.dispatch", 10);
+    await deadJob(w, "evidence.fetch", 10);
     await w.run();
     assert.deepEqual(
       states((await w.alerts("budget")).filter((a) => a.subject === "daily")),
@@ -1098,7 +998,7 @@ test("indexer_lag: exactly 3 blocks behind is healthy, 4 is lag, a missing curso
 test("a subject pruned after 30 quiet days reopens with a delivered OPEN and no identity collision", async () => {
   const w = await world();
   try {
-    await deadJob(w, "tx.dispatch", 60);
+    await deadJob(w, "evidence.fetch", 60);
     await w.run();
     await w.clock(25 * 3600);
     await w.run();
@@ -1114,7 +1014,7 @@ test("a subject pruned after 30 quiet days reopens with a delivered OPEN and no 
       ).rows[0].n,
       0,
     );
-    await deadJob(w, "tx.dispatch", 10);
+    await deadJob(w, "evidence.fetch", 10);
     await w.run();
     await w.run();
     assert.deepEqual(states(await w.alerts("jobs_dead")), [
@@ -1145,7 +1045,6 @@ test("a failing scope does not stop the other scopes; the first failure is rethr
     },
     rpc: null,
     policy,
-    keeperOverdueSeconds: 600,
     deploymentIds: null,
   });
   await assert.rejects(
@@ -1170,37 +1069,6 @@ test("an alternating rpc reason is announced at most once per 10 minutes", async
     const rpc = await w.alerts("rpc");
     assert.deepEqual(states(rpc), ["OPEN", "STILL_OPEN"]);
     assert.notEqual(rpc[1].reason, rpc[0].reason);
-  } finally {
-    await w.close();
-  }
-});
-
-test("the maker pool gate is judged while the cursor is gated; the projection stays unknown", async () => {
-  const w = await world();
-  try {
-    await w.sql("UPDATE chain.markets SET paused=true");
-    await w.run();
-    await w.sql("UPDATE chain.cursors SET gate_reason='REORG_IN_PROGRESS'");
-    await w.sql(
-      `INSERT INTO trading.maker_pools(deployment_id,gate_reason) VALUES('${DEPLOYMENT}','OVERCOMMITTED')`,
-    );
-    await w.run();
-    const pause = await w.alerts("pause");
-    assert.deepEqual(
-      pause.map((a) => [a.subject, a.state]),
-      [
-        ["market:1", "OPEN"],
-        ["pool", "OPEN"],
-      ],
-    );
-    // The projection is unknown, the pool is known: only the pool clears.
-    await w.sql("UPDATE trading.maker_pools SET gate_reason=NULL");
-    await w.sql("UPDATE chain.markets SET paused=false");
-    await w.run();
-    assert.deepEqual(
-      (await w.alerts("pause")).slice(2).map((a) => [a.subject, a.state]),
-      [["pool", "CLEARED"]],
-    );
   } finally {
     await w.close();
   }

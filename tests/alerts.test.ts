@@ -291,7 +291,7 @@ async function until(check: () => Promise<boolean>) {
   return false;
 }
 
-test("a hung alert sink never holds the slot of tx.dispatch or keeper.finalize", async () => {
+test("a hung alert sink never holds the slot of evidence.fetch or evaluation.score", async () => {
   const t = await createTestDatabase();
   let release!: () => void;
   const hung = new Promise<void>((resolve) => (release = resolve));
@@ -306,14 +306,14 @@ test("a hung alert sink never holds the slot of tx.dispatch or keeper.finalize",
       payload: { dedupeKey: `alert:${randomUUID()}`, type: "alert.budget" },
     });
     await delay(5);
-    for (const type of ["tx.dispatch", "keeper.finalize"] as const)
+    for (const type of ["evidence.fetch", "evaluation.score"] as const)
       await queue.enqueue({ type, dedupeKey: type, payload: {} });
     const done: string[] = [];
     loops = startJobLoops({
       queue,
       handlers: {
-        "tx.dispatch": async () => void done.push("tx.dispatch"),
-        "keeper.finalize": async () => void done.push("keeper.finalize"),
+        "evidence.fetch": async () => void done.push("evidence.fetch"),
+        "evaluation.score": async () => void done.push("evaluation.score"),
       },
       alertHandler: createAlertDeliveryHandler({
         async deliver() {
@@ -334,8 +334,8 @@ test("a hung alert sink never holds the slot of tx.dispatch or keeper.finalize",
     ).rows;
     assert.deepEqual(states, [
       { type: "alert.deliver", state: "LEASED" },
-      { type: "keeper.finalize", state: "SUCCEEDED" },
-      { type: "tx.dispatch", state: "SUCCEEDED" },
+      { type: "evaluation.score", state: "SUCCEEDED" },
+      { type: "evidence.fetch", state: "SUCCEEDED" },
     ]);
     release();
     await loops.stop();
@@ -361,7 +361,7 @@ test("the alert loop leases only alert.deliver and the main loop never leases it
     loops = startJobLoops({
       queue,
       handlers: {
-        "tx.dispatch": async ({ job }) => void seen.push(job.type),
+        "evidence.fetch": async ({ job }) => void seen.push(job.type),
         // Even if a caller registers it, the main loop must not take alert.deliver.
         "alert.deliver": async ({ job }) => void seen.push("main:" + job.type),
       },
@@ -637,13 +637,13 @@ test("an explicit alert.* mapping adds jobs beside delivery instead of being ove
     await t.setRole("blink_worker");
     await dispatchOutbox(t.pool, {
       "alert.custom": () => [
-        { type: "quote.reconcile", dedupeKey: "extra", payload: {} },
+        { type: "operations.prune", dedupeKey: "extra", payload: {} },
       ],
     });
     const types = (
       await t.pool.query("SELECT type FROM operations.jobs ORDER BY type")
     ).rows.map((r) => r.type);
-    assert.deepEqual(types, ["alert.deliver", "quote.reconcile"]);
+    assert.deepEqual(types, ["alert.deliver", "operations.prune"]);
   } finally {
     await t.close();
   }
@@ -771,7 +771,10 @@ test("the worker picks the sink from ALERT_SINK: file and webhook deliver, stdou
     await alertSinkFor(
       alertConfig({ ALERT_SINK: "file", ALERT_FILE_PATH: path }),
     ).deliver(alert, signal);
-    assert.equal(JSON.parse(await readFile(path, "utf8")).dedupeKey, alert.dedupeKey);
+    assert.equal(
+      JSON.parse(await readFile(path, "utf8")).dedupeKey,
+      alert.dedupeKey,
+    );
     await alertSinkFor(
       alertConfig({
         ALERT_SINK: "webhook",
@@ -789,9 +792,16 @@ test("the worker picks the sink from ALERT_SINK: file and webhook deliver, stdou
     process.stdout.write = write;
     assert.equal(JSON.parse(lines[0]!).dedupeKey, alert.dedupeKey);
     for (const env of [
-      { ALERT_SINK: "stdout", ALERT_WEBHOOK_URL: "https://alerts.example/hook" },
+      {
+        ALERT_SINK: "stdout",
+        ALERT_WEBHOOK_URL: "https://alerts.example/hook",
+      },
       { ALERT_SINK: "stdout", ALERT_FILE_PATH: path },
-      { ALERT_SINK: "file", ALERT_FILE_PATH: path, ALERT_WEBHOOK_URL: "https://alerts.example/hook" },
+      {
+        ALERT_SINK: "file",
+        ALERT_FILE_PATH: path,
+        ALERT_WEBHOOK_URL: "https://alerts.example/hook",
+      },
     ])
       assert.throws(() => alertConfig(env), /INVALID_ALERT_CONFIGURATION/);
   } finally {

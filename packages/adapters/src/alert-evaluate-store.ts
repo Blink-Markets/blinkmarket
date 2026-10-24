@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import {
-  checkGasCaps,
-  keeperDueSince,
   GLOBAL_ALERT_SCOPE,
   type AlertEpisode,
   type AlertEvaluateStore,
@@ -15,17 +13,10 @@ import {
   DAILY_BUDGET_CLOSED_SQL,
   INDEXER_FRESH_SQL,
   INDEXER_LAGGING_SQL,
-  POOL_GATE_CLOSED_SQL,
   QUESTION_GATES_CLOSED_SQL,
 } from "./health-reader.js";
-import { postgresKeeperStore } from "./keeper-store.js";
 import { postgresOperatorStatusStore } from "./operator-status-store.js";
 
-// Every gas-cap refusal code; a code added to checkGasCaps fails to compile until it is listed here.
-const GAS_CAP_CODES: Record<
-  NonNullable<ReturnType<typeof checkGasCaps>>,
-  true
-> = { GAS_CAP_EXCEEDED: true, GAS_DAILY_CAP_EXCEEDED: true };
 const MAX_DEPLOYMENTS = 10;
 const MAX_JOB_TYPES = 10;
 /** Per-market families report at most this many subjects per tick (the rest is flagged truncated). */
@@ -71,7 +62,7 @@ export function postgresAlertEvaluateStore(
       client.release();
     }
   }
-  /** The keeper acts, and the projection is trustworthy, only on a readable, ungated cursor. */
+  /** The projection is trustworthy only on a readable, ungated cursor. */
   const cursorReadable = async (db: Pool, deploymentId: string) =>
     (
       await db.query<{ ok: boolean }>(
@@ -107,32 +98,6 @@ export function postgresAlertEvaluateStore(
           monotonic: true,
         });
       return { observations: found };
-    },
-    // Signer refusals by the gas caps in the last 24 hours: "over the cap stops and alerts".
-    async budgetDeployment(
-      db: Pool,
-      deploymentId: string,
-    ): Promise<FamilyResult> {
-      const gas = await db.query<{
-        role: string;
-        reason: string;
-        count: string;
-      }>(
-        `SELECT r.role,max(r.reject_code) AS reason,count(*)::text AS count
-         FROM signing.sign_requests r JOIN signing.economic_intents i ON i.id=r.intent_id
-         WHERE i.deployment_id=$1 AND r.state='REJECTED' AND r.reject_code=ANY($2::text[])
-           AND r.updated_at>=blink.now()-interval '24 hours'
-         GROUP BY r.role ORDER BY r.role LIMIT 4`,
-        [deploymentId, Object.keys(GAS_CAP_CODES)],
-      );
-      return {
-        observations: gas.rows.map((row) => ({
-          family: "budget",
-          subject: "role:" + row.role,
-          reason: reasonOf(row.reason, "GAS_CAP_EXCEEDED"),
-          fields: { count: row.count },
-        })),
-      };
     },
     // The indexed pause projection (A3 operator status) for markets still open to trading.
     // Unknown while the cursor is gated or missing.
@@ -176,28 +141,6 @@ export function postgresAlertEvaluateStore(
         });
       return { observations: found, truncated };
     },
-    // The maker pool gate is database state, not the chain projection: it is judged even while the
-    // cursor is gated (a reorg is when it tends to close).
-    async poolGate(db: Pool, deploymentId: string): Promise<FamilyResult> {
-      const poolGate = await db.query<{ gate_reason: string }>(
-        POOL_GATE_CLOSED_SQL + " LIMIT 1",
-        [deploymentId],
-      );
-      return {
-        observations: poolGate.rows[0]
-          ? [
-              {
-                family: "pause",
-                subject: "pool",
-                reason: reasonOf(
-                  poolGate.rows[0].gate_reason,
-                  "POOL_GATE_CLOSED",
-                ),
-              },
-            ]
-          : [],
-      };
-    },
     // The health INDEXER_LAG freshness rule. A gated or missing cursor is itself the condition.
     async indexerLag(db: Pool, deploymentId: string): Promise<FamilyResult> {
       const cursor = (
@@ -239,37 +182,6 @@ export function postgresAlertEvaluateStore(
             },
           },
         ],
-      };
-    },
-    // Due by the keeper's own rule for longer than the threshold. Unknown while the keeper could not
-    // act on a readable cursor (its candidate query is empty then, which is not "finalized").
-    async keeperOverdue(
-      db: Pool,
-      deploymentId: string,
-      keeperOverdueSeconds: number,
-    ): Promise<FamilyResult | null> {
-      if (!(await cursorReadable(db, deploymentId))) return null;
-      const overdue: { id: string; seconds: bigint }[] = [];
-      for (const market of await postgresKeeperStore(db).candidates(
-        deploymentId,
-      )) {
-        const dueSince = keeperDueSince(market);
-        if (dueSince === null) continue;
-        const seconds = market.nowChain - dueSince;
-        if (seconds > BigInt(keeperOverdueSeconds))
-          overdue.push({ id: market.marketId, seconds });
-      }
-      overdue.sort((a, b) => byMarketId(a.id, b.id));
-      return {
-        observations: overdue
-          .slice(0, MAX_SUBJECTS_PER_FAMILY)
-          .map((market) => ({
-            family: "keeper_overdue",
-            subject: "market:" + market.id,
-            reason: "KEEPER_OVERDUE",
-            fields: { overdueSeconds: market.seconds.toString() },
-          })),
-        truncated: overdue.length > MAX_SUBJECTS_PER_FAMILY,
       };
     },
     // Jobs that went DEAD in the last 24 hours (finished_at: set by the queue when it dead-letters
@@ -339,7 +251,7 @@ export function postgresAlertEvaluateStore(
       );
       return rows.map((row) => row.id);
     },
-    async observe(scope, { keeperOverdueSeconds }) {
+    async observe(scope) {
       const result: AlertObserved = {
         observations: [],
         unknown: [],
@@ -375,21 +287,8 @@ export function postgresAlertEvaluateStore(
         await attempt("jobs_dead", families.jobsDead);
         return result;
       }
-      await attempt("budget", (db) => families.budgetDeployment(db, scope));
-      await attempt(
-        "pause",
-        (db) => families.pauseProjection(db, scope),
-        (subject) => subject !== "pool",
-      );
-      await attempt(
-        "pause",
-        (db) => families.poolGate(db, scope),
-        (subject) => subject === "pool",
-      );
+      await attempt("pause", (db) => families.pauseProjection(db, scope));
       await attempt("indexer_lag", (db) => families.indexerLag(db, scope));
-      await attempt("keeper_overdue", (db) =>
-        families.keeperOverdue(db, scope, keeperOverdueSeconds),
-      );
       return result;
     },
     transition: (scope, scopeFamilies, observed, decide) =>

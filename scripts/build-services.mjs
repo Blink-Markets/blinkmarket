@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { cp, mkdir } from "node:fs/promises";
+import { cp, mkdir, rm } from "node:fs/promises";
 
 const common = {
   bundle: true,
@@ -12,13 +12,14 @@ const common = {
   },
   logLevel: "info",
 };
+await rm("dist/services", { recursive: true, force: true });
+await rm("dist/tools", { recursive: true, force: true });
 await build({
   ...common,
   entryPoints: {
     api: "apps/api/src/main.ts",
     worker: "apps/worker/src/main.ts",
     indexer: "apps/indexer/src/main.ts",
-    signer: "apps/signer/src/main.ts",
     "api-server": "apps/api/src/server.ts",
   },
   outdir: "dist/services",
@@ -32,7 +33,6 @@ await build({
     "evidence-admin": "scripts/evidence-admin.ts",
     "resolution-draft": "scripts/resolution-draft.ts",
     "forecast-admin": "scripts/forecast-admin.ts",
-    "trading-admin": "scripts/trading-admin.ts",
     "register-deployment": "scripts/register-deployment.ts",
     "reconcile-creation": "scripts/reconcile-creation.ts",
     "rebuild-chain-index": "scripts/rebuild-chain-index.ts",

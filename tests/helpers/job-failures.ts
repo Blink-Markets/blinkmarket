@@ -1,15 +1,13 @@
 import type { JobHandler } from "../../packages/ports/src/index.js";
 import type { Lifecycle } from "./lifecycle.js";
 
-// Wraps job handlers so a job failure is named by its type and error code (a `JobError` or
-// `TxDispatchError` carries one; anything else is the worker's INTERNAL_ERROR, named with its
+// Wraps job handlers so a job failure is named by its type and error code (`JobError` carries one; anything else is the worker's INTERNAL_ERROR, named with its
 // message). The error still reaches the worker, so queue behavior is unchanged.
 //
 // A failure that ends the job for good ends the run at once (ALPHA_JOB_FAILED): the error says
 // it will not be retried, or this was the last attempt, which the queue dead-letters. Any other
 // is retried and may succeed, so it is only noted: if the run fails later, whatever the reason,
-// its error lists the noted failures. A `tx.dispatch` job answers TX_PENDING until its
-// transaction is FINALIZED, and Anvil's finalized block stays 0: that is waiting, not failing.
+// its error lists the noted failures.
 export function reportJobFailures<H extends Record<string, JobHandler>>(
   life: Pick<Lifecycle, "fail" | "note" | "signal">,
   handlers: H,
@@ -32,11 +30,7 @@ export function reportJobFailures<H extends Record<string, JobHandler>>(
           // A run that is already ending, or a worker the harness stops (the restore drill),
           // aborted its jobs itself: those are no failures. The worker retries whatever does not
           // say otherwise.
-          if (
-            !life.signal.aborted &&
-            !context.signal.aborted &&
-            !(type === "tx.dispatch" && named === "TX_PENDING")
-          ) {
+          if (!life.signal.aborted && !context.signal.aborted) {
             if (
               retryable === false ||
               context.job.attempt >= context.job.maxAttempts

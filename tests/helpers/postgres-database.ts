@@ -120,7 +120,7 @@ export async function withDatabase(
         // Listed first so a teardown that overtakes this statement still drops the role.
         roles.push(role);
         await control.query(
-          `CREATE ROLE "${role}" LOGIN PASSWORD '${password}' ${options.createdb ? "CREATEDB" : ""} IN ROLE ${(options.memberOf ?? ["blink_signer"]).join(", ")}`,
+          `CREATE ROLE "${role}" LOGIN PASSWORD '${password}' ${options.createdb ? "CREATEDB" : ""} IN ROLE ${(options.memberOf ?? ["blink_worker"]).join(", ")}`,
         );
         if (options.ownsDatabase)
           await control.query(`ALTER DATABASE "${name}" OWNER TO "${role}"`);

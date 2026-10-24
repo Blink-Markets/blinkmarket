@@ -140,7 +140,7 @@ test("M2 identity: invite hashes secrets; role grants prevent API credential cha
       s.admin.revoke(s.invited.keyId, "forbidden"),
       /permission denied/,
     );
-    for (const role of ["blink_worker", "blink_indexer", "blink_signer"]) {
+    for (const role of ["blink_worker", "blink_indexer"]) {
       await s.db.exec(`SET ROLE ${role}`);
       await assert.rejects(
         s.db.query("SELECT * FROM identity.api_keys"),
@@ -239,7 +239,10 @@ test("M2 identity: challenge, EOA binding and idempotent replay are atomic and n
     assert.equal((await s.app.inject("/health/ready")).statusCode, 503);
     const openapi = (await s.app.inject("/openapi.json")).json();
     assert.equal(openapi.paths[challengePath].post["x-status"], "enabled");
-    assert.equal(openapi.paths["/v1/rfqs"].post["x-status"], "not-implemented");
+    assert.equal(
+      openapi.paths["/v1/candidates"].post["x-status"],
+      "not-implemented",
+    );
     await assert.rejects(
       s.db.query("DELETE FROM identity.wallet_bindings"),
       /permission denied/,
@@ -360,18 +363,23 @@ test("M2 identity: auth/scope/expiry/revocation are checked again on cached requ
       ).statusCode,
       401,
     );
-    const rfq = {
-      deploymentId: "test",
-      marketId: "1",
-      side: "YES",
-      quantity: "1",
-      maxCostMicros: "1000000",
+    const candidate = {
+      templateId: "GM_LT_V1",
+      entityId: "fixture",
+      fiscalPeriod: "2026-Q3",
+      thresholdBps: 7000,
+      evidenceIds: ["00000000-0000-4000-8000-000000000001"],
+      thesis: "Scope validation fixture",
     };
     assert.equal(
-      (await s.post("/v1/rfqs", rfq, "scope", s.rotated.apiKey)).statusCode,
+      (await s.post("/v1/candidates", candidate, "scope", s.rotated.apiKey))
+        .statusCode,
       403,
     );
-    assert.equal((await s.post("/v1/rfqs", rfq, "authorized")).statusCode, 501);
+    assert.equal(
+      (await s.post("/v1/candidates", candidate, "authorized")).statusCode,
+      501,
+    );
     const c = (await s.post(challengePath, { address: alice.address })).json();
     const signature = await alice.signMessage({ message: c.message });
     await s.db.exec("RESET ROLE");

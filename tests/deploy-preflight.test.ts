@@ -1,15 +1,7 @@
 import assert from "node:assert/strict";
-import {
-  chmod,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import ts from "typescript";
@@ -193,14 +185,10 @@ function assertVariableCoverage(
   );
 }
 
-const sha256 = (token: string) =>
-  createHash("sha256").update(token).digest("hex");
-
 function baseProfile(dir: string, overrides: Record<string, string> = {}) {
-  const key = path.join(dir, "maker.key");
   return {
     BLINK_CHAIN_ID: "84532",
-    BLINK_API_MODE: "trading",
+    BLINK_API_MODE: "markets",
     API_HOST: "0.0.0.0",
     API_PORT: "3001",
     API_TRUSTED_PROXIES: "127.0.0.1",
@@ -210,31 +198,12 @@ function baseProfile(dir: string, overrides: Record<string, string> = {}) {
     SPEC_PUBLIC_ORIGIN: "https://api.example.test/specs",
     EVIDENCE_OBJECT_DIRECTORY: "/data/evidence",
     BLINK_DEPLOYMENT_ID: "alpha-test",
-    SIGNER_URL: "http://10.0.0.4:3004",
-    SIGNER_CALLER_TOKEN: "fake-api-caller-token",
     BASE_SEPOLIA_RPC_URL: "https://rpc.example.test/fake-token",
     WORKER_ENABLED: "true",
     WORKER_DATABASE_URL: "postgresql://worker:fake@db.internal/blink",
-    WORKER_SIGNER_CALLER_TOKEN: "fake-worker-caller-token",
     CHAIN_INDEXER_ENABLED: "true",
     INDEXER_DATABASE_URL: "postgresql://indexer:fake@db.internal/blink",
     INDEXER_DEPLOYMENT_ID: "alpha-test",
-    SIGNER_ENABLED: "true",
-    SIGNER_DATABASE_URL: "postgresql://signer:fake@db.internal/blink",
-    SIGNER_DEPLOYMENT_ID: "alpha-test",
-    SIGNER_CALLERS: JSON.stringify([
-      {
-        name: "api",
-        tokenSha256: sha256("fake-api-caller-token"),
-        roles: ["maker"],
-      },
-      {
-        name: "worker",
-        tokenSha256: sha256("fake-worker-caller-token"),
-        roles: ["keeper", "faucet"],
-      },
-    ]),
-    SIGNER_MAKER_KEY_FILE: key,
     ALERT_SINK: "file",
     ALERT_FILE_PATH: path.join(dir, "alerts.jsonl"),
     ...overrides,
@@ -270,12 +239,7 @@ test("every mechanically discovered config and runbook command variable is liste
     "utf8",
   );
   const services = await Promise.all(
-    [
-      "apps/api/src",
-      "apps/worker/src",
-      "apps/indexer/src",
-      "apps/signer/src",
-    ].map(sourceFiles),
+    ["apps/api/src", "apps/worker/src", "apps/indexer/src"].map(sourceFiles),
   );
   const packageJson = JSON.parse(
     await readFile(path.join(root, "package.json"), "utf8"),
@@ -359,9 +323,6 @@ test("chain mismatch has a distinct refusal code, including mainnet", async () =
 
 test("secret-shaped NEXT_PUBLIC values are rejected without printing values", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "blink-public-secret-"));
-  const key = path.join(dir, "maker.key");
-  await writeFile(key, "fake-key-material");
-  await chmod(key, 0o600);
   for (const [name, secret] of [
     ["NEXT_PUBLIC_STATUS", "0x" + "a".repeat(64)],
     [
@@ -401,9 +362,6 @@ test("secret-shaped NEXT_PUBLIC values are rejected without printing values", as
 
 test("complete fake Base Sepolia service profile passes offline", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "blink-valid-profile-"));
-  const key = path.join(dir, "maker.key");
-  await writeFile(key, "fake-key-material");
-  await chmod(key, 0o600);
   const f = await fixture(
     baseProfile(dir, {
       NEXT_PUBLIC_API_URL: "https://api.example.test/v1",
@@ -425,39 +383,6 @@ test("complete fake Base Sepolia service profile passes offline", async () => {
   }
 });
 
-test("key files must exist and have exactly mode 0600", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "blink-key-"));
-  const key = path.join(dir, "signer.key");
-  await writeFile(key, "fake-not-a-key");
-  const missingPath = path.join(dir, "missing.key");
-  for (const [value, mode, code] of [
-    [null, null, "PREFLIGHT_KEY_FILE_MISSING"],
-    [missingPath, null, "PREFLIGHT_KEY_FILE_MISSING"],
-    [key, 0o640, "PREFLIGHT_KEY_FILE_MODE"],
-    [key, 0o644, "PREFLIGHT_KEY_FILE_MODE"],
-    [key, 0o660, "PREFLIGHT_KEY_FILE_MODE"],
-    [key, 0o400, "PREFLIGHT_KEY_FILE_MODE"],
-  ] as const) {
-    if (mode !== null) await chmod(key, mode);
-    const f = await fixture(
-      baseProfile(dir, { SIGNER_MAKER_KEY_FILE: value ?? "" }),
-    );
-    try {
-      const out = run(f.envFile);
-      assert.notEqual(out.status, 0);
-      assertCode(out.stdout + out.stderr, code);
-      if (value)
-        assert.doesNotMatch(
-          out.stdout + out.stderr,
-          new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
-        );
-    } finally {
-      await rm(f.dir, { recursive: true, force: true });
-    }
-  }
-  await rm(dir, { recursive: true, force: true });
-});
-
 function assertCode(output: string, expected: string) {
   assert.ok(
     output
@@ -471,51 +396,20 @@ function assertCode(output: string, expected: string) {
 }
 
 const hostCases = [
-  ["10.0.0.1.evil.com", "PREFLIGHT_SIGNER_URL", "PREFLIGHT_WEBHOOK_HTTPS"],
-  ["localhost.evil.com", "PREFLIGHT_SIGNER_URL", "PREFLIGHT_WEBHOOK_HTTPS"],
-  ["2130706433", null, null],
-  ["[::ffff:127.0.0.1]", "PREFLIGHT_SIGNER_URL", "PREFLIGHT_WEBHOOK_HTTPS"],
-  ["[fd00::1]", null, "PREFLIGHT_WEBHOOK_HTTPS"],
-  ["[::1]", null, null],
-  ["172.16.0.1", null, "PREFLIGHT_WEBHOOK_HTTPS"],
-  ["172.32.0.1", "PREFLIGHT_SIGNER_URL", "PREFLIGHT_WEBHOOK_HTTPS"],
-  ["192.168.1.1", null, "PREFLIGHT_WEBHOOK_HTTPS"],
-  ["169.254.169.254", "PREFLIGHT_SIGNER_URL", "PREFLIGHT_WEBHOOK_HTTPS"],
+  ["10.0.0.1.evil.com", "PREFLIGHT_WEBHOOK_HTTPS"],
+  ["localhost.evil.com", "PREFLIGHT_WEBHOOK_HTTPS"],
+  ["2130706433", null],
+  ["[::ffff:127.0.0.1]", "PREFLIGHT_WEBHOOK_HTTPS"],
+  ["[fd00::1]", "PREFLIGHT_WEBHOOK_HTTPS"],
+  ["[::1]", null],
+  ["172.16.0.1", "PREFLIGHT_WEBHOOK_HTTPS"],
+  ["172.32.0.1", "PREFLIGHT_WEBHOOK_HTTPS"],
+  ["192.168.1.1", "PREFLIGHT_WEBHOOK_HTTPS"],
+  ["169.254.169.254", "PREFLIGHT_WEBHOOK_HTTPS"],
 ] as const;
-
-test("signer URLs accept only loopback, RFC1918 or IPv6 ULA addresses", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "blink-signer-hosts-"));
-  const key = path.join(dir, "maker.key");
-  await writeFile(key, "fake-key-material");
-  await chmod(key, 0o600);
-  try {
-    for (const [host, code] of hostCases) {
-      const f = await fixture(
-        baseProfile(dir, { SIGNER_URL: `http://${host}:3004` }),
-      );
-      try {
-        const out = run(f.envFile);
-        if (code) {
-          assert.notEqual(out.status, 0, host);
-          assertCode(out.stdout + out.stderr, code);
-        } else {
-          assert.equal(out.status, 0, `${host}: ${out.stdout + out.stderr}`);
-          assert.match(out.stdout, /DEPLOY PREFLIGHT ok/);
-        }
-      } finally {
-        await rm(f.dir, { recursive: true, force: true });
-      }
-    }
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
 
 test("worker API URL accepts HTTPS or HTTP loopback only", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "blink-worker-api-hosts-"));
-  const key = path.join(dir, "maker.key");
-  await writeFile(key, "fake-key-material");
-  await chmod(key, 0o600);
   try {
     for (const [url, expectedCode] of [
       ["https://api.example.test", null],
@@ -548,11 +442,8 @@ test("worker API URL accepts HTTPS or HTTP loopback only", async () => {
 
 test("webhook URLs require HTTPS except for actual loopback hosts", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "blink-webhook-hosts-"));
-  const key = path.join(dir, "maker.key");
-  await writeFile(key, "fake-key-material");
-  await chmod(key, 0o600);
   try {
-    for (const [host, _signerCode, code] of hostCases) {
+    for (const [host, code] of hostCases) {
       const f = await fixture(
         baseProfile(dir, {
           ALERT_SINK: "webhook",
@@ -580,9 +471,6 @@ test("webhook URLs require HTTPS except for actual loopback hosts", async () => 
 
 test("test-clock override is forbidden in a Base Sepolia deployment env", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "blink-test-clock-"));
-  const key = path.join(dir, "maker.key");
-  await writeFile(key, "fake-key-material");
-  await chmod(key, 0o600);
   const f = await fixture(baseProfile(dir, { BLINK_ALLOW_TEST_CLOCK: "true" }));
   try {
     const out = run(f.envFile);
@@ -596,9 +484,6 @@ test("test-clock override is forbidden in a Base Sepolia deployment env", async 
 
 test("deployer private key is rejected from a service env file", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "blink-deployer-key-"));
-  const key = path.join(dir, "maker.key");
-  await writeFile(key, "fake-key-material");
-  await chmod(key, 0o600);
   const f = await fixture(
     baseProfile(dir, { DEPLOYER_PRIVATE_KEY: "fake-deployer-key-value" }),
   );
@@ -643,9 +528,6 @@ test("non-loopback webhook requires HTTPS", async () => {
 
 async function preflightWith(overrides: Record<string, string>) {
   const dir = await mkdtemp(path.join(tmpdir(), "blink-preflight-case-"));
-  const key = path.join(dir, "maker.key");
-  await writeFile(key, "fake-key-material");
-  await chmod(key, 0o600);
   const f = await fixture(baseProfile(dir, overrides));
   try {
     const out = run(f.envFile);
@@ -671,9 +553,6 @@ test("API_TRUSTED_PROXIES is required and must name private or loopback proxies"
     ["172.16.0.0/12", null],
   ] as const) {
     const dir = await mkdtemp(path.join(tmpdir(), "blink-proxies-"));
-    const key = path.join(dir, "maker.key");
-    await writeFile(key, "fake-key-material");
-    await chmod(key, 0o600);
     const profile = baseProfile(dir, { API_TRUSTED_PROXIES: value ?? "" });
     if (value === null)
       delete (profile as Record<string, string>).API_TRUSTED_PROXIES;
@@ -689,83 +568,5 @@ test("API_TRUSTED_PROXIES is required and must name private or loopback proxies"
       await rm(f.dir, { recursive: true, force: true });
       await rm(dir, { recursive: true, force: true });
     }
-  }
-});
-
-test("signer callers must be split: maker-only API, keeper/faucet(/trader) worker", async () => {
-  const callers = (api: string[], worker: string[]) =>
-    JSON.stringify([
-      { name: "api", tokenSha256: sha256("fake-api-caller-token"), roles: api },
-      {
-        name: "worker",
-        tokenSha256: sha256("fake-worker-caller-token"),
-        roles: worker,
-      },
-    ]);
-  const trader = {
-    WORKER_TRADER_API_KEY: "fake-trader-key",
-    WORKER_TRADER_FORECASTER_ROLE: "FORECASTER_A",
-  };
-  for (const [name, overrides, code, variable] of [
-    [
-      "trader worker",
-      {
-        ...trader,
-        SIGNER_CALLERS: callers(["maker"], ["keeper", "faucet", "trader"]),
-      },
-      null,
-      null,
-    ],
-    [
-      "API with extra role",
-      { SIGNER_CALLERS: callers(["maker", "keeper"], ["keeper", "faucet"]) },
-      "PREFLIGHT_SIGNER_CALLERS",
-      "SIGNER_CALLER_TOKEN",
-    ],
-    [
-      "worker holds maker",
-      { SIGNER_CALLERS: callers(["maker"], ["keeper", "faucet", "maker"]) },
-      "PREFLIGHT_SIGNER_CALLERS",
-      "WORKER_SIGNER_CALLER_TOKEN",
-    ],
-    [
-      "trader key without trader role",
-      { ...trader },
-      "PREFLIGHT_SIGNER_CALLERS",
-      "WORKER_SIGNER_CALLER_TOKEN",
-    ],
-    [
-      "trader role without trader key",
-      {
-        WORKER_TRADER_API_KEY: "",
-        WORKER_TRADER_FORECASTER_ROLE: "",
-        SIGNER_CALLERS: callers(["maker"], ["keeper", "faucet", "trader"]),
-      },
-      "PREFLIGHT_SIGNER_CALLERS",
-      "WORKER_SIGNER_CALLER_TOKEN",
-    ],
-    [
-      "API token matches no caller",
-      { SIGNER_CALLER_TOKEN: "fake-unknown-token" },
-      "PREFLIGHT_SIGNER_CALLERS",
-      "SIGNER_CALLER_TOKEN",
-    ],
-    [
-      "shared token",
-      {
-        WORKER_SIGNER_CALLER_TOKEN: "fake-api-caller-token",
-        SIGNER_CALLERS: callers(["maker"], ["keeper", "faucet"]),
-      },
-      "PREFLIGHT_SIGNER_CALLERS",
-      "WORKER_SIGNER_CALLER_TOKEN",
-    ],
-  ] as const) {
-    const result = await preflightWith(overrides);
-    if (code) {
-      assert.notEqual(result.status, 0, name);
-      assertCode(result.output, `${code}: ${variable}`.replace(/: .*/, ""));
-      assert.match(result.output, new RegExp(`${code}: ${variable}\\b`), name);
-      assert.doesNotMatch(result.output, /fake-[a-z]+-(caller-)?(token|key)/);
-    } else assert.equal(result.status, 0, `${name}: ${result.output}`);
   }
 });

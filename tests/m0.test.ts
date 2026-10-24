@@ -173,7 +173,7 @@ test("every business endpoint has request/response contracts and stays disabled"
       501,
     );
     assert.equal(
-      (await app.inject({ method: "POST", url: "/v1/rfqs", payload: {} }))
+      (await app.inject({ method: "POST", url: "/v1/candidates", payload: {} }))
         .statusCode,
       400,
     );
