@@ -102,9 +102,39 @@ test("wire integers, deployment identity and template rejection", async () => {
     }).success,
     false,
   );
-  const template = JSON.parse(
-    await readFile("deployments/base-sepolia/manifest.template.json", "utf8"),
-  );
+  // The v0.1 template, inlined: deployments/base-sepolia/manifest.template.json is manifest v2 now.
+  const template = {
+    status: "TEMPLATE_NOT_DEPLOYED",
+    chainId: 84532,
+    deploymentId: null,
+    deploymentBlock: null,
+    contracts: { BlinkTestUSD: null, BlinkMarket: null },
+    artifacts: {
+      abiHashes: null,
+      bytecodeHashes: null,
+      compiler: "0.8.30",
+      gitCommit: null,
+      dependencies: null,
+    },
+    roles: {
+      admin: null,
+      resultProposer: null,
+      challenger: null,
+      arbiter: null,
+      maker: null,
+      faucetMinter: null,
+    },
+    parameters: {
+      collateralDecimals: 6,
+      quoteDefaultTtlSeconds: 30,
+      quoteMaxTtlSeconds: 60,
+      makerSpreadBps: 200,
+      maxFillShares: "100",
+      maxMarketPairs: "10000",
+      maxTakerShares: "500",
+    },
+    tradingEnabled: false,
+  };
   assert.throws(() => requireDeployment(template, "d", 84532));
   const addr = (n: number) => "0x" + n.toString(16).padStart(40, "0");
   const hash = "0x" + "1".repeat(64);

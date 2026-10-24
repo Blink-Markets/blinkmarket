@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import {
@@ -355,14 +354,4 @@ export async function deployContracts(input: {
       { cause: error },
     );
   }
-}
-
-// The release commit for a manifest: HEAD of a clean tree, unless the caller opts out.
-export function readReleaseCommit(cwd: string, allowDirty: boolean): string {
-  const git = (...args: string[]) =>
-    execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-  const commit = git("rev-parse", "HEAD");
-  if (!allowDirty && git("status", "--porcelain") !== "")
-    throw new Error("DIRTY_TREE");
-  return commit;
 }
