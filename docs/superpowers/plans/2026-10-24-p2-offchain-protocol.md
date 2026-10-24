@@ -822,7 +822,7 @@ Spec §2.1.3. P3 adds `pnpm alpha:autonomous` with independent role agents; this
 ### Task 12: P2 delivery docs
 
 **Files:**
-- Create: `docs/P2_OFFCHAIN_PROTOCOL.md` (Traditional Chinese, in the style of `docs/P1_PROTOCOL_CONTRACTS.md`).
+- Create: `docs/P2_OFFCHAIN_PROTOCOL.md` (English, structured like `docs/P1_PROTOCOL_CONTRACTS.md`; delivery and operations docs are English only per the user, 2026-10-24).
 - Modify:
   - `docs/ROADMAP.md` (tick P2 only when Tasks 1–11 are merged and CI is green), `CONTEXT.md` (rewrite the glossary for P1/P2 terms; v0.1 terms move to a history section)
   - `README.md`, `README.zh-TW.md` (current-status paragraphs)
