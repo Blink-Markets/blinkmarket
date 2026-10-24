@@ -53,6 +53,9 @@ jobs:
       - run: pnpm test:service-build
   browsers:
     runs-on: ubuntu-latest
+    # Usually 3-4 minutes with the browser cache; one hung run took 51 minutes on GitHub's
+    # 6-hour default. 20 minutes still covers a cold browser install.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

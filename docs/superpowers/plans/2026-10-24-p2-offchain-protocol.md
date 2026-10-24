@@ -713,7 +713,7 @@ Spec §2.1.3. P3 adds `pnpm alpha:autonomous` with independent role agents; this
   - `infra/{compose.alpha.yaml,Dockerfile.api,Dockerfile.worker,Dockerfile.indexer}`
   - `apps/{api,worker,indexer}/src/config.ts`
   - `packages/application/src/{health,alert-evaluate,operator-status}.ts`. Their alerts are RPC failures, index lag, dead jobs and "FINAL market with undistributed fees older than 1 day" (informational: the platform cannot act on it).
-  - `package.json` (`alpha:local`, `drill:restore`), `.github/workflows/ci.yml` (restore `alpha:local`)
+  - `package.json` (`alpha:local`, `drill:restore`), `.github/workflows/ci.yml` (restore `alpha:local`; move `test:contracts`, `test:anvil` and `test:contracts:seeds` into a parallel `contracts` job with its own `timeout-minutes`, because `check` already takes 11–19 of its 30 minutes)
   - `tests/{deploy-preflight,health,alert-evaluate,operator-status}.test.ts`, `tests/{service-build,images}.test.mjs`, `tests/alpha/restore-drill.test.ts`
 
 **Interfaces:**
