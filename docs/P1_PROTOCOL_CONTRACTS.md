@@ -225,6 +225,8 @@ This round completes only P2 Task 13. It did not run the full `pnpm check`, off-
 
 ## Implementation rulings
 
+- `BlinkRegistry.reportLoss` returns before materialising credit when `creditOf` is zero. Zero-decayed losses write no credit storage and emit no event; every credit storage update is now observable through `CreditGained`, `CreditLost` or `CreditImported`. Indexers preserve partial half-life periods exactly as `_materialise` does.
+
 The ruling numbers and minor numbers cited in this document come from the decision record kept during P1 implementation; that record is not stored in the repo. These are the rulings that affect behavior:
 
 | ID | Decision |

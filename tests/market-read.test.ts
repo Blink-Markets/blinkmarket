@@ -72,7 +72,7 @@ test("DB clock determines effective close; pause, missing/stale/gated cursors ke
   const t = await fixture();
   try {
     await t.db.exec(
-      "UPDATE protocol.markets SET data=data||jsonb_build_object('closeAt',extract(epoch FROM blink.now())::bigint+1800) WHERE key::numeric=5; SET blink.test_clock_offset_seconds='3600'; UPDATE chain.cursors SET synced_at=blink.now()-interval '11 seconds'",
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('closeAt',extract(epoch FROM blink.now())::bigint+1800) WHERE key::numeric=5; SET blink.test_clock_offset_seconds='3600'; UPDATE chain.cursors SET synced_at=blink.now()-interval '31 seconds'",
     );
     await seedReadMaker(t.db, "d1", { globalPaused: true });
     const r = await t.app.inject({ url: "/v1/markets?status=CLOSED" });
@@ -291,6 +291,23 @@ test("the hook supplies trading permission", async () => {
       (await t.app.inject("/v1/markets?limit=1")).json(),
     );
     assert.equal(list.items[0].canTrade, true);
+  } finally {
+    await t.close();
+  }
+});
+
+test("public market cursor refuses 31 seconds of timestamp lag", async () => {
+  const t = await fixture();
+  try {
+    const store = postgresMarketReadStore(t.pool);
+    await t.db.query(
+      "UPDATE chain.cursors SET head_number=11,head_timestamp=block_timestamp+30",
+    );
+    assert.equal((await store.market("d1", "1"))?.cursor?.stale, false);
+    await t.db.query(
+      "UPDATE chain.cursors SET head_timestamp=block_timestamp+31",
+    );
+    assert.equal((await store.market("d1", "1"))?.cursor?.stale, true);
   } finally {
     await t.close();
   }

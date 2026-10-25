@@ -369,14 +369,14 @@ contract RegistryTest is ProtocolBase {
     }
 
     // Oracle vectors for tests/protocol-reducer.test.ts; uses real registry storage and creditOf.
-    // Identical CreditGained events can leave different private clocks after a silent zero loss.
-    function test_indexerSilentZeroMaterialisationIsAmbiguous() public {
+    // Zero-decayed losses must leave the event-reconstructed credit clock intact.
+    function test_indexerZeroDecayedLossLeavesClockUnchanged() public {
         uint256 half = registry.params().creditHalfLife;
         markets.gain(registry, alice, Role.CREATOR, 100e6);
         markets.gain(registry, bob, Role.CREATOR, 100e6);
         uint256 t0 = token.clock();
         vm.warp(t0 + half);
-        markets.loss(registry, bob, Role.CREATOR, 100e6); // no CreditLost: decayed value is zero
+        markets.loss(registry, bob, Role.CREATOR, 100e6);
         vm.warp(t0 + half * 3 / 2);
         markets.gain(registry, alice, Role.CREATOR, 100e6);
         markets.gain(registry, bob, Role.CREATOR, 100e6);
@@ -384,7 +384,18 @@ contract RegistryTest is ProtocolBase {
         eq(registry.creditOf(bob, Role.CREATOR), 1);
         vm.warp(t0 + half * 2);
         eq(registry.creditOf(alice, Role.CREATOR), 0);
-        eq(registry.creditOf(bob, Role.CREATOR), 1);
+        eq(registry.creditOf(bob, Role.CREATOR), registry.creditOf(alice, Role.CREATOR));
+    }
+
+    function test_indexerZeroDecayedLossWritesNothingAndEmitsNothing() public {
+        markets.gain(registry, bob, Role.CREATOR, 100e6);
+        vm.warp(token.clock() + registry.params().creditHalfLife);
+        vm.record();
+        vm.recordLogs();
+        markets.loss(registry, bob, Role.CREATOR, 100e6);
+        (, bytes32[] memory writes) = vm.accesses(address(registry));
+        eq(writes.length, 0);
+        eq(vm.getRecordedLogs().length, 0);
     }
 
     function test_indexerCreditDecayVectors() public {

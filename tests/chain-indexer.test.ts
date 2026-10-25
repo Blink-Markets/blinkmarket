@@ -426,3 +426,37 @@ test("stopped loop and aborted sync do not advance", async () => {
 test("index health refuses missing and stale cursors", () => {
   assert.equal(chainIndexHealth("d", null, new Date()).ready, false);
 });
+
+test("index health uses 30-second timestamp lag, stopped-index and gate boundaries", () => {
+  const now = new Date();
+  const cursor = {
+    deploymentId: "d1",
+    blockNumber: 10n,
+    blockHash: "0x11",
+    blockTimestamp: 1000n,
+    headNumber: 11n,
+    headTimestamp: 1030n,
+    finalizedNumber: null,
+    syncedAt: now,
+    gateReason: null,
+    version: 0n,
+  };
+  assert.equal(chainIndexHealth("d1", cursor, now).ready, true);
+  assert.equal(
+    chainIndexHealth("d1", { ...cursor, headTimestamp: 1031n }, now).ready,
+    false,
+  );
+  assert.equal(
+    chainIndexHealth(
+      "d1",
+      { ...cursor, syncedAt: new Date(now.getTime() - 31_000) },
+      now,
+    ).ready,
+    false,
+  );
+  assert.equal(
+    chainIndexHealth("d1", { ...cursor, gateReason: "REORG_IN_PROGRESS" }, now)
+      .ready,
+    false,
+  );
+});

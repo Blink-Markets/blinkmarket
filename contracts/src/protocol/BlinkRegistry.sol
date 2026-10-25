@@ -236,7 +236,7 @@ contract BlinkRegistry is IBlinkRegistry, ReentrancyGuard {
 
     function reportLoss(address account, Role role, uint256 maxPayout) external onlyReporter {
         uint256 loss = _creditUnits(maxPayout) * _params.creditLossMultiplier;
-        if (loss == 0) return;
+        if (loss == 0 || creditOf(account, role) == 0) return;
         Credit storage c = _credit[account][role];
         _materialise(c);
         loss = Math.min(loss, c.value);

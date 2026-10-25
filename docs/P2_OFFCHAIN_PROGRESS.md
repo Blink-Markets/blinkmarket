@@ -148,17 +148,57 @@ parameter; Task 6 owns consuming it for identity authorization when merged.
   locally. `pnpm build` cannot run on this host because Turbopack requires a
   newer glibc; web typechecking passed.
 
-### Credit-clock concern
+### Credit-clock ruling (resolved in Task 5 fix round 1)
 
-BlinkRegistry can materialize already-decayed-to-zero credit during reportLoss
-without emitting CreditLost. A later CreditGained or CreditImported event alone
-cannot identify the resulting private updatedAt exactly. A Foundry regression
-uses the real registry to demonstrate two such clock histories with different
-future creditOf results. The fold refuses this ambiguous case and leaves the
-index gated instead of inventing a clock. Continuous indexing through this case
-needs a controller decision: reconstruct every silent reporter call (including
-Task 7 settlement semantics), or expose sufficient on-chain credit-clock data.
-The registry runtime was not changed in this task.
+`BlinkRegistry.reportLoss` now returns before materialising credit when the
+current decayed credit is zero. Foundry verifies that this path writes no storage
+and emits nothing, and that both actors in the former ambiguous-clock regression
+have equal future credit. The reducer keeps the same partial-period and 32-shift
+clock arithmetic as `_materialise`, without refusing valid zero-decayed gains.
+The P1 implementation ruling records this contract behavior change.
 
-This delivers only the Task 5 slice, with the credit-clock concern above; it does
-not complete P2. No push, merge, rebase, deployment or live transaction was made.
+### Task 5 fix round 1
+
+Pending governor adoptions are checked against `pendingSuccessor` and its effective
+time, including first and replacement adoptions in one-block ranges before and
+after effectiveness. Timestamp lag over 30 seconds and observation age over
+30 seconds close indexer, protocol-reader, public-read and API-health freshness;
+existing gates remain in force. `synced_at` records when the head was sampled,
+rather than when a slow verification commits.
+
+Each advancing batch checks projection membership against the canonical journal
+without RPC and repairs missing rows from that journal. RPC checks cover only the
+entities touched by the batch, using at most eight concurrent calls. The rebuild
+path audits the full projection by RPC; `pnpm chain:rebuild <deploymentId> [--verify]`
+now requires both `INDEXER_DATABASE_URL` and `BASE_SEPOLIA_RPC_URL`. Rebuild reads
+remain pinned to the cursor block hash.
+
+API health, monitoring deployment discovery/readability and operator status now
+use `markets.protocol_deployments`. Their unit and PostgreSQL fixtures no longer
+need a legacy deployment row. No fabricated legacy row was added to image smoke.
+The legacy transaction-hint/tracking and historical v0.1 registration readers
+remain; the smoke driver does not submit hints and its pending-transaction queue
+is empty. The legacy table is retained for a later task.
+
+Verification for fix round 1:
+
+- Test-first RED reproduced the credit storage/clock bug and all five review findings.
+  Credit GREEN: 10 reducer tests and both Foundry regressions passed.
+- Focused suite: 75 passed initially; the remaining fixture still used the old
+  11-second rule. After updating it to 31 seconds, its complete file passed all
+  8 tests. The 9 new indexing/freshness regressions passed.
+- Required reducer/indexer/Anvil command: 18 passed, 0 failed.
+- Foundry: 238 passed; invariant seeds 0x01 and 0x02 each passed all 4 tests.
+- The single literal `pnpm check` stopped at private-field access in the new test
+  helper. After switching to existing public fake-chain accessors, every check
+  constituent passed. The complete constituent pipeline was rerun after a host
+  reboot: root/web TypeScript, contract artifacts/EIP-170, 428 unit tests and
+  dependency boundaries all passed, with no skipped tests.
+- `pnpm build:services && pnpm test:service-build`: passed; all 4 bundle checks passed.
+- `git diff --check`: passed. PostgreSQL fixture INSERTs/counts were checked
+  statically against migrations 0001–0029; real PostgreSQL and Docker smoke/restore
+  were not run. `pnpm build` cannot run on this host's older glibc; web TypeScript passed.
+- The journal membership audit still scans/refolds history locally each batch.
+  A `shortcut:` comment records when to replace it with an independent inventory.
+This is the Task 5 slice only; P2 is not marked complete. No push, merge, rebase,
+deployment or live transaction was made.

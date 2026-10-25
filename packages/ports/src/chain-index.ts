@@ -45,8 +45,12 @@ export interface ChainLogReader {
   block(number: bigint): Promise<ChainBlock | null>;
   /** Every generation log is decoded strictly; rejects removed and unknown logs. */
   logs(address: string, from: bigint, to: bigint): Promise<ProtocolEvent[]>;
-  /** Contract reads pinned to one block hash. */
-  agrees(blockHash: string, projection: ProtocolProjection): Promise<boolean>;
+  /** Contract reads pinned to one block hash. Omit events only for a full rebuild audit. */
+  agrees(
+    blockHash: string,
+    projection: ProtocolProjection,
+    events?: readonly ProtocolEvent[],
+  ): Promise<boolean>;
 }
 
 /** Proof of one claim on a deployment's cursor; every write must present it. */
@@ -67,6 +71,7 @@ export interface ChainRangeCommit {
   changes: ProjectionChanges | null;
   headNumber: bigint;
   headTimestamp?: bigint;
+  headObservedAt: Date;
   finalizedNumber: bigint | null;
   gateReason: ChainGateReason | null;
   newMarketIds: readonly string[];
@@ -123,13 +128,14 @@ export interface ChainIndexStore {
     number: bigint,
   ): Promise<ChainBlock | null>;
   commitRange(lease: ChainLease, commit: ChainRangeCommit): Promise<bigint>;
-  /** Moves head, finality and the gate without moving the block cursor; refreshes synced_at. */
+  /** Moves head, finality and the gate without moving the block cursor; records the head observation time in synced_at. */
   refreshCursor(
     lease: ChainLease,
     expectedVersion: bigint,
     refresh: {
       headNumber: bigint;
       headTimestamp?: bigint;
+      headObservedAt: Date;
       finalizedNumber: bigint | null;
       gateReason: ChainGateReason | null;
     },

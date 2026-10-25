@@ -342,6 +342,7 @@ test(
       const rebuild = await rebuildChainProjection(store, d.deploymentId, {
         verify: true,
         workerId: "verify",
+        reader,
       });
       assert.deepEqual(rebuild.differences, []);
       // Removing every projection then replaying the immutable journal must recreate every row.
@@ -364,6 +365,7 @@ test(
       const repaired = await rebuildChainProjection(store, d.deploymentId, {
         verify: false,
         workerId: "rebuild",
+        reader,
       });
       assert.equal(repaired.rewritten, true);
       assert.deepEqual(await store.loadProjection(d.deploymentId), final);

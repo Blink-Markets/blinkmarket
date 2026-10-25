@@ -178,11 +178,8 @@ test("credit updates retain partial half-life periods", () => {
 test("every generation ABI event is folded or explicitly retained in the journal", async () => {
   const { protocolAbi } =
     await import("../packages/adapters/src/protocol-abi.ts");
-  const {
-    applyProtocolEvent,
-    emptyProtocolProjection,
-    ChainProjectionError,
-  } = await import("../packages/domain/src/protocol-reducer.ts");
+  const { applyProtocolEvent, emptyProtocolProjection, ChainProjectionError } =
+    await import("../packages/domain/src/protocol-reducer.ts");
   for (const contract of [
     "registry",
     "jurors",
@@ -219,7 +216,7 @@ test("rejected single-event folds never mutate their input", async () => {
   assert.throws(() => applyProtocolEvent(p, fill()));
   assert.deepEqual(p, before);
 });
-test("ambiguous credit clocks fail closed instead of inventing an updatedAt", () => {
+test("zero-decayed credit gains preserve the materialised partial period", () => {
   const first = {
     ...event(
       "CreditGained",
@@ -238,10 +235,12 @@ test("ambiguous credit clocks fail closed instead of inventing an updatedAt", ()
     blockNumber: 1150n,
     blockTimestamp: 1150n,
   };
-  assert.throws(
-    () => foldProtocolEvents([first, next], 100),
-    /credit epoch is ambiguous/,
-  );
+  const p = foldProtocolEvents([first, next], 100);
+  assert.deepEqual(p.accounts.get(a(1))?.credit.CREATOR, {
+    value: 1,
+    updatedAt: 1100,
+  });
+  assert.equal(creditAt(p.accounts.get(a(1))?.credit.CREATOR, 1200, 100), 0);
 });
 test("registry stake, obligations, exits and imported credit follow their events", () => {
   const r = (name: string, args: ProtocolEvent["args"]) =>

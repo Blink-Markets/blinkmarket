@@ -1,6 +1,6 @@
 import { createTestDatabase, inviteAgent } from "./database.js";
 import { poolAs } from "./pool-as.js";
-import { seedDeployment, seedChain, testManifest } from "./protocol-fixture.js";
+import { seedChain } from "./protocol-fixture.js";
 export const DEPLOYMENT = "status-test";
 export async function statusWorld() {
   const t = await createTestDatabase();
@@ -8,7 +8,6 @@ export async function statusWorld() {
     admin: await inviteAgent(t, { name: "admin", scopes: ["admin"] }),
     taker: await inviteAgent(t, { name: "taker", scopes: ["trade:quote"] }),
   };
-  await seedDeployment(t.pool, testManifest({ deploymentId: DEPLOYMENT }));
   await seedChain(t.pool, { deploymentId: DEPLOYMENT });
   await t.db.query(
     `INSERT INTO chain.cursors(deployment_id,block_number,block_hash,block_timestamp,head_number,synced_at)

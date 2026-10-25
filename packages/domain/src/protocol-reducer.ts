@@ -300,16 +300,6 @@ function apply(
         const c = a.credit[role],
           at = Number(e.blockTimestamp),
           shift = Math.floor((at - c.updatedAt) / halfLife);
-        // A prior reportLoss can materialise zero silently; its hidden clock cannot be inferred.
-        if (
-          c.value > 0 &&
-          shift < 32 &&
-          BigInt(c.value) >> BigInt(shift) === 0n
-        )
-          fail(
-            e,
-            "credit epoch is ambiguous after silent zero materialisation",
-          );
         // _materialise preserves partial periods, except when the stored value was zero or expired.
         const updatedAt =
           c.value === 0 || shift >= 32 ? at : c.updatedAt + shift * halfLife;

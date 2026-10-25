@@ -34,9 +34,9 @@ export interface ChainSyncResult {
   gateReason: string | null;
 }
 
-// RFQ gate thresholds (spec 14.2): more than 3 blocks behind or no update for 10 s closes quoting.
-const MAX_LAG_BLOCKS = 3n;
-const MAX_AGE_MS = 10_000;
+// Both timestamp lag and stopped-index age have a 30-second budget.
+const MAX_LAG_SECONDS = 30n;
+const MAX_AGE_MS = 30_000;
 
 export function chainIndexHealth(
   deploymentId: string,
@@ -64,7 +64,11 @@ export function chainIndexHealth(
     syncedAt: cursor.syncedAt.toISOString(),
     ageMs,
     gateReason: cursor.gateReason,
-    ready: lag <= MAX_LAG_BLOCKS && ageMs <= MAX_AGE_MS && !cursor.gateReason,
+    ready:
+      (cursor.headTimestamp ?? cursor.blockTimestamp) - cursor.blockTimestamp <=
+        MAX_LAG_SECONDS &&
+      ageMs <= MAX_AGE_MS &&
+      !cursor.gateReason,
   };
 }
 
@@ -223,6 +227,7 @@ export function createChainIndexer(deps: {
         return result(cursor.gateReason);
       checkpoint();
 
+      const headObservedAt = await store.now();
       const head = await reader.head();
       const finalized = finalizedOf(cursor, await reader.finalized());
       // A provider behind our cursor is lagging, not reorganized: change nothing.
@@ -249,6 +254,7 @@ export function createChainIndexer(deps: {
         await store.refreshCursor(lease, cursor.version, {
           headNumber: head.number,
           headTimestamp: head.timestamp,
+          headObservedAt,
           finalizedNumber: finalized,
           gateReason,
         });
@@ -304,24 +310,32 @@ export function createChainIndexer(deps: {
           return result(cursor.gateReason);
       }
 
-      // Every advancing range, empty or not, is compared with the chain at the pinned end. The
-      // protocol reader compares all known entities while the projection is pinned to that block.
+      // Journal membership is audited without RPC; only this range's touched entities are RPC-checked.
       const before = await store.loadProjection(deploymentId);
       let after: ProtocolProjection | null = null;
       let changes: ProjectionChanges | null = null;
       const next = events.length
         ? tryAdvance(before, events, halfLife)
         : before;
-      if (next && (await reader.agrees(end.hash, next))) {
-        after = next;
-        changes = projectionChanges(before, next);
+      // shortcut: membership refolds history per batch; persist a journal inventory if it reaches the lease budget.
+      const refolded = tryFold(
+        [...(await store.loadCanonicalEvents(deploymentId)), ...events],
+        halfLife,
+      );
+      const complete =
+        next &&
+        refolded &&
+        (Object.keys(refolded) as (keyof ProtocolProjection)[]).every(
+          (kind) =>
+            next[kind].size === refolded[kind].size &&
+            [...refolded[kind].keys()].every((key) => next[kind].has(key)),
+        );
+      if (complete && (await reader.agrees(end.hash, next!, events))) {
+        after = next!;
+        changes = projectionChanges(before, next!);
       } else {
         // The stored projection may have drifted: refold every canonical event and compare again.
-        const refolded = tryFold(
-          [...(await store.loadCanonicalEvents(deploymentId)), ...events],
-          halfLife,
-        );
-        if (refolded && (await reader.agrees(end.hash, refolded)))
+        if (refolded && (await reader.agrees(end.hash, refolded, events)))
           after = refolded; // `changes` stays null: the stored rows are rewritten wholesale
       }
       if (!after) {
@@ -341,6 +355,7 @@ export function createChainIndexer(deps: {
         changes,
         headNumber: head.number,
         headTimestamp: head.timestamp,
+        headObservedAt,
         finalizedNumber: finalized,
         gateReason,
         newMarketIds: events
@@ -427,7 +442,12 @@ export interface ChainRebuildReport {
 export async function rebuildChainProjection(
   store: ChainIndexStore,
   deploymentId: string,
-  options: { verify: boolean; workerId: string; leaseMs?: number },
+  options: {
+    verify: boolean;
+    workerId: string;
+    leaseMs?: number;
+    reader?: ChainLogReader;
+  },
 ): Promise<ChainRebuildReport> {
   if (!(await store.loadCursor(deploymentId)))
     throw new Error("CHAIN_CURSOR_NOT_FOUND");
@@ -446,6 +466,11 @@ export async function rebuildChainProjection(
       await store.creditHalfLife(deploymentId),
     );
     if (!rebuilt) throw new Error("INCONSISTENT_EVENT");
+    if (
+      options.reader &&
+      !(await options.reader.agrees(snapshot.cursor.blockHash, rebuilt))
+    )
+      throw new Error("PROJECTION_MISMATCH");
     const changes = projectionChanges(snapshot.projection, rebuilt);
     const differences = [
       ...Object.entries(changes)

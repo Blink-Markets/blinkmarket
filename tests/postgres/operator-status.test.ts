@@ -1,14 +1,11 @@
+import { seedProtocolDeployment } from "../helpers/protocol-index.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { migrate } from "../../packages/adapters/src/migrations.js";
 import { postgresOperatorStatusStore } from "../../packages/adapters/src/operator-status-store.js";
-import {
-  seedChain,
-  seedDeployment,
-  testManifest,
-} from "../helpers/protocol-fixture.js";
+import { seedChain } from "../helpers/protocol-fixture.js";
 
 const adminUrl = process.env.TEST_POSTGRES_ADMIN_URL;
 if (!adminUrl) throw new Error("TEST_POSTGRES_ADMIN_URL_REQUIRED");
@@ -28,8 +25,7 @@ test("real PostgreSQL: operator status reads under blink_api grants and bounds t
     await control.query(`CREATE DATABASE "${name}"`);
     created = true;
     await migrate(owner);
-    const manifest = testManifest();
-    await seedDeployment(owner, manifest);
+    const manifest = await seedProtocolDeployment(owner);
     await seedChain(owner, {
       deploymentId: manifest.deploymentId,
       state: "DISPUTED",

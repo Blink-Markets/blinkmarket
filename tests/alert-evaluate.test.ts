@@ -1,14 +1,11 @@
+import { seedProtocolDeployment } from "./helpers/protocol-index.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { createTestDatabase } from "./helpers/database.js";
-import {
-  seedChain,
-  seedDeployment,
-  testManifest,
-} from "./helpers/protocol-fixture.js";
+import { seedChain } from "./helpers/protocol-fixture.js";
 import { postgresAlertEvaluateStore } from "../packages/adapters/src/alert-evaluate-store.js";
 import { alertPayload } from "../packages/adapters/src/alert-payload.js";
 import { dispatchOutbox } from "../packages/adapters/src/outbox-dispatcher.js";
@@ -39,8 +36,7 @@ async function world(
   } = {},
 ) {
   const t = await createTestDatabase();
-  const manifest = testManifest({ deploymentId: DEPLOYMENT });
-  await seedDeployment(t.pool, manifest);
+  await seedProtocolDeployment(t.pool, DEPLOYMENT);
   if (options.markets !== false)
     await seedChain(t.pool, { deploymentId: DEPLOYMENT });
   await t.pool.query(
@@ -77,7 +73,7 @@ async function world(
     });
   const freshCursor = () =>
     sql(
-      "UPDATE chain.cursors SET synced_at=blink.now(),head_number=block_number WHERE deployment_id=$1",
+      "UPDATE chain.cursors SET synced_at=blink.now(),head_timestamp=block_timestamp,head_number=block_number WHERE deployment_id=$1",
       [DEPLOYMENT],
     );
   return {
@@ -214,18 +210,20 @@ test("alert.indexer_lag uses the health freshness rule and carries block numbers
   try {
     await w.run();
     assert.deepEqual(await w.alerts("indexer_lag"), []);
-    // More than 3 blocks behind the head.
-    await w.sql("UPDATE chain.cursors SET head_number=block_number+4");
+    // More than 30 timestamp seconds behind the head.
+    await w.sql(
+      "UPDATE chain.cursors SET head_number=block_number+4,head_timestamp=block_timestamp+31",
+    );
     await w.run();
     let lag = await w.alerts("indexer_lag");
     assert.deepEqual(states(lag), ["OPEN"]);
     assert.equal(lag[0].reason, "LAG_BLOCKS");
     assert.equal(lag[0].blockNumber, "10");
     assert.equal(lag[0].headNumber, "14");
-    // Healthy again, then stale for more than 10 seconds.
+    // Healthy again, then stopped for more than 30 seconds.
     await w.freshCursor();
     await w.run();
-    await w.clock(30, true);
+    await w.clock(31, true);
     await w.run();
     lag = await w.alerts("indexer_lag");
     assert.deepEqual(states(lag), ["OPEN", "CLEARED", "OPEN"]);
@@ -406,7 +404,7 @@ test("alert.evaluate runs with infrastructure configuration only", async () => {
   }
 });
 
-test("without a configured deployment every enabled deployment is evaluated", async () => {
+test("without a configured deployment every registered protocol deployment is evaluated", async () => {
   const w = await world({ deploymentIds: null });
   try {
     await deadJob(w, "forecast.schedule", 5);
@@ -810,9 +808,7 @@ test("a paused market that resolves clears its pause episode even though the pau
 test("global conditions alert once per tick under one global scope, not once per deployment", async () => {
   const w = await world({ deploymentIds: null, rpc: failing(10) });
   try {
-    await w.sql(
-      "INSERT INTO markets.deployments(id,manifest,market_address) VALUES('second','{}',decode(repeat('12',20),'hex'))",
-    );
+    await w.owner(() => seedProtocolDeployment(w.t.pool, "second"));
     await deadJob(w, "forecast.schedule", 10);
     for (let n = 0; n < 3; n++) await w.run();
     for (const [family, subject] of [
@@ -890,10 +886,12 @@ test("more subjects than the bound are truncated, flagged, and never cleared whi
   }
 });
 
-test("indexer_lag: exactly 3 blocks behind is healthy, 4 is lag, a missing cursor is CURSOR_MISSING; unpaused markets never alert", async () => {
+test("indexer_lag: exactly 30 timestamp seconds behind is healthy, 31 is lag, a missing cursor is CURSOR_MISSING; unpaused markets never alert", async () => {
   const w = await world();
   try {
-    await w.sql("UPDATE chain.cursors SET head_number=block_number+3");
+    await w.sql(
+      "UPDATE chain.cursors SET head_number=block_number+3,head_timestamp=block_timestamp+30",
+    );
     await w.run();
     assert.deepEqual(await w.alerts("indexer_lag"), []);
     assert.deepEqual(await w.alerts("pause"), []);

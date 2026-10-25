@@ -223,8 +223,15 @@ export function protocolLogReader(
       }
       return events;
     },
-    // shortcut: verify every known entity each batch; scope checks when alpha history outgrows RPC capacity.
-    async agrees(blockHash, p: ProtocolProjection) {
+    async agrees(blockHash, p: ProtocolProjection, events) {
+      const touched = (
+        contract: ProtocolEvent["contract"],
+        key: string,
+        value: string,
+      ) =>
+        events === undefined ||
+        events.some((e) => e.contract === contract && e.args[key] === value);
+      const checks: (() => Promise<boolean>)[] = [];
       const block = header(
         await client.getBlock({ blockHash: blockHash as Hex }),
       );
@@ -247,126 +254,178 @@ export function protocolLogReader(
       const mread = (fn: string, args: readonly unknown[]) =>
         read("markets", fn, args, blockHash);
       for (const m of p.markets.values()) {
-        const v = (await mread("getMarket", [BigInt(m.marketId)])) as Record<
-          string,
-          unknown
-        >;
-        if (
-          String(v.creator).toLowerCase() !== m.creator ||
-          ClassName.options[Number(v.cls)] !== m.class ||
-          MarketStateName.options[Number(v.state)] !== m.state ||
-          String(v.templateId).toLowerCase() !== m.templateId ||
-          String(v.specHash).toLowerCase() !== m.specHash ||
-          v.replay !== m.replay ||
-          Number(v.openAt) !== m.openAt ||
-          Number(v.closeAt) !== m.closeAt ||
-          Number(v.proposalDeadline) !== m.proposalDeadline ||
-          Number(v.hardDeadline) !== m.hardDeadline ||
-          String(v.maxPairs) !== m.maxPairs ||
-          String(v.totalMintedPairs) !== m.mintedPairs ||
-          String(v.escrowMicros) !== m.escrowMicros ||
-          v.creationChallenged !== m.creationChallenged ||
-          v.feesDistributed !== m.feesDistributed
-        )
-          return false;
-        if (
-          m.state === "FINAL" &&
-          OutcomeName.options[Number(v.finalOutcome)] !== m.finalOutcome
-        )
-          return false;
-        if (
-          String(await mread("feePool", [BigInt(m.marketId)])) !==
-          m.feePoolMicros
-        )
-          return false;
+        if (!touched("MARKETS", "marketId", m.marketId)) continue;
+        checks.push(async () => {
+          const v = (await mread("getMarket", [BigInt(m.marketId)])) as Record<
+            string,
+            unknown
+          >;
+          if (
+            String(v.creator).toLowerCase() !== m.creator ||
+            ClassName.options[Number(v.cls)] !== m.class ||
+            MarketStateName.options[Number(v.state)] !== m.state ||
+            String(v.templateId).toLowerCase() !== m.templateId ||
+            String(v.specHash).toLowerCase() !== m.specHash ||
+            v.replay !== m.replay ||
+            Number(v.openAt) !== m.openAt ||
+            Number(v.closeAt) !== m.closeAt ||
+            Number(v.proposalDeadline) !== m.proposalDeadline ||
+            Number(v.hardDeadline) !== m.hardDeadline ||
+            String(v.maxPairs) !== m.maxPairs ||
+            String(v.totalMintedPairs) !== m.mintedPairs ||
+            String(v.escrowMicros) !== m.escrowMicros ||
+            v.creationChallenged !== m.creationChallenged ||
+            v.feesDistributed !== m.feesDistributed
+          )
+            return false;
+          if (
+            m.state === "FINAL" &&
+            OutcomeName.options[Number(v.finalOutcome)] !== m.finalOutcome
+          )
+            return false;
+          if (
+            String(await mread("feePool", [BigInt(m.marketId)])) !==
+            m.feePoolMicros
+          )
+            return false;
+          return true;
+        });
       }
-      // The count catches missing creation logs even when no projected market names them.
+      // The count catches missing creation logs during creation batches and full rebuild audits.
       if (
         deployed("BlinkMarkets") &&
-        BigInt((await mread("nextMarketId", [])) as bigint) !==
-          BigInt(p.markets.size) + 1n
+        (events === undefined ||
+          events.some(
+            (e) => e.contract === "MARKETS" && e.name === "MarketCreated",
+          ))
       )
-        return false;
+        checks.push(
+          async () =>
+            BigInt((await mread("nextMarketId", [])) as bigint) ===
+            BigInt(p.markets.size) + 1n,
+        );
       for (const pos of p.positions.values()) {
-        const v = (await mread("getPosition", [
-          BigInt(pos.marketId),
-          pos.account,
-        ])) as readonly bigint[];
         if (
-          String(v[0]) !== pos.yesShares ||
-          String(v[1]) !== pos.noShares ||
-          String(
-            await mread("cumulativeTakerShares", [
-              BigInt(pos.marketId),
-              pos.account,
-            ]),
-          ) !== pos.takerBoughtShares
-        )
-          return false;
-      }
-      for (const m of p.makers.values())
-        if (
-          String(await mread("makerFree", [m.address])) !== m.freeMicros ||
-          String(await mread("makerEpoch", [m.address])) !== m.epoch
-        )
-          return false;
-      for (const [d, status] of p.digests)
-        if (
-          Boolean(await mread("consumed", [d])) !== (status === "CONSUMED") ||
-          Boolean(await mread("cancelled", [d])) !== (status === "CANCELLED")
-        )
-          return false;
-      for (const a of p.accounts.values()) {
-        if (
-          (await read("registry", "isRegistered", [a.address], blockHash)) !==
-          a.registered
-        )
-          return false;
-        for (const [i, role] of RoleName.options.entries()) {
-          if (
-            (await read("registry", "hasRole", [a.address, i], blockHash)) !==
-              hasRole(a, role, deployment.params.minRoleStake) ||
-            Number(
-              await read("registry", "creditOf", [a.address, i], blockHash),
-            ) !==
-              creditAt(
-                a.credit[role],
-                timestamp,
-                deployment.params.creditHalfLife,
-              )
+          events !== undefined &&
+          !events.some(
+            (e) =>
+              e.contract === "MARKETS" &&
+              e.args.marketId === pos.marketId &&
+              [e.args.account, e.args.maker, e.args.taker].includes(
+                pos.account,
+              ),
           )
-            return false;
+        )
+          continue;
+        checks.push(async () => {
+          const v = (await mread("getPosition", [
+            BigInt(pos.marketId),
+            pos.account,
+          ])) as readonly bigint[];
           if (
-            role !== "JUROR" &&
+            String(v[0]) !== pos.yesShares ||
+            String(v[1]) !== pos.noShares ||
             String(
-              await read("registry", "roleStake", [a.address, i], blockHash),
-            ) !== a.roles[role].stakeMicros
+              await mread("cumulativeTakerShares", [
+                BigInt(pos.marketId),
+                pos.account,
+              ]),
+            ) !== pos.takerBoughtShares
           )
             return false;
-        }
+          return true;
+        });
       }
-      for (const a of p.anchors.values())
-        if (
-          Number(await read("anchor", "anchoredAt", [a.root], blockHash)) !==
-          a.anchoredAt
-        )
-          return false;
-      if (deployed("BlinkGovernor")) {
-        const registry = String(
-          await read("governor", "successor", [], blockHash),
-        ).toLowerCase();
-        if (!/^0x0{40}$/.test(registry)) {
-          const successor = p.successors.get(registry);
+      for (const m of p.makers.values()) {
+        if (!touched("MARKETS", "maker", m.address)) continue;
+        checks.push(
+          async () =>
+            String(await mread("makerFree", [m.address])) === m.freeMicros &&
+            String(await mread("makerEpoch", [m.address])) === m.epoch,
+        );
+      }
+      for (const [d, status] of p.digests) {
+        if (!touched("MARKETS", "digest", d)) continue;
+        checks.push(
+          async () =>
+            Boolean(await mread("consumed", [d])) === (status === "CONSUMED") &&
+            Boolean(await mread("cancelled", [d])) === (status === "CANCELLED"),
+        );
+      }
+      for (const a of p.accounts.values()) {
+        if (!touched("REGISTRY", "account", a.address)) continue;
+        checks.push(async () => {
           if (
-            !successor ||
-            Number(
-              await read("governor", "successorEffectiveAt", [], blockHash),
-            ) !== successor.effectiveAt
+            (await read("registry", "isRegistered", [a.address], blockHash)) !==
+            a.registered
           )
             return false;
-        } else if (p.successors.size) return false;
-      } else if (p.successors.size) return false;
-      return true;
+          for (const [i, role] of RoleName.options.entries()) {
+            if (
+              (await read("registry", "hasRole", [a.address, i], blockHash)) !==
+                hasRole(a, role, deployment.params.minRoleStake) ||
+              Number(
+                await read("registry", "creditOf", [a.address, i], blockHash),
+              ) !==
+                creditAt(
+                  a.credit[role],
+                  timestamp,
+                  deployment.params.creditHalfLife,
+                )
+            )
+              return false;
+            if (
+              role !== "JUROR" &&
+              String(
+                await read("registry", "roleStake", [a.address, i], blockHash),
+              ) !== a.roles[role].stakeMicros
+            )
+              return false;
+          }
+          return true;
+        });
+      }
+      for (const a of p.anchors.values()) {
+        if (!touched("ANCHOR", "root", a.root)) continue;
+        checks.push(
+          async () =>
+            Number(await read("anchor", "anchoredAt", [a.root], blockHash)) ===
+            a.anchoredAt,
+        );
+      }
+      if (
+        deployed("BlinkGovernor") &&
+        (events === undefined ||
+          events.some(
+            (e) => e.contract === "GOVERNOR" && e.name === "SuccessorAdopted",
+          ))
+      ) {
+        checks.push(async () => {
+          const registry = String(
+            await read("governor", "pendingSuccessor", [], blockHash),
+          ).toLowerCase();
+          const effectiveAt = Number(
+            await read("governor", "successorEffectiveAt", [], blockHash),
+          );
+          return /^0x0{40}$/.test(registry)
+            ? p.successors.size === 0
+            : p.successors.get(registry)?.effectiveAt === effectiveAt;
+        });
+      } else if (!deployed("BlinkGovernor") && p.successors.size) return false;
+      // Eight workers bound in-flight eth_calls, including full rebuild audits.
+      let next = 0;
+      const results = await Promise.allSettled(
+        Array.from({ length: Math.min(8, checks.length) }, async () => {
+          while (next < checks.length) {
+            const check = checks[next++]!;
+            if (!(await check())) return false;
+          }
+          return true;
+        }),
+      );
+      const rejected = results.find((r) => r.status === "rejected");
+      if (rejected?.status === "rejected") throw rejected.reason;
+      return results.every((r) => r.status === "fulfilled" && r.value);
     },
   };
 }

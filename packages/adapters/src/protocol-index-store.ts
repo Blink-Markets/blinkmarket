@@ -424,7 +424,7 @@ export function postgresProtocolIndexStore(pool: Pool): ChainIndexStore {
           lease,
           commit.expectedVersion,
           `block_number=$5, block_hash=decode($6,'hex'), block_timestamp=$7, head_number=$8,
-           finalized_number=$9, synced_at=blink.now(), gate_reason=$10,head_timestamp=$11`,
+           finalized_number=$9, synced_at=$12, gate_reason=$10,head_timestamp=$11`,
           [
             commit.block.number.toString(),
             bare(commit.block.hash),
@@ -433,6 +433,7 @@ export function postgresProtocolIndexStore(pool: Pool): ChainIndexStore {
             commit.finalizedNumber?.toString() ?? null,
             commit.gateReason,
             commit.headTimestamp?.toString() ?? null,
+            commit.headObservedAt,
           ],
         );
         await upsertBlocks(db, deploymentId, commit.blocks);
@@ -482,12 +483,13 @@ export function postgresProtocolIndexStore(pool: Pool): ChainIndexStore {
           uow.client(ctx),
           lease,
           expectedVersion,
-          "head_number=$5, finalized_number=$6, gate_reason=$7, synced_at=blink.now(),head_timestamp=$8",
+          "head_number=$5, finalized_number=$6, gate_reason=$7, synced_at=$9,head_timestamp=$8",
           [
             refresh.headNumber.toString(),
             refresh.finalizedNumber?.toString() ?? null,
             refresh.gateReason,
             refresh.headTimestamp?.toString() ?? null,
+            refresh.headObservedAt,
           ],
         );
         return version;

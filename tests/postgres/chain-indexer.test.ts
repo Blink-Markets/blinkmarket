@@ -148,6 +148,7 @@ test(
       const before = (await owner.query("SELECT * FROM chain.cursors")).rows;
       await assert.rejects(
         storeA.refreshCursor(stale, cursor.version, {
+          headObservedAt: await storeA.now(),
           headNumber: cursor.headNumber,
           finalizedNumber: null,
           gateReason: null,

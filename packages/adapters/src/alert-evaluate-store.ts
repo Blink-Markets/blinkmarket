@@ -61,8 +61,8 @@ export function postgresAlertEvaluateStore(
   const cursorReadable = async (db: Pool, deploymentId: string) =>
     (
       await db.query<{ ok: boolean }>(
-        `SELECT c.gate_reason IS NULL AND d.enabled AS ok FROM chain.cursors c
-         JOIN markets.deployments d ON d.id=c.deployment_id WHERE c.deployment_id=$1`,
+        `SELECT c.gate_reason IS NULL AS ok FROM chain.cursors c
+         JOIN markets.protocol_deployments d ON d.deployment_id=c.deployment_id WHERE c.deployment_id=$1`,
         [deploymentId],
       )
     ).rows[0]?.ok === true;
@@ -216,7 +216,7 @@ export function postgresAlertEvaluateStore(
     },
     async deployments() {
       const { rows } = await pool.query<{ id: string }>(
-        `SELECT id FROM markets.deployments WHERE enabled ORDER BY id COLLATE "C" LIMIT ${MAX_DEPLOYMENTS}`,
+        `SELECT deployment_id AS id FROM markets.protocol_deployments ORDER BY deployment_id COLLATE "C" LIMIT ${MAX_DEPLOYMENTS}`,
       );
       return rows.map((row) => row.id);
     },

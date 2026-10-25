@@ -10,9 +10,9 @@ import { createUnitOfWork } from "./database.js";
 import { identityTransaction } from "./identity-store.js";
 import { transactionColumns } from "./tx-tracking-store.js";
 
-// The one INDEXER_LAG age rule: the trading gate (RFQ, config, canTrade) judges staleness with it too.
+// Timestamp lag and stopped-index age share the protocol's 30-second freshness budget.
 export const indexerStaleSql = (cursor: string) =>
-  `${cursor}.synced_at < blink.now()-interval '10 seconds'`;
+  `(${cursor}.synced_at < blink.now()-interval '30 seconds' OR COALESCE(${cursor}.head_timestamp,${cursor}.block_timestamp)-${cursor}.block_timestamp>30)`;
 const columns = `m.deployment_id AS "deploymentId", m.market_id::text AS "marketId", m.mode,
  '0x'||encode(m.spec_hash,'hex') AS "specHash", COALESCE(s.object_uri,m.spec_uri) AS "specUri",
  m.state AS "storedState", CASE WHEN m.state='OPEN' AND extract(epoch FROM blink.now()) >= m.close_at THEN 'CLOSED' ELSE m.state END AS "effectiveState",

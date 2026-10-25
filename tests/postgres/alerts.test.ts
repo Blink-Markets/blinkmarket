@@ -1,4 +1,8 @@
-import { seedReadMarket, seedReadMaker } from "../helpers/protocol-index.ts";
+import {
+  seedReadMarket,
+  seedReadMaker,
+  seedProtocolDeployment,
+} from "../helpers/protocol-index.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -32,7 +36,6 @@ test(
         // A connection that assumes the blink_worker role, so only the worker's grants apply.
         const worker = pool("blink_worker", 3);
         await owner.query(`CREATE OR REPLACE FUNCTION blink.now() RETURNS timestamptz LANGUAGE sql VOLATILE AS $$ SELECT to_timestamp(${NOW}) $$;
-          INSERT INTO markets.deployments(id,manifest,market_address) VALUES('drill','{}',decode(repeat('11',20),'hex'));
           INSERT INTO chain.cursors(deployment_id,block_number,block_hash,block_timestamp,head_number,synced_at)
           VALUES('drill',10,decode(repeat('55',32),'hex'),${NOW},10,to_timestamp(${NOW}));`);
         await seedReadMarket(owner, "drill", 1, {
@@ -193,8 +196,7 @@ test(
   },
 );
 
-const RACE_SETUP = `INSERT INTO markets.deployments(id,manifest,market_address) VALUES('race','{}',decode(repeat('11',20),'hex'));
-  INSERT INTO operations.jobs(id,type,dedupe_key,payload,state,finished_at)
+const RACE_SETUP = `INSERT INTO operations.jobs(id,type,dedupe_key,payload,state,finished_at)
   VALUES('00000000-0000-4000-8000-000000000009','evaluation.score','race-dead','{}','DEAD',now());`;
 const evaluator = (
   worker: Parameters<typeof postgresAlertEvaluateStore>[0],
@@ -230,6 +232,7 @@ test(
   async () => {
     await withDatabase(async ({ owner, pool }) => {
       const worker = pool("blink_worker", 12);
+      await seedProtocolDeployment(owner, "race");
       await owner.query(RACE_SETUP);
       // Without the job lock, four evaluators race on the transaction lock.
       const racing = () => evaluator(worker, { jobLock: false });
@@ -243,6 +246,7 @@ test(
     });
     await withDatabase(async ({ owner, pool }) => {
       const worker = pool("blink_worker", 12);
+      await seedProtocolDeployment(owner, "race");
       await owner.query(RACE_SETUP);
       const skipped: string[] = [];
       const guarded = () => evaluator(worker, {}, (code) => skipped.push(code));
@@ -267,6 +271,7 @@ test(
   async () => {
     await withDatabase(async ({ owner, pool }) => {
       const worker = pool("blink_worker", 4);
+      await seedProtocolDeployment(owner, "race");
       await owner.query(RACE_SETUP);
       const skipped: string[] = [];
       const holder = await owner.connect();
