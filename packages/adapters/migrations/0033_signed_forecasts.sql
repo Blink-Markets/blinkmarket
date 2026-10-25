@@ -53,6 +53,8 @@ BEGIN
 END $$;
 CREATE TRIGGER guard_update BEFORE UPDATE ON forecasts.windows
   FOR EACH ROW EXECUTE FUNCTION forecasts.guard_window_update();
+-- A trigger function runs without its caller holding EXECUTE, so nobody needs the PUBLIC default (see 0020).
+REVOKE ALL ON FUNCTION forecasts.guard_window_update() FROM PUBLIC;
 
 -- ---- Annotations: only the forecaster's own withdrawal remains --------------------------------
 -- Contamination is computed from the indexed proposal, never annotated by hand.
@@ -90,13 +92,22 @@ WHERE w.deadline <= blink.now();
 REVOKE ALL ON analytics.closed_forecasts FROM PUBLIC;
 GRANT SELECT ON analytics.closed_forecasts TO blink_worker;
 
--- The API admits answers and records withdrawals; the worker closes windows. The worker reads digests
--- (never probabilities) of answers to build a root, and only after the window's deadline. It also reads
--- who answered, which the credit statistics it freezes at a deadline need.
+-- The API admits answers and records withdrawals; the worker closes windows. The worker never reads a
+-- digest or probability of an open window: with the zero content hash a digest reveals the probability
+-- (there are only 9,999 candidates). It sees digests only through a view that lists a window's answers
+-- once its deadline passed, like closed_forecasts. It also reads who answered (addresses only), which
+-- the credit statistics it freezes at a deadline need.
+CREATE VIEW forecasts.closed_digests WITH (security_barrier = true) AS
+SELECT w.id AS window_id, s.id AS submission_id, '0x' || encode(s.digest, 'hex') AS digest,
+  EXISTS(SELECT 1 FROM forecasts.annotations a WHERE a.submission_id = s.id AND a.kind = 'WITHDRAWN') AS withdrawn
+FROM forecasts.windows w
+JOIN forecasts.submissions s ON s.window_id = w.id AND s.digest IS NOT NULL
+WHERE w.deadline <= blink.now();
+REVOKE ALL ON forecasts.closed_digests FROM PUBLIC;
+GRANT SELECT ON forecasts.closed_digests TO blink_worker;
 GRANT INSERT ON forecasts.annotations TO blink_api;
 GRANT UPDATE (merkle_root, root_at) ON forecasts.windows TO blink_worker;
-GRANT SELECT (id, window_id, digest, forecaster_address) ON forecasts.submissions TO blink_worker;
-GRANT SELECT (submission_id, kind) ON forecasts.annotations TO blink_worker;
+GRANT SELECT (forecaster_address) ON forecasts.submissions TO blink_worker;
 
 -- ---- Retire the manual annotation role and the evidence records that only it and the v0.1 flow used ----
 REVOKE ALL ON forecasts.annotations FROM blink_forecast_admin;

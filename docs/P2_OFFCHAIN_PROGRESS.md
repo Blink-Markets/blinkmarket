@@ -543,7 +543,8 @@ Scope: slice of P2, not the milestone.
   stored as `verified_block`. Admission is by the database clock under the window row lock, one per
   forecaster per window; role, market, window and index health are looked at again after the
   (unbounded) signature check, and nothing is stored on any refusal. An identical retry returns the
-  stored `{digest, leaf}`. POST routes define no Idempotency-Key.
+  stored `{digest, leaf}`. Submission requires an `Idempotency-Key` header (the service itself keys on the
+  digest); withdrawal defines none.
 - **Windows and roots.** The `forecast.schedule` job (every 30 s) opens windows only for OPEN markets
   that are `tradable(market, deadline)` and then closes windows past their deadline: the worker
   stores `merkle_root` / `root_at` (set once; a window with no standing answer gets `root_at` and a
@@ -562,7 +563,12 @@ Scope: slice of P2, not the milestone.
 - **Sealing.** Before a window's deadline the answers route returns only the caller's own answer
   (anonymous: none), the window route shows no root or leaves, the proof route answers 409
   `WINDOW_SEALED`, and the consensus route lists closed windows only.
-- **Withdrawal.** Annotation, not deletion, by the same key, allowed only before the deadline; a
+- **Withdrawal.** Annotation, not deletion. It needs `forecast:write`, a fresh index, the wallet's
+  current FORECASTER role, and the same API key that submitted the answer (a second key of the same
+  wallet finds nothing). By controller ruling it is allowed only before the window deadline: a
+  withdrawal after the deadline would let a forecaster drop answers after seeing later information
+  or the outcome, which would game Brier scoring and Forecaster credit, and the window root commits
+  to the deadline snapshot. The removed admin path was a platform action and no longer exists. A
   withdrawn answer stays listed but leaves the root, the consensus and the scores (scored as missing).
 - **Contamination** is computed from `ProtocolReader.proposal(marketId).proposedAt <= deadline`;
   there is no annotation path left. `blink_forecast_admin`, `forecast-admin` (adapter, CLI, build
@@ -570,13 +576,16 @@ Scope: slice of P2, not the milestone.
 - **Scoring and consensus.** At FINAL with a YES/NO outcome (market state, replay flag and outcome
   from the reader) `evaluation.score` writes `v2` entries: AGENT per eligible answer (per wallet)
   and one CONSENSUS per window; INVALID has no Brier. `weight = n < 5 ? 0 : max(0, 0.25 - meanBrier)`
-  from the latest 50 scored LIVE, uncontaminated, non-missing AGENT entries; consensus weights only
+  (kept as an exact fraction from the exact Brier sum, never a rounded decimal; only the final probability
+  is rounded, half up) from the latest 50 scored LIVE, uncontaminated, non-missing AGENT entries; consensus weights only
   count scores recorded by the window's deadline. New routes: `/v1/markets/:id/consensus`,
   `/v1/forecasters`, `/v1/forecasters/:address`; `/v1/metrics` adds `consensusBrier` and still
   separates LIVE and REPLAY.
 - **Migration 0033** (only): new submission and window columns, v1 rows untouched (v2 scorer rule and
   unique indexes beside them), `analytics.closed_forecasts` replaces `final_forecasts`, grants for the
-  API (annotations INSERT, withdrawals only) and worker (root UPDATE, digest and forecaster SELECT),
+  API (annotations INSERT, withdrawals only) and worker (root UPDATE, address-only SELECT on submissions,
+  digests only through `forecasts.closed_digests`, which lists a window's answers after its deadline: with the
+  zero content hash a digest reveals the probability, so the worker never reads one of an open window),
   drops `blink_forecast_admin`, `evidence.records`, `evidence.sources` and the `evidence` schema (no
   CASCADE). A row-level trigger on `forecasts.windows` allows only the one-time root set.
 - **Client.** `@blink/client` gains submit, withdraw, window, proof, consensus, forecasters and

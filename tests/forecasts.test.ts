@@ -12,6 +12,7 @@ import {
 } from "../packages/application/src/forecasts.ts";
 import { createEvaluationHandler } from "../packages/application/src/evaluation.ts";
 import { postgresEvaluationStore } from "../packages/adapters/src/evaluation-store.ts";
+import { identityFixture } from "./helpers/identity-fixture.ts";
 import { seedReadMarket } from "./helpers/protocol-index.ts";
 import {
   CLOSE_AT,
@@ -203,7 +204,7 @@ test("LIVE and REPLAY scored separately", async () => {
     // Only LIVE answers build credit.
     const stats = await f.store.creditStats([a.address], null);
     assert.equal(stats[0]!.n, 1);
-    assert.ok(Math.abs(stats[0]!.meanBrier! - 0.04) < 1e-9);
+    assert.ok(Math.abs(Number(stats[0]!.brierSum) - 0.04) < 1e-9);
   } finally {
     await f.close();
   }
@@ -346,6 +347,74 @@ test("withdrawal keeps the answer but drops it from the root and the consensus",
     );
     assert.equal(late.statusCode, 409);
     assert.equal(late.json().code, "FORECAST_WINDOW_CLOSED");
+  } finally {
+    await f.close();
+  }
+});
+
+test("only the submitting key of a current FORECASTER may withdraw", async () => {
+  const f = await forecastFixture();
+  try {
+    const w = await f.addWindow(600);
+    assert.equal((await f.submit(f.agents.a, a, w)).statusCode, 201);
+    const id = await submissionId(f, f.agents.a, w.id, a);
+    const withdraw = (agent: { apiKey: string }) =>
+      f.app.inject({
+        method: "POST",
+        url: `/v1/forecasts/${id}/withdrawal`,
+        headers: { authorization: "Bearer " + agent.apiKey },
+      });
+    const annotations = async () => (await f.stored()).annotations;
+    // A second active key of the same wallet is not the key that submitted.
+    const second = await f.asOwner(() =>
+      identityFixture(f.t.pool).issue(f.agents.a.agentId, {
+        scopes: ["forecast:write"],
+        reason: "second key",
+      }),
+    );
+    const other = await withdraw(second);
+    assert.equal(other.statusCode, 404, other.body);
+    // The wallet lost its FORECASTER role.
+    f.reader.set({ accounts: [roleHolder(a.address, [])] });
+    const lost = await withdraw(f.agents.a);
+    assert.equal(lost.statusCode, 403, lost.body);
+    assert.equal(lost.json().code, "ROLE_REQUIRED");
+    f.reader.set({ accounts: [roleHolder(a.address)] });
+    // The index lags.
+    f.reader.set({ health: { headBlock: 9, indexedBlock: 1, lagSeconds: 900, stale: true } });
+    const stale = await withdraw(f.agents.a);
+    assert.equal(stale.statusCode, 503, stale.body);
+    assert.equal(stale.json().code, "INDEX_STALE");
+    f.reader.set({ health: { headBlock: 0, indexedBlock: 0, lagSeconds: 0, stale: false } });
+    assert.equal(await annotations(), 0, "nothing was stored by any refusal");
+    // The submitting key, with the role and a fresh index, withdraws.
+    assert.equal((await withdraw(f.agents.a)).statusCode, 200);
+    assert.equal(await annotations(), 1);
+  } finally {
+    await f.close();
+  }
+});
+
+test("the worker reads neither digests nor probabilities of an open window", async () => {
+  const f = await forecastFixture();
+  try {
+    const w = await f.addWindow(600);
+    assert.equal((await f.submit(f.agents.a, a, w)).statusCode, 201);
+    const worker = (sql: string) => f.asWorker(() => f.t.db.query(sql));
+    // Not through the table: a digest of the zero-content-hash answer would reveal its probability.
+    for (const column of ["digest", "probability_bps", "signature", "content_hash"])
+      await assert.rejects(worker(`SELECT ${column} FROM forecasts.submissions`), /permission denied/, column);
+    await assert.rejects(worker("SELECT * FROM forecasts.submissions"), /permission denied/);
+    // Not through the views either, while the window is open.
+    assert.equal((await worker("SELECT * FROM forecasts.closed_digests")).rows.length, 0);
+    assert.equal((await worker("SELECT * FROM analytics.closed_forecasts")).rows.length, 0);
+    // Who answered is visible (credit statistics need it), nothing else.
+    assert.equal((await worker("SELECT forecaster_address FROM forecasts.submissions")).rows.length, 1);
+    // After the deadline the view lists the digest.
+    await f.clock(601);
+    const closed = await worker("SELECT window_id,digest,withdrawn FROM forecasts.closed_digests");
+    assert.equal(closed.rows.length, 1);
+    assert.match((closed.rows[0] as { digest: string }).digest, /^0x[0-9a-f]{64}$/);
   } finally {
     await f.close();
   }

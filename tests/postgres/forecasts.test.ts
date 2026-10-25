@@ -11,21 +11,48 @@ import { createWindowScheduler } from "../../packages/application/src/forecasts.
 import { forecastLeaf, merkleRoot } from "../../packages/domain/src/index.js";
 
 const DEPLOYMENT = "pg-forecasts";
+const HOUR = 3600;
 const forecaster = (n: number) => "0x" + n.toString(16).padStart(40, "0");
 
-async function invite(owner: Pool) {
-  return identityFixture(owner).invite({
+/**
+ * Time in these tests is the database's, moved by a table instead of waited for: blink.now() reads
+ * the offset of public.test_clock, so "the deadline passes" is one UPDATE, never a sleep.
+ */
+async function installTestClock(owner: Pool) {
+  await owner.query(`
+    CREATE TABLE public.test_clock(offset_seconds double precision NOT NULL);
+    INSERT INTO public.test_clock VALUES (0);
+    GRANT SELECT ON public.test_clock TO blink_api, blink_worker;
+    CREATE OR REPLACE FUNCTION blink.now() RETURNS timestamptz LANGUAGE sql VOLATILE AS $$
+      SELECT clock_timestamp() + make_interval(secs => (SELECT offset_seconds FROM public.test_clock))
+    $$`);
+  return {
+    advance: (seconds: number) =>
+      owner.query(
+        "UPDATE public.test_clock SET offset_seconds=offset_seconds+$1",
+        [seconds],
+      ),
+    nowSeconds: async () =>
+      Number(
+        (
+          await owner.query(
+            "SELECT floor(extract(epoch FROM blink.now()))::bigint AS now",
+          )
+        ).rows[0].now,
+      ),
+  };
+}
+
+/** One agent per wallet, as production wallet bindings have it (submissions are unique per window and agent). */
+const invite = (owner: Pool) =>
+  identityFixture(owner).invite({
     operatorName: "fixture",
     agentName: "fixture",
     scopes: ["forecast:write"],
     reason: "forecast fixture",
   });
-}
-const answer = (
-  agent: Awaited<ReturnType<typeof invite>>,
-  windowId: string,
-  n: number,
-) => ({
+type Agent = Awaited<ReturnType<typeof invite>>;
+const answer = (agent: Agent, windowId: string, n: number) => ({
   id: randomUUID(),
   windowId,
   keyId: agent.keyId,
@@ -39,33 +66,34 @@ const answer = (
   signature: "0x" + "11".repeat(65),
   verifiedBlock: 1n,
 });
-/** A window that ends `seconds` from the database clock's now, and has been open for a while. */
+/** A window that ends `seconds` after the database's now and is open since two hours before its deadline. */
 async function windowEndingIn(owner: Pool, seconds: number) {
   const id = randomUUID();
   await owner.query(
     `INSERT INTO forecasts.windows(id,deployment_id,market_id,horizon_type,scheduled_at,open_at,deadline)
-     SELECT $1,$2,1,'DAILY',d,d-interval '30 minutes',d
+     SELECT $1,$2,1,'DAILY',d,d-interval '2 hours',d
      FROM (SELECT date_trunc('milliseconds',blink.now())+$3::double precision*interval '1 second' AS d) stamp`,
     [id, DEPLOYMENT, seconds],
   );
   return id;
 }
 
-test("real PostgreSQL: waiting for a window lock cannot admit a submission after its deadline", async () => {
+test("real PostgreSQL: a request waiting on the window lock is judged by the clock after it gets the lock", async () => {
   await withDatabase(async ({ owner, login }) => {
-    const store = postgresForecastStore(
-      await login({ memberOf: ["blink_api"], max: 4 }),
-      DEPLOYMENT,
-    );
-    const agent = await invite(owner);
-    const windowId = await windowEndingIn(owner, 5);
-    const deadline = (
-      await owner.query("SELECT deadline FROM forecasts.windows WHERE id=$1", [
-        windowId,
-      ])
-    ).rows[0].deadline as Date;
-    assert.deepEqual(
-      await store.submit(answer(agent, windowId, 1)).then((r) => r.state),
+    const clock = await installTestClock(owner);
+    // One connection, so its backend pid names the waiting request exactly.
+    const api = await login({ memberOf: ["blink_api"], max: 1 });
+    const store = postgresForecastStore(api, DEPLOYMENT);
+    const pid = (await api.query("SELECT pg_backend_pid() AS pid")).rows[0]
+      .pid as number;
+    const [first, second, third] = [
+      await invite(owner),
+      await invite(owner),
+      await invite(owner),
+    ];
+    const windowId = await windowEndingIn(owner, HOUR);
+    assert.equal(
+      (await store.submit(answer(first, windowId, 1))).state,
       "ADMITTED",
     );
 
@@ -76,35 +104,22 @@ test("real PostgreSQL: waiting for a window lock cannot admit a submission after
         "SELECT id FROM forecasts.windows WHERE id=$1 FOR UPDATE",
         [windowId],
       );
-      // A second forecaster arrives before the deadline but waits for the lock...
-      const waiting = store.submit(answer(agent, windowId, 2));
+      // The request starts well before the deadline and waits for the lock...
+      const waiting = store.submit(answer(second, windowId, 2));
       let blocked = false;
-      for (let i = 0; i < 100 && !blocked; i++) {
+      for (let i = 0; i < 500 && !blocked; i++) {
         blocked =
           (
             await owner.query(
-              "SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query ILIKE '%forecasts.windows%'",
+              "SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND datname=current_database() AND wait_event_type='Lock'",
+              [pid],
             )
           ).rows.length > 0;
-        if (!blocked) await owner.query("SELECT pg_sleep(0.01)");
+        if (!blocked) await new Promise((r) => setTimeout(r, 10));
       }
-      assert.ok(
-        blocked,
-        "the request reached the held row lock before the deadline",
-      );
-      assert.equal(
-        (
-          await owner.query("SELECT blink.now()<$1::timestamptz AS before", [
-            deadline,
-          ])
-        ).rows[0].before,
-        true,
-      );
+      assert.ok(blocked, "the request is waiting on the held row lock");
       // ...and the deadline passes while it waits.
-      await owner.query(
-        "SELECT pg_sleep(greatest(0,extract(epoch from ($1::timestamptz-blink.now())))::double precision+0.05)",
-        [deadline],
-      );
+      await clock.advance(2 * HOUR);
       await blocker.query("COMMIT");
       assert.equal((await waiting).state, "CLOSED");
     } finally {
@@ -112,7 +127,7 @@ test("real PostgreSQL: waiting for a window lock cannot admit a submission after
       blocker.release();
     }
     assert.equal(
-      (await store.submit(answer(agent, windowId, 3))).state,
+      (await store.submit(answer(third, windowId, 3))).state,
       "CLOSED",
     );
     assert.equal(
@@ -122,14 +137,6 @@ test("real PostgreSQL: waiting for a window lock cannot admit a submission after
         )
       ).rows[0].n,
       1,
-    );
-    assert.equal(
-      (
-        await owner.query(
-          "SELECT 1 FROM forecasts.submissions s JOIN forecasts.windows w ON w.id=s.window_id WHERE s.received_at>=w.deadline",
-        )
-      ).rows.length,
-      0,
     );
   });
 });
@@ -141,7 +148,7 @@ test("real PostgreSQL: one answer per forecaster per window, even when submitted
       DEPLOYMENT,
     );
     const agent = await invite(owner);
-    const windowId = await windowEndingIn(owner, 600);
+    const windowId = await windowEndingIn(owner, HOUR);
     const results = await Promise.all(
       Array.from({ length: 6 }, () => store.submit(answer(agent, windowId, 1))),
     );
@@ -164,12 +171,14 @@ test("real PostgreSQL: one answer per forecaster per window, even when submitted
   });
 });
 
-test("real PostgreSQL: the scheduler opens windows for open markets and the worker stores each root once", async () => {
+test("real PostgreSQL: the scheduler opens windows for open markets", async () => {
   await withDatabase(async ({ owner, login }) => {
-    const worker = await login({ memberOf: ["blink_worker"] });
-    const api = await login({ memberOf: ["blink_api"] });
-    const store = postgresForecastStore(worker, DEPLOYMENT);
-    const closeAt = Math.floor(Date.now() / 1000) + 3 * 86400 + 600;
+    const clock = await installTestClock(owner);
+    const store = postgresForecastStore(
+      await login({ memberOf: ["blink_worker"] }),
+      DEPLOYMENT,
+    );
+    const closeAt = (await clock.nowSeconds()) + 3 * 86400 + 600;
     const reader = fakeProtocolReader({
       markets: [
         market(1, { closeAt }),
@@ -188,48 +197,63 @@ test("real PostgreSQL: the scheduler opens windows for open markets and the work
       ).rows.length,
       0,
     );
+  });
+});
 
-    // Roles: the worker sees digests and who answered, never the probabilities; the API cannot set roots.
-    await assert.rejects(
-      worker.query("SELECT probability_bps FROM forecasts.submissions"),
-      /permission denied/,
-    );
-    await worker.query(
-      "SELECT digest,forecaster_address FROM forecasts.submissions",
-    );
-    await assert.rejects(
-      api.query("UPDATE forecasts.windows SET root_at=blink.now()"),
-      /permission denied/,
-    );
-
-    // A window that ended: the worker stores the root of its digests (not the withdrawn one), once.
-    const agent = await invite(owner);
-    const windowId = await windowEndingIn(owner, 1);
-    const a1 = answer(agent, windowId, 1);
-    const a2 = answer(agent, windowId, 2);
-    const a3 = answer(agent, windowId, 3);
+test("real PostgreSQL: the worker stores each root once, over the answers that were not withdrawn", async () => {
+  await withDatabase(async ({ owner, login }) => {
+    const clock = await installTestClock(owner);
+    const worker = await login({ memberOf: ["blink_worker"] });
+    const api = await login({ memberOf: ["blink_api"] });
+    const store = postgresForecastStore(worker, DEPLOYMENT);
     const apiStore = postgresForecastStore(api, DEPLOYMENT);
-    for (const a of [a1, a2, a3])
+    const scheduler = createWindowScheduler(store, fakeProtocolReader());
+    const windowId = await windowEndingIn(owner, HOUR);
+    const agents = [
+      await invite(owner),
+      await invite(owner),
+      await invite(owner),
+    ];
+    const answers = agents.map((agent, i) => answer(agent, windowId, i + 1));
+    for (const a of answers)
       assert.equal((await apiStore.submit(a)).state, "ADMITTED");
+    // Only the key that submitted may withdraw; another agent's key finds nothing.
     assert.equal(
-      (await apiStore.withdraw(a3.id, a3.forecaster)).state,
+      (
+        await apiStore.withdraw(
+          answers[2]!.id,
+          answers[2]!.forecaster,
+          agents[0]!.keyId,
+        )
+      ).state,
+      "NOT_FOUND",
+    );
+    assert.equal(
+      (
+        await apiStore.withdraw(
+          answers[2]!.id,
+          answers[2]!.forecaster,
+          agents[2]!.keyId,
+        )
+      ).state,
       "WITHDRAWN",
     );
+    // Not before the deadline.
     assert.equal(
       await store.closeWindow(windowId, () => "0x" + "00".repeat(32)),
       false,
-      "not past its deadline yet",
     );
-    await owner.query("SELECT pg_sleep(1.2)");
+    assert.deepEqual(await store.dueWindows(10), []);
+    await clock.advance(2 * HOUR);
     assert.deepEqual(await store.dueWindows(10), [windowId]);
     assert.equal(await scheduler.closeDue(), 1);
     assert.equal(await scheduler.closeDue(), 0);
     const stored = await store.windowById(windowId);
     assert.equal(
       stored!.merkleRoot,
-      merkleRoot([a1.digest, a2.digest].map(forecastLeaf)),
+      merkleRoot([answers[0]!.digest, answers[1]!.digest].map(forecastLeaf)),
     );
-    // Even the owner cannot move a stored root, and the API cannot withdraw after the deadline.
+    // The root cannot move, not even for the owner, and nobody withdraws after the deadline.
     await assert.rejects(
       owner.query("UPDATE forecasts.windows SET merkle_root=NULL WHERE id=$1", [
         windowId,
@@ -237,17 +261,88 @@ test("real PostgreSQL: the scheduler opens windows for open markets and the work
       /append-only/,
     );
     assert.equal(
-      (await apiStore.withdraw(a1.id, a1.forecaster)).state,
+      (
+        await apiStore.withdraw(
+          answers[0]!.id,
+          answers[0]!.forecaster,
+          agents[0]!.keyId,
+        )
+      ).state,
       "CLOSED",
     );
-    // The API can only ever write withdrawals.
+    // The API cannot set roots, and can only ever write withdrawals.
+    await assert.rejects(
+      api.query("UPDATE forecasts.windows SET root_at=blink.now()"),
+      /permission denied/,
+    );
     await assert.rejects(
       api.query(
         "INSERT INTO forecasts.annotations(id,submission_id,kind,reason,actor) VALUES($1,$2,'OUTCOME_ALREADY_PUBLIC','x','x')",
-        [randomUUID(), a1.id],
+        [randomUUID(), answers[0]!.id],
       ),
       /violates check constraint|permission denied/,
     );
+  });
+});
+
+test("real PostgreSQL: the worker reads neither digests nor probabilities of an open window", async () => {
+  await withDatabase(async ({ owner, login }) => {
+    const clock = await installTestClock(owner);
+    const worker = await login({ memberOf: ["blink_worker"] });
+    const apiStore = postgresForecastStore(
+      await login({ memberOf: ["blink_api"] }),
+      DEPLOYMENT,
+    );
+    const agent = await invite(owner);
+    const windowId = await windowEndingIn(owner, HOUR);
+    const a = answer(agent, windowId, 1);
+    assert.equal((await apiStore.submit(a)).state, "ADMITTED");
+    // A digest of the zero-content-hash answer reveals its probability: not through the table...
+    for (const column of [
+      "digest",
+      "probability_bps",
+      "signature",
+      "content_hash",
+    ])
+      await assert.rejects(
+        worker.query(`SELECT ${column} FROM forecasts.submissions`),
+        /permission denied/,
+        column,
+      );
+    await assert.rejects(
+      worker.query("SELECT * FROM forecasts.submissions"),
+      /permission denied/,
+    );
+    await assert.rejects(
+      worker.query("SELECT * FROM forecasts.annotations"),
+      /permission denied/,
+    );
+    // ...and not through a view either, while the window is open.
+    assert.equal(
+      (await worker.query("SELECT * FROM forecasts.closed_digests")).rows
+        .length,
+      0,
+    );
+    assert.equal(
+      (await worker.query("SELECT * FROM analytics.closed_forecasts")).rows
+        .length,
+      0,
+    );
+    assert.equal(
+      (
+        await worker.query(
+          "SELECT forecaster_address FROM forecasts.submissions",
+        )
+      ).rows.length,
+      1,
+    );
+    // After the deadline the view returns the digest.
+    await clock.advance(2 * HOUR);
+    const closed = await worker.query(
+      "SELECT digest,withdrawn FROM forecasts.closed_digests WHERE window_id=$1",
+      [windowId],
+    );
+    assert.deepEqual(closed.rows, [{ digest: a.digest, withdrawn: false }]);
   });
 });
 

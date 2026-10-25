@@ -279,7 +279,7 @@ test("credit stats use the latest 50 scored LIVE answers, frozen as of a time", 
     });
     const [now] = await f.store.creditStats([a.address], null);
     // The two oldest (Brier 1) fall out of the latest 50.
-    assert.deepEqual([now!.n, now!.meanBrier], [50, 0.25]);
+    assert.deepEqual([now!.n, Number(now!.brierSum)], [50, 12.5]);
     // Scores recorded after the time asked for do not count.
     assert.equal(
       (await f.store.creditStats([a.address], new Date(1)))[0]?.n ?? 0,

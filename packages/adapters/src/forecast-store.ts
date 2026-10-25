@@ -47,7 +47,7 @@ export async function queryCreditStats(
   forecasters: string[] | null,
   at: Date | null,
 ): Promise<ForecasterStats[]> {
-  const { rows } = await db.query<{ address: string; n: number; mean: number | null }>(
+  const { rows } = await db.query<{ address: string; n: number; brier_sum: string | null }>(
     `WITH who AS (
        SELECT DISTINCT forecaster_address AS f FROM forecasts.submissions
        WHERE forecaster_address IS NOT NULL
@@ -61,13 +61,13 @@ export async function queryCreditStats(
          AND e.forecaster IN (SELECT f FROM who)
          AND ($2::timestamptz IS NULL OR e.created_at<=$2)
      ), credit AS (
-       SELECT f,count(*)::int AS n,avg(brier)::float8 AS mean FROM scored WHERE rn<=$3 GROUP BY f
+       SELECT f,count(*)::int AS n,sum(brier)::text AS brier_sum FROM scored WHERE rn<=$3 GROUP BY f
      )
-     SELECT '0x'||encode(who.f,'hex') AS address,COALESCE(credit.n,0) AS n,credit.mean
+     SELECT '0x'||encode(who.f,'hex') AS address,COALESCE(credit.n,0) AS n,credit.brier_sum
      FROM who LEFT JOIN credit ON credit.f=who.f ORDER BY who.f`,
     [forecasters ? forecasters.map(hex) : null, at, CREDIT_WINDOW],
   );
-  return rows.map((r) => ({ address: r.address, n: r.n, meanBrier: r.mean }));
+  return rows.map((r) => ({ address: r.address, n: r.n, brierSum: r.brier_sum }));
 }
 
 export function postgresForecastStore(
@@ -159,11 +159,11 @@ export function postgresForecastStore(
         );
         return { state: "ADMITTED", receivedAt: new Date(inserted.rows[0].received_at) };
       }),
-    withdraw: (submissionId, forecaster) =>
+    withdraw: (submissionId, forecaster, keyId) =>
       tx(async (db) => {
         const found = await db.query<{ window_id: string }>(
-          "SELECT window_id FROM forecasts.submissions WHERE id=$1 AND forecaster_address=decode($2,'hex')",
-          [submissionId, hex(forecaster)],
+          "SELECT window_id FROM forecasts.submissions WHERE id=$1 AND forecaster_address=decode($2,'hex') AND key_id=$3",
+          [submissionId, hex(forecaster), keyId],
         );
         if (!found.rows[0]) return { state: "NOT_FOUND" };
         await db.query("SELECT id FROM forecasts.windows WHERE id=$1 FOR UPDATE", [
@@ -245,9 +245,8 @@ export function postgresForecastStore(
         );
         if (!locked.rows.length) return false;
         const { rows } = await db.query<{ digest: string }>(
-          `SELECT '0x'||encode(s.digest,'hex') AS digest FROM forecasts.submissions s
-           WHERE s.window_id=$1 AND s.digest IS NOT NULL
-             AND NOT EXISTS(SELECT 1 FROM forecasts.annotations a WHERE a.submission_id=s.id AND a.kind='WITHDRAWN')`,
+          // The worker sees digests only through the view of closed windows (never an open window's).
+          "SELECT digest FROM forecasts.closed_digests WHERE window_id=$1 AND NOT withdrawn",
           [id],
         );
         const root = rootOf(rows.map((r) => r.digest));

@@ -36,7 +36,7 @@ A window is a market plus a horizon: `horizon` (0 = `DAILY`, 1 = `PRE_CLOSE`) an
 - A window's `status` is `UPCOMING`, `OPEN` or `CLOSED`.
 - There is no backfilling. Once a window's deadline passes, it accepts nothing more (`FORECAST_WINDOW_CLOSED`).
 - A second, different submission to the same window is refused (`FORECAST_ALREADY_SUBMITTED`); repeating the identical one returns the same receipt.
-- A forecast can be withdrawn before the deadline. It stays on record with `withdrawnAt`, but leaves the window's Merkle root, the consensus and the scores.
+- A forecast can be withdrawn before the deadline, by the key that submitted it. It stays on record with `withdrawnAt`, but leaves the window's Merkle root, the consensus and the scores.
 
 ## What does a submission look like?
 

@@ -10,6 +10,8 @@ import {
   consensus,
   forecastLeaf,
   forecasterWeight,
+  meanBrier,
+  weightValue,
   merkleProof,
   merkleRoot,
   plannedWindows,
@@ -20,6 +22,7 @@ import {
 import {
   SignatureCheckUnavailable,
   type ForecastStore,
+  type ForecasterStats,
   type ForecastWindow,
   type HorizonType,
   type IdentityPrincipal,
@@ -42,6 +45,7 @@ export const forecastPaths = [
   "/v1/forecasters/:address",
 ] as const;
 
+const WEIGHT_SCALE = 10n ** 18n;
 const HORIZONS: readonly HorizonType[] = ["DAILY", "PRE_CLOSE"];
 const sec = (date: Date) => Math.floor(date.getTime() / 1000);
 const lower = (value: string) => value.toLowerCase();
@@ -273,9 +277,13 @@ export function createForecastService(deps: {
 
   // ---- POST /v1/forecasts/:id/withdrawal -------------------------------------------------------
   async function withdraw(req: ServiceRequest) {
-    const { address } = await walletOf(req, "forecast:write");
-    await requireFreshIndex();
-    const result = await store.withdraw(req.params.id!, address);
+    const { principal, address } = await walletOf(req, "forecast:write");
+    // Like every identity-acting write: the index must be fresh and the wallet must still be a FORECASTER.
+    await readFreshIndex(reader, async () => {
+      if (!(await reader.hasRole(address, "FORECASTER")))
+        throw refuse(403, "ROLE_REQUIRED", { role: "FORECASTER" });
+    });
+    const result = await store.withdraw(req.params.id!, address, principal.keyId);
     if (result.state === "NOT_FOUND") throw new IdentityError(404, "NOT_FOUND");
     if (result.state === "CLOSED")
       throw refuse(409, "FORECAST_WINDOW_CLOSED", { reason: "CLOSED" });
@@ -389,21 +397,28 @@ export function createForecastService(deps: {
     };
   }
 
-  const creditView = (s: { address: string; n: number; meanBrier: number | null }) => ({
-    address: s.address,
-    n: s.n,
-    meanBrier: s.meanBrier,
-    weight: forecasterWeight(s),
-  });
-  // Highest weight first; ties by more scored answers, then address.
-  const rank = (v: ReturnType<typeof creditView>) =>
-    `${String(1_000_000 - Math.round(v.weight * 1_000_000)).padStart(7, "0")}:${String(1_000_000 - v.n).padStart(7, "0")}:${v.address}`;
+  // The numbers shown are for reading only; ranking and the consensus use the exact fraction.
+  const creditView = (s: ForecasterStats) => {
+    const w = forecasterWeight(s);
+    return {
+      view: {
+        address: s.address,
+        n: s.n,
+        meanBrier: meanBrier(s),
+        weight: weightValue(w),
+      },
+      // Highest weight first (to 1e-18), then more scored answers, then address.
+      key: `${String(WEIGHT_SCALE - (w.num * WEIGHT_SCALE) / w.den).padStart(19, "0")}:${String(1_000_000 - s.n).padStart(7, "0")}:${s.address}`,
+    };
+  };
   async function listForecasters(req: ServiceRequest) {
     const { limit, cursor } = req.query as { limit: number; cursor?: string };
-    const all = (await store.creditStats(null, null)).map(creditView);
-    const keyed = all.map((v) => [rank(v), v] as const).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    const keyed = (await store.creditStats(null, null))
+      .map(creditView)
+      .map((c) => [c.key, c.view] as const)
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1));
     // The cursor is the rank key of the last item, so a forecaster joining between pages shifts nothing.
-    if (cursor !== undefined && !/^\d{7}:\d{7}:0x[0-9a-f]{40}$/.test(cursor))
+    if (cursor !== undefined && !/^\d{19}:\d{7}:0x[0-9a-f]{40}$/.test(cursor))
       throw new IdentityError(400, "INVALID_CURSOR");
     const rest = keyed.filter(([key]) => cursor === undefined || key > cursor);
     const page = rest.slice(0, limit);
@@ -418,7 +433,7 @@ export function createForecastService(deps: {
   async function getForecaster(req: ServiceRequest) {
     const [stats] = await store.creditStats([req.params.address!], null);
     if (!stats) throw new IdentityError(404, "NOT_FOUND");
-    return { status: 200, body: creditView(stats) };
+    return { status: 200, body: creditView(stats).view };
   }
 
   return {

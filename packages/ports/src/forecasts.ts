@@ -54,7 +54,8 @@ export type WithdrawResult =
 export interface ForecasterStats {
   address: string;
   n: number;
-  meanBrier: number | null;
+  /** Exact decimal sum of the Briers of those n answers; null when there are none. */
+  brierSum: string | null;
 }
 export interface WindowCursor {
   scheduledAt: Date;
@@ -84,7 +85,12 @@ export interface ForecastStore {
     forecaster: string,
   ): Promise<StoredForecast | null>;
   submit(input: NewForecast): Promise<SubmitResult>;
-  withdraw(submissionId: string, forecaster: string): Promise<WithdrawResult>;
+  /** Only the key that submitted the answer, for the wallet that signed it, may withdraw it. */
+  withdraw(
+    submissionId: string,
+    forecaster: string,
+    keyId: string,
+  ): Promise<WithdrawResult>;
   /** Answers in id order; `forecaster` restricts them to one wallet (the sealed view). */
   submissions(
     windowId: string,

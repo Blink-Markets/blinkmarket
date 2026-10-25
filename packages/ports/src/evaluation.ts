@@ -1,3 +1,4 @@
+import type { Weight } from "@blink/domain";
 import type { ForecasterStats } from "./forecasts.js";
 
 export interface EvaluationForecast {
@@ -18,7 +19,7 @@ export interface EvaluationWindow {
   contaminated: boolean;
   forecasts: EvaluationForecast[];
   /** Credit weight per forecaster, frozen as of the deadline. */
-  weights: Record<string, number>;
+  weights: Record<string, Weight>;
 }
 export interface ScoreEntry {
   windowId: string;
