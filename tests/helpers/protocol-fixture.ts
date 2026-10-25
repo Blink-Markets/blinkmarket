@@ -1,3 +1,4 @@
+import { seedReadMarket, seedReadMaker } from "./protocol-index.ts";
 import { createHash } from "node:crypto";
 import { mnemonicToAccount } from "viem/accounts";
 import { keccak256, toBytes, toHex, type Hex } from "viem";
@@ -111,22 +112,13 @@ export async function seedChain(
     state?: string;
   },
 ) {
-  const blockHash = "22".repeat(32);
-  await db.query(
-    `INSERT INTO chain.markets(deployment_id, market_id, spec_hash, spec_uri, mode, close_at, proposal_deadline,
-      hard_deadline, challenge_seconds, max_pairs, max_taker_shares, state, created_block_number, created_tx_hash, as_of_block_hash)
-    VALUES ($1, 1, decode($2, 'hex'), 'file://spec', 'REPLAY', $3, 3000, 4000, 120, 10000, 500, $4, 1, decode($5, 'hex'), decode($5, 'hex'))`,
-    [
-      input.deploymentId,
-      testSpecHash.slice(2),
-      input.closeAt ?? 2000,
-      input.state ?? "OPEN",
-      blockHash,
-    ],
-  );
-  await db.query(
-    `INSERT INTO chain.maker_state(deployment_id, free_balance_micros, epoch, as_of_block_hash)
-    VALUES ($1, 1000000000, $2, decode($3, 'hex'))`,
-    [input.deploymentId, input.epoch ?? 3, blockHash],
-  );
+  await seedReadMarket(db, input.deploymentId, 1, {
+    specHash: testSpecHash,
+    specUri: "file://spec",
+    closeAt: input.closeAt ?? 2000,
+    state: input.state ?? "OPEN",
+  });
+  await seedReadMaker(db, input.deploymentId, {
+    epoch: String(input.epoch ?? 3),
+  });
 }

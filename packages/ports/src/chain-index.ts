@@ -1,16 +1,16 @@
 import type {
-  ChainProjection,
-  DecodedEvent,
+  ProtocolProjection,
+  ProtocolEvent,
   ProjectionChanges,
 } from "@blink/domain";
 
 // Adapters reach domain types only through ports.
 export type {
-  ChainProjection,
-  DecodedEvent,
-  DigestProjection,
-  MarketProjection,
-  PositionProjection,
+  ProtocolProjection,
+  ProtocolEvent,
+  ProtocolPosition,
+  ProtocolTemplate,
+  ProtocolFill,
   ProjectionChanges,
 } from "@blink/domain";
 
@@ -23,6 +23,7 @@ export interface IndexCursor {
   blockHash: string;
   blockTimestamp: bigint;
   headNumber: bigint;
+  headTimestamp?: bigint;
   finalizedNumber: bigint | null;
   syncedAt: Date;
   gateReason: ChainGateReason | null;
@@ -36,29 +37,20 @@ export interface ChainBlock {
   timestamp: bigint;
 }
 
-export interface ChainViews {
-  makerFreeMicros: bigint;
-  epoch: bigint;
-  markets: Map<
-    string,
-    { totalPairs: bigint; escrowMicros: bigint; state: string }
-  >;
-}
-
 export interface ChainLogReader {
   chainId(): Promise<number>;
   head(): Promise<{ number: bigint; hash: string; timestamp: bigint }>;
   /** null when the provider does not support the tag (finality unknown). */
   finalized(): Promise<bigint | null>;
   block(number: bigint): Promise<ChainBlock | null>;
-  /** Decoded with the Blink ABI; rejects logs flagged removed. */
-  logs(address: string, from: bigint, to: bigint): Promise<DecodedEvent[]>;
-  /** Contract reads pinned to one block hash. */
-  views(
-    address: string,
+  /** Every generation log is decoded strictly; rejects removed and unknown logs. */
+  logs(address: string, from: bigint, to: bigint): Promise<ProtocolEvent[]>;
+  /** Contract reads pinned to one block hash. Omit events only for a full rebuild audit. */
+  agrees(
     blockHash: string,
-    marketIds: readonly bigint[],
-  ): Promise<ChainViews>;
+    projection: ProtocolProjection,
+    events?: readonly ProtocolEvent[],
+  ): Promise<boolean>;
 }
 
 /** Proof of one claim on a deployment's cursor; every write must present it. */
@@ -74,10 +66,12 @@ export interface ChainRangeCommit {
   block: ChainBlock;
   /** Headers of every block that holds events, plus `block` itself. */
   blocks: readonly ChainBlock[];
-  events: readonly DecodedEvent[];
-  projection: ChainProjection;
+  events: readonly ProtocolEvent[];
+  projection: ProtocolProjection;
   changes: ProjectionChanges | null;
   headNumber: bigint;
+  headTimestamp?: bigint;
+  headObservedAt: Date;
   finalizedNumber: bigint | null;
   gateReason: ChainGateReason | null;
   newMarketIds: readonly string[];
@@ -87,17 +81,16 @@ export interface ChainReorgCommit {
   expectedVersion: bigint;
   ancestor: ChainBlock;
   /** Projection folded from the events that survive at or below the ancestor. */
-  projection: ChainProjection;
+  projection: ProtocolProjection;
   headNumber: bigint;
+  headTimestamp?: bigint;
   finalizedNumber: bigint | null;
 }
 
 export interface ChainSnapshot {
   cursor: IndexCursor;
-  events: DecodedEvent[];
-  projection: ChainProjection;
-  /** The maker projection always has a row to restore; a missing one reads as zeros in `projection`. */
-  makerRowPresent: boolean;
+  events: ProtocolEvent[];
+  projection: ProtocolProjection;
 }
 
 /**
@@ -105,14 +98,16 @@ export interface ChainSnapshot {
  * CHAIN_LEASE_LOST or CHAIN_VERSION_CONFLICT when either is stale.
  */
 export interface ChainIndexStore {
+  creditHalfLife(deploymentId: string): Promise<number>;
   loadCursor(deploymentId: string): Promise<IndexCursor | null>;
   /** Database business clock (blink.now()). */
   now(): Promise<Date>;
-  /** Idempotent: creates the cursor, its baseline block and an empty maker row once. */
+  /** Idempotent: creates the cursor and its baseline block once. */
   initializeCursor(input: {
     deploymentId: string;
     baseline: ChainBlock;
     headNumber: bigint;
+    headTimestamp?: bigint;
     finalizedNumber: bigint | null;
   }): Promise<void>;
   /** null while another worker holds an unexpired lease. */
@@ -122,9 +117,9 @@ export interface ChainIndexStore {
     leaseMs: number,
   ): Promise<ChainLease | null>;
   releaseLease(lease: ChainLease): Promise<void>;
-  loadProjection(deploymentId: string): Promise<ChainProjection>;
+  loadProjection(deploymentId: string): Promise<ProtocolProjection>;
   /** Canonical events in (blockNumber, txIndex, logIndex) order. */
-  loadCanonicalEvents(deploymentId: string): Promise<DecodedEvent[]>;
+  loadCanonicalEvents(deploymentId: string): Promise<ProtocolEvent[]>;
   /** Cursor, canonical events and projections from one consistent snapshot. */
   loadSnapshot(deploymentId: string): Promise<ChainSnapshot>;
   /** Highest stored canonical block at or below `number`. */
@@ -133,12 +128,14 @@ export interface ChainIndexStore {
     number: bigint,
   ): Promise<ChainBlock | null>;
   commitRange(lease: ChainLease, commit: ChainRangeCommit): Promise<bigint>;
-  /** Moves head, finality and the gate without moving the block cursor; refreshes synced_at. */
+  /** Moves head, finality and the gate without moving the block cursor; records the head observation time in synced_at. */
   refreshCursor(
     lease: ChainLease,
     expectedVersion: bigint,
     refresh: {
       headNumber: bigint;
+      headTimestamp?: bigint;
+      headObservedAt: Date;
       finalizedNumber: bigint | null;
       gateReason: ChainGateReason | null;
     },
@@ -155,6 +152,8 @@ export interface ChainIndexStore {
   replaceProjection(
     lease: ChainLease,
     expectedVersion: bigint,
-    projection: ChainProjection,
+    projection: ProtocolProjection,
   ): Promise<bigint>;
 }
+
+export { hasRole, creditAt } from "@blink/domain";

@@ -12,6 +12,11 @@ import {BlinkResolution} from "../../src/protocol/BlinkResolution.sol";
 import {Params, GenerationAddresses} from "../../src/protocol/BlinkTypes.sol";
 
 interface Vm {
+    struct Log { bytes32[] topics; bytes data; address emitter; }
+    function record() external;
+    function accesses(address) external returns (bytes32[] memory reads, bytes32[] memory writes);
+    function recordLogs() external;
+    function getRecordedLogs() external returns (Log[] memory);
     function addr(uint256) external returns (address);
     function sign(uint256, bytes32) external returns (uint8, bytes32, bytes32);
     function prank(address) external;

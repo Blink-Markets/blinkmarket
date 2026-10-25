@@ -1,3 +1,4 @@
+import { seedReadMarket } from "./helpers/protocol-index.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -19,11 +20,16 @@ async function setup() {
     outcome = "YES",
     state = "FINAL",
   ) {
-    await t.db.query(
-      `INSERT INTO chain.markets(deployment_id,market_id,spec_hash,spec_uri,mode,close_at,proposal_deadline,hard_deadline,challenge_seconds,max_pairs,max_taker_shares,state,final_outcome,created_block_number,created_tx_hash,as_of_block_hash)
-      VALUES('test',$1::integer,decode(lpad(to_hex($1::integer),64,'0'),'hex'),'fixture',$2,1,2,3,1,100,100,$4,$3,1,decode(repeat('33',32),'hex'),decode(repeat('44',32),'hex'))`,
-      [id, mode, outcome, state],
-    );
+    await seedReadMarket(t.db, "test", id, {
+      replay: mode === "REPLAY",
+      finalOutcome: outcome,
+      state,
+      closeAt: 1,
+      proposalDeadline: 2,
+      hardDeadline: 3,
+      maxPairs: "100",
+      maxTakerShares: "100",
+    });
   }
   let windowSequence = 0;
   async function window(

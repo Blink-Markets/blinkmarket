@@ -21,7 +21,7 @@ export function postgresEvaluationStore(
       }>(
         `WITH scores AS (
         SELECT s.* FROM analytics.score_entries s
-        JOIN chain.markets m USING(deployment_id,market_id)
+        JOIN protocol.market_reads m USING(deployment_id,market_id)
         WHERE s.mode=$1 AND m.mode=$1 AND m.state='FINAL'
           AND s.outcome=m.final_outcome AND s.scorer='AGENT' AND s.evaluation_version='v1'
       ), events AS (
@@ -31,7 +31,7 @@ export function postgresEvaluationStore(
       )
       SELECT (SELECT count(*)::text FROM events) AS event_count,
         (SELECT count(*)::text FROM scores WHERE missing) AS missing_count,
-        (SELECT count(*)::text FROM chain.markets WHERE mode=$1 AND state='FINAL' AND final_outcome='INVALID') AS invalid_count,
+        (SELECT count(*)::text FROM protocol.market_reads WHERE mode=$1 AND state='FINAL' AND final_outcome='INVALID') AS invalid_count,
         (SELECT round(AVG(brier),6)::text FROM events) AS brier`,
         [mode],
       );

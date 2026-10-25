@@ -7,7 +7,8 @@ import {
   verifySignedQuote,
   type QuoteVerificationCode,
 } from "../packages/client/src/index.js";
-import { blinkMarketAbi } from "../packages/adapters/src/blink-abi.js";
+import { protocolAbi } from "../packages/adapters/src/protocol-abi.js";
+const blinkMarketAbi = protocolAbi.markets;
 import {
   ConfigResponse,
   PublicDeployment,

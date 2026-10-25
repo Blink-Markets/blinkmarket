@@ -2,17 +2,23 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { withDatabase } from "../helpers/postgres-database.js";
-import { seedDeployment, testManifest } from "../helpers/protocol-fixture.js";
+import { seedProtocolDeployment } from "../helpers/protocol-index.ts";
 import { postgresHealthReader } from "../../packages/adapters/src/health-reader.js";
 
 test("real PostgreSQL: API infrastructure observability grants and indexed queue counts", async () => {
   await withDatabase(async ({ owner, login }) => {
-    const manifest = testManifest();
-    await seedDeployment(owner, manifest);
+    const manifest = await seedProtocolDeployment(owner);
     const api = await login({ memberOf: ["blink_api"] });
     const reader = postgresHealthReader(api, manifest.deploymentId);
     assert.deepEqual((await reader.metrics()).counts.jobs, []);
-    assert.ok((await reader.health()).reasons.includes("INDEXER_LAG"));
+    assert.deepEqual((await reader.health()).reasons, ["INDEXER_LAG"]);
+    await owner.query(
+      "INSERT INTO chain.cursors(deployment_id,block_number,block_hash,block_timestamp,head_number,head_timestamp,synced_at) VALUES($1,10,decode(repeat('11',32),'hex'),1000,11,1030,blink.now())",
+      [manifest.deploymentId],
+    );
+    assert.deepEqual((await reader.health()).reasons, []);
+    await owner.query("UPDATE chain.cursors SET head_timestamp=1031");
+    assert.deepEqual((await reader.health()).reasons, ["INDEXER_LAG"]);
     for (const state of ["QUEUED", "LEASED", "DEAD", "SUCCEEDED"]) {
       await owner.query(
         `INSERT INTO operations.jobs(id,type,dedupe_key,payload,state,lease_owner,lease_until)

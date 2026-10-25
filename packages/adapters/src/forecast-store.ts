@@ -59,7 +59,7 @@ function forecastTransaction(db: PoolClient): ForecastTransaction {
       return (
         (
           await db.query(
-            "SELECT 1 FROM chain.markets WHERE deployment_id=$1 AND market_id=$2 AND state='OPEN' AND close_at>extract(epoch from $3::timestamptz)",
+            "SELECT 1 FROM protocol.market_reads WHERE deployment_id=$1 AND market_id=$2 AND state='OPEN' AND close_at>extract(epoch from $3::timestamptz)",
             [deploymentId, marketId, now],
           )
         ).rows.length === 1
@@ -72,8 +72,7 @@ function forecastTransaction(db: PoolClient): ForecastTransaction {
       );
       // UUIDs are case-insensitive: count distinct ids the way PostgreSQL does.
       return (
-        result.rows.length ===
-        new Set(ids.map((id) => id.toLowerCase())).size
+        result.rows.length === new Set(ids.map((id) => id.toLowerCase())).size
       );
     },
     async submitted(windowId, agentId) {
@@ -135,7 +134,7 @@ function forecastTransaction(db: PoolClient): ForecastTransaction {
     },
     async openMarkets() {
       const result = await db.query(
-        `SELECT deployment_id AS "deploymentId",market_id::text AS "marketId",to_timestamp(close_at::double precision) AS "closeAt" FROM chain.markets WHERE state='OPEN' AND close_at>extract(epoch from blink.now())`,
+        `SELECT deployment_id AS "deploymentId",market_id::text AS "marketId",to_timestamp(close_at::double precision) AS "closeAt" FROM protocol.market_reads WHERE state='OPEN' AND close_at>extract(epoch from blink.now())`,
       );
       return result.rows.map((r) => ({
         deploymentId: String(r.deploymentId),

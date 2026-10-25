@@ -83,7 +83,7 @@ test("schemas enforce integer wire amounts and isolate LIVE challenge periods", 
 });
 test("EIP-712 field order and types match the Solidity interface", () => {
   const source = readFileSync(
-    "contracts/src/interfaces/IBlinkMarket.sol",
+    "contracts/src/protocol/interfaces/IBlinkMarkets.sol",
     "utf8",
   );
   const body = source.match(/struct Quote\s*\{([^}]+)\}/)?.[1];

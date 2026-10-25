@@ -22,12 +22,6 @@ export {
 } from "./deployment-registry.js";
 export { evidenceIntegrity } from "./evidence-integrity.js";
 export {
-  planDeployment,
-  deployContracts,
-  assertDeployChain,
-  type RoleAddresses,
-} from "./contract-deployer.js";
-export {
   planProtocolDeployment,
   deployProtocol,
   loadProtocolArtifacts,
@@ -40,12 +34,6 @@ export {
   type PlannedTransaction,
   type ProtocolArtifactName,
 } from "./protocol-deployer.js";
-export {
-  blinkMarketAbi,
-  blinkTestUsdAbi,
-  blinkEventNames,
-  type BlinkEventName,
-} from "./blink-abi.js";
 export { protocolAbi, type ProtocolContractName } from "./protocol-abi.js";
 export { viemSignatureVerifier, rpcSignatureVerifier } from "./signature-verifier.js";
 export { assertProductionClock } from "./business-clock.js";
@@ -77,12 +65,12 @@ export {
 } from "./tx-tracking-store.js";
 export { txReceiptReader } from "./tx-receipt-reader.js";
 export * from "./evaluation-store.js";
-export { chainLogReader } from "./chain-log-reader.js";
+export { protocolLogReader } from "./protocol-log-reader.js";
 export {
-  postgresChainIndexStore,
-  loadChainDeployment,
+  postgresProtocolIndexStore,
+  postgresProtocolReader,
   assertChainIndexInstalled,
-} from "./chain-index-store.js";
+} from "./protocol-index-store.js";
 
 export * from "./health-reader.js";
 

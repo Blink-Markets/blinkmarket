@@ -1,15 +1,16 @@
+import { seedProtocolDeployment } from "../helpers/protocol-index.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import pg from "pg";
 import { migrate } from "../../packages/adapters/src/migrations.js";
-import { postgresChainIndexStore } from "../../packages/adapters/src/chain-index-store.js";
+import { postgresProtocolIndexStore } from "../../packages/adapters/src/protocol-index-store.js";
 import {
   createChainIndexer,
   rebuildChainProjection,
 } from "../../packages/application/src/chain-indexer.js";
-import { foldEvents } from "../../packages/domain/src/chain-reducer.ts";
+import { foldProtocolEvents } from "../../packages/domain/src/protocol-reducer.ts";
 import {
   FakeChain,
   MARKET_ADDRESS,
@@ -17,7 +18,6 @@ import {
   makerDeposited,
   marketCreated,
   quoteFilled,
-  takerAllowed,
 } from "../helpers/fake-chain.js";
 
 const adminUrl = process.env.TEST_POSTGRES_ADMIN_URL;
@@ -62,18 +62,17 @@ test(
       } finally {
         migrationClient.release();
       }
-      await owner.query(
-        `INSERT INTO markets.deployments(id,manifest,market_address)
-         VALUES ('d1','{"deploymentBlock":"10"}',decode($1,'hex'))`,
-        [MARKET_ADDRESS.slice(2)],
-      );
+      await seedProtocolDeployment(owner, "d1");
       const chain = new FakeChain(11n);
-      chain.mine([marketCreated(1)]);
+      chain.mine([
+        marketCreated(1),
+        { name: "MarketOpened", args: { marketId: "1", openAt: "1024" } },
+      ]);
       chain.mine([makerDeposited(100_000_000n)]);
-      chain.mine([takerAllowed(TAKER)]);
+      chain.mine();
       chain.mineTo(20n);
-      const storeA = postgresChainIndexStore(poolA);
-      const storeB = postgresChainIndexStore(poolB);
+      const storeA = postgresProtocolIndexStore(poolA);
+      const storeB = postgresProtocolIndexStore(poolB);
       const indexer = (store: typeof storeA, workerId: string) =>
         createChainIndexer({
           store,
@@ -121,7 +120,10 @@ test(
       // Exactly the chain's events, once each, in one consistent projection.
       const snapshot = await storeA.loadSnapshot("d1");
       assert.equal(snapshot.events.length, chain.allEvents().length);
-      assert.deepEqual(snapshot.projection, foldEvents(chain.allEvents()));
+      assert.deepEqual(
+        snapshot.projection,
+        foldProtocolEvents(chain.allEvents()),
+      );
       const versions = await owner.query<{ event_version: string }>(
         "SELECT event_version::text AS event_version FROM operations.outbox WHERE event_type='chain.synced' ORDER BY event_version::numeric",
       );
@@ -146,6 +148,7 @@ test(
       const before = (await owner.query("SELECT * FROM chain.cursors")).rows;
       await assert.rejects(
         storeA.refreshCursor(stale, cursor.version, {
+          headObservedAt: await storeA.now(),
           headNumber: cursor.headNumber,
           finalizedNumber: null,
           gateReason: null,
@@ -169,7 +172,7 @@ test(
             parentHash: chain.at(9n)!.parentHash,
             timestamp: 1n,
           },
-          projection: foldEvents([]),
+          projection: foldProtocolEvents([]),
           headNumber: cursor.headNumber,
           finalizedNumber: null,
         }),
@@ -195,7 +198,7 @@ test(
         /CHAIN_INDEX_LEASE_HELD/,
       );
       await storeB.releaseLease(current);
-      await owner.query("DELETE FROM chain.positions");
+      await owner.query("DELETE FROM protocol.positions");
       const found = await rebuildChainProjection(storeA, "d1", {
         verify: true,
         workerId: "rebuild",
@@ -217,7 +220,7 @@ test(
       );
       assert.deepEqual(
         await storeA.loadProjection("d1"),
-        foldEvents(chain.allEvents()),
+        foldProtocolEvents(chain.allEvents()),
       );
     } finally {
       const ended = await Promise.allSettled([

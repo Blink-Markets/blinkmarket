@@ -165,3 +165,39 @@ test("health endpoints share a single-flight snapshot, rate limit bursts and ref
     await app.close();
   }
 });
+
+test("health accepts only a protocol deployment and refuses 31 seconds of timestamp lag", async () => {
+  const { createTestDatabase } = await import("./helpers/database.ts");
+  const { seedProtocolDeployment } =
+    await import("./helpers/protocol-index.ts");
+  const t = await createTestDatabase();
+  try {
+    await seedProtocolDeployment(t.pool);
+    await t.pool.query(
+      "INSERT INTO chain.cursors(deployment_id,block_number,block_hash,block_timestamp,head_number,head_timestamp,synced_at) VALUES('d1',10,decode(repeat('11',32),'hex'),1000,11,1030,blink.now())",
+    );
+    await t.setRole("blink_api");
+    const reader = postgresHealthReader(t.pool, "d1");
+    assert.deepEqual((await reader.health()).reasons, []);
+    await t.setRole(null);
+    await t.pool.query("UPDATE chain.cursors SET head_timestamp=1031");
+    assert.deepEqual((await reader.health()).reasons, ["INDEXER_LAG"]);
+  } finally {
+    await t.close();
+  }
+});
+
+test("API health rejects a recent cursor one block and 31 timestamp seconds behind", async () => {
+  const w = await statusWorld();
+  try {
+    await w.t.pool.query(
+      "UPDATE chain.cursors SET head_number=block_number+1,head_timestamp=block_timestamp+31",
+    );
+    assert.deepEqual(
+      (await postgresHealthReader(w.apiPool, DEPLOYMENT).health()).reasons,
+      ["INDEXER_LAG"],
+    );
+  } finally {
+    await w.close();
+  }
+});

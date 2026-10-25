@@ -1,14 +1,11 @@
+import { seedProtocolDeployment } from "./helpers/protocol-index.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { createTestDatabase } from "./helpers/database.js";
-import {
-  seedChain,
-  seedDeployment,
-  testManifest,
-} from "./helpers/protocol-fixture.js";
+import { seedChain } from "./helpers/protocol-fixture.js";
 import { postgresAlertEvaluateStore } from "../packages/adapters/src/alert-evaluate-store.js";
 import { alertPayload } from "../packages/adapters/src/alert-payload.js";
 import { dispatchOutbox } from "../packages/adapters/src/outbox-dispatcher.js";
@@ -39,8 +36,7 @@ async function world(
   } = {},
 ) {
   const t = await createTestDatabase();
-  const manifest = testManifest({ deploymentId: DEPLOYMENT });
-  await seedDeployment(t.pool, manifest);
+  await seedProtocolDeployment(t.pool, DEPLOYMENT);
   if (options.markets !== false)
     await seedChain(t.pool, { deploymentId: DEPLOYMENT });
   await t.pool.query(
@@ -77,7 +73,7 @@ async function world(
     });
   const freshCursor = () =>
     sql(
-      "UPDATE chain.cursors SET synced_at=blink.now(),head_number=block_number WHERE deployment_id=$1",
+      "UPDATE chain.cursors SET synced_at=blink.now(),head_timestamp=block_timestamp,head_number=block_number WHERE deployment_id=$1",
       [DEPLOYMENT],
     );
   return {
@@ -123,7 +119,7 @@ test("episode lifecycle: OPEN once, no duplicate across ticks, STILL_OPEN after 
   try {
     const gate = (reason: string | null) =>
       w.sql(
-        "UPDATE chain.maker_state SET global_paused=($2::text IS NOT NULL) WHERE deployment_id=$1",
+        "UPDATE protocol.makers SET data=data||jsonb_build_object('globalPaused',($2::text IS NOT NULL)) WHERE deployment_id=$1",
         [DEPLOYMENT, reason],
       );
     await gate("OVERCOMMITTED");
@@ -180,8 +176,8 @@ test("alert.pause fires from the indexed global and per-market pause projection"
   const w = await world();
   try {
     await w.sql(
-      `UPDATE chain.markets SET paused=true;
-       UPDATE chain.maker_state SET global_paused=true`,
+      `UPDATE protocol.markets SET data=data||jsonb_build_object('paused',true);
+       UPDATE protocol.makers SET data=data||jsonb_build_object('globalPaused',true)`,
     );
     await w.run();
     const open = await w.alerts("pause");
@@ -190,7 +186,7 @@ test("alert.pause fires from the indexed global and per-market pause projection"
       ["market:1", "MARKET_PAUSED", "OPEN"],
     ]);
     await w.sql(
-      `UPDATE chain.markets SET paused=false; UPDATE chain.maker_state SET global_paused=false`,
+      `UPDATE protocol.markets SET data=data||jsonb_build_object('paused',false); UPDATE protocol.makers SET data=data||jsonb_build_object('globalPaused',false)`,
     );
     await w.run();
     const all = await w.alerts("pause");
@@ -214,18 +210,20 @@ test("alert.indexer_lag uses the health freshness rule and carries block numbers
   try {
     await w.run();
     assert.deepEqual(await w.alerts("indexer_lag"), []);
-    // More than 3 blocks behind the head.
-    await w.sql("UPDATE chain.cursors SET head_number=block_number+4");
+    // More than 30 timestamp seconds behind the head.
+    await w.sql(
+      "UPDATE chain.cursors SET head_number=block_number+4,head_timestamp=block_timestamp+31",
+    );
     await w.run();
     let lag = await w.alerts("indexer_lag");
     assert.deepEqual(states(lag), ["OPEN"]);
     assert.equal(lag[0].reason, "LAG_BLOCKS");
     assert.equal(lag[0].blockNumber, "10");
     assert.equal(lag[0].headNumber, "14");
-    // Healthy again, then stale for more than 10 seconds.
+    // Healthy again, then stopped for more than 30 seconds.
     await w.freshCursor();
     await w.run();
-    await w.clock(30, true);
+    await w.clock(31, true);
     await w.run();
     lag = await w.alerts("indexer_lag");
     assert.deepEqual(states(lag), ["OPEN", "CLEARED", "OPEN"]);
@@ -406,7 +404,7 @@ test("alert.evaluate runs with infrastructure configuration only", async () => {
   }
 });
 
-test("without a configured deployment every enabled deployment is evaluated", async () => {
+test("without a configured deployment every registered protocol deployment is evaluated", async () => {
   const w = await world({ deploymentIds: null });
   try {
     await deadJob(w, "forecast.schedule", 5);
@@ -596,7 +594,11 @@ test("episode transitions are decided from the stored state only", () => {
     [["STILL_OPEN", "OTHER_REASON"]],
   );
   assert.deepEqual(
-    decideEpisodeChanges({ ...base, episodes: [ep()], observations: [reasoned] }),
+    decideEpisodeChanges({
+      ...base,
+      episodes: [ep()],
+      observations: [reasoned],
+    }),
     [],
   );
   // The clear is limited to the families that were evaluated.
@@ -666,7 +668,9 @@ const deadJob = (w: Awaited<ReturnType<typeof world>>, type: string, age = 0) =>
 test("a gated or missing chain cursor makes pause unknown: no CLEARED, no second OPEN", async () => {
   const w = await world();
   try {
-    await w.sql("UPDATE chain.markets SET paused=true");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',true)",
+    );
     await w.sql("UPDATE chain.cursors SET block_timestamp=4601");
     await w.run();
     assert.deepEqual(states(await w.alerts("pause")), ["OPEN"]);
@@ -693,7 +697,9 @@ test("a gated or missing chain cursor makes pause unknown: no CLEARED, no second
     await w.run();
     assert.deepEqual(states(await w.alerts("pause")), ["OPEN"]);
     // Once the source is readable and the market is no longer due, it does clear.
-    await w.sql("UPDATE chain.markets SET state='FINAL'");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('state','FINAL')",
+    );
     await w.run();
     assert.deepEqual(states(await w.alerts("pause")), ["OPEN", "CLEARED"]);
   } finally {
@@ -709,7 +715,9 @@ test("episodes beyond 1000 historical rows never cause a duplicate OPEN or stall
        SELECT '${DEPLOYMENT}','pause','market:'||g,false,'MARKET_PAUSED',blink.now(),blink.now()
        FROM generate_series(1000,2400) g`,
     );
-    await w.sql("UPDATE chain.markets SET paused=true");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',true)",
+    );
     for (let n = 0; n < 5; n++) await w.run();
     assert.deepEqual(states(await w.alerts("pause")), ["OPEN"]);
     const rpc = await w.alerts("rpc");
@@ -758,7 +766,10 @@ test("jobs_dead is active for DEAD jobs of the last 24 hours, re-alerts on growt
     dead = await w.alerts("jobs_dead");
     assert.deepEqual(states(dead), ["OPEN", "STILL_OPEN"]);
     assert.equal(dead[1].count, "2");
-    assert.deepEqual(dead[1].jobTypes, ["evaluation.score", "forecast.schedule"]);
+    assert.deepEqual(dead[1].jobTypes, [
+      "evaluation.score",
+      "forecast.schedule",
+    ]);
     // No hourly heartbeat while the count is unchanged.
     await w.clock(3 * 3600);
     await w.run();
@@ -780,9 +791,13 @@ test("jobs_dead is active for DEAD jobs of the last 24 hours, re-alerts on growt
 test("a paused market that resolves clears its pause episode even though the pause flag stays", async () => {
   const w = await world();
   try {
-    await w.sql("UPDATE chain.markets SET paused=true");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',true)",
+    );
     await w.run();
-    await w.sql("UPDATE chain.markets SET state='FINAL'");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('state','FINAL')",
+    );
     await w.run();
     assert.deepEqual(states(await w.alerts("pause")), ["OPEN", "CLEARED"]);
   } finally {
@@ -793,9 +808,7 @@ test("a paused market that resolves clears its pause episode even though the pau
 test("global conditions alert once per tick under one global scope, not once per deployment", async () => {
   const w = await world({ deploymentIds: null, rpc: failing(10) });
   try {
-    await w.sql(
-      "INSERT INTO markets.deployments(id,manifest,market_address) VALUES('second','{}',decode(repeat('12',20),'hex'))",
-    );
+    await w.owner(() => seedProtocolDeployment(w.t.pool, "second"));
     await deadJob(w, "forecast.schedule", 10);
     for (let n = 0; n < 3; n++) await w.run();
     for (const [family, subject] of [
@@ -817,10 +830,14 @@ test("a failing family is unknown and logged by code only; the other families st
   const errors: string[] = [];
   const w = await world({ onError: (code) => errors.push(code) });
   try {
-    await w.sql("UPDATE chain.markets SET paused=true");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',true)",
+    );
     await w.run();
-    await w.sql("UPDATE chain.markets SET paused=false");
-    await w.sql("REVOKE SELECT ON chain.maker_state FROM blink_worker");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',false)",
+    );
+    await w.sql("REVOKE SELECT ON protocol.maker_reads FROM blink_worker");
     await deadJob(w, "forecast.schedule", 10);
     await w.run();
     // The pause family could not be judged: its open episode neither clears nor changes.
@@ -838,24 +855,29 @@ test("more subjects than the bound are truncated, flagged, and never cleared whi
   const w = await world();
   try {
     await w.sql(
-      `INSERT INTO chain.markets(deployment_id,market_id,spec_hash,spec_uri,mode,close_at,proposal_deadline,hard_deadline,challenge_seconds,max_pairs,max_taker_shares,state,created_block_number,created_tx_hash,as_of_block_hash)
-       SELECT deployment_id,g,decode(md5('s'||g)||md5('s'||g),'hex'),spec_uri,mode,close_at,proposal_deadline,hard_deadline,challenge_seconds,max_pairs,max_taker_shares,state,created_block_number,
-              decode(md5('t'||g)||md5('t'||g),'hex'),as_of_block_hash FROM chain.markets,generate_series(2,150) g WHERE market_id=1`,
+      `INSERT INTO protocol.markets(deployment_id,key,data,as_of_block_hash)
+       SELECT deployment_id,g::text,data||jsonb_build_object('marketId',g::text,'specHash','0x'||md5('s'||g)||md5('s'||g)),as_of_block_hash FROM protocol.markets,generate_series(2,150) g WHERE key='1'`,
     );
-    await w.sql("UPDATE chain.markets SET paused=true");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',true)",
+    );
     await w.run();
     let pause = await w.alerts("pause");
     assert.equal(pause.length, 100);
     assert.ok(pause.every((a) => a.truncated === true));
     // Market 1 is no longer paused, but while truncated nothing is cleared; the window moves on
     // to market 101, which opens.
-    await w.sql("UPDATE chain.markets SET paused=false WHERE market_id=1");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',false) WHERE key::numeric=1",
+    );
     await w.run();
     pause = await w.alerts("pause");
     assert.equal(pause.length, 101);
     assert.equal(pause.filter((a) => a.state === "CLEARED").length, 0);
     // Back under the bound: the clearing resumes.
-    await w.sql("UPDATE chain.markets SET paused=false");
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('paused',false)",
+    );
     await w.run();
     pause = await w.alerts("pause");
     assert.equal(pause.filter((a) => a.state === "CLEARED").length, 101);
@@ -864,10 +886,12 @@ test("more subjects than the bound are truncated, flagged, and never cleared whi
   }
 });
 
-test("indexer_lag: exactly 3 blocks behind is healthy, 4 is lag, a missing cursor is CURSOR_MISSING; unpaused markets never alert", async () => {
+test("indexer_lag: exactly 30 timestamp seconds behind is healthy, 31 is lag, a missing cursor is CURSOR_MISSING; unpaused markets never alert", async () => {
   const w = await world();
   try {
-    await w.sql("UPDATE chain.cursors SET head_number=block_number+3");
+    await w.sql(
+      "UPDATE chain.cursors SET head_number=block_number+3,head_timestamp=block_timestamp+30",
+    );
     await w.run();
     assert.deepEqual(await w.alerts("indexer_lag"), []);
     assert.deepEqual(await w.alerts("pause"), []);

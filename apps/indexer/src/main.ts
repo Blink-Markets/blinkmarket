@@ -13,9 +13,9 @@ import { createService, startService } from "@blink/runtime";
 import {
   assertChainIndexInstalled,
   assertProductionClock,
-  chainLogReader,
-  loadChainDeployment,
-  postgresChainIndexStore,
+  protocolLogReader,
+  loadProtocolDeployment,
+  postgresProtocolIndexStore,
 } from "@blink/adapters";
 import {
   assertBaseSepolia,
@@ -135,11 +135,11 @@ try {
       chainPool,
       process.env.BLINK_ALLOW_TEST_CLOCK === "1",
     );
-    const deployment = await loadChainDeployment(
+    const deployment = await loadProtocolDeployment(
       chainPool,
       chainConfig.deploymentId!,
     );
-    const reader = chainLogReader(
+    const reader = protocolLogReader(
       createPublicClient({
         transport: http(chainConfig.rpcUrl!, {
           timeout: config.rpcTimeoutMs,
@@ -147,14 +147,15 @@ try {
           fetchFn: indexerFetchWithTimeout(config.rpcTimeoutMs),
         }),
       }),
+      deployment,
     );
     assertBaseSepolia(await reader.chainId());
     const indexer = createChainIndexer({
-      store: postgresChainIndexStore(chainPool),
+      store: postgresProtocolIndexStore(chainPool),
       reader,
       deploymentId: chainConfig.deploymentId!,
-      marketAddress: deployment.marketAddress,
-      deploymentBlock: deployment.deploymentBlock,
+      marketAddress: deployment.generation.markets,
+      deploymentBlock: BigInt(deployment.startBlock),
       workerId:
         hostname().slice(0, 64) + ":" + process.pid + ":" + randomUUID(),
       rangeSize: chainConfig.rangeSize,

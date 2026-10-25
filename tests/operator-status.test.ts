@@ -93,11 +93,11 @@ test("pause reuses authenticated health", async () => {
   try {
     await w.owner(async () => {
       await w.t.db.query(
-        "UPDATE chain.maker_state SET global_paused=true WHERE deployment_id=$1",
+        "UPDATE protocol.makers SET data=data||jsonb_build_object('globalPaused',true) WHERE deployment_id=$1",
         [DEPLOYMENT],
       );
       await w.t.db.query(
-        "UPDATE chain.markets SET state='DISPUTED',paused=true WHERE deployment_id=$1",
+        "UPDATE protocol.markets SET data=data||jsonb_build_object('state','DISPUTED','paused',true) WHERE deployment_id=$1",
         [DEPLOYMENT],
       );
     });
@@ -122,7 +122,7 @@ test("pause reuses authenticated health", async () => {
     assert.doesNotMatch(summary, /Budget|Candidates|Resolution queue/);
     assert.equal((await get("pause", w.agents.taker.apiKey)).statusCode, 404);
     await w.owner(() =>
-      w.t.db.query("DELETE FROM chain.maker_state WHERE deployment_id=$1", [
+      w.t.db.query("DELETE FROM protocol.makers WHERE deployment_id=$1", [
         DEPLOYMENT,
       ]),
     );

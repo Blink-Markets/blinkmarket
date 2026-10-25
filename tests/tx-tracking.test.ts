@@ -16,10 +16,9 @@ import {
   quoteTypes,
 } from "../packages/schemas/src/index.js";
 import { deploymentFixture } from "./helpers/deployment-fixture.js";
-import {
-  blinkMarketAbi,
-  blinkTestUsdAbi,
-} from "../packages/adapters/src/blink-abi.js";
+import { protocolAbi } from "../packages/adapters/src/protocol-abi.js";
+import { erc20Abi as blinkTestUsdAbi } from "viem";
+const blinkMarketAbi = protocolAbi.markets;
 import { postgresTxTrackingStore } from "../packages/adapters/src/tx-tracking-store.js";
 import { txReceiptReader } from "../packages/adapters/src/tx-receipt-reader.js";
 import { createTxTracker } from "../packages/application/src/tx-tracking.js";
@@ -171,7 +170,7 @@ test("tracker verifies a fill before inclusion and projects its market id withou
     );
     assert.equal(row.rows[0]!.market_id, "1");
     assert.equal(
-      (await t.db.query("SELECT * FROM chain.positions")).rows.length,
+      (await t.db.query("SELECT * FROM protocol.position_reads")).rows.length,
       0,
     );
   } finally {
@@ -290,7 +289,7 @@ test("unknown, reverted, reorged and re-included receipts retain correct confirm
     };
     await t.setRole(null);
     await t.db.query(
-      "INSERT INTO chain.positions(deployment_id,market_id,account,yes_shares,as_of_block_hash) VALUES ('d1',3,decode($1,'hex'),2,decode($2,'hex'))",
+      "INSERT INTO protocol.positions(deployment_id,key,data,as_of_block_hash) VALUES ('d1','3:0x'||$1,jsonb_build_object('marketId','3','account','0x'||$1,'yesShares','2','noShares','0','takerBoughtShares','0','redeemedPayoutMicros','0'),decode($2,'hex'))",
       [address.slice(2), hash(10).slice(2)],
     );
     await run();

@@ -15,6 +15,7 @@ import {
 import {
   identityCrypto,
   rpcSignatureVerifier,
+  postgresProtocolReader,
   postgresIdentityStore,
   assertIdentityRuntimeRole,
   assertProductionClock,
@@ -30,9 +31,9 @@ import {
 } from "@blink/adapters";
 import { apiConfig, modeAtLeast } from "./config.js";
 
-// Task 5 replaces this with the reader over the indexed store. Until then the index counts as
-// stale, so no key is issued and no upload or claim is accepted.
-const protocolReaderFor = (_pool: pg.Pool) => ({
+// Without a deployment there is no index, so the index counts as stale: no key is issued and no
+// upload or claim is accepted.
+const staleProtocolReader = {
   health: async () => ({
     headBlock: 0,
     indexedBlock: 0,
@@ -42,7 +43,7 @@ const protocolReaderFor = (_pool: pg.Pool) => ({
   account: async () => null,
   hasRole: async () => false,
   marketBySpecHash: async () => null,
-});
+};
 
 const config = apiConfig(process.env);
 const pool =
@@ -85,6 +86,10 @@ try {
             ).authenticate(authorization, "admin"),
         })
       : undefined;
+  const protocolReader =
+    pool && config.deploymentId
+      ? postgresProtocolReader(pool, config.deploymentId)
+      : staleProtocolReader;
   const identity = pool
     ? createIdentityService(
         postgresIdentityStore(pool),
@@ -92,7 +97,7 @@ try {
         config.walletOrigin!,
         {
           verifier: rpcSignatureVerifier(config.rpcUrl),
-          reader: protocolReaderFor(pool),
+          reader: protocolReader,
         },
       )
     : undefined;
@@ -130,13 +135,13 @@ try {
                     fileObjectStore(config.specDirectory!),
                   ),
                   identity,
-                  reader: protocolReaderFor(pool),
+                  reader: protocolReader,
                   publicOrigin: config.specPublicOrigin!,
                 }),
                 createSuggestionService({
                   store: postgresSuggestionStore(pool),
                   identity,
-                  reader: protocolReaderFor(pool),
+                  reader: protocolReader,
                 }),
                 createForecastService({
                   store: postgresForecastStore(pool),

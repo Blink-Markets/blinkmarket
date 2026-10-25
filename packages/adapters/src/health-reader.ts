@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import type { HealthReader } from "@blink/ports";
 import { AdminMetricsResponse } from "@blink/schemas";
-import { DeploymentManifest } from "@blink/schemas";
+import { ProtocolDeployment } from "@blink/schemas";
 import { indexerStaleSql } from "./market-read-store.js";
 import { createUnitOfWork } from "./database.js";
 
@@ -9,9 +9,8 @@ const DEFAULT_ALERT_STALL_MS = 15 * 60_000;
 
 // The condition behind INDEXER_LAG. alert.evaluate
 // judges the same SQL, so an alert and a health reason can never disagree.
-export const INDEXER_MAX_LAG_BLOCKS = 3;
-export const INDEXER_FRESH_SQL = `(NOT (${indexerStaleSql("c")}) AND gate_reason IS NULL AND head_number-block_number<=${INDEXER_MAX_LAG_BLOCKS})`;
-export const INDEXER_LAGGING_SQL = `head_number-block_number>${INDEXER_MAX_LAG_BLOCKS}`;
+export const INDEXER_FRESH_SQL = `(NOT (${indexerStaleSql("c")}) AND gate_reason IS NULL)`;
+export const INDEXER_LAGGING_SQL = `COALESCE(c.head_timestamp,c.block_timestamp)-c.block_timestamp>30`;
 type Count = { name: string; count: string };
 export function postgresHealthReader(
   pool: Pool,
@@ -29,11 +28,11 @@ export function postgresHealthReader(
         await db.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
         const deployment = (
           await db.query(
-            "SELECT manifest,enabled FROM markets.deployments WHERE id=$1",
+            "SELECT manifest FROM markets.protocol_deployments WHERE deployment_id=$1",
             [deploymentId],
           )
         ).rows[0];
-        const manifest = DeploymentManifest.safeParse(deployment?.manifest);
+        const manifest = ProtocolDeployment.safeParse(deployment?.manifest);
         const cursor = (
           await db.query(
             `SELECT block_number::text,head_number::text,
@@ -63,7 +62,7 @@ export function postgresHealthReader(
         ).rows[0]!;
         const reasons: Awaited<ReturnType<HealthReader["health"]>>["reasons"] =
           [];
-        if (!deployment?.enabled || !manifest.success)
+        if (!manifest.success)
           reasons.push("SERVICE_NOT_READY");
         if (!fresh) reasons.push("INDEXER_LAG");
         return {

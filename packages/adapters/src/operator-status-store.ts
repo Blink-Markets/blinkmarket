@@ -16,10 +16,10 @@ export function postgresOperatorStatusStore(
   return {
     async pause() {
       const { rows } = await pool.query(
-        `SELECT d.id AS "deploymentId",s.global_paused AS "globalPaused",
+        `SELECT d.deployment_id AS "deploymentId",s.global_paused AS "globalPaused",
         COALESCE((SELECT jsonb_agg(jsonb_build_object('marketId',m.market_id::text,'paused',m.paused) ORDER BY m.market_id)
-        FROM chain.markets m WHERE m.deployment_id=d.id),'[]'::jsonb) AS markets
-        FROM markets.deployments d LEFT JOIN chain.maker_state s ON s.deployment_id=d.id WHERE d.id=$1`,
+        FROM protocol.market_reads m WHERE m.deployment_id=d.deployment_id),'[]'::jsonb) AS markets
+        FROM markets.protocol_deployments d LEFT JOIN protocol.maker_reads s ON s.deployment_id=d.deployment_id WHERE d.deployment_id=$1`,
         [deploymentId],
       );
       return AdminPauseState.parse(

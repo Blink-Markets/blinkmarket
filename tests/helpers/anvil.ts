@@ -1,23 +1,23 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { readFile } from "node:fs/promises";
+import {
+  deployProtocol,
+  planProtocolDeployment,
+} from "../../packages/adapters/src/protocol-deployer.ts";
+import { presets } from "../../packages/schemas/src/index.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   createPublicClient,
   createWalletClient,
   defineChain,
   http,
-  keccak256,
   numberToHex,
-  type Abi,
-  type Address,
   type Hex,
   type LocalAccount,
 } from "viem";
 import { mnemonicToAccount } from "viem/accounts";
 // @ts-expect-error Plain JS tool resolver has no declaration file.
 import { foundryBinary } from "../../scripts/foundry.mjs";
-import type { DeploymentManifest } from "../../packages/schemas/src/index.js";
 
 // Public Anvil fixture mnemonic: never funded on a live network.
 const mnemonic = "test test test test test test test test test test test junk";
@@ -164,91 +164,18 @@ export async function startAnvil(
   };
 }
 
-const artifact = async (name: string) =>
-  JSON.parse(
-    await readFile(
-      new URL("../../contracts/artifacts/" + name + ".json", import.meta.url),
-      "utf8",
-    ),
-  ) as { abi: Abi; bytecode: Hex; abiHash: Hex };
-
-// Deploys the generated artifacts from the admin account and describes them as a manifest
-// for this isolated Anvil only; it is never registered as a real deployment.
-export async function deployBlink(anvil: Anvil): Promise<{
-  market: Address;
-  token: Address;
-  deploymentBlock: bigint;
-  manifest: DeploymentManifest;
-}> {
-  const [usd, blink] = await Promise.all([
-    artifact("BlinkTestUSD"),
-    artifact("BlinkMarket"),
-  ]);
-  const { admin, maker, proposer, challenger, arbiter, minter } =
-    anvil.accounts;
-  const wallet = anvil.wallet(admin);
-  const deploy = async (
-    { abi, bytecode }: { abi: Abi; bytecode: Hex },
-    args: readonly unknown[],
-  ) => {
-    const receipt = await anvil.publicClient.waitForTransactionReceipt({
-      hash: await wallet.deployContract({ abi, bytecode, args }),
-    });
-    if (receipt.status !== "success" || !receipt.contractAddress)
-      throw new Error("ANVIL_DEPLOY_FAILED");
-    return receipt;
-  };
-  const tokenReceipt = await deploy(usd, [minter.address]);
-  const token = tokenReceipt.contractAddress!;
-  const marketReceipt = await deploy(blink, [
-    token,
-    maker.address,
-    admin.address,
-    proposer.address,
-    challenger.address,
-    arbiter.address,
-  ]);
-  const market = marketReceipt.contractAddress!;
-  const codeHash = async (address: Address) =>
-    keccak256((await anvil.publicClient.getCode({ address }))!);
-  return {
-    market,
-    token,
-    deploymentBlock: tokenReceipt.blockNumber,
-    manifest: {
-      status: "DEPLOYED",
-      chainId: 84532,
-      deploymentId: "local-anvil",
-      deploymentBlock: String(tokenReceipt.blockNumber),
-      contracts: { BlinkTestUSD: token, BlinkMarket: market },
-      artifacts: {
-        abiHashes: { BlinkTestUSD: usd.abiHash, BlinkMarket: blink.abiHash },
-        bytecodeHashes: {
-          BlinkTestUSD: await codeHash(token),
-          BlinkMarket: await codeHash(market),
-        },
-        compiler: "0.8.30",
-        gitCommit: "0".repeat(40),
-        dependencies: { openzeppelin: "5.6.1" },
-      },
-      roles: {
-        admin: admin.address,
-        maker: maker.address,
-        resultProposer: proposer.address,
-        challenger: challenger.address,
-        arbiter: arbiter.address,
-        faucetMinter: minter.address,
-      },
-      parameters: {
-        collateralDecimals: 6,
-        quoteDefaultTtlSeconds: 30,
-        quoteMaxTtlSeconds: 60,
-        makerSpreadBps: 200,
-        maxFillShares: "100",
-        maxMarketPairs: "10000",
-        maxTakerShares: "500",
-      },
-      tradingEnabled: true,
-    },
-  };
+export async function deployAlphaProtocol(anvil: Anvil) {
+  const wallet = anvil.wallet(anvil.accounts.admin);
+  const plan = await planProtocolDeployment({
+    deployer: anvil.accounts.admin.address,
+    nonce: await anvil.publicClient.getTransactionCount({
+      address: anvil.accounts.admin.address,
+    }),
+    params: presets.alpha,
+    treasury: anvil.accounts.keeper.address,
+  });
+  return deployProtocol(wallet, anvil.publicClient, plan, {
+    deploymentId: "local-protocol",
+    releaseCommit: "0".repeat(40),
+  });
 }

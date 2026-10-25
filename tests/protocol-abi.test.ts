@@ -15,7 +15,7 @@ const compiled = (name: string) =>
     ),
   ).abi as Abi;
 
-// Same comparison as tests/blink-abi.test.ts: what changes decoding or selectors.
+// Compare every ABI field that changes decoding or selectors.
 const parameter = (p: AbiParameter): unknown => ({
   type: p.type,
   name: p.name ?? "",

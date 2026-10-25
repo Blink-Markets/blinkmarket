@@ -1,12 +1,11 @@
 import {
-  applyEvent,
+  applyProtocolEvent,
   ChainProjectionError,
   compareEvents,
-  foldEvents,
+  foldProtocolEvents,
   projectionChanges,
-  touchedMarketIds,
-  type ChainProjection,
-  type DecodedEvent,
+  type ProtocolProjection,
+  type ProtocolEvent,
 } from "@blink/domain";
 import type {
   ChainBlock,
@@ -35,9 +34,9 @@ export interface ChainSyncResult {
   gateReason: string | null;
 }
 
-// RFQ gate thresholds (spec 14.2): more than 3 blocks behind or no update for 10 s closes quoting.
-const MAX_LAG_BLOCKS = 3n;
-const MAX_AGE_MS = 10_000;
+// Both timestamp lag and stopped-index age have a 30-second budget.
+const MAX_LAG_SECONDS = 30n;
+const MAX_AGE_MS = 30_000;
 
 export function chainIndexHealth(
   deploymentId: string,
@@ -65,7 +64,11 @@ export function chainIndexHealth(
     syncedAt: cursor.syncedAt.toISOString(),
     ageMs,
     gateReason: cursor.gateReason,
-    ready: lag <= MAX_LAG_BLOCKS && ageMs <= MAX_AGE_MS && !cursor.gateReason,
+    ready:
+      (cursor.headTimestamp ?? cursor.blockTimestamp) - cursor.blockTimestamp <=
+        MAX_LAG_SECONDS &&
+      ageMs <= MAX_AGE_MS &&
+      !cursor.gateReason,
   };
 }
 
@@ -75,25 +78,30 @@ export function assertBaseSepolia(chainId: number) {
 }
 
 const sameHash = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
-const eventKey = (e: DecodedEvent) =>
+const eventKey = (e: ProtocolEvent) =>
   `${e.blockHash}:${e.txHash}:${e.logIndex}`.toLowerCase();
 
 // A contradiction between events and projection is a gate condition, not a crash.
-function tryFold(events: readonly DecodedEvent[]): ChainProjection | null {
+function tryFold(
+  events: readonly ProtocolEvent[],
+  halfLife: number,
+): ProtocolProjection | null {
   try {
-    return foldEvents(events);
+    return foldProtocolEvents(events, halfLife);
   } catch (error) {
     if (error instanceof ChainProjectionError) return null;
     throw error;
   }
 }
 function tryAdvance(
-  base: ChainProjection,
-  events: readonly DecodedEvent[],
-): ChainProjection | null {
-  const next = structuredClone(base);
+  base: ProtocolProjection,
+  events: readonly ProtocolEvent[],
+  halfLife: number,
+): ProtocolProjection | null {
+  let next = base;
   try {
-    for (const event of events) applyEvent(next, event);
+    for (const event of events)
+      next = applyProtocolEvent(next, event, halfLife);
     return next;
   } catch (error) {
     if (error instanceof ChainProjectionError) return null;
@@ -120,6 +128,7 @@ export function createChainIndexer(deps: {
     throw new Error("INVALID_CHAIN_INDEXER_DEPLOYMENT_BLOCK");
   const baselineNumber = deps.deploymentBlock - 1n;
   let chainVerified = false;
+  let halfLife: number;
 
   const result = (
     gateReason: string | null,
@@ -169,6 +178,7 @@ export function createChainIndexer(deps: {
       (await store.loadCanonicalEvents(deploymentId)).filter(
         (e) => e.blockNumber <= ancestor!.number,
       ),
+      halfLife,
     );
     if (!projection) return stop("PROJECTION_MISMATCH");
     await store.commitReorg(lease, {
@@ -179,35 +189,6 @@ export function createChainIndexer(deps: {
       finalizedNumber: finalized,
     });
     return result("REORG_IN_PROGRESS", { reorgedTo: ancestor.number });
-  }
-
-  // Compares the projection with contract reads pinned to the block the range ends at.
-  async function agreesWithChain(
-    projection: ChainProjection,
-    marketIds: readonly string[],
-    blockHash: string,
-  ) {
-    const views = await reader.views(
-      marketAddress,
-      blockHash,
-      marketIds.map((id) => BigInt(id)),
-    );
-    if (
-      views.makerFreeMicros !== projection.maker.freeMicros ||
-      views.epoch !== projection.maker.epoch
-    )
-      return false;
-    return marketIds.every((id) => {
-      const chain = views.markets.get(id);
-      const mine = projection.markets.get(id);
-      return (
-        !!chain &&
-        !!mine &&
-        chain.totalPairs === mine.totalPairs &&
-        chain.escrowMicros === mine.escrowMicros &&
-        chain.state === mine.state
-      );
-    });
   }
 
   return {
@@ -221,6 +202,7 @@ export function createChainIndexer(deps: {
       checkpoint();
       if (!chainVerified) {
         assertBaseSepolia(await reader.chainId());
+        halfLife = await store.creditHalfLife(deploymentId);
         chainVerified = true;
       }
       if (!(await store.loadCursor(deploymentId))) {
@@ -234,6 +216,7 @@ export function createChainIndexer(deps: {
           deploymentId,
           baseline,
           headNumber: first.number,
+          headTimestamp: first.timestamp,
           finalizedNumber: await reader.finalized(),
         });
       }
@@ -244,6 +227,7 @@ export function createChainIndexer(deps: {
         return result(cursor.gateReason);
       checkpoint();
 
+      const headObservedAt = await store.now();
       const head = await reader.head();
       const finalized = finalizedOf(cursor, await reader.finalized());
       // A provider behind our cursor is lagging, not reorganized: change nothing.
@@ -269,6 +253,8 @@ export function createChainIndexer(deps: {
           return result(cursor.gateReason);
         await store.refreshCursor(lease, cursor.version, {
           headNumber: head.number,
+          headTimestamp: head.timestamp,
+          headObservedAt,
           finalizedNumber: finalized,
           gateReason,
         });
@@ -278,7 +264,7 @@ export function createChainIndexer(deps: {
       // Pin the range end before reading anything that belongs to the range.
       const end = await reader.block(to);
       if (!end) return result(cursor.gateReason);
-      const events: DecodedEvent[] = [];
+      const events: ProtocolEvent[] = [];
       const seen = new Set<string>();
       for (const event of await reader.logs(
         marketAddress,
@@ -324,35 +310,32 @@ export function createChainIndexer(deps: {
           return result(cursor.gateReason);
       }
 
-      // Every advancing range, empty or not, is compared with the chain at the pinned end. The
-      // markets compared are those the events name, those the fold changed, and all of them while
-      // recovering from a mismatch.
+      // Journal membership is audited without RPC; only this range's touched entities are RPC-checked.
       const before = await store.loadProjection(deploymentId);
-      const touched = touchedMarketIds(events);
-      const recovering = cursor.gateReason === "PROJECTION_MISMATCH";
-      const compared = (candidate: ChainProjection) => [
-        ...new Set([
-          ...touched,
-          ...projectionChanges(before, candidate).markets,
-          ...(recovering ? candidate.markets.keys() : []),
-        ]),
-      ];
-      let after: ChainProjection | null = null;
+      let after: ProtocolProjection | null = null;
       let changes: ProjectionChanges | null = null;
-      const next = events.length ? tryAdvance(before, events) : before;
-      if (next && (await agreesWithChain(next, compared(next), end.hash))) {
-        after = next;
-        changes = projectionChanges(before, next);
+      const next = events.length
+        ? tryAdvance(before, events, halfLife)
+        : before;
+      // shortcut: membership refolds history per batch; persist a journal inventory if it reaches the lease budget.
+      const refolded = tryFold(
+        [...(await store.loadCanonicalEvents(deploymentId)), ...events],
+        halfLife,
+      );
+      const complete =
+        next &&
+        refolded &&
+        (Object.keys(refolded) as (keyof ProtocolProjection)[]).every(
+          (kind) =>
+            next[kind].size === refolded[kind].size &&
+            [...refolded[kind].keys()].every((key) => next[kind].has(key)),
+        );
+      if (complete && (await reader.agrees(end.hash, next!, events))) {
+        after = next!;
+        changes = projectionChanges(before, next!);
       } else {
         // The stored projection may have drifted: refold every canonical event and compare again.
-        const refolded = tryFold([
-          ...(await store.loadCanonicalEvents(deploymentId)),
-          ...events,
-        ]);
-        if (
-          refolded &&
-          (await agreesWithChain(refolded, compared(refolded), end.hash))
-        )
+        if (refolded && (await reader.agrees(end.hash, refolded, events)))
           after = refolded; // `changes` stays null: the stored rows are rewritten wholesale
       }
       if (!after) {
@@ -371,6 +354,8 @@ export function createChainIndexer(deps: {
         projection: after,
         changes,
         headNumber: head.number,
+        headTimestamp: head.timestamp,
+        headObservedAt,
         finalizedNumber: finalized,
         gateReason,
         newMarketIds: events
@@ -457,7 +442,12 @@ export interface ChainRebuildReport {
 export async function rebuildChainProjection(
   store: ChainIndexStore,
   deploymentId: string,
-  options: { verify: boolean; workerId: string; leaseMs?: number },
+  options: {
+    verify: boolean;
+    workerId: string;
+    leaseMs?: number;
+    reader?: ChainLogReader;
+  },
 ): Promise<ChainRebuildReport> {
   if (!(await store.loadCursor(deploymentId)))
     throw new Error("CHAIN_CURSOR_NOT_FOUND");
@@ -471,15 +461,21 @@ export async function rebuildChainProjection(
   if (!options.verify && !lease) throw new Error("CHAIN_INDEX_LEASE_HELD");
   try {
     const snapshot = await store.loadSnapshot(deploymentId);
-    const rebuilt = tryFold(snapshot.events);
+    const rebuilt = tryFold(
+      snapshot.events,
+      await store.creditHalfLife(deploymentId),
+    );
     if (!rebuilt) throw new Error("INCONSISTENT_EVENT");
+    if (
+      options.reader &&
+      !(await options.reader.agrees(snapshot.cursor.blockHash, rebuilt))
+    )
+      throw new Error("PROJECTION_MISMATCH");
     const changes = projectionChanges(snapshot.projection, rebuilt);
     const differences = [
-      ...(changes.maker || !snapshot.makerRowPresent ? ["maker"] : []),
-      ...changes.markets.map((key) => `market:${key}`),
-      ...changes.positions.map((key) => `position:${key}`),
-      ...changes.digests.map((key) => `digest:${key}`),
-      ...changes.takers.map((key) => `taker:${key}`),
+      ...Object.entries(changes)
+        .filter(([kind]) => kind !== "removed")
+        .flatMap(([kind, keys]) => keys.map((key) => `${kind}:${key}`)),
       ...changes.removed,
     ];
     if (lease && differences.length)

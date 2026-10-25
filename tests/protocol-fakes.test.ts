@@ -157,3 +157,9 @@ test("fakeSignatureVerifier recovers EOAs, honours listed wallets and can go una
     SignatureCheckUnavailable,
   );
 });
+
+test("fakeProtocolReader passes the shared indexed-reader contract", async () => {
+  const { assertReaderContract, readerContractState } =
+    await import("./helpers/protocol-reader-contract.ts");
+  await assertReaderContract(fakeProtocolReader(readerContractState()));
+});

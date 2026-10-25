@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import pg from "pg";
 import {
@@ -9,12 +8,16 @@ import {
   createWalletClient,
   defineChain,
   http,
-  type Abi,
 } from "viem";
 import { mnemonicToAccount } from "viem/accounts";
 import { migratePostgres } from "../packages/adapters/src/migrations.js";
-import { deployContracts } from "../packages/adapters/src/contract-deployer.js";
-import { registerVerifiedDeployment } from "../packages/adapters/src/deployment-registry.js";
+import {
+  deployProtocol,
+  planProtocolDeployment,
+} from "../packages/adapters/src/protocol-deployer.js";
+import { presets } from "../packages/schemas/src/index.js";
+import { verifyProtocolDeployment } from "../packages/adapters/src/deployment-verifier.js";
+import { registerProtocolDeployment } from "../packages/adapters/src/deployment-registry.js";
 // Opt-in smoke for the three infrastructure images against local PostgreSQL and Anvil.
 // The project name and the host ports can be overridden, so two runs (or another stack on a shared
 // machine) never share containers, volumes or ports; the defaults avoid the test PostgreSQL ports.
@@ -133,44 +136,21 @@ async function deploy(registrar: pg.Pool) {
   });
   const wallet = (who: ReturnType<typeof account>) =>
     createWalletClient({ account: who, chain, transport: http(url) });
-  const manifest = await deployContracts({
-    client,
-    wallet: wallet(account(9)),
-    roles: {
-      admin: account(0).address,
-      maker: account(1).address,
-      resultProposer: account(2).address,
-      challenger: account(3).address,
-      arbiter: account(4).address,
-      faucetMinter: account(5).address,
-    },
-    deploymentId: DEPLOYMENT,
-    artifactsDir: new URL("../contracts/artifacts/", import.meta.url),
-    gitCommit: "0".repeat(40),
-    dependencies: {
-      "@openzeppelin/contracts": "5.6.1",
-      solc: "0.8.30",
-      viem: "2.56.8",
-    },
+  const plan = await planProtocolDeployment({
+    deployer: account(9).address,
+    nonce: await client.getTransactionCount({ address: account(9).address }),
+    params: presets.alpha,
+    treasury: account(8).address,
   });
-  const abis = {
-    BlinkMarket: JSON.parse(
-      await readFile("contracts/artifacts/BlinkMarket.json", "utf8"),
-    ).abi as Abi,
-    BlinkTestUSD: JSON.parse(
-      await readFile("contracts/artifacts/BlinkTestUSD.json", "utf8"),
-    ).abi as Abi,
-  };
-  const register = (reason: string) =>
-    registerVerifiedDeployment(
-      registrar,
-      manifest,
-      DEPLOYMENT,
-      client,
-      abis,
-      reason,
-    );
-  await register("Image smoke Anvil");
+  const manifest = await deployProtocol(wallet(account(9)), client, plan, {
+    deploymentId: DEPLOYMENT,
+    releaseCommit: "0".repeat(40),
+  });
+  await registerProtocolDeployment(
+    registrar,
+    manifest,
+    await verifyProtocolDeployment(client, manifest),
+  );
   return { client, manifest };
 }
 

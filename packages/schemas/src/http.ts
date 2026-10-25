@@ -145,8 +145,8 @@ const Ref = {
 const Summary = z.strictObject({
   ...Ref,
   specHash: Hash,
-  storedState: z.enum(["OPEN", "PROPOSED", "DISPUTED", "FINAL"]),
-  effectiveState: z.enum(["OPEN", "CLOSED", "PROPOSED", "DISPUTED", "FINAL"]),
+  storedState: z.enum(["PENDING", "OPEN", "PROPOSED", "DISPUTED", "FINAL", "CANCELLED"]),
+  effectiveState: z.enum(["PENDING", "OPEN", "CLOSED", "PROPOSED", "DISPUTED", "FINAL", "CANCELLED"]),
   paused: z.boolean(),
   canTrade: z.boolean(),
   reasons: z.array(z.string()),
@@ -289,7 +289,7 @@ const contracts = [
       deploymentId: DeploymentId.optional(),
       mode: Mode.optional(),
       status: z
-        .enum(["OPEN", "CLOSED", "PROPOSED", "DISPUTED", "FINAL"])
+        .enum(["PENDING", "OPEN", "CLOSED", "PROPOSED", "DISPUTED", "FINAL", "CANCELLED"])
         .optional(),
     }),
   }),

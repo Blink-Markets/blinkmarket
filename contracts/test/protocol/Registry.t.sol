@@ -368,6 +368,50 @@ contract RegistryTest is ProtocolBase {
         eq(registry.creditOf(alice, Role.MAKER), 0);
     }
 
+    // Oracle vectors for tests/protocol-reducer.test.ts; uses real registry storage and creditOf.
+    // Zero-decayed losses must leave the event-reconstructed credit clock intact.
+    function test_indexerZeroDecayedLossLeavesClockUnchanged() public {
+        uint256 half = registry.params().creditHalfLife;
+        markets.gain(registry, alice, Role.CREATOR, 100e6);
+        markets.gain(registry, bob, Role.CREATOR, 100e6);
+        uint256 t0 = token.clock();
+        vm.warp(t0 + half);
+        markets.loss(registry, bob, Role.CREATOR, 100e6);
+        vm.warp(t0 + half * 3 / 2);
+        markets.gain(registry, alice, Role.CREATOR, 100e6);
+        markets.gain(registry, bob, Role.CREATOR, 100e6);
+        eq(registry.creditOf(alice, Role.CREATOR), 1);
+        eq(registry.creditOf(bob, Role.CREATOR), 1);
+        vm.warp(t0 + half * 2);
+        eq(registry.creditOf(alice, Role.CREATOR), 0);
+        eq(registry.creditOf(bob, Role.CREATOR), registry.creditOf(alice, Role.CREATOR));
+    }
+
+    function test_indexerZeroDecayedLossWritesNothingAndEmitsNothing() public {
+        markets.gain(registry, bob, Role.CREATOR, 100e6);
+        vm.warp(token.clock() + registry.params().creditHalfLife);
+        vm.record();
+        vm.recordLogs();
+        markets.loss(registry, bob, Role.CREATOR, 100e6);
+        (, bytes32[] memory writes) = vm.accesses(address(registry));
+        eq(writes.length, 0);
+        eq(vm.getRecordedLogs().length, 0);
+    }
+
+    function test_indexerCreditDecayVectors() public {
+        markets.gain(registry, alice, Role.CREATOR, 5_000e6);
+        markets.gain(registry, alice, Role.CREATOR, 5_000e6);
+        uint256 t0 = token.clock();
+        uint256 half = registry.params().creditHalfLife;
+        eq(registry.creditOf(alice, Role.CREATOR), 100);
+        vm.warp(t0 + half);
+        eq(registry.creditOf(alice, Role.CREATOR), 50);
+        vm.warp(t0 + half * 5 / 2);
+        eq(registry.creditOf(alice, Role.CREATOR), 25);
+        vm.warp(t0 + half * 40);
+        eq(registry.creditOf(alice, Role.CREATOR), 0);
+    }
+
     function test_creditGainLossAndDecay() public {
         IBlinkRegistry r = registry;
         uint256 half = registry.params().creditHalfLife;

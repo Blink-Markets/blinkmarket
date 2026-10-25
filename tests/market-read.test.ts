@@ -1,3 +1,4 @@
+import { seedReadMaker } from "./helpers/protocol-index.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildApi } from "../apps/api/src/server.js";
@@ -71,8 +72,9 @@ test("DB clock determines effective close; pause, missing/stale/gated cursors ke
   const t = await fixture();
   try {
     await t.db.exec(
-      "UPDATE chain.markets SET close_at=extract(epoch FROM blink.now())::bigint+1800 WHERE market_id=5; SET blink.test_clock_offset_seconds='3600'; UPDATE chain.cursors SET synced_at=blink.now()-interval '11 seconds'; INSERT INTO chain.maker_state(deployment_id,global_paused,as_of_block_hash) SELECT deployment_id,true,block_hash FROM chain.cursors",
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('closeAt',extract(epoch FROM blink.now())::bigint+1800) WHERE key::numeric=5; SET blink.test_clock_offset_seconds='3600'; UPDATE chain.cursors SET synced_at=blink.now()-interval '31 seconds'",
     );
+    await seedReadMaker(t.db, "d1", { globalPaused: true });
     const r = await t.app.inject({ url: "/v1/markets?status=CLOSED" });
     const m = parse("/v1/markets", r.json()).items[0];
     assert.equal(m.marketId, "5");
@@ -113,7 +115,7 @@ async function seedSpec(t: Awaited<ReturnType<typeof fixture>>) {
   const h = keccak256(bytes);
   t.objects.set("local-object:" + h, bytes);
   await t.db.query(
-    "UPDATE chain.markets SET spec_hash=decode($1,'hex') WHERE market_id=1",
+    "UPDATE protocol.markets SET data=data||jsonb_build_object('specHash','0x'||encode(decode($1,'hex'),'hex')) WHERE key::numeric=1",
     [h.slice(2)],
   );
   return { bytes, h };
@@ -123,11 +125,11 @@ test("detail parses archived spec; spec serves exact bytes and integrity failure
   try {
     const { bytes, h } = await seedSpec(t);
     await t.db.query(
-      "UPDATE chain.markets SET state='PROPOSED',proposed_at=1700000000,proposed_outcome='YES',proposal_evidence_hash=decode($1,'hex') WHERE market_id=1",
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('state','PROPOSED','proposedAt',1700000000,'proposedOutcome','YES','proposalEvidenceHash','0x'||encode(decode($1,'hex'),'hex')) WHERE key::numeric=1",
       [hash(20).slice(2)],
     );
     await t.db.exec(
-      "UPDATE chain.markets SET spec_uri='memory:untrusted' WHERE market_id=1",
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('specUri','memory:untrusted') WHERE key::numeric=1",
     );
     await t.setRole("blink_api");
     const r = await t.app.inject("/v1/markets/1?deploymentId=d1");
@@ -184,12 +186,12 @@ test("positions return exact YES, NO, INVALID payouts and omit redeemed zero bal
       [3, "INVALID"],
     ] as const)
       await t.db.query(
-        "UPDATE chain.markets SET state='FINAL',final_outcome=$2 WHERE market_id=$1",
+        "UPDATE protocol.markets SET data=data||jsonb_build_object('state','FINAL','finalOutcome',$2::text) WHERE key::numeric=$1",
         [id, outcome],
       );
     for (let id = 1; id <= 5; id++)
       await t.db.query(
-        "INSERT INTO chain.positions(deployment_id,market_id,account,yes_shares,no_shares,redeemed_payout_micros,as_of_block_hash) VALUES ('d1',$1,decode($2,'hex'),$3,$4,$5,decode($6,'hex'))",
+        "INSERT INTO protocol.positions(deployment_id,key,data,as_of_block_hash) VALUES ('d1',$1::text||':0x'||$2::text,jsonb_build_object('marketId',$1::text,'account','0x'||$2::text,'yesShares',$3::text,'noShares',$4::text,'takerBoughtShares','0','redeemedPayoutMicros',$5::text),decode($6,'hex'))",
         [
           id,
           address.slice(2),
@@ -285,6 +287,23 @@ test("the hook supplies trading permission", async () => {
       (await t.app.inject("/v1/markets?limit=1")).json(),
     );
     assert.equal(list.items[0].canTrade, true);
+  } finally {
+    await t.close();
+  }
+});
+
+test("public market cursor refuses 31 seconds of timestamp lag", async () => {
+  const t = await fixture();
+  try {
+    const store = postgresMarketReadStore(t.pool);
+    await t.db.query(
+      "UPDATE chain.cursors SET head_number=11,head_timestamp=block_timestamp+30",
+    );
+    assert.equal((await store.market("d1", "1"))?.cursor?.stale, false);
+    await t.db.query(
+      "UPDATE chain.cursors SET head_timestamp=block_timestamp+31",
+    );
+    assert.equal((await store.market("d1", "1"))?.cursor?.stale, true);
   } finally {
     await t.close();
   }
