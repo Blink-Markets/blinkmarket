@@ -61,12 +61,9 @@ async function setup() {
       }),
       createMarketReadService({
         store: postgresMarketReadStore(t.pool),
-        archive: { read: async () => new Uint8Array() },
-        identity: {
-          authenticate: async () => {
-            throw new Error("UNUSED");
-          },
-        },
+        reader,
+        content: { get: async () => null },
+        deployment: async () => null,
       }),
     ],
   });

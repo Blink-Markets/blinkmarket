@@ -160,11 +160,14 @@ export function buildApi(
         details: {},
       });
     });
-  // Everything under /v1/content is untrusted upload bytes or a reply about them: nosniff and a sandbox
+  // Everything under /v1/content (and a market's spec bytes) is untrusted upload bytes or a reply about them: nosniff and a sandbox
   // CSP go on every such response, errors and early refusals included. The immutable cache header and
   // the HTML attachment disposition belong to the stored-content response alone (content service).
   app.addHook("onSend", async (request, reply, payload) => {
-    if (!request.routeOptions.url?.startsWith("/v1/content")) return payload;
+    const url = request.routeOptions.url;
+    // A market's spec bytes are served like stored content, so they get the same headers.
+    if (!url?.startsWith("/v1/content") && url !== "/v1/markets/:id/spec")
+      return payload;
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("Content-Security-Policy", "sandbox");
     // Framework-level refusals (an unsupported Content-Type, an oversize body) set no cache header.

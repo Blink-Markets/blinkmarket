@@ -66,7 +66,7 @@ test("test_reorgRevokesRegistrationEligibility", async () => {
   }
 });
 test("postgresProtocolReader passes the same contract as the fake", async () => {
-  const { assertReaderContract, readerContractState } =
+  const { assertReaderContract, readerContractState, jurorRow } =
     await import("./helpers/protocol-reader-contract.ts");
   const t = await createTestDatabase();
   try {
@@ -77,11 +77,23 @@ test("postgresProtocolReader passes the same contract as the fake", async () => 
       ["markets", state.markets!, "marketId"],
       ["makers", state.makers!, "address"],
       ["anchors", state.anchors!, "root"],
+      ["proposals", state.proposals!, "marketId"],
+      ["disputes", state.disputes!, "disputeId"],
+      ["rounds", state.rounds!, (v: any) => `${v.disputeId}:${v.round}`],
+      [
+        "votes",
+        state.votes!,
+        (v: any) => `${v.disputeId}:${v.round}:${v.juror}`,
+      ],
+      ["jurors", state.jurors!.map(jurorRow), "address"],
+      ["fees", state.fees!, "marketId"],
+      ["templates", state.templates!, "templateId"],
+      ["positions", state.positions!, (v: any) => `${v.marketId}:${v.account}`],
     ] as const)
       for (const v of values)
         await t.pool.query(
           `INSERT INTO protocol.${table}(deployment_id,key,data,as_of_block_hash) VALUES('d1',$1,$2,decode(repeat('11',32),'hex'))`,
-          [(v as any)[key], v],
+          [typeof key === "string" ? (v as any)[key] : key(v), v],
         );
     for (const [key, data] of Object.entries(state.digests!))
       await t.pool.query(

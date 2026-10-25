@@ -7,6 +7,19 @@ import { z } from "zod";
 import { AdminMetricsResponse, HealthResponse } from "./health.ts";
 import { PublicDeployment } from "./deployment-v1.ts";
 import {
+  AccountResponse,
+  DeploymentResponse,
+  DisputeDetail,
+  DisputesPage,
+  FeesResponse,
+  MarketDetail,
+  MarketsPage,
+  PositionsPage,
+  ReadPageQuery,
+  TemplatesPage,
+} from "./read-api.ts";
+import { MarketStateName } from "./protocol.ts";
+import {
   WalletChallengeRequest,
   WalletChallengeResponse,
   WalletVerificationRequest,
@@ -19,7 +32,6 @@ import {
   DeploymentId,
   DecimalInteger,
   Hash,
-  MarketSpec,
   Mode,
   Outcome,
   PositiveUint256,
@@ -160,21 +172,6 @@ export const ConfigResponse = z.strictObject({
   }),
 });
 export type ConfigResponse = z.infer<typeof ConfigResponse>;
-const Ref = {
-  deploymentId: DeploymentId,
-  marketId: PositiveUint256,
-  mode: Mode,
-};
-const Summary = z.strictObject({
-  ...Ref,
-  specHash: Hash,
-  storedState: z.enum(["PENDING", "OPEN", "PROPOSED", "DISPUTED", "FINAL", "CANCELLED"]),
-  effectiveState: z.enum(["PENDING", "OPEN", "CLOSED", "PROPOSED", "DISPUTED", "FINAL", "CANCELLED"]),
-  paused: z.boolean(),
-  canTrade: z.boolean(),
-  reasons: z.array(z.string()),
-  chainCursor: ChainCursor,
-});
 const Window = z.strictObject({
   windowId: Id,
   horizonKey: Horizon,
@@ -193,17 +190,6 @@ const Forecast = z.strictObject({
   agentVersion: Text,
   withdrawnAt: Time.nullable(),
   contaminated: z.boolean(),
-});
-const Resolution = z.strictObject({
-  ...Ref,
-  proposedOutcome: Outcome.nullable(),
-  finalOutcome: Outcome.nullable(),
-  proposalEvidenceHash: Hash.nullable(),
-  finalEvidenceHash: Hash.nullable(),
-  proposedAt: Time.nullable(),
-  challengeEndsAt: Time.nullable(),
-  hardDeadline: Time,
-  chainCursor: ChainCursor,
 });
 const ListQuery = z
   .object({
@@ -234,6 +220,8 @@ export type HttpContract = {
   rawRequest?: { mediaTypes: readonly string[]; maxBytes: number };
   /** The response is the stored bytes, served with the stored media type. */
   rawResponse?: boolean;
+  /** Response headers this operation always sets (name -> description), for the OpenAPI document. */
+  responseHeaders?: Record<string, string>;
   /** Request body limit in bytes where it differs from the service default. */
   bodyLimit?: number;
 };
@@ -307,24 +295,59 @@ const contracts = [
         "Public; no API key. Single use: a challenge issues or revokes once, then answers 409. Verification attempts are limited per challenge and per client IP. The apiKey secret is shown only in the first successful issue response.",
     },
   ),
-  operation("GET", "/v1/markets", list(Summary), {
-    query: ListQuery.extend({
-      deploymentId: DeploymentId.optional(),
-      mode: Mode.optional(),
-      status: z
-        .enum(["PENDING", "OPEN", "CLOSED", "PROPOSED", "DISPUTED", "FINAL", "CANCELLED"])
-        .optional(),
-    }),
+  operation("GET", "/v1/deployment", DeploymentResponse, {
+    description:
+      "The current protocol deployment manifest (blink.deployment/2): chain, contract addresses, generation and the Params that bind every rule.",
   }),
-  operation(
-    "GET",
-    "/v1/markets/:id",
-    Summary.extend({
-      spec: MarketSpec,
-      resolution: Resolution,
-    }),
-  ),
-  operation("GET", "/v1/markets/:id/spec", MarketSpec),
+  operation("GET", "/v1/markets", MarketsPage, {
+    query: ReadPageQuery.extend({ state: MarketStateName.optional() }),
+    description:
+      "Markets in id order, paged by after/limit (at most 100). Each item carries the parseMarketSpec result of its stored spec bytes, or the reason there is none (SPEC_UNAVAILABLE); an unreadable spec never hides a market.",
+  }),
+  operation("GET", "/v1/markets/:id", MarketDetail, {
+    query: noQuery,
+    description:
+      "The market, the parseMarketSpec result of its spec bytes, and its proposal (null before one).",
+  }),
+  operation("GET", "/v1/markets/:id/spec", z.string(), {
+    query: noQuery,
+    rawResponse: true,
+    responseHeaders: {
+      "Blink-Index-Stale": "true or false: the index freshness rule (IndexHealth.stale)",
+      "Blink-Index-Indexed-Block": "IndexHealth.indexedBlock",
+      "Blink-Index-Head-Block": "IndexHealth.headBlock",
+      "Blink-Index-Lag-Seconds": "IndexHealth.lagSeconds",
+    },
+    description:
+      "The exact stored spec bytes with the stored media type, served like GET /v1/content/:hash except for Cache-Control: no-cache, because the body is immutable but the index health is not. The raw body cannot carry IndexHealth, so every answer (success, 404, 503) sets the Blink-Index-* headers. 503 SPEC_UNAVAILABLE when the platform holds no intact bytes for the market's specHash.",
+  }),
+  operation("GET", "/v1/markets/:id/disputes", DisputesPage, {
+    query: ReadPageQuery,
+    description: "A market's disputes in id order.",
+  }),
+  operation("GET", "/v1/disputes/:id", DisputeDetail, {
+    params: z.strictObject({ id: PositiveUint256 }),
+    query: ReadPageQuery.extend({ round: z.coerce.number().int().min(0).optional() }),
+    description:
+      "The dispute with all its rounds, and a page of votes in (round, juror) order. A vote's choice is null until its reveal.",
+  }),
+  operation("GET", "/v1/markets/:id/fees", FeesResponse, {
+    query: noQuery,
+    description:
+      "How the market's fee pool was split by distributeFees, recomputed from the deployment Params and the final outcome; fees is null until it ran.",
+  }),
+  operation("GET", "/v1/accounts/:address", AccountResponse, {
+    description:
+      "Roles, credit per role decayed to the request time, and juror state. 404 for an address the index has not seen register.",
+  }),
+  operation("GET", "/v1/accounts/:address/positions", PositionsPage, {
+    query: ReadPageQuery,
+    description: "An account's positions in market-id order.",
+  }),
+  operation("GET", "/v1/templates", TemplatesPage, {
+    query: ReadPageQuery,
+    description: "Registered question templates in template-id order.",
+  }),
   operation(
     "POST",
     "/v1/content",
@@ -474,22 +497,6 @@ const contracts = [
   ),
   operation(
     "GET",
-    "/v1/accounts/:address/positions",
-    list(
-      z.strictObject({
-        ...Ref,
-        yesShares: Uint256,
-        noShares: Uint256,
-        payoutMicros: Uint256.nullable(),
-        pendingIntentIds: z.array(Id),
-        chainCursor: ChainCursor,
-      }),
-    ),
-    { query: ListQuery.extend({ deploymentId: DeploymentId }) },
-  ),
-  operation("GET", "/v1/markets/:id/resolution", Resolution),
-  operation(
-    "GET",
     "/v1/metrics",
     z.strictObject({
       mode: Mode,
@@ -534,6 +541,19 @@ export function generateOpenApi(enabledPaths: readonly string[] = []) {
           ]
         : []),
     ];
+    const declared = c.responseHeaders
+      ? {
+          headers: Object.fromEntries(
+            Object.entries(c.responseHeaders).map(([name, description]) => [
+              name,
+              { description, schema: { type: "string" } },
+            ]),
+          ),
+        }
+      : {};
+    // A route that declares response headers sets them on the answers its own handler produces
+    // (success, 404, 503), not on early refusals such as 400 or 429.
+    const handlerErrors = [404, 503];
     const responses: Record<string, unknown> = Object.fromEntries(
       [400, 401, 403, 404, 409, 429, 500, 501, 503].map((code) => [
         String(code),
@@ -542,6 +562,7 @@ export function generateOpenApi(enabledPaths: readonly string[] = []) {
             code === 501
               ? "Planned operation; no business implementation"
               : "API error",
+          ...(handlerErrors.includes(code) ? declared : {}),
           content: { "application/json": { schema: json(ApiError) } },
         },
       ]),
@@ -550,6 +571,7 @@ export function generateOpenApi(enabledPaths: readonly string[] = []) {
       description: enabledPaths.includes(c.path)
         ? "Success"
         : "Planned success contract (not yet enabled)",
+      ...declared,
       content: c.rawResponse
         ? {
             "application/octet-stream": {

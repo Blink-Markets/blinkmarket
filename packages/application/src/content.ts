@@ -22,6 +22,26 @@ const SERVE_HEADERS = {
   "Cache-Control": "public, max-age=31536000, immutable",
 } as const;
 
+/** The response for stored bytes: exact bytes, stored media type, immutable, HTML as an attachment. */
+export function storedContentResponse(found: {
+  object: { hash: string; mediaType: string };
+  bytes: Uint8Array;
+}) {
+  const { object, bytes } = found;
+  return {
+    status: 200,
+    body: bytes,
+    contentType: object.mediaType,
+    headers: {
+      ...SERVE_HEADERS,
+      ETag: '"' + object.hash + '"',
+      ...(object.mediaType === "text/html"
+        ? { "Content-Disposition": "attachment" }
+        : {}),
+    },
+  };
+}
+
 /** The media type of a Content-Type header, without parameters, or null if it is not allowed. */
 export function allowedMediaType(header: string | undefined) {
   const type = header?.split(";")[0]?.trim().toLowerCase();
@@ -87,19 +107,7 @@ export function createContentService(deps: {
       throw new IdentityError(503, "CONTENT_UNAVAILABLE", { retryable: false });
     }
     if (!found) throw new IdentityError(404, "NOT_FOUND");
-    const { object, bytes } = found;
-    return {
-      status: 200,
-      body: bytes,
-      contentType: object.mediaType,
-      headers: {
-        ...SERVE_HEADERS,
-        ETag: '"' + object.hash + '"',
-        ...(object.mediaType === "text/html"
-          ? { "Content-Disposition": "attachment" }
-          : {}),
-      },
-    };
+    return storedContentResponse(found);
   }
 
   return {

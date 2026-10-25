@@ -5,12 +5,9 @@ import {
   ApiError,
   ConfigResponse,
   IdempotencyHeaders,
-  ProtocolDeployment,
-  ProtocolMarket,
   apiContracts,
   parseMarketSpec,
   type ApiContract,
-  type IndexHealth,
   type MarketStateName,
 } from "@blink/schemas";
 
@@ -37,14 +34,6 @@ type Page = { limit?: number; cursor?: string };
 /** Paging of the protocol read routes and the RFQ list: `after` is the previous page's `next`. */
 type After = { limit?: number; after?: string };
 type ForecastMarket = { deploymentId: string; marketId: string };
-/** A page of the protocol read routes. Every such answer carries the index health it was read at. */
-export type ProtocolPage<T = Record<string, unknown>> = {
-  items: T[];
-  next: string | null;
-  index: IndexHealth;
-};
-/** A market from the read API: the indexed fields plus whatever the route adds (spec, proposal, index). */
-export type MarketDetail = ProtocolMarket & Record<string, unknown>;
 
 export type BlinkClientOptions = {
   /**
@@ -167,9 +156,6 @@ export function createBlinkClient(
     params: { id: ref.marketId },
     query: { deploymentId: ref.deploymentId },
   });
-  /** A route of the protocol read API (deployment, markets, disputes, fees, accounts, templates). */
-  const read = async (path: string, query: Record<string, unknown> = {}) =>
-    json(await send(path + queryString(query)));
   const segment = (value: string) => encodeURIComponent(value);
   /** Bytes served by hash, accepted only if keccak256(bytes) is the hash asked for. */
   const bytesByHash = async (path: string, hash: string) => {
@@ -188,52 +174,39 @@ export function createBlinkClient(
       call("POST", "/v1/auth/wallet-verifications", { body: input }),
     // --- config and protocol reads (public) ---
     getConfig: async () => ConfigResponse.parse(json(await send("/v1/config"))),
-    /** The current generation's manifest v2: contract addresses and Params. */
-    async getDeployment(): Promise<ProtocolDeployment> {
-      const body = (await read("/v1/deployment")) as Record<string, unknown>;
-      const { index: _index, ...manifest } = body;
-      return ProtocolDeployment.parse(
-        manifest.deployment !== undefined ? manifest.deployment : manifest,
-      );
-    },
-    listMarkets: (
-      query: After & { state?: MarketStateName } = {},
-    ): Promise<ProtocolPage<ProtocolMarket>> =>
-      read("/v1/markets", query) as Promise<ProtocolPage<ProtocolMarket>>,
-    async getMarket(marketId: string): Promise<MarketDetail> {
-      const body = (await read("/v1/markets/" + segment(marketId))) as Record<
-        string,
-        unknown
-      >;
-      const nested = body.market;
-      return ProtocolMarket.loose().parse(
-        typeof nested === "object" && nested !== null && !("marketId" in body)
-          ? { ...nested, ...body }
-          : body,
-      ) as MarketDetail;
-    },
+    /** The current generation's manifest and the index health it was read at. */
+    getDeployment: () => call("GET", "/v1/deployment"),
+    listMarkets: (query: After & { state?: MarketStateName } = {}) =>
+      call("GET", "/v1/markets", { query }),
+    /** The market, the parse of its spec bytes and its proposal. */
+    getMarket: (ref: { marketId: string }) =>
+      call("GET", "/v1/markets/:id", { params: { id: ref.marketId } }),
     /** The spec bytes, accepted only if keccak256(bytes) is the `specHash` the caller already trusts. */
-    async getMarketSpec(marketId: string, specHash: string) {
-      const bytes = await bytesByHash(
-        "/v1/markets/" + segment(marketId) + "/spec",
-        specHash,
-      );
+    async getMarketSpec(ref: { marketId: string }, specHash: string) {
+      const { url } = target("GET", "/v1/markets/:id/spec", {
+        params: { id: ref.marketId },
+      });
+      const bytes = await send(url);
+      if (keccak256(bytes) !== specHash.toLowerCase())
+        throw new Error("SPEC_HASH_MISMATCH");
       const parsed = parseMarketSpec(bytes);
       if (!parsed.ok) throw new Error(parsed.reason);
       return parsed.spec;
     },
-    listDisputes: (marketId: string, query: After = {}) =>
-      read("/v1/markets/" + segment(marketId) + "/disputes", query) as Promise<ProtocolPage>,
-    getDispute: (disputeId: string) =>
-      read("/v1/disputes/" + segment(disputeId)),
-    getFees: (marketId: string) =>
-      read("/v1/markets/" + segment(marketId) + "/fees"),
-    getAccount: (address: string) =>
-      read("/v1/accounts/" + segment(address)),
-    getPositions: (address: string, query: After = {}) =>
-      read("/v1/accounts/" + segment(address) + "/positions", query) as Promise<ProtocolPage>,
-    listTemplates: (query: After = {}) =>
-      read("/v1/templates", query) as Promise<ProtocolPage>,
+    listDisputes: (ref: { marketId: string }, query: After = {}) =>
+      call("GET", "/v1/markets/:id/disputes", { params: { id: ref.marketId }, query }),
+    getDispute: (ref: { disputeId: string }, query: After & { round?: number } = {}) =>
+      call("GET", "/v1/disputes/:id", { params: { id: ref.disputeId }, query }),
+    getFees: (ref: { marketId: string }) =>
+      call("GET", "/v1/markets/:id/fees", { params: { id: ref.marketId } }),
+    getAccount: (ref: { address: string }) =>
+      call("GET", "/v1/accounts/:address", { params: { address: ref.address } }),
+    getPositions: (ref: { address: string }, query: After = {}) =>
+      call("GET", "/v1/accounts/:address/positions", {
+        params: { address: ref.address },
+        query,
+      }),
+    listTemplates: (query: After = {}) => call("GET", "/v1/templates", { query }),
     // --- content and suggestions ---
     /** Uploads bytes (needs a key with content:write); the answer must name keccak256 of what was sent. */
     async uploadContent(bytes: Uint8Array, mediaType: string) {

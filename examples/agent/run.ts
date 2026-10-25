@@ -179,7 +179,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
 
   // 1. The generation: everything below trusts this manifest and nothing a quote says about itself.
   const anonymous = createBlinkClient(config.apiUrl);
-  const deployment = await anonymous.getDeployment();
+  const { deployment } = await anonymous.getDeployment();
   if (deployment.chainId !== CHAIN_ID)
     throw new Error("DEPLOYMENT_CHAIN_MISMATCH");
   const { params, shared, generation } = deployment;
@@ -276,9 +276,11 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     : await until("an OPEN market", waits.indexing, async () => {
         const now = Number(await chainSeconds());
         const page = await client.listMarkets({ state: "OPEN", limit: 100 });
-        return page.items.find((m) => m.closeAt > now);
+        return page.items.find((i) => i.market.closeAt > now)?.market;
       });
-  const market = await client.getMarket(config.marketId ?? open!.marketId);
+  const { market } = await client.getMarket({
+    marketId: config.marketId ?? open!.marketId,
+  });
   const marketId = market.marketId;
   log(`trading market ${marketId}`);
 
@@ -432,7 +434,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
 
   // 6. Wait for the market to settle, then redeem.
   const finalOutcome = await until("FINAL", waits.final, async () => {
-    const m = await client.getMarket(marketId);
+    const { market: m } = await client.getMarket({ marketId });
     return m.state === "FINAL" ? (m.finalOutcome ?? "INVALID") : undefined;
   });
   const redeemed = await send("REDEEM", {

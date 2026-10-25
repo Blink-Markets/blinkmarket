@@ -12,23 +12,21 @@ import {
   createSuggestionService,
   createRfqService,
   createTxTrackingService,
-  authenticateIdentity,
 } from "@blink/application";
 import {
   identityCrypto,
   rpcSignatureVerifier,
   postgresProtocolReader,
+  loadProtocolDeployment,
   postgresIdentityStore,
   assertIdentityRuntimeRole,
   assertProductionClock,
   postgresForecastStore,
   fileObjectStore,
-  verifiedArchive,
   postgresContentStore,
   postgresSuggestionStore,
   postgresRfqStore,
   postgresTxTrackingStore,
-  loadProtocolDeployment,
   postgresMarketReadStore,
   postgresEvaluationStore,
   postgresHealthReader,
@@ -47,10 +45,22 @@ const staleProtocolReader = {
   }),
   account: async () => null,
   hasRole: async () => false,
-  marketBySpecHash: async () => null,
+  creditAt: async () => 0,
   market: async () => null,
+  marketBySpecHash: async () => null,
+  markets: async () => ({ items: [], next: null }),
   maker: async (address: string) => ({ address, freeMicros: "0", epoch: "0" }),
   digest: async () => "UNUSED" as const,
+  anchor: async () => null,
+  proposal: async () => null,
+  disputes: async () => ({ items: [], next: null }),
+  dispute: async () => null,
+  rounds: async () => [],
+  votes: async () => ({ items: [], next: null }),
+  juror: async () => null,
+  fees: async () => null,
+  templates: async () => ({ items: [], next: null }),
+  positions: async () => ({ items: [], next: null }),
 };
 
 const config = apiConfig(process.env);
@@ -100,6 +110,10 @@ try {
       ? postgresProtocolReader(pool, config.deploymentId)
       : staleProtocolReader;
   const verifier = rpcSignatureVerifier(config.rpcUrl);
+  const contentStore =
+    pool && modeAtLeast(config.mode, "markets")
+      ? postgresContentStore(pool, fileObjectStore(config.specDirectory!))
+      : undefined;
   const identity = pool
     ? createIdentityService(
         postgresIdentityStore(pool),
@@ -142,10 +156,7 @@ try {
                   : []),
                 createMetricsService({ store: postgresEvaluationStore(pool) }),
                 createContentService({
-                  store: postgresContentStore(
-                    pool,
-                    fileObjectStore(config.specDirectory!),
-                  ),
+                  store: contentStore!,
                   identity,
                   reader: protocolReader,
                   publicOrigin: config.specPublicOrigin!,
@@ -181,23 +192,12 @@ try {
                 }),
                 createMarketReadService({
                   store: postgresMarketReadStore(pool),
-                  archive: verifiedArchive(
-                    fileObjectStore(config.specDirectory!),
-                  ),
-                  identity: {
-                    authenticate: (authorization) =>
-                      postgresIdentityStore(pool).run(async (tx) => {
-                        const principal = await authenticateIdentity(
-                          tx,
-                          identityCrypto,
-                          authorization,
-                        );
-                        return {
-                          ...principal,
-                          wallet: await tx.wallet(principal.agentId),
-                        };
-                      }),
-                  },
+                  reader: protocolReader,
+                  content: contentStore!,
+                  deployment: () =>
+                    loadProtocolDeployment(pool, config.deploymentId!).catch(
+                      () => null,
+                    ),
                 }),
               ]
             : [],

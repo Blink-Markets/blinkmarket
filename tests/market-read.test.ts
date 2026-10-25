@@ -1,310 +1,321 @@
-import { seedReadMaker } from "./helpers/protocol-index.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildApi } from "../apps/api/src/server.js";
 import { createMarketReadService } from "../packages/application/src/market-read.js";
-import { postgresMarketReadStore } from "../packages/adapters/src/market-read-store.js";
-import { apiContracts } from "../packages/schemas/src/index.js";
-import { fixture, hash, address } from "./helpers/market-read.js";
-import { readFile } from "node:fs/promises";
-import { keccak256 } from "viem";
-function parse(path: string, body: unknown) {
-  return apiContracts.find((c) => c.path === path)!.response.parse(body) as any;
+import {
+  apiContracts,
+  presets,
+  type ProtocolMarket,
+  type ProtocolVote,
+} from "../packages/schemas/src/index.js";
+import type { ContentStore, ProtocolReader } from "../packages/ports/src/index.js";
+import { fakeProtocolReader } from "./helpers/protocol-reader.js";
+import { readerContractState } from "./helpers/protocol-reader-contract.js";
+import { address, hash, protocolManifest, readMarket } from "./helpers/protocol-index.js";
+import { fixture } from "./helpers/market-read.js";
+
+const encode = (value: unknown) =>
+  new TextEncoder().encode(typeof value === "string" ? value : JSON.stringify(value));
+const SPEC = {
+  schema: "blink.market-spec/0.2",
+  title: "Fixture market",
+  question: "Will the fixture happen?",
+  class: "B",
+  resolution: { yes: "It happened.", no: "It did not." },
+  sources: ["https://example.com/fixture-only"],
+};
+const NOW = 1_000_000;
+
+/** Spec bytes by market id: valid, invalid JSON, missing, and damaged (the store throws). */
+function content(): Pick<ContentStore, "get"> {
+  const stored: Record<string, Uint8Array> = {
+    [hash(1)]: encode(SPEC),
+    [hash(2)]: encode("{not json"),
+  };
+  return {
+    async get(h) {
+      if (h === hash(4)) throw new Error("CONTENT_DAMAGED");
+      const bytes = stored[h];
+      return bytes
+        ? { object: { hash: h, size: bytes.length, mediaType: "application/json" }, bytes }
+        : null;
+    },
+  };
 }
-test("public markets paginate in projection order and parse the response contract", async () => {
-  const t = await fixture();
-  try {
-    await t.setRole("blink_api");
-    let cursor: string | null = null;
-    const ids: string[] = [];
-    for (let page = 0; page < 3; page++) {
-      const r: Awaited<ReturnType<typeof t.app.inject>> = await t.app.inject({
-        url: "/v1/markets?limit=2" + (cursor ? "&cursor=" + cursor : ""),
-      });
-      assert.equal(r.statusCode, 200, r.body);
-      const body = parse("/v1/markets", r.json());
-      ids.push(...body.items.map((m: any) => m.marketId));
-      cursor = body.nextCursor;
-      assert.equal(body.items[0].canTrade, false);
-    }
-    assert.deepEqual(ids, ["5", "4", "3", "2", "1"]);
-    assert.equal(cursor, null);
-  } finally {
-    await t.close();
-  }
-});
-test("list filters apply and malformed cursors are rejected", async () => {
-  const t = await fixture();
-  try {
-    await t.setRole("blink_api");
-    const get = async (q: string) => t.app.inject({ url: "/v1/markets?" + q });
-    assert.deepEqual(
-      parse(
-        "/v1/markets",
-        (await get("deploymentId=d1&mode=REPLAY&status=OPEN")).json(),
-      ).items.map((m: any) => m.marketId),
-      ["5", "4", "3", "2", "1"],
-    );
-    assert.equal((await get("deploymentId=other")).json().items.length, 0);
-    assert.equal((await get("mode=LIVE")).json().items.length, 0);
-    const cursor = (await get("limit=2")).json().nextCursor;
-    for (const q of [
-      "cursor=",
-      "cursor=not-base64",
-      "cursor=" + cursor + "&mode=LIVE",
-      "cursor=" +
-        Buffer.from(
-          JSON.stringify({
-            ...JSON.parse(Buffer.from(cursor, "base64url").toString()),
-            b: "999",
-          }),
-        ).toString("base64url"),
-    ]) {
-      const r = await get(q);
-      assert.equal(r.statusCode, 400, r.body);
-      assert.equal(r.json().code, "INVALID_CURSOR");
-    }
-  } finally {
-    await t.close();
-  }
-});
-test("DB clock determines effective close; pause, missing/stale/gated cursors keep trading disabled", async () => {
-  const t = await fixture();
-  try {
-    await t.db.exec(
-      "UPDATE protocol.markets SET data=data||jsonb_build_object('closeAt',extract(epoch FROM blink.now())::bigint+1800) WHERE key::numeric=5; SET blink.test_clock_offset_seconds='3600'; UPDATE chain.cursors SET synced_at=blink.now()-interval '31 seconds'",
-    );
-    await seedReadMaker(t.db, "d1", { globalPaused: true });
-    const r = await t.app.inject({ url: "/v1/markets?status=CLOSED" });
-    const m = parse("/v1/markets", r.json()).items[0];
-    assert.equal(m.marketId, "5");
-    assert.equal(m.effectiveState, "CLOSED");
-    assert.equal(m.paused, true);
-    assert.deepEqual(m.reasons, [
-      "TRADING_DISABLED",
-      "MARKET_CLOSED",
-      "TRADING_PAUSED",
-      "INDEXER_LAG",
-    ]);
-    assert.equal(m.chainCursor.finality, "INCLUDED");
-    await t.db.exec(
-      "UPDATE chain.cursors SET synced_at=blink.now(),gate_reason='REORG_IN_PROGRESS'",
-    );
-    assert.ok(
-      (await t.app.inject("/v1/markets"))
-        .json()
-        .items[0].reasons.includes("INDEXER_LAG"),
-    );
-    await t.db.exec("DELETE FROM chain.cursors");
-    const missing = parse(
-      "/v1/markets",
-      (await t.app.inject("/v1/markets")).json(),
-    ).items[0];
-    assert.ok(missing.reasons.includes("INDEXER_LAG"));
-    assert.equal(missing.chainCursor.finality, "UNKNOWN");
-    assert.equal(missing.chainCursor.blockNumber, "0");
-    assert.equal(missing.chainCursor.blockHash, hash(0));
-  } finally {
-    await t.close();
-  }
-});
-async function seedSpec(t: Awaited<ReturnType<typeof fixture>>) {
-  const bytes = await readFile(
-    new URL("../fixtures/replay/market-spec.json", import.meta.url),
-  );
-  const h = keccak256(bytes);
-  t.objects.set("local-object:" + h, bytes);
-  await t.db.query(
-    "UPDATE protocol.markets SET data=data||jsonb_build_object('specHash','0x'||encode(decode($1,'hex'),'hex')) WHERE key::numeric=1",
-    [h.slice(2)],
-  );
-  return { bytes, h };
-}
-test("detail parses archived spec; spec serves exact bytes and integrity failures are audited", async () => {
-  const t = await fixture();
-  try {
-    const { bytes, h } = await seedSpec(t);
-    await t.db.query(
-      "UPDATE protocol.markets SET data=data||jsonb_build_object('state','PROPOSED','proposedAt',1700000000,'proposedOutcome','YES','proposalEvidenceHash','0x'||encode(decode($1,'hex'),'hex')) WHERE key::numeric=1",
-      [hash(20).slice(2)],
-    );
-    await t.db.exec(
-      "UPDATE protocol.markets SET data=data||jsonb_build_object('specUri','memory:untrusted') WHERE key::numeric=1",
-    );
-    await t.setRole("blink_api");
-    const r = await t.app.inject("/v1/markets/1?deploymentId=d1");
-    assert.equal(r.statusCode, 200, r.body);
-    const detail = parse("/v1/markets/:id", r.json());
-    assert.deepEqual(detail.spec, JSON.parse(bytes.toString()));
-    const resolution = parse(
-      "/v1/markets/:id/resolution",
-      (await t.app.inject("/v1/markets/1/resolution?deploymentId=d1")).json(),
-    );
-    assert.equal(resolution.proposedAt, "2023-11-14T22:13:20.000Z");
-    assert.equal(resolution.challengeEndsAt, "2023-11-14T22:15:20.000Z");
-    assert.equal(resolution.hardDeadline, "2100-01-01T00:20:00.000Z");
-    const raw = await t.app.inject("/v1/markets/1/spec?deploymentId=d1");
-    parse("/v1/markets/:id/spec", raw.json());
-    assert.deepEqual(raw.rawPayload, bytes);
-    assert.equal(raw.headers.etag, '"' + h + '"');
-    assert.equal(
-      raw.headers["cache-control"],
-      "public, max-age=31536000, immutable",
-    );
-    assert.match(String(raw.headers["content-type"]), /^application\/json/);
-    assert.equal(
-      (await t.app.inject("/v1/markets/1?deploymentId=wrong")).statusCode,
-      404,
-    );
-    assert.equal(
-      (await t.app.inject("/v1/markets/999?deploymentId=d1")).statusCode,
-      404,
-    );
-    t.objects.set(
-      "local-object:" + h,
-      new TextEncoder().encode(bytes.toString() + " "),
-    );
-    const broken = await t.app.inject("/v1/markets/1?deploymentId=d1");
-    assert.equal(broken.statusCode, 503);
-    assert.equal(broken.json().code, "SPEC_UNAVAILABLE");
-    assert.equal(broken.json().retryable, false);
-    await t.setRole(null);
-    const audit = await t.db.query(
-      "SELECT action FROM operations.audit_log WHERE action='spec.integrity_failed'",
-    );
-    assert.equal(audit.rows.length, 1);
-  } finally {
-    await t.close();
-  }
-});
-test("positions return exact YES, NO, INVALID payouts and omit redeemed zero balances", async () => {
-  const t = await fixture();
-  try {
-    for (const [id, outcome] of [
-      [1, "YES"],
-      [2, "NO"],
-      [3, "INVALID"],
-    ] as const)
-      await t.db.query(
-        "UPDATE protocol.markets SET data=data||jsonb_build_object('state','FINAL','finalOutcome',$2::text) WHERE key::numeric=$1",
-        [id, outcome],
-      );
-    for (let id = 1; id <= 5; id++)
-      await t.db.query(
-        "INSERT INTO protocol.positions(deployment_id,key,data,as_of_block_hash) VALUES ('d1',$1::text||':0x'||$2::text,jsonb_build_object('marketId',$1::text,'account','0x'||$2::text,'yesShares',$3::text,'noShares',$4::text,'takerBoughtShares','0','redeemedPayoutMicros',$5::text),decode($6,'hex'))",
-        [
-          id,
-          address.slice(2),
-          id === 5 ? "0" : "9007199254740993",
-          id === 5 ? "0" : "3",
-          id === 5 ? "1000000" : "0",
-          hash(10).slice(2),
-        ],
-      );
-    await t.setRole("blink_api");
-    const r = await t.app.inject(
-      "/v1/accounts/" + address + "/positions?deploymentId=d1",
-    );
-    assert.equal(r.statusCode, 200, r.body);
-    const list = parse("/v1/accounts/:address/positions", r.json());
-    assert.equal(list.items.length, 4);
-    assert.deepEqual(
-      list.items.map((p: any) => p.payoutMicros),
-      [null, "4503599627370498000000", "3000000", "9007199254740993000000"],
-    );
-    const first = await t.app.inject(
-      "/v1/accounts/" + address + "/positions?deploymentId=d1&limit=2",
-    );
-    assert.ok(first.json().nextCursor);
-    const second = await t.app.inject(
-      "/v1/accounts/" +
-        address +
-        "/positions?deploymentId=d1&limit=2&cursor=" +
-        first.json().nextCursor,
-    );
-    assert.equal(second.json().items.length, 2);
-    assert.equal(second.json().nextCursor, null);
-  } finally {
-    await t.close();
-  }
-});
-test("public GET rate limit covers every market-read GET contract", async () => {
-  const t = await fixture();
-  const app = buildApi({
+const markets = () =>
+  [1, 2, 3, 4, 5].map((id) => readMarket(id, { state: id === 5 ? "FINAL" : "OPEN" })) as ProtocolMarket[];
+
+function api(reader: ProtocolReader, options: Parameters<typeof buildApi>[0] = {}) {
+  return buildApi({
     services: [
       createMarketReadService({
-        store: postgresMarketReadStore(t.pool),
-        archive: t.archive,
-        identity: {
-          async authenticate() {
-            throw new Error("unused");
+        reader,
+        content: content(),
+        deployment: async () => protocolManifest(),
+        now: () => NOW,
+        store: {
+          async transaction() {
+            return null;
           },
         },
       }),
     ],
-    publicReadLimit: { capacity: 1, refillPerSecond: 1, now: () => 0 },
+    ...options,
   });
+}
+const parse = (path: string, body: unknown) => {
+  const result = apiContracts
+    .find((c) => c.method === "GET" && c.path === path)!
+    .response.safeParse(body);
+  assert.ok(result.success, path + ": " + JSON.stringify(result.error?.issues.slice(0, 3)) + JSON.stringify(body).slice(0, 300));
+  return result.data as any;
+};
+const seeded = () => ({ ...readerContractState(), markets: markets() });
+
+test("market with invalid spec bytes still listed with parse error", async () => {
+  const app = api(fakeProtocolReader(seeded()));
   try {
-    assert.equal((await app.inject("/v1/markets")).statusCode, 200);
-    for (const url of [
-      "/v1/markets",
-      "/v1/markets/1?deploymentId=d1",
-      "/v1/markets/1/spec?deploymentId=d1",
-      "/v1/markets/1/resolution?deploymentId=d1",
-      "/v1/accounts/" + address + "/positions?deploymentId=d1",
-      "/v1/transactions/" + hash(1) + "?deploymentId=d1",
-    ]) {
-      const r = await app.inject(url);
-      assert.equal(r.statusCode, 429);
-      assert.equal(r.json().code, "RATE_LIMITED");
-      assert.ok(r.headers["retry-after"]);
-    }
+    const list = await app.inject("/v1/markets?limit=10");
+    assert.equal(list.statusCode, 200, list.body);
+    const body = parse("/v1/markets", list.json());
+    assert.deepEqual(
+      body.items.map((i: any) => [i.market.marketId, i.spec.ok, i.spec.error ?? null]),
+      [
+        ["1", true, null],
+        ["2", false, "INVALID_JSON"],
+        ["3", false, "SPEC_UNAVAILABLE"], // never uploaded
+        ["4", false, "SPEC_UNAVAILABLE"], // stored bytes are damaged
+        ["5", false, "SPEC_UNAVAILABLE"],
+      ],
+    );
+    assert.equal(body.index.stale, false);
+    const detail = await app.inject("/v1/markets/2");
+    assert.equal(parse("/v1/markets/:id", detail.json()).spec.error, "INVALID_JSON");
+    assert.equal(parse("/v1/markets/:id", (await app.inject("/v1/markets/1")).json()).spec.ok, true);
+    assert.equal((await app.inject("/v1/markets/99")).statusCode, 404);
+    assert.equal(
+      (await app.inject("/v1/markets?state=FINAL")).json().items.length,
+      1,
+    );
+    assert.equal((await app.inject("/v1/markets?state=NOPE")).statusCode, 400);
   } finally {
     await app.close();
-    await t.close();
   }
 });
-test("the hook supplies trading permission", async () => {
-  const t = await fixture({
-    async canTrade(market, cursor) {
-      return {
-        canTrade: cursor !== null && market.effectiveState === "OPEN",
-        reasons: [],
-      };
-    },
+
+test("spec route serves the exact stored bytes under the content security headers and carries index health in headers", async () => {
+  const reader = fakeProtocolReader({
+    ...seeded(),
+    health: { headBlock: 9, indexedBlock: 7, lagSeconds: 12, stale: true },
   });
+  const app = api(reader);
+  const health = (r: { headers: Record<string, unknown> }) => ({
+    stale: r.headers["blink-index-stale"],
+    indexed: r.headers["blink-index-indexed-block"],
+    head: r.headers["blink-index-head-block"],
+    lag: r.headers["blink-index-lag-seconds"],
+  });
+  const stale = { stale: "true", indexed: "7", head: "9", lag: "12" };
   try {
-    await seedSpec(t);
+    const ok = await app.inject("/v1/markets/1/spec");
+    assert.equal(ok.statusCode, 200);
+    assert.equal(ok.rawPayload.toString(), JSON.stringify(SPEC));
+    assert.match(String(ok.headers["content-type"]), /^application\/json/);
+    assert.equal(ok.headers["x-content-type-options"], "nosniff");
+    assert.equal(ok.headers["content-security-policy"], "sandbox");
+    assert.equal(ok.headers["cache-control"], "no-cache");
+    assert.deepEqual(health(ok), stale);
+    const invalid = await app.inject("/v1/markets/2/spec");
+    assert.equal(invalid.rawPayload.toString(), "{not json"); // the bytes, whatever they are
+    for (const id of ["3", "4"]) {
+      const missing = await app.inject(`/v1/markets/${id}/spec`);
+      assert.equal(missing.statusCode, 503);
+      assert.equal(missing.json().code, "SPEC_UNAVAILABLE");
+      assert.deepEqual(health(missing), stale);
+    }
+    const unknown = await app.inject("/v1/markets/99/spec");
+    assert.equal(unknown.statusCode, 404);
+    assert.deepEqual(health(unknown), stale);
+    reader.set({ health: { headBlock: 9, indexedBlock: 9, lagSeconds: 0, stale: false } });
+    assert.equal(health(await app.inject("/v1/markets/1/spec")).stale, "false");
+    const doc = (await app.inject("/openapi.json")).json();
+    const responses = doc.paths["/v1/markets/{id}/spec"].get.responses;
+    for (const status of ["200", "404", "503"])
+      assert.deepEqual(Object.keys(responses[status].headers).sort(), [
+        "Blink-Index-Head-Block",
+        "Blink-Index-Indexed-Block",
+        "Blink-Index-Lag-Seconds",
+        "Blink-Index-Stale",
+      ], status);
+    for (const status of ["400", "429"])
+      assert.equal(responses[status].headers, undefined, status);
+  } finally {
+    await app.close();
+  }
+});
+
+test("votes sealed until reveal", async () => {
+  const state = seeded();
+  const reader = fakeProtocolReader(state);
+  // A reader that leaks: the service must still show no choice for an unrevealed vote.
+  const leaky: ProtocolReader = {
+    ...reader,
+    votes: async (id, q) => {
+      const page = await reader.votes(id, q);
+      const raw = state.votes!.filter((v) => v.disputeId === id);
+      return { ...page, items: page.items.map((v) => raw.find((r) => r.round === v.round && r.juror === v.juror)!) };
+    },
+  };
+  assert.ok(state.votes!.some((v) => !v.revealed && v.choice !== null));
+  for (const r of [reader, leaky]) {
+    const app = api(r);
+    try {
+      const seen: ProtocolVote[] = [];
+      let after = "";
+      do {
+        const res = await app.inject(`/v1/disputes/9?limit=1${after}`);
+        assert.equal(res.statusCode, 200, res.body);
+        const body = parse("/v1/disputes/:id", res.json());
+        assert.deepEqual(body.rounds.map((x: any) => x.round), [0, 1]);
+        seen.push(...body.votes);
+        after = body.next ? `&after=${encodeURIComponent(body.next)}` : "";
+      } while (after);
+      assert.equal(seen.length, 3);
+      for (const v of seen) assert.equal(v.choice, v.revealed ? 1 : null);
+      assert.equal((await app.inject("/v1/disputes/404")).statusCode, 404);
+    } finally {
+      await app.close();
+    }
+  }
+});
+
+test("pagination stable", async () => {
+  const reader = fakeProtocolReader(seeded());
+  const app = api(reader);
+  try {
+    const first = (await app.inject("/v1/markets?limit=2")).json();
+    assert.deepEqual(first.items.map((i: any) => i.market.marketId), ["1", "2"]);
+    // Rows added behind and ahead of the cursor change neither this page's successor nor its order.
+    reader.set({ markets: [...markets(), readMarket(6) as ProtocolMarket] });
+    const second = (await app.inject(`/v1/markets?limit=2&after=${first.next}`)).json();
+    assert.deepEqual(second.items.map((i: any) => i.market.marketId), ["3", "4"]);
+    const third = (await app.inject(`/v1/markets?limit=2&after=${second.next}`)).json();
+    assert.deepEqual(third.items.map((i: any) => i.market.marketId), ["5", "6"]);
+    assert.equal(third.next, null);
+    for (const q of ["limit=0", "limit=101", "limit=x", "extra=1"])
+      assert.equal((await app.inject("/v1/markets?" + q)).statusCode, 400, q);
+    const d = (await app.inject("/v1/markets/1/disputes?limit=1")).json();
+    assert.deepEqual(parse("/v1/markets/:id/disputes", d).items.map((x: any) => x.disputeId), ["9"]);
+    const rest = (await app.inject(`/v1/markets/1/disputes?limit=1&after=${d.next}`)).json();
+    assert.deepEqual(rest.items.map((x: any) => x.disputeId), ["10"]);
+    assert.equal(rest.next, null);
+  } finally {
+    await app.close();
+  }
+});
+
+test("the real reader refuses a malformed cursor with INVALID_CURSOR", async () => {
+  const t = await fixture();
+  try {
+    await t.db.query(
+      "INSERT INTO protocol.disputes(deployment_id,key,data,as_of_block_hash) VALUES ('d1','10',$1,decode($2,'hex'))",
+      [readerContractState().disputes![0], hash(10).slice(2)],
+    );
     await t.setRole("blink_api");
-    const detail = parse(
-      "/v1/markets/:id",
-      (await t.app.inject("/v1/markets/1?deploymentId=d1")).json(),
-    );
-    assert.equal(detail.canTrade, true);
-    assert.deepEqual(detail.reasons, []);
-    const list = parse(
-      "/v1/markets",
-      (await t.app.inject("/v1/markets?limit=1")).json(),
-    );
-    assert.equal(list.items[0].canTrade, true);
+    for (const url of [
+      "/v1/markets?after=abc",
+      "/v1/markets/1/disputes?after=abc",
+      "/v1/disputes/10?after=abc",
+      "/v1/accounts/" + address(1) + "/positions?after=abc",
+      "/v1/templates?after=abc",
+    ]) {
+      const r = await t.app.inject(url);
+      assert.equal(r.statusCode, 400, url + r.body);
+      assert.equal(r.json().code, "INVALID_CURSOR", url);
+    }
   } finally {
     await t.close();
   }
 });
 
-test("public market cursor refuses 31 seconds of timestamp lag", async () => {
-  const t = await fixture();
+test("account and position read models decay credit and compute payouts at request time", async () => {
+  const reader = fakeProtocolReader({
+    ...seeded(),
+    jurors: [{ ...seeded().jurors![0]!, address: address(1) }],
+    positions: [
+      { marketId: "1", account: address(1), yesShares: "5", noShares: "2", takerBoughtShares: "0", redeemedPayoutMicros: "0" },
+      { marketId: "5", account: address(1), yesShares: "5", noShares: "2", takerBoughtShares: "0", redeemedPayoutMicros: "0" },
+    ],
+    markets: markets().map((m) => (m.marketId === "5" ? { ...m, finalOutcome: "YES" as const } : m)),
+  });
+  const app = api(reader);
   try {
-    const store = postgresMarketReadStore(t.pool);
-    await t.db.query(
-      "UPDATE chain.cursors SET head_number=11,head_timestamp=block_timestamp+30",
+    // Stored credit 100 at t=1000 with the 30-day half-life; NOW is 999000 s later.
+    const r = await app.inject(`/v1/accounts/${address(1).toUpperCase().replace("0X", "0x")}`);
+    const body = parse("/v1/accounts/:address", r.json());
+    assert.equal(r.statusCode, 200, r.body);
+    assert.equal(body.creditAt, NOW);
+    assert.equal(
+      body.roles.MAKER.credit,
+      await reader.creditAt(address(1), "MAKER", NOW),
     );
-    assert.equal((await store.market("d1", "1"))?.cursor?.stale, false);
-    await t.db.query(
-      "UPDATE chain.cursors SET head_timestamp=block_timestamp+31",
+    assert.equal(body.roles.MAKER.hasRole, true);
+    assert.equal(body.roles.TAKER.hasRole, false);
+    assert.equal(body.juror.address, address(1));
+    assert.equal(body.juror.pendingUnstake, "200");
+    assert.equal((await app.inject(`/v1/accounts/${address(99)}`)).statusCode, 404);
+    const positions = parse(
+      "/v1/accounts/:address/positions",
+      (await app.inject(`/v1/accounts/${address(1)}/positions`)).json(),
     );
-    assert.equal((await store.market("d1", "1"))?.cursor?.stale, true);
+    assert.deepEqual(
+      positions.items.map((p: any) => [p.marketId, p.marketState, p.payoutMicros]),
+      [["1", "OPEN", null], ["5", "FINAL", "5000000"]],
+    );
+    const fees = parse("/v1/markets/:id/fees", (await app.inject("/v1/markets/5/fees")).json());
+    assert.equal(fees.fees, null);
+    assert.equal(
+      parse("/v1/templates", (await app.inject("/v1/templates")).json()).items.length,
+      2,
+    );
+    const dep = parse("/v1/deployment", (await app.inject("/v1/deployment")).json());
+    assert.equal(dep.deployment.params.commitSeconds, presets.alpha.commitSeconds);
   } finally {
-    await t.close();
+    await app.close();
   }
+});
+
+test("public GET rate limit covers every read route", async () => {
+  const app = api(fakeProtocolReader(seeded()), {
+    publicReadLimit: { capacity: 1, refillPerSecond: 1, now: () => 0 },
+  });
+  try {
+    assert.equal((await app.inject("/v1/markets")).statusCode, 200);
+    for (const url of [
+      "/v1/deployment",
+      "/v1/markets",
+      "/v1/markets/1",
+      "/v1/markets/1/spec",
+      "/v1/markets/1/disputes",
+      "/v1/disputes/9",
+      "/v1/markets/1/fees",
+      "/v1/accounts/" + address(1),
+      "/v1/accounts/" + address(1) + "/positions",
+      "/v1/templates",
+    ]) {
+      const r = await app.inject(url);
+      assert.equal(r.statusCode, 429, url);
+      assert.equal(r.json().code, "RATE_LIMITED");
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("every read route is a public GET contract", () => {
+  const read = apiContracts.filter(
+    (c) => c.method === "GET" && /^\/v1\/(deployment|markets|disputes|accounts|templates)/.test(c.path) && !c.path.includes("forecast"),
+  );
+  assert.equal(read.length, 10);
+  for (const c of read) assert.match(c.access, /^public/, c.path);
 });

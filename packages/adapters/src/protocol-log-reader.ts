@@ -130,6 +130,118 @@ export function protocolLogReader(
       data: result,
     }) as unknown;
   };
+  // Pinned views for the resolution and juror projections. Votes have no getter; their sums are
+  // checked through the current round's committed and revealed weights.
+  const resolutionChecks = (
+    p: ProtocolProjection,
+    events: readonly ProtocolEvent[] | undefined,
+    blockHash: string,
+    deployed: (name: string) => boolean,
+  ): (() => Promise<boolean>)[] => {
+    const rread = (fn: string, args: readonly unknown[]) =>
+      read("resolution", fn, args, blockHash);
+    const jread = (fn: string, args: readonly unknown[]) =>
+      read("jurors", fn, args, blockHash);
+    const of = (contract: ProtocolEvent["contract"]) =>
+      events?.filter((e) => e.contract === contract);
+    const checks: (() => Promise<boolean>)[] = [];
+    const resolutionEvents = of("RESOLUTION");
+    for (const pr of p.proposals.values()) {
+      if (resolutionEvents && !resolutionEvents.some((e) => e.args.id === pr.marketId))
+        continue;
+      checks.push(async () => {
+        const id = BigInt(pr.marketId);
+        return (
+          String(await rread("proposerOf", [id])).toLowerCase() === pr.proposer &&
+          Number(await rread("proposedOutcome", [id])) ===
+            OutcomeName.options.indexOf(pr.outcome)
+        );
+      });
+    }
+    for (const d of p.disputes.values()) {
+      if (
+        resolutionEvents &&
+        !resolutionEvents.some(
+          (e) =>
+            e.args.disputeId === d.disputeId ||
+            (e.name === "TimeoutFinalized" && e.args.id === d.marketId),
+        )
+      )
+        continue;
+      checks.push(async () => {
+        const [v, c] = (await rread("getDispute", [BigInt(d.disputeId)])) as [
+          Record<string, any>,
+          Record<string, any>,
+        ];
+        const r = p.rounds.get(`${d.disputeId}:${d.currentRound}`);
+        if (
+          !r ||
+          String(v.marketId) !== d.marketId ||
+          String(v.challenger).toLowerCase() !== d.challenger ||
+          ["CREATION", "RESULT"][Number(v.kind)] !== d.kind ||
+          Number(v.ground) !== d.ground ||
+          String(v.evidenceHash).toLowerCase() !== d.evidenceHash ||
+          v.settled !== d.settled ||
+          v.timedOut !== d.timedOut ||
+          Number(v.currentRound) !== d.currentRound ||
+          Number(v.appealRound) !== d.appealRound ||
+          Number(c.snapshotAt) !== r.snapshotAt ||
+          Number(c.commitEnd) !== r.commitEnd ||
+          Number(c.revealEnd) !== r.revealEnd ||
+          Number(c.appealEnd) !== r.appealEnd ||
+          String(c.committedWeight) !== r.committedWeight ||
+          String(c.revealedWeight[0]) !== r.revealedWeight[0] ||
+          String(c.revealedWeight[1]) !== r.revealedWeight[1] ||
+          Number(c.revealedWeight[2] ?? 0) !== 0 ||
+          Number(c.committers) !== r.committers ||
+          Number(c.revealers) !== r.revealers ||
+          Number(c.leadingChoice) !== r.leadingChoice ||
+          Number(c.level) !== r.level ||
+          Number(c.creditThreshold) !== r.creditThreshold ||
+          c.settled !== r.settled ||
+          c.restarted !== r.restarted
+        )
+          return false;
+        // The final choice is the settled final round's leading choice.
+        if (d.settled && !d.timedOut && d.finalChoice !== r.leadingChoice)
+          return false;
+        if (d.kind !== "RESULT" || !d.settled || d.timedOut) return true;
+        const proposal = p.proposals.get(d.marketId);
+        if (!proposal) return false;
+        const challengerWins =
+          d.finalChoice !== OutcomeName.options.indexOf(proposal.outcome);
+        return (
+          String(await rread("bountyWinner", [BigInt(d.marketId)])).toLowerCase() ===
+          (challengerWins ? d.challenger : proposal.proposer)
+        );
+      });
+    }
+    const jurorEvents = of("JURORS");
+    for (const j of p.jurors.values()) {
+      if (jurorEvents && !jurorEvents.some((e) => e.args.juror === j.address))
+        continue;
+      checks.push(async () => {
+        const pending = (await jread("pendingUnstake", [j.address])) as readonly bigint[];
+        return (
+          String(await jread("slashableStake", [j.address])) ===
+            (BigInt(j.staked) + BigInt(j.pendingUnstake)).toString() &&
+          String(pending[0]) === j.pendingUnstake &&
+          Number(pending[1]) === j.unstakeReadyAt &&
+          Number(await jread("openVotes", [j.address])) === j.openVotes
+        );
+      });
+    }
+    if (
+      deployed("BlinkJurors") &&
+      (jurorEvents === undefined || jurorEvents.length > 0)
+    )
+      checks.push(
+        async () =>
+          String(await jread("totalStaked", [])) ===
+          (p.rewardPool.get("pool")?.totalStaked ?? "0"),
+      );
+    return checks;
+  };
   return {
     chainId: () => client.getChainId(),
     async head() {
@@ -250,6 +362,13 @@ export function protocolLogReader(
       )
         return false;
       if (!deployed("BlinkRegistry") && p.accounts.size) return false;
+      if (
+        !deployed("BlinkResolution") &&
+        (p.proposals.size || p.disputes.size || p.rounds.size || p.votes.size)
+      )
+        return false;
+      if (!deployed("BlinkJurors") && (p.jurors.size || p.rewardPool.size))
+        return false;
       if (!deployed("BlinkAnchor") && p.anchors.size) return false;
       const mread = (fn: string, args: readonly unknown[]) =>
         read("markets", fn, args, blockHash);
@@ -385,6 +504,7 @@ export function protocolLogReader(
           return true;
         });
       }
+      checks.push(...resolutionChecks(p, events, blockHash, deployed));
       for (const a of p.anchors.values()) {
         if (!touched("ANCHOR", "root", a.root)) continue;
         checks.push(

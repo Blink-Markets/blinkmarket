@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { keccak256 } from "viem";
+import { RoleName } from "../packages/schemas/src/index.js";
 import {
   BlinkApiError,
   createBlinkClient,
@@ -126,7 +127,43 @@ const market = {
   creationChallenged: false,
 };
 const spec = JSON.parse(SPEC_BYTES.toString("utf8"));
-const protocolPage = (item: unknown) => ({ items: [item], next: null, index });
+const specResult = { ok: true, spec };
+const marketsPage = { items: [{ market, spec: specResult }], next: null, index };
+const dispute = {
+  disputeId: "1",
+  marketId: MARKET,
+  kind: "RESULT",
+  ground: 0,
+  challenger: WALLET,
+  evidenceHash: HASH,
+  currentRound: 1,
+  appealRound: 0,
+  settled: false,
+  timedOut: false,
+  finalChoice: null,
+};
+const round = {
+  disputeId: "1",
+  round: 1,
+  level: 0,
+  snapshotAt: 10,
+  commitEnd: 20,
+  revealEnd: 30,
+  appealEnd: 40,
+  committedWeight: "5",
+  revealedWeight: ["0", "0"],
+  committers: 1,
+  revealers: 0,
+  leadingChoice: 0,
+  restarted: false,
+  settled: false,
+  creditThreshold: 0,
+};
+const templatesPage = {
+  items: [{ templateId: HASH, class: "B", parserHash: HASH, uri: "ipfs://template" }],
+  next: null,
+  index,
+};
 const rfqId = "00000000-0000-4000-8000-0000000000aa";
 const quote = {
   marketId: MARKET,
@@ -198,57 +235,78 @@ const cases: Case[] = [
     method: "GET",
     path: "/v1/markets",
     query: { state: "OPEN", limit: "5", after: "3" },
-    answer: protocolPage(market),
+    answer: marketsPage,
   },
   {
     name: "getMarket",
-    call: (c) => c.getMarket(MARKET),
+    call: (c) => c.getMarket(marketRef),
     method: "GET",
     path: "/v1/markets/" + MARKET,
-    answer: { ...market, index },
+    answer: { market, spec: specResult, proposal: null, index },
   },
   {
     name: "getDeployment",
     call: (c) => c.getDeployment(),
     method: "GET",
     path: "/v1/deployment",
-    answer: manifest,
+    answer: { deployment: manifest, index },
   },
   {
     name: "listDisputes",
-    call: (c) => c.listDisputes(MARKET, { limit: 2 }),
+    call: (c) => c.listDisputes(marketRef, { limit: 2 }),
     method: "GET",
     path: `/v1/markets/${MARKET}/disputes`,
     query: { limit: "2" },
-    answer: protocolPage({ disputeId: "1" }),
+    answer: { items: [dispute], next: null, index },
   },
   {
     name: "getDispute",
-    call: (c) => c.getDispute("1"),
+    call: (c) => c.getDispute({ disputeId: "1" }, { round: 1 }),
     method: "GET",
     path: "/v1/disputes/1",
-    answer: { disputeId: "1", index },
+    query: { round: "1", limit: "20" },
+    answer: { dispute, rounds: [round], votes: [], next: null, index },
   },
   {
     name: "getFees",
-    call: (c) => c.getFees(MARKET),
+    call: (c) => c.getFees(marketRef),
     method: "GET",
     path: `/v1/markets/${MARKET}/fees`,
-    answer: { feePoolMicros: "0", index },
+    answer: { marketId: MARKET, fees: null, index },
   },
   {
     name: "getAccount",
-    call: (c) => c.getAccount(WALLET),
+    call: (c) => c.getAccount({ address: WALLET }),
     method: "GET",
     path: `/v1/accounts/${WALLET}`,
-    answer: { address: WALLET, index },
+    answer: {
+      address: WALLET,
+      registered: true,
+      creditAt: 100,
+      roles: Object.fromEntries(
+        RoleName.options.map((role) => [
+          role,
+          {
+            hasRole: role === "TAKER",
+            stakeMicros: role === "TAKER" ? "100000000" : "0",
+            active: role === "TAKER",
+            exitRequestedAt: null,
+            openObligations: 0,
+            credit: 0,
+          },
+        ]),
+      ),
+      juror: null,
+      index,
+    },
   },
   {
     name: "listTemplates",
     call: (c) => c.listTemplates(),
     method: "GET",
     path: "/v1/templates",
-    answer: protocolPage({ templateId: HASH }),
+    query: { limit: "20" },
+    answer: templatesPage,
   },
   {
     name: "listForecastWindows",
@@ -383,11 +441,27 @@ const cases: Case[] = [
   },
   {
     name: "getPositions",
-    call: (c) => c.getPositions(WALLET, { limit: 50 }),
+    call: (c) => c.getPositions({ address: WALLET }, { limit: 50 }),
     method: "GET",
     path: `/v1/accounts/${WALLET}/positions`,
     query: { limit: "50" },
-    answer: protocolPage({ marketId: MARKET, yes: "10", no: "0" }),
+    answer: {
+      items: [
+        {
+          marketId: MARKET,
+          account: WALLET,
+          yesShares: "10",
+          noShares: "0",
+          takerBoughtShares: "10",
+          redeemedPayoutMicros: "0",
+          marketState: "OPEN",
+          finalOutcome: null,
+          payoutMicros: null,
+        },
+      ],
+      next: null,
+      index,
+    },
   },
   {
     name: "getMetrics",
@@ -600,7 +674,7 @@ test("a business refusal is final, and reads are retried too", async () => {
           headers: { "Retry-After": "3" },
           body: apiError("RATE_LIMITED", true),
         }
-      : { body: protocolPage(market) },
+      : { body: marketsPage },
   );
   const options = {
     sleep: async (milliseconds: number) => {
@@ -685,31 +759,31 @@ test("getMarketSpec returns the spec only when the bytes hash to the expected sp
   const server = await scripted(() => ({ body: served }));
   try {
     const client = createBlinkClient(server.origin, API_KEY);
-    assert.deepEqual(await client.getMarketSpec(MARKET, specHash), spec);
+    assert.deepEqual(await client.getMarketSpec(marketRef, specHash), spec);
     assert.equal(server.seen[0]!.path, `/v1/markets/${MARKET}/spec`);
     assert.deepEqual(server.seen[0]!.query, {});
     // The hash may be written in either case.
     assert.deepEqual(
       await client.getMarketSpec(
-        MARKET,
+        marketRef,
         specHash.toUpperCase().replace("0X", "0x"),
       ),
       spec,
     );
     served = altered;
     await assert.rejects(
-      client.getMarketSpec(MARKET, specHash),
-      /HASH_MISMATCH/,
+      client.getMarketSpec(marketRef, specHash),
+      /SPEC_HASH_MISMATCH/,
     );
     // Bytes that match their hash but are not a market spec are refused as well.
     const notSpec = Buffer.from('{"schemaVersion":"other"}');
     served = notSpec;
-    await assert.rejects(client.getMarketSpec(MARKET, keccak256(notSpec)));
+    await assert.rejects(client.getMarketSpec(marketRef, keccak256(notSpec)));
     // And a wrong expectation is refused even though the server's bytes are fine.
     served = SPEC_BYTES;
     await assert.rejects(
-      client.getMarketSpec(MARKET, "0x" + "00".repeat(32)),
-      /HASH_MISMATCH/,
+      client.getMarketSpec(marketRef, "0x" + "00".repeat(32)),
+      /SPEC_HASH_MISMATCH/,
     );
   } finally {
     await server.close();
@@ -722,21 +796,21 @@ test("the retired v0.1 execution methods are gone, not stubbed", () => {
     assert.equal(client[name], undefined, name);
 });
 
-test("getMarket accepts the market flattened or nested, and getDeployment the manifest bare or wrapped", async () => {
-  const flat = { ...market, spec: { a: 1 }, proposal: null, index };
-  let served: unknown = flat;
+test("the read methods accept only the answer shapes of the read API", async () => {
+  let served: unknown = { market, spec: specResult, proposal: null, index };
   const server = await scripted(() => ({ body: served }));
   try {
     const client = createBlinkClient(server.origin, API_KEY);
-    assert.deepEqual(await client.getMarket(MARKET), flat);
-    served = { market, spec: { a: 1 }, index };
-    assert.equal((await client.getMarket(MARKET)).marketId, MARKET);
+    assert.equal((await client.getMarket(marketRef)).market.marketId, MARKET);
+    // A flattened market, a bare manifest and a market that breaks the schema are all refused.
+    served = { ...market, index };
+    await assert.rejects(client.getMarket(marketRef));
+    served = { market: { ...market, closeAt: "soon" }, spec: specResult, proposal: null, index };
+    await assert.rejects(client.getMarket(marketRef));
     served = { deployment: manifest, index };
-    assert.equal((await client.getDeployment()).deploymentId, DEPLOYMENT);
+    assert.equal((await client.getDeployment()).deployment.deploymentId, DEPLOYMENT);
     served = { ...manifest, index };
-    assert.equal((await client.getDeployment()).deploymentId, DEPLOYMENT);
-    served = { ...market, closeAt: "soon" };
-    await assert.rejects(client.getMarket(MARKET));
+    await assert.rejects(client.getDeployment());
   } finally {
     await server.close();
   }
@@ -851,7 +925,7 @@ test("an answer that breaks the contract is an error, an API refusal is a BlinkA
       (error) => !(error instanceof BlinkApiError),
     );
     await assert.rejects(
-      client.getMarket(MARKET),
+      client.getMarket(marketRef),
       (error) => error instanceof BlinkApiError && error.status === 404,
     );
   } finally {
