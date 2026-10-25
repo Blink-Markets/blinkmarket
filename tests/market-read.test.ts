@@ -111,8 +111,19 @@ test("market with invalid spec bytes still listed with parse error", async () =>
   }
 });
 
-test("spec route serves the exact stored bytes under the content security headers", async () => {
-  const app = api(fakeProtocolReader(seeded()));
+test("spec route serves the exact stored bytes under the content security headers and carries index health in headers", async () => {
+  const reader = fakeProtocolReader({
+    ...seeded(),
+    health: { headBlock: 9, indexedBlock: 7, lagSeconds: 12, stale: true },
+  });
+  const app = api(reader);
+  const health = (r: { headers: Record<string, unknown> }) => ({
+    stale: r.headers["blink-index-stale"],
+    indexed: r.headers["blink-index-indexed-block"],
+    head: r.headers["blink-index-head-block"],
+    lag: r.headers["blink-index-lag-seconds"],
+  });
+  const stale = { stale: "true", indexed: "7", head: "9", lag: "12" };
   try {
     const ok = await app.inject("/v1/markets/1/spec");
     assert.equal(ok.statusCode, 200);
@@ -120,14 +131,29 @@ test("spec route serves the exact stored bytes under the content security header
     assert.match(String(ok.headers["content-type"]), /^application\/json/);
     assert.equal(ok.headers["x-content-type-options"], "nosniff");
     assert.equal(ok.headers["content-security-policy"], "sandbox");
+    assert.equal(ok.headers["cache-control"], "no-cache");
+    assert.deepEqual(health(ok), stale);
     const invalid = await app.inject("/v1/markets/2/spec");
     assert.equal(invalid.rawPayload.toString(), "{not json"); // the bytes, whatever they are
     for (const id of ["3", "4"]) {
       const missing = await app.inject(`/v1/markets/${id}/spec`);
       assert.equal(missing.statusCode, 503);
       assert.equal(missing.json().code, "SPEC_UNAVAILABLE");
+      assert.deepEqual(health(missing), stale);
     }
-    assert.equal((await app.inject("/v1/markets/99/spec")).statusCode, 404);
+    const unknown = await app.inject("/v1/markets/99/spec");
+    assert.equal(unknown.statusCode, 404);
+    assert.deepEqual(health(unknown), stale);
+    reader.set({ health: { headBlock: 9, indexedBlock: 9, lagSeconds: 0, stale: false } });
+    assert.equal(health(await app.inject("/v1/markets/1/spec")).stale, "false");
+    const doc = (await app.inject("/openapi.json")).json();
+    const headers = doc.paths["/v1/markets/{id}/spec"].get.responses["200"].headers;
+    assert.deepEqual(Object.keys(headers).sort(), [
+      "Blink-Index-Head-Block",
+      "Blink-Index-Indexed-Block",
+      "Blink-Index-Lag-Seconds",
+      "Blink-Index-Stale",
+    ]);
   } finally {
     await app.close();
   }

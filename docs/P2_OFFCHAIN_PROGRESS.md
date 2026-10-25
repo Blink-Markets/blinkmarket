@@ -328,11 +328,20 @@ templates) as public, key-less, paged reads.
   arithmetic (R32: the treasury takes all rounding dust; the proposer's share is
   paid only if the proposal won; the creator share goes to jurors on `INVALID`; the
   bounty is paid only for an overturned, finalized result dispute, else it goes to
-  jurors). The keeper tip must equal the event's tip, or the fold fails closed. The
+  jurors). When no juror stake exists at the distribution, `BlinkJurors.notifyReward`
+  forwards the whole juror allocation to the treasury: `jurors` is then 0 and the
+  amount is added to `treasury`, so every figure equals its recipient's balance
+  delta. The keeper tip must equal the event's tip, or the fold fails closed. The
   contract and the brief agree on the dust rule: no deviation.
-- `JurorState.rewardsOwed` simulates the seven-day reward stream and is resynced
-  at every `RewardNotified`. It is not checked against the chain (invisible
-  settles can drift it by dust); everything else about a juror is.
+- `JurorState.rewardsOwed` simulates the seven-day reward stream from events alone
+  and is resynced at every `RewardNotified`. A `RewardsClaimed` event resets the
+  juror to 0 and its checkpoint to the current accumulator (never a subtraction),
+  exactly what the contract holds after a claim. Known gap: a juror's own
+  zero-value `claimRewards` (and a zero slash) settle the contract's checkpoint
+  but emit no event, so `rewardsOwed` can exceed the contract by under 1 micro per
+  such silent call until the juror's next claim; the claim always pays the contract
+  value. This is the one place where a read model is not exactly the contract.
+  Everything else about a juror is checked against the chain.
 - Verification against the chain: each batch also `eth_call`s only the touched
   proposals (`proposerOf`, `proposedOutcome`), disputes (`getDispute`, including the
   current round, and `bountyWinner`) and jurors (`slashableStake`, `pendingUnstake`,
@@ -341,7 +350,11 @@ templates) as public, key-less, paged reads.
   populated projection with the contract undeployed fails. The full cross-check
   runs only in rebuild.
 - Routes, all public GET, paged by `after`/`limit` (at most 100) with an `index`
-  (`IndexHealth`) in every body: `/v1/deployment`, `/v1/markets?state=`,
+  (`IndexHealth`) in every JSON body; `/v1/markets/:id/spec` returns the exact stored
+  bytes, so it carries the same health in the headers `Blink-Index-Stale`,
+  `Blink-Index-Indexed-Block`, `Blink-Index-Head-Block` and
+  `Blink-Index-Lag-Seconds` on every answer, with `Cache-Control: no-cache`
+  (immutable bytes, mutable health): `/v1/deployment`, `/v1/markets?state=`,
   `/v1/markets/:id` (market, spec parse result, proposal), `/v1/markets/:id/spec`
   (exact bytes, `nosniff`, `Content-Security-Policy: sandbox`, `503
   SPEC_UNAVAILABLE` when the platform holds no intact bytes), `/v1/markets/:id/disputes`,

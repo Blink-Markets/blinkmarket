@@ -236,6 +236,8 @@ export function feeBreakdown(
   resultDispute: ProtocolDispute | undefined,
   pool: bigint,
   keeper: string,
+  /** BlinkJurors.notifyReward sends everything to the treasury while no juror stake exists. */
+  noJurorStake: boolean,
 ): FeeBreakdown {
   const share = (bps: number) => (pool * BigInt(bps)) / 10_000n,
     creator = share(rules.creatorShareBps),
@@ -267,12 +269,12 @@ export function feeBreakdown(
   return {
     marketId: market.marketId,
     poolMicros: pool.toString(),
-    treasury: treasury.toString(),
+    treasury: (noJurorStake ? treasury + toJurors : treasury).toString(),
     creator: (invalid ? 0n : creator).toString(),
     resolution: (proposalWon ? gross - tip : 0n).toString(),
     keeperTip: tip.toString(),
     keeper: keeper.toLowerCase(),
-    jurors: toJurors.toString(),
+    jurors: (noJurorStake ? 0n : toJurors).toString(),
     bounty: (bountyPaid ? bounty : 0n).toString(),
     bountyWinner: bountyPaid ? winner : null,
   };

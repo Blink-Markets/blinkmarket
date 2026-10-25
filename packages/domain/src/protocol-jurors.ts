@@ -74,8 +74,12 @@ function settle(pool: RewardPool, j: JurorLedger, at: number) {
   j.rewardPaid = pool.rewardPerToken;
 }
 
-// shortcut: invisible settles (a zero claim, a zero slash) can drift rewardsOwed by dust; every
-// RewardNotified resynchronises the accumulator, and rewardsOwed is never gated against the chain.
+// Known gap, by design: the read model is derived from events alone. BlinkJurors.claimRewards settles
+// the caller and returns without an event when nothing is owed, and slash settles before returning
+// when nothing is taken. Those silent settles move the contract's per-juror checkpoint, so the sum of
+// fractions the fold floors later can exceed the contract by under 1 micro per silent call. Every
+// RewardsClaimed event resets the juror to exactly what the contract holds after a claim (0), and the
+// claim always pays the contract value. rewardsOwed is therefore never gated against the chain.
 export function applyJurorEvent(p: JurorProjection, e: ProtocolEvent): void {
   const at = Number(e.blockTimestamp);
   const pool = p.rewardPool.get(POOL_KEY) ?? emptyPool();
@@ -128,14 +132,14 @@ export function applyJurorEvent(p: JurorProjection, e: ProtocolEvent): void {
       pool.totalStaked = add(pool.totalStaked, -fromStake, e);
       return;
     }
-    case "RewardsClaimed": {
+    case "RewardsClaimed":
+      // The contract settles, pays everything it holds and zeroes the balance: reset, never subtract,
+      // so any accumulated difference is dropped here. The checkpoint is the current accumulator.
+      uint(e, "amount");
       settle(pool, j, at);
-      // Never negative: the simulation may sit a dust below the contract.
-      const owed = BigInt(j.rewardsOwed),
-        claimed = uint(e, "amount");
-      j.rewardsOwed = (claimed > owed ? 0n : owed - claimed).toString();
+      j.rewardsOwed = "0";
+      j.rewardPaid = pool.rewardPerToken;
       return;
-    }
     case "VoteLocked":
     case "VoteUnlocked":
       j.openVotes = num(e, "openVotes");

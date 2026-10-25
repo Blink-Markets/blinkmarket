@@ -197,6 +197,8 @@ export type HttpContract = {
   rawRequest?: { mediaTypes: readonly string[]; maxBytes: number };
   /** The response is the stored bytes, served with the stored media type. */
   rawResponse?: boolean;
+  /** Response headers this operation always sets (name -> description), for the OpenAPI document. */
+  responseHeaders?: Record<string, string>;
   /** Request body limit in bytes where it differs from the service default. */
   bodyLimit?: number;
 };
@@ -287,8 +289,14 @@ const contracts = [
   operation("GET", "/v1/markets/:id/spec", z.string(), {
     query: noQuery,
     rawResponse: true,
+    responseHeaders: {
+      "Blink-Index-Stale": "true or false: the index freshness rule (IndexHealth.stale)",
+      "Blink-Index-Indexed-Block": "IndexHealth.indexedBlock",
+      "Blink-Index-Head-Block": "IndexHealth.headBlock",
+      "Blink-Index-Lag-Seconds": "IndexHealth.lagSeconds",
+    },
     description:
-      "The exact stored spec bytes with the stored media type, served as GET /v1/content/:hash serves them. 503 SPEC_UNAVAILABLE when the platform holds no intact bytes for the market's specHash.",
+      "The exact stored spec bytes with the stored media type, served like GET /v1/content/:hash except for Cache-Control: no-cache, because the body is immutable but the index health is not. The raw body cannot carry IndexHealth, so every answer (success, 404, 503) sets the Blink-Index-* headers. 503 SPEC_UNAVAILABLE when the platform holds no intact bytes for the market's specHash.",
   }),
   operation("GET", "/v1/markets/:id/disputes", DisputesPage, {
     query: ReadPageQuery,
@@ -482,6 +490,16 @@ export function generateOpenApi(enabledPaths: readonly string[] = []) {
       description: enabledPaths.includes(c.path)
         ? "Success"
         : "Planned success contract (not yet enabled)",
+      ...(c.responseHeaders
+        ? {
+            headers: Object.fromEntries(
+              Object.entries(c.responseHeaders).map(([name, description]) => [
+                name,
+                { description, schema: { type: "string" } },
+              ]),
+            ),
+          }
+        : {}),
       content: c.rawResponse
         ? {
             "application/octet-stream": {

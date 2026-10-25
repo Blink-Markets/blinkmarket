@@ -491,8 +491,9 @@ const feePool = (fee = "1001") =>
 const distributed = (amount = "1001", keeperTip = "7") =>
   event("FeesDistributed", { marketId: "1", amount, keeper: a(9), keeperTip });
 // middle is a thunk: events take their log index when built, and the base must come first.
-const withFees = (middle: () => ProtocolEvent[], tip?: string) => [
+const withFees = (middle: () => ProtocolEvent[], tip?: string, stake = true) => [
   ...base(),
+  ...(stake ? [jur("Staked", { juror: a(7), amount: "1000" })] : []),
   event("MakerDeposited", { maker: a(2), amount: "10000000" }),
   feePool(),
   ...middle(),
@@ -586,6 +587,37 @@ test("fee breakdown: a failed challenge pays the proposer, not the bounty", () =
   assert.equal(total(f), 1001n);
 });
 
+test("fee breakdown: with no juror stake the juror allocation is forwarded to the treasury", () => {
+  const f = foldProtocolEvents(
+    withFees(
+      () => [...proposed("0"), event("MarketFinalized", { marketId: "1", outcome: "0" })],
+      undefined,
+      false,
+    ),
+    alpha,
+  ).fees.get("1")!;
+  // The same pool as the proposal-won case: the 300 for jurors moves to the treasury (301 + 300).
+  assert.equal(f.jurors, "0");
+  assert.equal(f.treasury, "601");
+  assert.equal(f.resolution, "143");
+  assert.equal(total(f), 1001n);
+  // Stake that was unstaked before the distribution counts as none.
+  const unstaked = foldProtocolEvents(
+    [
+      ...base(),
+      jur("Staked", { juror: a(7), amount: "1000" }),
+      jur("UnstakeRequested", { juror: a(7), amount: "1000", unlockAt: "2000" }),
+      event("MakerDeposited", { maker: a(2), amount: "10000000" }),
+      feePool(),
+      ...proposed("0"),
+      event("MarketFinalized", { marketId: "1", outcome: "0" }),
+      distributed(),
+    ],
+    alpha,
+  );
+  assert.equal(unstaked.fees.get("1")?.jurors, "0");
+});
+
 test("fee breakdown refuses a keeper tip the parameters do not give", () => {
   assert.throws(
     () =>
@@ -646,4 +678,54 @@ test("juror unstake and rewards", () => {
       at(1001, jur("UnstakeRequested", { juror: a(7), amount: "11", unlockAt: "1500" })),
     ]),
   );
+});
+
+// An independent model of BlinkJurors' reward stream for one staker, including the silent settles
+// (a zero-value claimRewards emits no event) that an event-derived fold cannot see.
+function contractRewards(silentAt: number[]) {
+  const E18 = 10n ** 18n,
+    stake = 100n * E18,
+    rate = (302_400n * E18) / 604_800n; // notified at t=1000
+  let paid = 0n,
+    rewards = 0n,
+    last = 1000;
+  const settle = (t: number) => {
+    const rpt = (BigInt(t - 1000) * rate * E18) / stake;
+    rewards += (stake * (rpt - paid)) / (E18 * E18);
+    paid = rpt;
+    last = t;
+  };
+  for (const t of silentAt) settle(t);
+  return { settle, rewards: () => rewards, last: () => last };
+}
+
+test("juror rewards: silent zero-value claims leave under one micro each, and the next claim resyncs exactly", () => {
+  const stakeEvent = jur("Staked", { juror: a(7), amount: (100n * 10n ** 18n).toString() });
+  const notify = jur("RewardNotified", { from: a(9), amount: "302400", rewardPerToken: "0" });
+  const silent = [1001, 1002]; // claimRewards with nothing owed: settles, emits nothing
+  const model = contractRewards(silent);
+  // A later evented settle (a one-wei top-up of the stake) at 1003.
+  const top = at(1003, jur("Staked", { juror: a(7), amount: "1" }));
+  const folded = foldProtocolEvents([at(1000, stakeEvent), at(1000, notify), top], alpha);
+  model.settle(1003);
+  const gap = BigInt(folded.jurors.get(a(7))!.rewardsOwed) - model.rewards();
+  assert.equal(model.rewards(), 0n);
+  assert.ok(gap > 0n && gap < BigInt(silent.length), "fold is ahead of the contract by less than 1 micro per silent call");
+  // The stream ends at 1000 + 604800; the claim pays the contract value and the fold resets to 0.
+  const end = 1000 + 604_800;
+  const claimModel = contractRewards(silent);
+  claimModel.settle(1003);
+  claimModel.settle(end);
+  const paidAmount = claimModel.rewards();
+  assert.ok(paidAmount > 0n);
+  const claimed = foldProtocolEvents(
+    [
+      at(1000, stakeEvent),
+      at(1000, notify),
+      top,
+      at(end, jur("RewardsClaimed", { juror: a(7), amount: paidAmount.toString() })),
+    ],
+    alpha,
+  );
+  assert.equal(claimed.jurors.get(a(7))?.rewardsOwed, "0");
 });

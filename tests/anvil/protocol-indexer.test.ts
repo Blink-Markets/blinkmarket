@@ -744,14 +744,75 @@ test(
         assert.ok(BigInt(String(claim.args.amount)) > 0n);
         assert.equal(claimed.status, "success");
         assert.equal(p.jurors.get(addr("arbiter"))?.rewardsOwed, String(await view("jurors", "rewards", [arbiter])));
-        // Folding a zero claim at the same time shows the simulated balance equalled the paid amount.
-        const events = await store.loadCanonicalEvents(d.deploymentId);
-        const upTo = events.slice(0, events.indexOf(claim));
-        const probe = foldProtocolEvents(
-          [...upTo, { ...claim, args: { ...claim.args, amount: "0" } }],
-          d.params,
+        // The claim resets the fold to what the contract holds after paying: nothing.
+        assert.equal(p.jurors.get(addr("arbiter"))?.rewardsOwed, "0");
+      });
+
+      await tt.test("fees read model equals balance deltas when no juror stake exists", async () => {
+        // A second market resolves unchallenged; then every juror unstakes, so notifyReward forwards the
+        // juror allocation to the treasury.
+        const specHash2 = keccak256(toBytes("resolution-spec-2"));
+        const base = await stamp();
+        await write("admin", d.generation.markets, protocolAbi.markets, "createMarket", [
+          {
+            templateId,
+            specHash: specHash2,
+            specURI: "ipfs://spec2",
+            replay: true,
+            closeAt: base + 600n,
+            proposalDeadline: base + 700n,
+            hardDeadline: base + 1200n,
+            maxPairs: 100n,
+          },
+        ]);
+        const m2 = await view("markets", "getMarket", [2n]);
+        await write("keeper", d.generation.markets, protocolAbi.markets, "open", [2n], m2.openAt);
+        const time = await stamp();
+        const q = {
+          marketId: 2n,
+          specHash: specHash2,
+          maker: A.maker.address,
+          taker: A.taker.address,
+          side: 0,
+          quantity: 10n,
+          priceBps: 6000,
+          validAfter: time,
+          expiresAt: time + 60n,
+          nonce: 3n,
+          epoch: (await view("markets", "makerEpoch", [A.maker.address])) as bigint,
+        };
+        const sig = await A.maker.signTypedData({
+          domain: { name: "Blink RFQ", version: "0.2", chainId: 84532, verifyingContract: d.generation.markets as Hex },
+          types: quoteTypes,
+          primaryType: "Quote",
+          message: q,
+        });
+        await write("taker", d.generation.markets, protocolAbi.markets, "fillQuote", [q, sig]);
+        await write("proposer", d.generation.resolution, protocolAbi.resolution, "propose", [2n, 0, parserHash, "ipfs://evidence2"], m2.closeAt);
+        await write("keeper", d.generation.resolution, protocolAbi.resolution, "finalizeUnchallenged", [2n], m2.closeAt + BigInt(d.params.resultChallengeWindow[0]));
+        const { p: staked } = await sync();
+        for (const who of ["arbiter", "minter"] as const)
+          await jur("requestUnstake", [BigInt(staked.jurors.get(addr(who))!.staked)], who);
+        assert.equal(BigInt((await sync()).p.rewardPool.get("pool")!.totalStaked), 0n);
+
+        const before = await anvil.publicClient.getBlockNumber();
+        const receipt = await write("taker2", d.generation.markets, protocolAbi.markets, "distributeFees", [2n]);
+        assert.equal(receipt.blockNumber, before + 1n);
+        const delta = async (who: string) => (await balance(who, receipt.blockNumber)) - (await balance(who, before));
+        const f = (await sync()).p.fees.get("2")!;
+        assert.ok(BigInt(f.poolMicros) > 0n);
+        assert.equal(f.jurors, "0");
+        assert.equal(BigInt(f.jurors), await delta(d.generation.jurors));
+        assert.equal(BigInt(f.treasury), await delta(d.treasury));
+        assert.equal(BigInt(f.creator), await delta(A.admin.address));
+        assert.equal(BigInt(f.resolution), await delta(A.proposer.address));
+        assert.equal(BigInt(f.keeperTip), await delta(A.taker2.address));
+        const forfeited = (await store.loadCanonicalEvents(d.deploymentId)).filter(
+          (e) => e.name === "RewardsForfeited" && e.blockNumber === receipt.blockNumber,
         );
-        assert.equal(probe.jurors.get(addr("arbiter"))?.rewardsOwed, String(claim.args.amount));
+        assert.equal(forfeited.length, 1);
+        const forwarded = BigInt(String(forfeited[0]!.args.amount));
+        assert.ok(forwarded > 0n && BigInt(f.treasury) >= forwarded, "the forwarded juror allocation is in the treasury figure");
       });
 
       // The whole read model survives a rebuild from the journal alone.

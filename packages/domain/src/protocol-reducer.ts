@@ -28,7 +28,12 @@ import {
   uint,
   type ProtocolEvent,
 } from "./protocol-event-args.ts";
-import { applyJurorEvent, type JurorLedger, type RewardPool } from "./protocol-jurors.ts";
+import {
+  applyJurorEvent,
+  POOL_KEY,
+  type JurorLedger,
+  type RewardPool,
+} from "./protocol-jurors.ts";
 import { applyResolutionEvent, feeBreakdown } from "./protocol-resolution.ts";
 export { ChainProjectionError };
 export type { EventValue, ProtocolEvent } from "./protocol-event-args.ts";
@@ -444,6 +449,7 @@ function apply(
         ),
         BigInt(m.feePoolMicros),
         addr(e, "keeper"),
+        BigInt(p.rewardPool.get(POOL_KEY)?.totalStaked ?? "0") === 0n,
       );
       if (breakdown.keeperTip !== uint(e, "keeperTip").toString())
         fail(e, "keeper tip differs from the parameters");

@@ -188,7 +188,7 @@ export type JurorState = z.infer<typeof JurorState>;
 export const FeeBreakdown = z.object({
   marketId: Uint,
   poolMicros: Uint,
-  /** Includes all share-rounding dust (R32). */
+  /** Includes all share-rounding dust (R32), and the juror allocation when no juror stake existed (it is forwarded here). */
   treasury: Uint,
   /** Paid to the market creator; 0 when the market ended INVALID. */
   creator: Uint,
@@ -196,7 +196,7 @@ export const FeeBreakdown = z.object({
   resolution: Uint,
   keeperTip: Uint,
   keeper: Address,
-  /** Juror share plus every share redirected to jurors. */
+  /** Juror share plus every share redirected to jurors; 0 when no juror stake existed. */
   jurors: Uint,
   bounty: Uint,
   /** The bounty recipient; null when no bounty was paid. */

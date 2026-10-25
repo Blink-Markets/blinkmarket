@@ -4,6 +4,7 @@ import {
   parseMarketSpec,
   RoleName,
   type ProtocolDeployment,
+  type IndexHealth,
   type ProtocolMarket,
   type SpecResult,
 } from "@blink/schemas";
@@ -248,11 +249,30 @@ export function createMarketReadService(
         return { ...(await reader.templates(page(req))), index: await reader.health() };
     }
   }
+  // The raw body cannot carry IndexHealth, so every answer of this route sets it in headers. The bytes
+  // are immutable but the health is not: no-cache lets a cache keep the bytes yet revalidate.
+  const healthHeaders = (h: IndexHealth) => ({
+    "Blink-Index-Stale": String(h.stale),
+    "Blink-Index-Indexed-Block": String(h.indexedBlock),
+    "Blink-Index-Head-Block": String(h.headBlock),
+    "Blink-Index-Lag-Seconds": String(h.lagSeconds),
+  });
   async function spec(id: string) {
-    const market = await found(reader.market(id));
+    const headers = healthHeaders(await reader.health());
+    const refusal = (status: number, code: string) => ({
+      status,
+      headers,
+      body: { code, message: code, retryable: false, details: {} },
+    });
+    const market = await reader.market(id);
+    if (!market) return refusal(404, "NOT_FOUND");
     const { stored } = await specOf(market);
-    if (!stored) throw new IdentityError(503, "SPEC_UNAVAILABLE", { retryable: false });
-    return storedContentResponse(stored);
+    if (!stored) return refusal(503, "SPEC_UNAVAILABLE");
+    const response = storedContentResponse(stored);
+    return {
+      ...response,
+      headers: { ...response.headers, "Cache-Control": "no-cache", ...headers },
+    };
   }
   return {
     paths: [...readPaths, ...transactionPaths],
