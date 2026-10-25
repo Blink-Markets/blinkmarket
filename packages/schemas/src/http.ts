@@ -474,6 +474,19 @@ export function generateOpenApi(enabledPaths: readonly string[] = []) {
           ]
         : []),
     ];
+    const declared = c.responseHeaders
+      ? {
+          headers: Object.fromEntries(
+            Object.entries(c.responseHeaders).map(([name, description]) => [
+              name,
+              { description, schema: { type: "string" } },
+            ]),
+          ),
+        }
+      : {};
+    // A route that declares response headers sets them on the answers its own handler produces
+    // (success, 404, 503), not on early refusals such as 400 or 429.
+    const handlerErrors = [404, 503];
     const responses: Record<string, unknown> = Object.fromEntries(
       [400, 401, 403, 404, 409, 429, 500, 501, 503].map((code) => [
         String(code),
@@ -482,6 +495,7 @@ export function generateOpenApi(enabledPaths: readonly string[] = []) {
             code === 501
               ? "Planned operation; no business implementation"
               : "API error",
+          ...(handlerErrors.includes(code) ? declared : {}),
           content: { "application/json": { schema: json(ApiError) } },
         },
       ]),
@@ -490,16 +504,7 @@ export function generateOpenApi(enabledPaths: readonly string[] = []) {
       description: enabledPaths.includes(c.path)
         ? "Success"
         : "Planned success contract (not yet enabled)",
-      ...(c.responseHeaders
-        ? {
-            headers: Object.fromEntries(
-              Object.entries(c.responseHeaders).map(([name, description]) => [
-                name,
-                { description, schema: { type: "string" } },
-              ]),
-            ),
-          }
-        : {}),
+      ...declared,
       content: c.rawResponse
         ? {
             "application/octet-stream": {

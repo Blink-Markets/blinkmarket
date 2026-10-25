@@ -147,13 +147,16 @@ test("spec route serves the exact stored bytes under the content security header
     reader.set({ health: { headBlock: 9, indexedBlock: 9, lagSeconds: 0, stale: false } });
     assert.equal(health(await app.inject("/v1/markets/1/spec")).stale, "false");
     const doc = (await app.inject("/openapi.json")).json();
-    const headers = doc.paths["/v1/markets/{id}/spec"].get.responses["200"].headers;
-    assert.deepEqual(Object.keys(headers).sort(), [
-      "Blink-Index-Head-Block",
-      "Blink-Index-Indexed-Block",
-      "Blink-Index-Lag-Seconds",
-      "Blink-Index-Stale",
-    ]);
+    const responses = doc.paths["/v1/markets/{id}/spec"].get.responses;
+    for (const status of ["200", "404", "503"])
+      assert.deepEqual(Object.keys(responses[status].headers).sort(), [
+        "Blink-Index-Head-Block",
+        "Blink-Index-Indexed-Block",
+        "Blink-Index-Lag-Seconds",
+        "Blink-Index-Stale",
+      ], status);
+    for (const status of ["400", "429"])
+      assert.equal(responses[status].headers, undefined, status);
   } finally {
     await app.close();
   }

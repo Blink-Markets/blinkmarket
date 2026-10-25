@@ -349,12 +349,14 @@ templates) as public, key-less, paged reads.
   so they are checked through the round's committed and revealed weights. A
   populated projection with the contract undeployed fails. The full cross-check
   runs only in rebuild.
-- Routes, all public GET, paged by `after`/`limit` (at most 100) with an `index`
-  (`IndexHealth`) in every JSON body; `/v1/markets/:id/spec` returns the exact stored
-  bytes, so it carries the same health in the headers `Blink-Index-Stale`,
+- Routes, all public GET, paged by `after`/`limit` (at most 100). JSON bodies carry
+  `index` (`IndexHealth`), except error bodies. `/v1/markets/:id/spec` returns the
+  exact stored bytes, so it carries the health in the headers `Blink-Index-Stale`,
   `Blink-Index-Indexed-Block`, `Blink-Index-Head-Block` and
-  `Blink-Index-Lag-Seconds` on every answer, with `Cache-Control: no-cache`
-  (immutable bytes, mutable health): `/v1/deployment`, `/v1/markets?state=`,
+  `Blink-Index-Lag-Seconds` on 200, 404 and 503 (declared in OpenAPI for all three).
+  Success is `Cache-Control: no-cache` (immutable bytes, mutable health); errors are
+  `no-store`. Early 400 and 429 refusals carry no health on any route. Routes:
+  `/v1/deployment`, `/v1/markets?state=`,
   `/v1/markets/:id` (market, spec parse result, proposal), `/v1/markets/:id/spec`
   (exact bytes, `nosniff`, `Content-Security-Policy: sandbox`, `503
   SPEC_UNAVAILABLE` when the platform holds no intact bytes), `/v1/markets/:id/disputes`,
