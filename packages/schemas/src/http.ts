@@ -421,7 +421,7 @@ const contracts = [
   operation("GET", "/v1/forecasters", list(ForecasterView), {
     query: ListQuery.extend({ sort: z.literal("weight").default("weight") }),
     description:
-      "Forecasters by credit weight, highest first: n and meanBrier come from the latest 50 scored LIVE submissions, and the weight (an exact fraction, weightNumerator / weightDenominator in lowest terms) is 0 below 5 of them, else max(0, 0.25 - meanBrier). Ordered by exact weight, then more scored answers, then address; the cursor is the last address. Informational: it gates nothing.",
+      "Forecasters by credit weight, highest first: n and meanBrier come from the latest 50 scored LIVE submissions, and the weight (an exact fraction, weightNumerator / weightDenominator in lowest terms) is 0 below 5 of them, else max(0, 0.25 - meanBrier). Ordered by exact weight, then more scored answers, then address ascending. The cursor is the exact boundary of the last row, `<weightNumerator>/<weightDenominator>:<n>:<address>`; the next page holds the rows after it, so a score that changes between pages never repeats or skips a row (a malformed cursor is 400 INVALID_CURSOR). Informational: it gates nothing.",
   }),
   operation("GET", "/v1/forecasters/:address", ForecasterView, {
     description: "One forecaster's credit; 404 for an address that never submitted.",

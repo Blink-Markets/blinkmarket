@@ -416,24 +416,33 @@ export function createForecastService(deps: {
   ) =>
     compareWeightsDesc(a.w, b.w) ||
     b.view.n - a.view.n ||
-    (a.view.address < b.view.address ? -1 : 1);
+    (a.view.address < b.view.address ? -1 : a.view.address > b.view.address ? 1 : 0);
+  const CURSOR = /^(0|[1-9][0-9]*)\/([1-9][0-9]*):(0|[1-9][0-9]*):(0x[0-9a-f]{40})$/;
   async function listForecasters(req: ServiceRequest) {
     const { limit, cursor } = req.query as { limit: number; cursor?: string };
     const sorted = (await store.creditStats(null, null)).map(creditView).sort(byCredit);
-    // The cursor is the last address of the page; credit only grows a forecaster's row, never removes it.
-    let start = 0;
+    // The cursor is the exact boundary "<num>/<den>:<n>:<address>" of the last row served: the next page
+    // holds the rows that sort strictly after it, wherever the boundary row has moved since.
+    let rows = sorted;
     if (cursor !== undefined) {
-      const at = sorted.findIndex((c) => c.view.address === cursor);
-      if (at < 0) throw new IdentityError(400, "INVALID_CURSOR");
-      start = at + 1;
+      const m = CURSOR.exec(cursor);
+      if (!m) throw new IdentityError(400, "INVALID_CURSOR");
+      const boundary = {
+        w: { num: BigInt(m[1]!), den: BigInt(m[2]!) },
+        view: { n: Number(m[3]), address: m[4]! },
+      } as ReturnType<typeof creditView>;
+      rows = sorted.filter((c) => byCredit(c, boundary) > 0);
     }
-    const page = sorted.slice(start, start + limit);
+    const page = rows.slice(0, limit);
+    const last = page[page.length - 1];
     return {
       status: 200,
       body: {
         items: page.map((c) => c.view),
         nextCursor:
-          start + limit < sorted.length ? page[page.length - 1]!.view.address : null,
+          rows.length > limit && last
+            ? `${last.w.num}/${last.w.den}:${last.view.n}:${last.view.address}`
+            : null,
       },
     };
   }

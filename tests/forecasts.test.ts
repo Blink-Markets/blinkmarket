@@ -483,7 +483,7 @@ test("consensus weights come from scores recorded before the deadline", async ()
     // Pages are cut by the last address, in the same order.
     const firstPage = (await f.get("/v1/forecasters?limit=1")).json();
     assert.equal(firstPage.items.length, 1);
-    assert.equal(firstPage.nextCursor, b.address.toLowerCase());
+    assert.equal(firstPage.nextCursor, `1/4:5:${b.address.toLowerCase()}`);
     const secondPage = (
       await f.get(`/v1/forecasters?limit=1&cursor=${firstPage.nextCursor}`)
     ).json();
@@ -491,10 +491,19 @@ test("consensus weights come from scores recorded before the deadline", async ()
       [secondPage.items[0].address, secondPage.nextCursor],
       [a.address.toLowerCase(), null],
     );
-    assert.equal(
-      (await f.get("/v1/forecasters?cursor=0x00")).statusCode,
-      400,
-    );
+    for (const bad of [
+      "0x00",
+      a.address.toLowerCase(),
+      `1/0:5:${a.address.toLowerCase()}`,
+      `01/4:5:${a.address.toLowerCase()}`,
+      `1/4:5:${a.address.toUpperCase().replace("0X", "0x")}`,
+      `000000000000000000:0000005:${a.address.toLowerCase()}`,
+    ])
+      assert.equal(
+        (await f.get(`/v1/forecasters?cursor=${encodeURIComponent(bad)}`)).statusCode,
+        400,
+        bad,
+      );
     const one = await f.get(`/v1/forecasters/${a.address.toLowerCase()}`);
     assert.deepEqual(one.json(), {
       address: a.address.toLowerCase(),
@@ -507,6 +516,99 @@ test("consensus weights come from scores recorded before the deadline", async ()
       (await f.get(`/v1/forecasters/${c.address.toLowerCase()}`)).statusCode,
       404,
     );
+  } finally {
+    await f.close();
+  }
+});
+
+let scoreClock = 0;
+/** `count` more scored LIVE answers of `who`, each with this Brier; they become the latest. */
+async function addScores(f: ForecastFixture, who: { address: string }, count: number, brier: string) {
+  await f.asOwner(async () => {
+    for (let i = 0; i < count; i++) {
+      const id = randomUUID();
+      const at = 1_900_000_000 + 3600 * scoreClock++;
+      await f.t.db.query(
+        `INSERT INTO forecasts.windows(id,deployment_id,market_id,horizon_type,scheduled_at,open_at,deadline)
+         VALUES($1,$2,9,'DAILY',to_timestamp($3::bigint),to_timestamp($3::bigint-1800),to_timestamp($3::bigint))`,
+        [id, DEPLOYMENT, at],
+      );
+      await f.t.db.query(
+        `INSERT INTO analytics.score_entries(id,deployment_id,market_id,window_id,mode,scorer,forecaster,probability_millionths,probability_millionths_times2,outcome,brier,missing,contaminated,evaluation_version)
+         VALUES($1,$2,9,$3,'LIVE','AGENT',decode($4,'hex'),500000,1000000,'YES',$5,false,false,'v2')`,
+        [randomUUID(), DEPLOYMENT, id, who.address.slice(2).toLowerCase(), brier],
+      );
+    }
+  });
+}
+/** Every forecaster needs one answer somewhere to be listed. */
+async function answered(f: ForecastFixture) {
+  const w = await f.addWindow(600, { marketId: 9 });
+  await f.insertAnswer(w.id, { agent: f.agents.a, address: a.address }, 5000);
+  await f.insertAnswer(w.id, { agent: f.agents.b, address: b.address }, 5000);
+  await f.insertAnswer(w.id, { agent: f.agents.c, address: c.address }, 5000);
+}
+const page = async (f: ForecastFixture, limit: number, cursor?: string) =>
+  (
+    await f.get(
+      `/v1/forecasters?limit=${limit}` + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""),
+    )
+  ).json() as { items: { address: string }[]; nextCursor: string | null };
+const lower = (x: { address: string }) => x.address.toLowerCase();
+
+test("a forecaster list page resumes after the exact boundary, not after a row that moved", async () => {
+  // A (3/20) then B (1/20) then C (1/100): page 1 holds A and B, then B improves past A.
+  const f = await forecastFixture();
+  try {
+    await answered(f);
+    await addScores(f, a, 5, "0.1");
+    await addScores(f, b, 5, "0.2");
+    await addScores(f, c, 5, "0.24");
+    const first = await page(f, 2);
+    assert.deepEqual(first.items.map((i) => i.address), [lower(a), lower(b)]);
+    await addScores(f, b, 45, "0");
+    const second = await page(f, 2, first.nextCursor!);
+    assert.deepEqual(second.items.map((i) => i.address), [lower(c)], "A is not repeated");
+    assert.equal(second.nextCursor, null);
+  } finally {
+    await f.close();
+  }
+});
+
+test("a forecaster list page does not skip rows when the boundary row drops to zero weight", async () => {
+  const f = await forecastFixture();
+  try {
+    await answered(f);
+    await addScores(f, b, 5, "0");
+    await addScores(f, a, 5, "0.1");
+    await addScores(f, c, 5, "0.2");
+    const first = await page(f, 1);
+    assert.deepEqual(first.items.map((i) => i.address), [lower(b)]);
+    await addScores(f, b, 50, "1");
+    const second = await page(f, 5, first.nextCursor!);
+    // A and C are still served; B, now weightless, sorts last.
+    assert.deepEqual(second.items.map((i) => i.address), [lower(a), lower(c), lower(b)]);
+  } finally {
+    await f.close();
+  }
+});
+
+test("equal weights are split by scored answers, then address, across page boundaries", async () => {
+  const f = await forecastFixture();
+  try {
+    await answered(f);
+    // All three weigh 3/20; b has the most scored answers.
+    await addScores(f, a, 5, "0.1");
+    await addScores(f, b, 10, "0.1");
+    await addScores(f, c, 5, "0.1");
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const next = await page(f, 1, cursor);
+      seen.push(...next.items.map((i) => i.address));
+      cursor = next.nextCursor ?? undefined;
+    } while (cursor);
+    assert.deepEqual(seen, [lower(b), ...[lower(a), lower(c)].sort()]);
   } finally {
     await f.close();
   }
