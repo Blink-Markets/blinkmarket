@@ -603,3 +603,62 @@ between agents, not against the platform operator.
 See `.superpowers/sdd/2026-10-24-p2-offchain-protocol/task-10-report.md`. Not run locally:
 `tests/postgres/*` (no PostgreSQL here), including the rewritten `tests/postgres/forecasts.test.ts`;
 `pnpm build` (Turbopack needs a newer glibc).
+
+## Task 11: infrastructure-only local alpha and platform-key absence
+
+Scope: slice of P2, not the milestone.
+
+- **`assertNoRoleKeys(env)`** (`packages/runtime/src/index.ts`). It throws `PLATFORM_ROLE_KEY_FORBIDDEN`
+  for any variable whose name matches `/PRIVATE_KEY|MNEMONIC|KEY_FILE|SEED/i` or whose value is a bare
+  `0x` + 64 hex digits; the error carries the variable name (`.variable`) and never the value. `apiConfig`,
+  `workerConfig`, `indexerConfig` and `chainIndexerConfig` call it first, so API, worker and indexer
+  refuse to start with a key in their environment. `deploy:preflight` calls it on the whole service env
+  file (`PREFLIGHT_PLATFORM_ROLE_KEY_FORBIDDEN`, named variable only, after the existing deployer-key and
+  `NEXT_PUBLIC_` checks, which keep their own codes). No legitimate configuration value trips the hex
+  rule (no bytes32 identifier is passed through the environment today).
+- **`tests/platform-keys.test.ts`** (new dev dependency `yaml` 2.9.1, for the compose parse): the named
+  tests, plus the helper's own edge cases and a Dockerfile scan. The compose check refuses key-named variables, 32-byte
+  values, variables that merely refer to a key variable, `env_file`, `secrets` and any host bind mount;
+  the source scan also bans `hdKeyToAccount` and `generatePrivateKey`.
+- **`scripts/local-alpha.ts`** is the reusable harness P3's `pnpm alpha:autonomous` builds on:
+  `startLocalAlpha()` creates a fresh database (migrations plus one ordinary login per role), starts
+  Anvil (chain 84532), deploys the alpha generation with the `accounts.trader` (deployer) and `accounts.keeper` (treasury) Anvil accounts, neither of which acts in the scenario, verifies and registers it, then spawns the real API, indexer and worker
+  (`node --import tsx apps/*/src/main.ts`) with an explicit environment and `assertNoRoleKeys` applied
+  to each. It returns the chain and platform handles, onboarding and API-key helpers and `stop()`.
+  `node --import tsx scripts/local-alpha.ts` keeps the stack up for manual use. The worker's health
+  listener is fixed at port 3002, so the harness refuses to start when that port is taken
+  (`ALPHA_WORKER_PORT_IN_USE`).
+- **`tests/alpha/local-alpha.test.ts`** (`pnpm alpha:local`, needs `TEST_POSTGRES_ADMIN_URL`; skipped
+  with a printed reason without it): independent actors (distinct Anvil accounts, only the public API,
+  `@blink/client` and the contracts) run faucet claim and registration, role stakes, a human suggestion
+  claimed by the creator, template, content upload, market creation, open, two RFQs with two makers (an EOA and a
+  `MockErc1271Wallet`, the taker verifies the quote itself and fills the best), transaction tracking, two signed
+  forecasts in the PRE_CLOSE window, the window root stored by the worker, its Merkle proofs, the root anchored
+  on `BlinkAnchor` by a participant, propose, unchallenged finalization, `distributeFees` and redeem.
+  It then asserts against the API and the chain: FINAL with fees equal to the `FeesDistributed` event and to
+  their breakdown, the redeemed payout equal to `PositionRedeemed`, the anchor visible, the suggestion
+  `MARKET_CREATED` with the spec hash, the consensus window, an index rebuild check
+  (`rebuildChainProjection` with `verify`, no differences) and the key-free environment of every platform
+  process (configured and, on Linux, the live `/proc/<pid>/environ`; no actor key appears in either).
+- **Time mechanism: real time.** The alpha protocol windows are 60 s, so the scenario waits for them
+  (about four to five minutes). Chain waits are conditions on the chain head (`waitForChainTime`); a harness
+  heartbeat mines one block per second so the head stays inside the indexer's 30 s lag gate while Anvil is
+  idle. Platform waits poll the API. Chain and database clocks both follow the wall clock. No clock offset
+  and no chain timestamp is shifted: the API and the worker refuse a shifted `blink.test_clock_offset_seconds`
+  at startup, and moving only one clock would make the index lag. A scenario that needs to skip real time
+  (P3's drill) must move both clocks by the same amount and has no way to do that against running services;
+  it should wait or use shorter protocol parameters. The forecast schedule is
+  `FORECAST_PRE_CLOSE_LEAD_SECONDS=50` and `FORECAST_WINDOW_OPEN_SECONDS=50`, with the market open for 110 s.
+- **Undistributed-fees alert.** New alert family `fees_undistributed` (subject `market:<id>`, reason
+  `FEES_UNDISTRIBUTED`, delivered with `severity: "info"`): a FINAL market with a non-zero fee pool, more than
+  one day after its `MarketFinalized` block, with no `FeesDistributed`. It names the market, has no action
+  path (anyone may call `distributeFees`; the platform never does) and clears when the distribution is
+  indexed. Migration `0034` widens the closed family list. `docs/M5_ALERTS.md` has the row.
+- **Client fix found by the real stack.** `@blink/client` sent `Content-Type: application/json` on POSTs
+  without a body, which Fastify refuses with 400, so `claimSuggestion` and `withdrawForecast` never worked
+  against a real API. The header is now sent only with a body.
+- **CI.** `pnpm alpha:local` runs in the `check` job after the restore drill. `test:contracts`,
+  `test:anvil` and `test:contracts:seeds` moved to a parallel `contracts` job (20 minutes, with its own
+  install and `check:contracts` step). `pnpm build` stays in `check`.
+- Not changed: the restore drill already fingerprints every table, including the `protocol.*` projections,
+  with the real `pg_dump` and restore. `health.ts` and `operator-status.ts` have no alert of their own.

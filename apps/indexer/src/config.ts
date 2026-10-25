@@ -1,3 +1,5 @@
+import { assertNoRoleKeys } from "@blink/runtime";
+
 export interface IndexerConfig {
   txTrackingEnabled: boolean;
   port: number;
@@ -18,6 +20,7 @@ function integer(env: NodeJS.ProcessEnv, key: string, fallback: number) {
 }
 
 export function indexerConfig(env: NodeJS.ProcessEnv): IndexerConfig {
+  assertNoRoleKeys(env);
   const txTrackingEnabled = env.INDEXER_TX_TRACKING_ENABLED === "true";
   if (
     env.INDEXER_TX_TRACKING_ENABLED !== undefined &&
@@ -91,6 +94,7 @@ export interface ChainIndexerConfig {
 
 // The protocol-generation indexer is enabled on its own, independent of transaction tracking.
 export function chainIndexerConfig(env: NodeJS.ProcessEnv): ChainIndexerConfig {
+  assertNoRoleKeys(env);
   const flag = env.CHAIN_INDEXER_ENABLED;
   if (flag !== undefined && flag !== "true" && flag !== "false")
     throw new Error("INVALID_CHAIN_INDEXER_ENABLED");

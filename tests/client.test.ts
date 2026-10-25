@@ -658,6 +658,8 @@ test("withdrawing sends no body and no key", async () => {
       ["POST", `/v1/forecasts/${UUID}/withdrawal`, ""],
     );
     assert.equal(seen!.headers["idempotency-key"], undefined);
+    // A body-less POST must not claim a JSON body: Fastify answers an empty one with 400.
+    assert.equal(seen!.headers["content-type"], undefined);
   } finally {
     await server.close();
   }

@@ -30,6 +30,7 @@ export function alertPayload(id: string, type: string, raw: unknown): Alert {
   // Episode alerts (alert.evaluate): codes and numbers only, never free text.
   const family = ALERT_FAMILIES.find((name) => name === payload.family);
   if (family) alert.family = family;
+  if (family === "fees_undistributed") alert.severity = "info";
   if (
     payload.state === "OPEN" ||
     payload.state === "STILL_OPEN" ||

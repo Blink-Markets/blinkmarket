@@ -5,10 +5,12 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    # On one developer machine pnpm check, the PostgreSQL, Anvil, contract and Alpha harness
-    # steps took about 2.5 minutes idle and about 9 minutes under heavy load, before install and
-    # the web build. 30 minutes is over three times the loaded figure, and still ends a hang
-    # that escapes every in-harness bound long before GitHub's 6-hour default.
+    # pnpm check, the PostgreSQL suites, the restore drill, the build, and the infrastructure-only
+    # local alpha (real API, indexer and worker against PostgreSQL and Anvil, about five minutes in
+    # real time). The contract and Anvil suites run in the parallel `contracts` job, because this job
+    # already took 11-19 of its former 30 minutes without them. 30 minutes is still well over the
+    # loaded figure, and ends a hang that escapes every in-harness bound long before GitHub's 6-hour
+    # default.
     timeout-minutes: 30
     services:
       postgres:
@@ -41,12 +43,32 @@ jobs:
       - run: pnpm drill:restore:test
         env:
           TEST_POSTGRES_ADMIN_URL: postgresql://blink_test:local-ci-only@127.0.0.1:5432/postgres
-      - run: pnpm test:contracts
-      - run: pnpm test:anvil
-      - run: pnpm test:contracts:seeds
+      - run: pnpm alpha:local
+        env:
+          TEST_POSTGRES_ADMIN_URL: postgresql://blink_test:local-ci-only@127.0.0.1:5432/postgres
       - run: pnpm build
       - run: pnpm build:services
       - run: pnpm test:service-build
+  contracts:
+    runs-on: ubuntu-latest
+    # Forge unit and invariant suites, the Anvil suites and the two invariant seeds. They need
+    # neither PostgreSQL nor the web build. 20 minutes covers a loaded runner several times over.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The Anvil suites deploy the compiled artifacts.
+      - run: pnpm check:contracts
+      - run: pnpm test:contracts
+      - run: pnpm test:anvil
+      - run: pnpm test:contracts:seeds
   browsers:
     runs-on: ubuntu-latest
     # Usually 3-4 minutes with the browser cache; one hung run took 51 minutes on GitHub's

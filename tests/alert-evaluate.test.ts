@@ -205,6 +205,49 @@ test("alert.pause fires from the indexed global and per-market pause projection"
   }
 });
 
+test("alert.fees_undistributed is informational, names the market, waits a day and clears when fees are distributed", async () => {
+  const w = await world();
+  try {
+    // Finalized ten minutes short of a day ago, by the database clock.
+    const FINALIZED_AT = Math.floor(Date.now() / 1000) - 86_400 + 600;
+    await w.sql(
+      `INSERT INTO chain.blocks(deployment_id,number,hash,parent_hash,timestamp,canonical)
+         VALUES('${DEPLOYMENT}',5,decode(repeat('55',32),'hex'),decode(repeat('44',32),'hex'),${FINALIZED_AT},true);
+       INSERT INTO protocol.events(deployment_id,block_hash,block_number,tx_hash,tx_index,log_index,emitter,contract,name,args,canonical)
+         VALUES('${DEPLOYMENT}',decode(repeat('55',32),'hex'),5,decode(repeat('66',32),'hex'),0,0,
+           decode(repeat('77',20),'hex'),'MARKETS','MarketFinalized','{"marketId":"1","outcome":"YES"}',true);
+       UPDATE protocol.markets SET data=data||jsonb_build_object('state','FINAL','feePoolMicros','4000')`,
+    );
+    await w.run();
+    assert.deepEqual(await w.alerts("fees_undistributed"), []);
+    // Twenty minutes later it is a day and ten minutes old.
+    await w.clock(1200);
+    await w.run();
+    await w.run();
+    const open = await w.alerts("fees_undistributed");
+    assert.deepEqual(
+      open.map((a) => [a.subject, a.reason, a.state, a.family]),
+      [["market:1", "FEES_UNDISTRIBUTED", "OPEN", "fees_undistributed"]],
+    );
+    // Delivery marks it informational and keeps it free of text.
+    const delivered = alertPayload(randomUUID(), "alert.fees_undistributed", open[0]);
+    assert.equal(delivered.severity, "info");
+    assert.equal(delivered.subject, "market:1");
+    assert.equal(
+      alertPayload(randomUUID(), "alert.jobs_dead", { family: "jobs_dead" }).severity,
+      undefined,
+    );
+    // Anyone distributes the fees: the episode clears.
+    await w.sql(
+      "UPDATE protocol.markets SET data=data||jsonb_build_object('feesDistributed',true,'feePoolMicros','0')",
+    );
+    await w.run();
+    assert.deepEqual(states(await w.alerts("fees_undistributed")), ["OPEN", "CLEARED"]);
+  } finally {
+    await w.close();
+  }
+});
+
 test("alert.indexer_lag uses the health freshness rule and carries block numbers", async () => {
   const w = await world();
   try {

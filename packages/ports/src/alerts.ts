@@ -15,6 +15,8 @@ export interface Alert {
   /** Episode alerts (alert.evaluate): family, state and what the condition is about. */
   family?: AlertFamily;
   state?: AlertState;
+  /** Only set for conditions the platform cannot act on (fees_undistributed); absent means an incident. */
+  severity?: "info";
   subject?: string;
   reason?: string;
   /** Epoch seconds (digits) at which the episode opened. */

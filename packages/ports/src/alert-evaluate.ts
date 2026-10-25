@@ -3,13 +3,15 @@ export const ALERT_FAMILIES = [
   "rpc",
   "indexer_lag",
   "jobs_dead",
+  // Informational: anyone may call distributeFees, and the platform never does.
+  "fees_undistributed",
 ] as const;
 export type AlertFamily = (typeof ALERT_FAMILIES)[number];
 /** Conditions with no deployment column (jobs, the RPC) live under this one scope. */
 export const GLOBAL_ALERT_SCOPE = "*";
 export const ALERT_SCOPE_FAMILIES = {
   global: ["jobs_dead", "rpc"],
-  deployment: ["pause", "indexer_lag"],
+  deployment: ["pause", "indexer_lag", "fees_undistributed"],
 } as const satisfies Record<string, readonly AlertFamily[]>;
 export type AlertState = "OPEN" | "STILL_OPEN" | "CLEARED";
 

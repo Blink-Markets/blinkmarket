@@ -17,6 +17,8 @@ const MAX_JOB_TYPES = 10;
 /** Per-market families report at most this many subjects per tick (the rest is flagged truncated). */
 export const MAX_SUBJECTS_PER_FAMILY = 100;
 const FAMILY_TIMEOUT_MS = 3000;
+/** A FINAL market whose fees are still undistributed after this long is reported (informational). */
+const FEES_UNDISTRIBUTED_AFTER_SECONDS = 86_400;
 const PRUNE_BATCH = 100;
 const code = /^[A-Z0-9_]{1,64}$/;
 const jobType = /^[a-z][a-z0-9_.]{0,63}$/;
@@ -153,6 +155,35 @@ export function postgresAlertEvaluateStore(
         ],
       };
     },
+    // FINAL markets whose fee pool nobody distributed a day after the MarketFinalized block.
+    // The platform has no action path: anyone may call distributeFees, so this only informs.
+    // Unknown while the cursor is gated or missing, like the other indexed projections.
+    async feesUndistributed(
+      db: Pool,
+      deploymentId: string,
+    ): Promise<FamilyResult | null> {
+      if (!(await cursorReadable(db, deploymentId))) return null;
+      const { rows } = await db.query<{ id: string }>(
+        `SELECT m.key AS id FROM protocol.markets m
+         JOIN protocol.events e ON e.deployment_id=m.deployment_id AND e.canonical
+           AND e.name='MarketFinalized' AND e.args->>'marketId'=m.key
+         JOIN chain.blocks b ON b.deployment_id=e.deployment_id AND b.hash=e.block_hash AND b.canonical
+         WHERE m.deployment_id=$1 AND m.data->>'state'='FINAL'
+           AND NOT COALESCE((m.data->>'feesDistributed')::boolean,false)
+           AND COALESCE((m.data->>'feePoolMicros')::numeric,0)>0
+           AND b.timestamp::numeric < extract(epoch FROM blink.now())-${FEES_UNDISTRIBUTED_AFTER_SECONDS}
+         ORDER BY m.key::numeric LIMIT ${MAX_SUBJECTS_PER_FAMILY + 1}`,
+        [deploymentId],
+      );
+      return {
+        observations: rows.slice(0, MAX_SUBJECTS_PER_FAMILY).map((row) => ({
+          family: "fees_undistributed",
+          subject: "market:" + row.id,
+          reason: "FEES_UNDISTRIBUTED",
+        })),
+        truncated: rows.length > MAX_SUBJECTS_PER_FAMILY,
+      };
+    },
     // Jobs that went DEAD in the last 24 hours (finished_at: set by the queue when it dead-letters
     // a job). A job left DEAD forever must not hold the episode open, so the window decides.
     async jobsDead(db: Pool): Promise<FamilyResult> {
@@ -257,6 +288,9 @@ export function postgresAlertEvaluateStore(
       }
       await attempt("pause", (db) => families.pauseProjection(db, scope));
       await attempt("indexer_lag", (db) => families.indexerLag(db, scope));
+      await attempt("fees_undistributed", (db) =>
+        families.feesUndistributed(db, scope),
+      );
       return result;
     },
     transition: (scope, scopeFamilies, observed, decide) =>
