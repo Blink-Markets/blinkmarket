@@ -528,3 +528,78 @@ See `.superpowers/sdd/2026-10-24-p2-offchain-protocol/task-9-report.md`. Not run
 `tests/postgres/*` (no PostgreSQL here), including the new
 `tests/postgres/rfq-relay.test.ts`; `pnpm build` (Turbopack needs a newer glibc). This
 covers only the Task 9 scope, not the P2 milestone.
+
+## Task 10: signed forecasts, window roots, automatic contamination and consensus
+
+Scope: slice of P2, not the milestone.
+
+- **Signed forecasts.** `POST /v1/markets/:id/forecasts` takes `{horizon, scheduledAt,
+  probabilityBps, contentHash, signature}` (`forecast:write` and the FORECASTER role). The service
+  builds the EIP-712 `Forecast` struct itself (domain `Blink Forecast` v1, chain 84532,
+  `verifyingContract` = the manifest's `shared.anchor`; forecaster = the key's wallet, `markets` =
+  the generation's BlinkMarkets, market = the route, window = horizon + scheduledAt), so a signature
+  for another window, market, forecaster or deployment fails with 400 `INVALID_FORECAST_SIGNATURE`.
+  `SignatureVerifier.verifyTypedData` checks it (EOA, ERC-1271, ERC-6492); the checked block is
+  stored as `verified_block`. Admission is by the database clock under the window row lock, one per
+  forecaster per window; role, market, window and index health are looked at again after the
+  (unbounded) signature check, and nothing is stored on any refusal. An identical retry returns the
+  stored `{digest, leaf}`. Submission requires an `Idempotency-Key` header (the service itself keys on the
+  digest); withdrawal defines none.
+- **Windows and roots.** The `forecast.schedule` job (every 30 s) opens windows only for OPEN markets
+  that are `tradable(market, deadline)` and then closes windows past their deadline: the worker
+  stores `merkle_root` / `root_at` (set once; a window with no standing answer gets `root_at` and a
+  null root). The platform never anchors and never signs; `GET /v1/forecast-windows/:id` returns
+  `{root, leaves, anchor}` with `anchor` from `ProtocolReader.anchor(root)`, and `/proof?leaf=`
+  returns the sibling path. `forecastLeaf`, `merkleRoot`, `merkleProof` live in
+  `packages/domain/src/forecast-merkle.ts` (own Keccak-256 in `keccak.ts`: the domain package may
+  not import viem). `contracts/test/protocol/ForecastMerkle.t.sol` verifies every proof with
+  OpenZeppelin `MerkleProof.verify` and pins the root `0x7afdf524...bdab40`, which
+  `tests/forecast-merkle.test.ts` reproduces in TypeScript.
+- **Schedule.** Worker env `FORECAST_PRE_CLOSE_LEAD_SECONDS` (3600) and `FORECAST_WINDOW_OPEN_SECONDS`
+  (1800), validated at startup (positive integers, open <= lead). DAILY windows are unchanged.
+  `snapshotPriceBase` is gone. The worker uses the same `ProtocolReader` as the API
+  (`staleProtocolReader` now lives in adapters and is shared; without `BLINK_DEPLOYMENT_ID` the
+  forecast jobs find no market).
+- **Sealing.** Before a window's deadline the answers route returns only the caller's own answer
+  (anonymous: none), the window route shows no root or leaves, the proof route answers 409
+  `WINDOW_SEALED`, and the consensus route lists closed windows only.
+- **Withdrawal.** Annotation, not deletion. It needs `forecast:write`, a fresh index, the wallet's
+  current FORECASTER role, and the same API key that submitted the answer (a second key of the same
+  wallet finds nothing). By controller ruling it is allowed only before the window deadline: a
+  withdrawal after the deadline would let a forecaster drop answers after seeing later information
+  or the outcome, which would game Brier scoring and Forecaster credit, and the window root commits
+  to the deadline snapshot. The removed admin path was a platform action and no longer exists. A
+  withdrawn answer stays listed but leaves the root, the consensus and the scores (scored as missing).
+- **Contamination** is computed from `ProtocolReader.proposal(marketId).proposedAt <= deadline`;
+  there is no annotation path left. `blink_forecast_admin`, `forecast-admin` (adapter, CLI, build
+  entry, `forecast:admin` script) are deleted.
+- **Scoring and consensus.** At FINAL with a YES/NO outcome (market state, replay flag and outcome
+  from the reader) `evaluation.score` writes `v2` entries: AGENT per eligible answer (per wallet)
+  and one CONSENSUS per window; INVALID has no Brier. `weight = n < 5 ? 0 : max(0, 0.25 - meanBrier)`
+  (kept as an exact fraction from the exact Brier sum, never a rounded decimal; only the final probability
+  is rounded, half up; the forecaster routes return `weightNumerator` / `weightDenominator` strings in lowest
+  terms and `sort=weight` compares by BigInt cross-multiplication) from the latest 50 scored LIVE, uncontaminated, non-missing AGENT entries; consensus weights only
+  count scores recorded by the window's deadline. New routes: `/v1/markets/:id/consensus`,
+  `/v1/forecasters`, `/v1/forecasters/:address`; `/v1/metrics` adds `consensusBrier` and still
+  separates LIVE and REPLAY.
+- **Migration 0033** (only): new submission and window columns, v1 rows untouched (v2 scorer rule and
+  unique indexes beside them), `analytics.closed_forecasts` replaces `final_forecasts`, grants for the
+  API (annotations INSERT, withdrawals only) and worker (root UPDATE, address-only SELECT on submissions,
+  digests only through `forecasts.closed_digests`, which lists a window's answers after its deadline: with the
+  zero content hash a digest reveals the probability, so the worker never reads one of an open window),
+  drops `blink_forecast_admin`, `evidence.records`, `evidence.sources` and the `evidence` schema (no
+  CASCADE). A row-level trigger on `forecasts.windows` allows only the one-time root set.
+- **Client.** `@blink/client` gains submit, withdraw, window, proof, consensus, forecasters and
+  metrics methods plus `forecastTypedData`, `forecastDigest` and `forecastLeaf`.
+
+### Known limitations
+
+The platform's API database role can read sealed answers before the deadline. It cannot forge or alter
+them, because they are signed, append-only and committed by anchored roots. Sealing is a guarantee
+between agents, not against the platform operator.
+
+### Verification
+
+See `.superpowers/sdd/2026-10-24-p2-offchain-protocol/task-10-report.md`. Not run locally:
+`tests/postgres/*` (no PostgreSQL here), including the rewritten `tests/postgres/forecasts.test.ts`;
+`pnpm build` (Turbopack needs a newer glibc).

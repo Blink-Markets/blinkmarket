@@ -6,7 +6,7 @@ import {
 } from "@blink/adapters";
 import { createEvaluationHandler, schedulePeriodic } from "@blink/application";
 import type { JobType } from "@blink/domain";
-import type { JobHandler } from "@blink/ports";
+import type { JobHandler, ProtocolReader } from "@blink/ports";
 import type { OutboxMapping } from "@blink/adapters";
 import { postgresAlertEvaluateStore, httpRpcProbe } from "@blink/adapters";
 import { createAlertEvaluateHandler } from "@blink/application";
@@ -16,10 +16,18 @@ import type { AlertEvaluateConfig } from "./config.js";
 export const handlers: Partial<Record<JobType, JobHandler>> = {};
 export const outboxMapping: OutboxMapping = {};
 
-export function registerEvaluationHandler(pool: Pool): void {
-  handlers["evaluation.score"] = createEvaluationHandler(
-    postgresEvaluationStore(pool),
-  );
+/** Without a deployment (empty id) there is no market to read, so scoring finds nothing to do. */
+export function registerEvaluationHandler(
+  pool: Pool,
+  reader: Pick<ProtocolReader, "markets" | "proposal">,
+  deploymentId: string | null,
+): void {
+  const id = deploymentId ?? "";
+  handlers["evaluation.score"] = createEvaluationHandler({
+    store: postgresEvaluationStore(pool, id),
+    reader,
+    deploymentId: id,
+  });
 }
 outboxMapping["market.indexed"] = () => [
   {

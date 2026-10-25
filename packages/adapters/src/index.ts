@@ -57,7 +57,7 @@ export {
   httpsRequestOptions,
 } from "./allowlist-fetcher.js";
 export * from "./forecast-store.js";
-export * from "./forecast-admin.js";
+export * from "./stale-protocol-reader.js";
 
 export { postgresMarketReadStore } from "./market-read-store.js";
 export {

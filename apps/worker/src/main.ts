@@ -7,11 +7,18 @@ import {
   assertProductionClock,
   dispatchOutbox,
   postgresJobQueue,
+  postgresProtocolReader,
+  staleProtocolReader,
 } from "@blink/adapters";
 import { createAlertDeliveryHandler } from "@blink/application";
 import { createService, startService } from "@blink/runtime";
 import { alertSinkFor } from "./alerts.js";
-import { alertConfig, alertEvaluateConfig, workerConfig } from "./config.js";
+import {
+  alertConfig,
+  alertEvaluateConfig,
+  forecastWorkerConfig,
+  workerConfig,
+} from "./config.js";
 import {
   buildResearch,
   handlers,
@@ -38,6 +45,8 @@ let scheduleRun: Promise<unknown> = Promise.resolve();
 
 try {
   const config = workerConfig(process.env);
+  // Validated before anything connects: a bad window schedule stops the worker at startup.
+  const forecast = forecastWorkerConfig(process.env);
   // Not ready until the job loop is actually running; disabled means liveness only.
   const app = createService("worker", "m3-jobs", async () => {
     if (!pool) return false;
@@ -64,9 +73,19 @@ try {
     const alerts = alertConfig(process.env);
     const alertHandler = createAlertDeliveryHandler(alertSinkFor(alerts));
     registerAlertEvaluate(database, alertEvaluateConfig(process.env));
-    registerEvaluationHandler(database);
+    // The same index reader the API uses; a worker without a deployment sees no market.
+    const reader = forecast.deploymentId
+      ? postgresProtocolReader(database, forecast.deploymentId)
+      : staleProtocolReader;
+    registerEvaluationHandler(database, reader, forecast.deploymentId);
     registerOperationsPrune(database);
-    const research = buildResearch({ pool: database, queue });
+    const research = buildResearch({
+      pool: database,
+      queue,
+      reader,
+      deploymentId: forecast.deploymentId,
+      schedule: forecast.schedule,
+    });
     worker = startJobLoops({
       queue,
       alertHandler,

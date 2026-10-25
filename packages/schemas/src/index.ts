@@ -6,6 +6,7 @@ export * from "./protocol.ts";
 export * from "./protocol-params.ts";
 export * from "./read-api.ts";
 export * from "./market-spec.ts";
+export * from "./research.ts";
 export * from "./http.ts";
 export * from "./evidence.ts";
 

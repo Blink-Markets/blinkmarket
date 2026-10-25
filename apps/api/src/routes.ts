@@ -128,21 +128,63 @@ export const routes = [
     "path": "/v1/markets/:id/forecast-windows",
     "module": "forecasts",
     "access": "public",
-    "summary": "預測窗口"
+    "summary": "Forecast windows with their schedule and roots"
   },
   {
     "method": "POST",
     "path": "/v1/markets/:id/forecasts",
     "module": "forecasts",
     "access": "forecast:write",
-    "summary": "提交預測"
+    "summary": "Submit a signed forecast"
   },
   {
     "method": "GET",
     "path": "/v1/markets/:id/forecasts",
     "module": "forecasts",
     "access": "public; own before deadline",
-    "summary": "讀取預測"
+    "summary": "A window's signed answers, sealed until its deadline"
+  },
+  {
+    "method": "POST",
+    "path": "/v1/forecasts/:id/withdrawal",
+    "module": "forecasts",
+    "access": "forecast:write",
+    "summary": "Withdraw one's own answer before the deadline"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/forecast-windows/:id",
+    "module": "forecasts",
+    "access": "public",
+    "summary": "Window root, leaves and anchor record"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/forecast-windows/:id/proof",
+    "module": "forecasts",
+    "access": "public",
+    "summary": "Merkle proof of a leaf"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/markets/:id/consensus",
+    "module": "forecasts",
+    "access": "public",
+    "summary": "Credit-weighted consensus per closed window"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/forecasters",
+    "module": "forecasts",
+    "access": "public",
+    "summary": "Forecasters by credit weight"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/forecasters/:address",
+    "module": "forecasts",
+    "access": "public",
+    "summary": "One forecaster's credit"
   },
   {
     "method": "POST",

@@ -1,76 +1,62 @@
-import { seedReadMarket } from "./helpers/protocol-index.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { createTestDatabase, inviteAgent } from "./helpers/database.js";
-import { postgresEvaluationStore } from "../packages/adapters/src/evaluation-store.js";
-import { createEvaluationHandler } from "../packages/application/src/evaluation.js";
+import {
+  createEvaluationHandler,
+  scoreWindow,
+} from "../packages/application/src/evaluation.ts";
+import { postgresEvaluationStore } from "../packages/adapters/src/evaluation-store.ts";
+import { seedReadMarket } from "./helpers/protocol-index.ts";
+import {
+  DEPLOYMENT,
+  FORECASTERS,
+  forecastFixture,
+  market,
+  proposal,
+  type ForecastFixture,
+} from "./helpers/forecast-fixture.ts";
 
-async function setup() {
-  const t = await createTestDatabase();
-  const agents: Awaited<ReturnType<typeof inviteAgent>>[] = [];
-  for (const name of ["A", "B", "C", "D"])
-    agents.push(await inviteAgent(t, { name, scopes: ["forecast:write"] }));
-  await t.db.exec(
-    "INSERT INTO markets.deployments(id,manifest,market_address) VALUES('test','{}',decode(repeat('11',20),'hex'))",
-  );
-  async function market(
-    id: number,
-    mode = "REPLAY",
-    outcome = "YES",
-    state = "FINAL",
-  ) {
-    await seedReadMarket(t.db, "test", id, {
-      replay: mode === "REPLAY",
+const { a, b, c } = FORECASTERS;
+const who = (f: ForecastFixture) => ({
+  a: { agent: f.agents.a, address: a.address },
+  b: { agent: f.agents.b, address: b.address },
+  c: { agent: f.agents.c, address: c.address },
+});
+
+/** A FINAL market in the index (the reader the handler uses, and the projection the metrics join). */
+async function finalMarket(
+  f: ForecastFixture,
+  id: number,
+  patch: { replay?: boolean; outcome?: "YES" | "NO" | "INVALID" } = {},
+) {
+  const outcome = patch.outcome ?? "YES";
+  const replay = patch.replay ?? false;
+  f.reader.set({
+    markets: [
+      ...(await f.reader.markets({ limit: 100 })).items.filter(
+        (m) => m.marketId !== String(id),
+      ),
+      market(id, { state: "FINAL", finalOutcome: outcome, replay }),
+    ],
+  });
+  await f.asOwner(() =>
+    seedReadMarket(f.t.db, DEPLOYMENT, id, {
+      state: "FINAL",
       finalOutcome: outcome,
-      state,
+      replay,
       closeAt: 1,
-      proposalDeadline: 2,
-      hardDeadline: 3,
-      maxPairs: "100",
-      maxTakerShares: "100",
-    });
-  }
-  let windowSequence = 0;
-  async function window(
-    marketId: number,
-    probabilities: (string | null)[],
-    annotations: Record<number, string> = {},
-  ) {
-    const id = randomUUID();
-    await t.db.query(
-      `INSERT INTO forecasts.windows(id,deployment_id,market_id,horizon_type,scheduled_at,open_at,deadline)
-      SELECT $1,'test',$2,'DAILY',d,d-interval '30 minutes',d FROM (SELECT '2020-01-01'::timestamptz + $3::integer * interval '1 hour' AS d) clock`,
-      [id, marketId, windowSequence++],
-    );
-    for (let i = 0; i < probabilities.length; i++) {
-      if (probabilities[i] === null) continue;
-      const submission = randomUUID(),
-        agent = agents[i]!;
-      await t.db.query(
-        `INSERT INTO forecasts.submissions(id,window_id,agent_id,operator_id,key_id,probability,evidence_ids,rationale,agent_version)
-        VALUES($1,$2,$3,$4,$5,$6,$7,'fixture','v1')`,
-        [
-          submission,
-          id,
-          agent.agentId,
-          agent.operatorId,
-          agent.keyId,
-          probabilities[i],
-          [randomUUID()],
-        ],
-      );
-      if (annotations[i])
-        await t.db.query(
-          `INSERT INTO forecasts.annotations(id,submission_id,kind,reason,actor) VALUES($1,$2,$3,'fixture','fixture')`,
-          [randomUUID(), submission, annotations[i]],
-        );
-    }
-    return id;
-  }
-  const store = postgresEvaluationStore(t.pool);
-  const score = () =>
-    createEvaluationHandler(store)({
+    }),
+  );
+}
+const scorer = (f: ForecastFixture) =>
+  createEvaluationHandler({
+    store: postgresEvaluationStore(f.t.pool, DEPLOYMENT),
+    reader: f.reader,
+    deploymentId: DEPLOYMENT,
+  });
+const runScoring = (f: ForecastFixture) =>
+  f.asWorker(() =>
+    scorer(f)({
       job: {
         id: randomUUID(),
         type: "evaluation.score",
@@ -81,221 +67,228 @@ async function setup() {
         workerId: "test",
       },
       signal: new AbortController().signal,
-    });
-  return { t, agents, market, window, store, score };
-}
-
-test("evaluation scores final windows once, separates withdrawn, contaminated and INVALID entries per agent", async () => {
-  const s = await setup();
-  try {
-    await s.market(1);
-    const good = await s.window(1, ["0.6", "0.600001", "0.5", "0.123457"]);
-    const partial = await s.window(1, ["0.6", null]);
-    const contaminated = await s.window(1, ["0.6", "0.7"], {
-      0: "OUTCOME_ALREADY_PUBLIC",
-    });
-    const withdrawn = await s.window(1, ["0.6", "0.7", "0.5", "0.4"], {
-      1: "WITHDRAWN",
-      2: "WITHDRAWN",
-      3: "WINDOW_CONTAMINATED",
-    });
-    await s.market(2, "LIVE", "INVALID");
-    await s.window(2, ["0.6", "0.7", "0.5", "0.4"]);
-    await s.market(3, "LIVE", "YES", "OPEN");
-    await s.window(3, ["0.6", "0.7"]);
-    await s.t.setRole("blink_worker");
-    await assert.rejects(
-      s.t.db.query("SELECT * FROM forecasts.submissions"),
-      /permission denied/,
-    );
-    await s.score();
-    const rows = (
-      await s.t.db.query<Record<string, unknown>>(
-        "SELECT *, brier::text AS exact FROM analytics.score_entries ORDER BY id",
+    }),
+  );
+const entries = (f: ForecastFixture) =>
+  f.asOwner(async () =>
+    (
+      await f.t.db.query<{
+        scorer: string;
+        forecaster: string | null;
+        brier: string | null;
+        missing: boolean;
+        contaminated: boolean;
+        mode: string;
+        window_id: string;
+      }>(
+        `SELECT scorer,'0x'||encode(forecaster,'hex') AS forecaster,brier::text,missing,contaminated,mode,window_id
+         FROM analytics.score_entries ORDER BY scorer,forecaster`,
       )
-    ).rows;
-    assert.equal(rows.length, 15);
-    assert.ok(rows.every((r) => r.scorer === "AGENT"));
-    const entry = (window: string, agent: number) =>
-      rows.find(
-        (r) =>
-          r.window_id === window && r.agent_id === s.agents[agent]!.agentId,
-      )!;
-    assert.equal(entry(good, 0).exact, "0.16");
-    assert.equal(entry(good, 0).probability_millionths, 600000);
-    assert.equal(entry(good, 1).exact, "0.159999200001");
-    assert.equal(entry(good, 2).exact, "0.25");
-    assert.equal(entry(good, 3).exact, "0.768327630849");
-    assert.equal(entry(good, 3).probability_millionths, 123457);
-    // An agent that did not submit has no entry: nothing is invented for it.
-    assert.equal(rows.filter((r) => r.window_id === partial).length, 1);
-    assert.equal(entry(partial, 0).missing, false);
-    assert.equal(entry(contaminated, 0).contaminated, true);
-    assert.equal(entry(contaminated, 1).contaminated, false);
-    assert.equal(entry(withdrawn, 0).contaminated, false);
-    assert.equal(entry(withdrawn, 1).missing, true);
-    assert.equal(entry(withdrawn, 1).brier, null);
-    assert.equal(entry(withdrawn, 1).probability_millionths_times2, null);
-    assert.equal(entry(withdrawn, 3).missing, false);
-    assert.equal(entry(withdrawn, 3).contaminated, true);
-    assert.ok(
-      rows
-        .filter((r) => r.outcome === "INVALID")
-        .every((r) => r.brier === null),
-    );
-    assert.equal(rows.filter((r) => r.outcome === "INVALID").length, 4);
-    await s.score();
-    assert.deepEqual(
-      (
-        await s.t.db.query(
-          "SELECT *, brier::text AS exact FROM analytics.score_entries ORDER BY id",
-        )
-      ).rows,
-      rows,
-    );
-    await assert.rejects(
-      s.t.db.exec("UPDATE analytics.score_entries SET missing=true"),
-      /permission denied/,
-    );
-    await s.t.setRole(null);
-    await assert.rejects(
-      s.t.db.exec("DELETE FROM analytics.score_entries"),
-      /append-only/,
-    );
-    await s.t.setRole("blink_api");
-    await assert.rejects(
-      s.t.db.exec(
-        "INSERT INTO analytics.score_entries SELECT * FROM analytics.score_entries",
-      ),
-      /permission denied/,
-    );
-  } finally {
-    await s.t.close();
-  }
-});
+    ).rows.map((r) => ({
+      ...r,
+      forecaster: r.forecaster?.replace(/^0xnull$/, "") || null,
+    })),
+  );
 
-test("public metrics weight each market equally across its agent entries and isolate mode", async () => {
-  const { createMetricsService } =
-    await import("../packages/application/src/evaluation.js");
-  const { buildApi } = await import("../apps/api/src/server.js");
-  const { apiContracts } = await import("../packages/schemas/src/index.ts");
-  const s = await setup();
-  const app = buildApi({
-    services: [createMetricsService({ store: s.store })],
+test("scoreWindow scores each answer and the consensus exactly", () => {
+  const ref = {
+    windowId: "w",
+    deploymentId: "d",
+    marketId: "1",
+    mode: "LIVE" as const,
+    contaminated: false,
+    deadline: 0,
+  };
+  const out = scoreWindow({
+    ...ref,
+    outcome: "YES",
+    forecasts: [
+      { forecaster: "0xa", probabilityBps: 6000, withdrawn: false },
+      { forecaster: "0xb", probabilityBps: 8000, withdrawn: false },
+      { forecaster: "0xc", probabilityBps: 1000, withdrawn: true },
+    ],
+    weights: {},
   });
+  const by = Object.fromEntries(
+    out.map((e) => [e.forecaster ?? "consensus", e]),
+  );
+  assert.equal(Number(by["0xa"]!.brier), 0.16);
+  assert.equal(Number(by["0xb"]!.brier), 0.04);
+  // The withdrawn answer is missing: no score, and it is not in the consensus (70%).
+  assert.deepEqual([by["0xc"]!.missing, by["0xc"]!.brier], [true, null]);
+  assert.equal(Number(by.consensus!.brier), 0.09);
+  assert.equal(by.consensus!.scorer, "CONSENSUS");
+  // INVALID has no Brier at all.
+  const invalid = scoreWindow({
+    ...ref,
+    outcome: "INVALID",
+    forecasts: [{ forecaster: "0xa", probabilityBps: 6000, withdrawn: false }],
+    weights: {},
+  });
+  assert.deepEqual(
+    invalid.map((e) => e.brier),
+    [null, null],
+  );
+  // No standing answer, no consensus entry.
+  assert.deepEqual(
+    scoreWindow({ ...ref, outcome: "NO", forecasts: [], weights: {} }),
+    [],
+  );
+});
+
+test("final windows are scored once, per wallet and for the consensus", async () => {
+  const f = await forecastFixture();
   try {
-    await s.market(1);
-    await s.window(1, ["0.5", "0.5"]);
-    await s.window(1, ["0.5", "0.5"]);
-    await s.window(1, ["0.9", "0.9"], { 0: "WINDOW_CONTAMINATED" });
-    await s.market(2);
-    for (let i = 0; i < 3; i++) await s.window(2, ["0.8", "0.8"]);
-    await s.market(3);
-    await s.window(3, ["0.8", "0.8"], { 1: "WITHDRAWN" });
-    await s.market(4, "REPLAY", "INVALID"); // Count even without windows.
-    await s.market(5, "LIVE");
-    await s.window(5, ["0", "0"]);
-    await s.t.setRole("blink_worker");
-    await s.score();
-    await s.t.setRole("blink_api");
-    const replay = await app.inject({ url: "/v1/metrics?mode=REPLAY" });
-    assert.equal(replay.statusCode, 200, replay.body);
-    assert.equal(replay.headers["cache-control"], "public, max-age=60");
-    assert.deepEqual(replay.json(), {
-      mode: "REPLAY",
-      eventCount: "3",
-      missingCount: "1",
-      invalidCount: "1",
-      brier: 0.094,
-    });
-    apiContracts
-      .find((c) => c.path === "/v1/metrics")!
-      .response.parse(replay.json());
-    const live = (await app.inject({ url: "/v1/metrics?mode=LIVE" })).json();
-    assert.equal(live.eventCount, "1");
-    assert.equal(live.brier, 1);
-    assert.equal(live.missingCount, "0");
-    assert.equal(live.invalidCount, "0");
+    const w = await f.addWindow(600);
+    const p = who(f);
+    await f.insertAnswer(w.id, p.a, 6000);
+    await f.insertAnswer(w.id, p.b, 8000);
+    await f.clock(601);
+    // Not final yet: nothing is scored, whatever the answers are.
+    await runScoring(f);
+    assert.equal((await entries(f)).length, 0);
+    await finalMarket(f, 1);
+    await runScoring(f);
+    await runScoring(f);
+    const rows = await entries(f);
+    assert.equal(rows.length, 3);
+    assert.deepEqual(
+      rows.map((r) => [r.scorer, r.mode, r.contaminated, Number(r.brier)]),
+      [
+        ["AGENT", "LIVE", false, 0.16],
+        ["AGENT", "LIVE", false, 0.04],
+        ["CONSENSUS", "LIVE", false, 0.09],
+      ],
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test("a withdrawn answer is missing, and INVALID scores nothing", async () => {
+  const f = await forecastFixture();
+  try {
+    const p = who(f);
+    const w1 = await f.addWindow(600);
+    const gone = await f.insertAnswer(w1.id, p.a, 6000);
+    await f.insertAnswer(w1.id, p.b, 8000);
+    await f.asOwner(() =>
+      f.t.db.query(
+        "INSERT INTO forecasts.annotations(id,submission_id,kind,reason,actor) VALUES($1,$2,'WITHDRAWN','test','test')",
+        [randomUUID(), gone],
+      ),
+    );
+    const w2 = await f.addWindow(600, { marketId: 2 });
+    await f.insertAnswer(w2.id, p.a, 6000);
+    await f.clock(601);
+    await finalMarket(f, 1);
+    await finalMarket(f, 2, { outcome: "INVALID" });
+    await runScoring(f);
+    const rows = await entries(f);
+    const of = (id: string) => rows.filter((r) => r.window_id === id);
+    assert.deepEqual(
+      of(w1.id).map((r) => [
+        r.scorer,
+        r.missing,
+        r.brier === null ? null : Number(r.brier),
+      ]),
+      [
+        ["AGENT", true, null],
+        ["AGENT", false, 0.04],
+        ["CONSENSUS", false, 0.04],
+      ],
+    );
+    assert.deepEqual(
+      of(w2.id).map((r) => [r.scorer, r.brier]),
+      [
+        ["AGENT", null],
+        ["CONSENSUS", null],
+      ],
+    );
+    const credit = await f.store.creditStats([a.address], null);
     assert.equal(
-      (await app.inject({ url: "/v1/metrics?mode=OTHER" })).statusCode,
-      400,
+      credit[0]!.n,
+      0,
+      "a withdrawn answer and an INVALID market earn no credit",
     );
-    assert.equal((await app.inject({ url: "/v1/metrics" })).statusCode, 400);
   } finally {
-    await app.close();
-    await s.t.close();
+    await f.close();
   }
 });
 
-test("metrics return null without eligible events and round the exact mean to six decimals", async () => {
-  const s = await setup();
+test("contaminated windows are scored but excluded from metrics and credit", async () => {
+  const f = await forecastFixture();
   try {
-    assert.deepEqual(await s.store.metrics("LIVE"), {
-      eventCount: "0",
-      missingCount: "0",
-      invalidCount: "0",
-      brier: null,
-    });
-    await s.market(1, "LIVE", "NO");
-    await s.window(1, ["0.123457", "0.123457"]);
-    await s.t.setRole("blink_worker");
-    const cancelled = new AbortController();
-    cancelled.abort();
-    await assert.rejects(s.store.scoreFinalWindows(() => [], cancelled.signal));
-    await s.score();
-    await s.t.setRole("blink_api");
-    assert.equal((await s.store.metrics("LIVE")).brier, 0.015242);
-    assert.equal((await s.store.metrics("REPLAY")).brier, null);
+    const p = who(f);
+    const w = await f.addWindow(600);
+    await f.insertAnswer(w.id, p.a, 6000);
+    await f.clock(601);
+    await finalMarket(f, 1);
+    // The proposal was public before the deadline.
+    f.reader.set({ proposals: [proposal(1, ORIGIN_PLUS(100))] });
+    await runScoring(f);
+    const rows = await entries(f);
+    assert.deepEqual(
+      rows.map((r) => r.contaminated),
+      [true, true],
+    );
+    await f.asOwner(async () =>
+      assert.deepEqual(
+        await postgresEvaluationStore(f.t.pool, DEPLOYMENT).metrics("LIVE"),
+        {
+          eventCount: "0",
+          missingCount: "0",
+          invalidCount: "0",
+          brier: null,
+          consensusBrier: null,
+        },
+      ),
+    );
+    assert.equal((await f.store.creditStats([a.address], null))[0]!.n, 0);
   } finally {
-    await s.t.close();
+    await f.close();
   }
 });
 
-test("worker registration scores indexed markets and schedules once per ten-minute DB-clock bucket", async () => {
-  const {
-    handlers,
-    outboxMapping,
-    registerEvaluationHandler,
-    scheduleEvaluation,
-  } = await import("../apps/worker/src/handlers.js");
-  const { dispatchOutbox } =
-    await import("../packages/adapters/src/outbox-dispatcher.js");
-  const { postgresJobQueue } =
-    await import("../packages/adapters/src/job-queue.js");
-  const s = await setup();
+test("credit stats use the latest 50 scored LIVE answers, frozen as of a time", async () => {
+  const f = await forecastFixture();
   try {
-    await s.market(1);
-    await s.window(1, ["0.7", "0.7"]);
-    await s.t.db.query(
-      "INSERT INTO operations.outbox(id,event_type,aggregate_id,event_version,payload) VALUES($1,'market.indexed','1',1,$2)",
-      [randomUUID(), { deploymentId: "test", marketId: "1", state: "FINAL" }],
-    );
-    await s.t.setRole("blink_worker");
-    registerEvaluationHandler(s.t.pool);
-    await dispatchOutbox(s.t.pool, outboxMapping);
-    const queue = postgresJobQueue(s.t.pool);
-    const job = await queue.lease("test", ["evaluation.score"], 60000);
-    assert.ok(job);
-    await handlers["evaluation.score"]!({
-      job,
-      signal: new AbortController().signal,
+    const p = who(f);
+    await f.insertAnswer((await f.addWindow(600)).id, p.a, 5000);
+    // 52 closed windows, each with an answer of 0.5 for YES (Brier 0.25) scored at the origin.
+    await f.asOwner(async () => {
+      for (let i = 0; i < 52; i++) {
+        const id = randomUUID();
+        await f.t.db.query(
+          `INSERT INTO forecasts.windows(id,deployment_id,market_id,horizon_type,scheduled_at,open_at,deadline)
+           VALUES($1,$2,1,'DAILY',to_timestamp(1700000000+$3::int*3600),to_timestamp(1700000000+$3::int*3600-1800),to_timestamp(1700000000+$3::int*3600))`,
+          [id, DEPLOYMENT, i],
+        );
+        await f.t.db.query(
+          `INSERT INTO analytics.score_entries(id,deployment_id,market_id,window_id,mode,scorer,forecaster,probability_millionths,probability_millionths_times2,outcome,brier,missing,contaminated,evaluation_version)
+           VALUES($1,$2,1,$3,'LIVE','AGENT',decode($4,'hex'),500000,1000000,'YES',$5,false,false,'v2')`,
+          [
+            randomUUID(),
+            DEPLOYMENT,
+            id,
+            p.a.address.slice(2).toLowerCase(),
+            i < 2 ? "1" : "0.25",
+          ],
+        );
+      }
     });
-    await queue.complete(job);
-    await s.t.setRole(null);
-    await s.t.db
-      .exec(`CREATE OR REPLACE FUNCTION blink.now() RETURNS timestamptz LANGUAGE sql VOLATILE AS $$
-      SELECT '2026-01-01 00:00:00Z'::timestamptz + make_interval(secs => COALESCE(NULLIF(current_setting('blink.test_clock_offset_seconds',true),''),'0')::double precision)
-    $$`);
-    await s.t.setRole("blink_worker");
-    await scheduleEvaluation(s.t.pool);
-    await scheduleEvaluation(s.t.pool);
-    assert.equal((await queue.stats()).queued, 1);
-    await s.t.db.exec("SET blink.test_clock_offset_seconds='600'");
-    await scheduleEvaluation(s.t.pool);
-    assert.equal((await queue.stats()).queued, 2);
-    assert.equal((await s.store.metrics("REPLAY")).eventCount, "1");
+    const [now] = await f.store.creditStats([a.address], null);
+    // The two oldest (Brier 1) fall out of the latest 50.
+    assert.deepEqual([now!.n, Number(now!.brierSum)], [50, 12.5]);
+    // Scores recorded after the time asked for do not count.
+    assert.equal(
+      (await f.store.creditStats([a.address], new Date(1)))[0]?.n ?? 0,
+      0,
+    );
   } finally {
-    delete handlers["evaluation.score"];
-    await s.t.close();
+    await f.close();
   }
 });
+
+const ORIGIN_PLUS = (seconds: number) =>
+  Math.floor(Date.UTC(2026, 9, 26, 12) / 1000) + seconds;

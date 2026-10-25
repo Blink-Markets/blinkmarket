@@ -30,3 +30,5 @@ export * from "./forecast-windows.ts";
 export * from "./brier.ts";
 
 export * from "./gm-parser.ts";
+export * from "./forecast-merkle.ts";
+export * from "./consensus.ts";

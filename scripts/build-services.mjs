@@ -29,7 +29,6 @@ await build({
   ...common,
   entryPoints: {
     migrate: "scripts/migrate.ts",
-    "forecast-admin": "scripts/forecast-admin.ts",
     "register-deployment": "scripts/register-deployment.ts",
     "rebuild-chain-index": "scripts/rebuild-chain-index.ts",
     "restore-prepare": "scripts/restore-prepare.ts",
