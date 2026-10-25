@@ -53,7 +53,7 @@
   - Nothing is overridden. This is the production cold-start rule.
 - **Timeout scenario.** It covers "nobody submits". The "arbitration reaches no conclusion" branch is already covered by the P1 forge suites, and the drill does not repeat it.
 - **Contract-wallet makers.** P2 Task 11 already proves an ERC-1271 maker. The drill's makers are EOAs, because deploying `MockErc1271Wallet` is test-only.
-- **CDP SDK wallets.** P2 Task 12 says "P3 verifies CDP SDK wallets". That needs the operator's Coinbase Developer Platform credentials, which are an external service. P3 does not do it unless the user supplies credentials. The docs say EOA and ERC-1271 wallets are supported and name no CDP result.
+- **CDP SDK wallets.** The user approved supplying Coinbase Developer Platform credentials (2026-10-25). Task 7b verifies a CDP server account on local Anvil. The docs name CDP as verified only after Task 7b passes on the operator's machine.
 
 ---
 
@@ -454,6 +454,31 @@
 - [ ] **Step 4: Run** the Step 2 command and `pnpm test && pnpm check:boundaries && pnpm typecheck`. Expected: PASS. The live demo is not run by the implementer or by CI.
 - [ ] **Step 5: Commit** `feat: optional LLM agent demo that onboards from llms.txt with guarded tools`.
 
+### Task 7b: CDP server wallet check (manual, operator credentials)
+
+P2 Task 12 left "P3 verifies CDP SDK wallets". The user approved supplying a CDP key on 2026-10-25. The check runs only on the operator's machine. It is never in CI, and no secret ever goes into the repo or a GitHub secret.
+
+**Files:**
+- Create: `tests/cdp/cdp-wallet.test.ts`
+- Modify:
+  - root `package.json`: devDependency `@coinbase/cdp-sdk` (1.60.0 or newer); script `check:cdp-wallet`, which runs `node --env-file=${BLINK_CDP_ENV:-$HOME/.config/blink/cdp.env} --import tsx --test tests/cdp/cdp-wallet.test.ts`; `tests/cdp/` stays out of the `pnpm test` glob
+  - `docs/P3_AGENTS_PROGRESS.md`
+
+**Interfaces:**
+- Consumes: Task 2 `startAlphaPlatform({ backend: "pglite" })` and `onboard`; Task 1 `quoteTypedData`; P2 T10's `Forecast` typed data.
+- **Credentials.** `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` and `CDP_WALLET_SECRET` come only from the env file the operator wrote. The test never prints, logs or asserts on their values. When any of the three is missing, it skips with a printed reason.
+- **Account.** `new CdpClient()` → `evm.getOrCreateAccount({ name: "blink-p3-check" })` → viem `toAccount(serverAccount)`.
+- **Network.** Every transaction goes to the local Anvil (chain 84532). CDP only signs: no CDP faucet, no CDP send, and no broadcast to Base Sepolia. The test harness may fund the account on Anvil with `anvil_setBalance`; that is test setup, not the drill.
+
+- [ ] **Step 1: Write the test** `CDP server account onboards and signs every agent payload`, with these assertions:
+  - faucet `claim`, `register` and `joinRole(MAKER)` succeed from the CDP account;
+  - the T6 wallet proof is accepted by the API;
+  - a quote signed by the CDP account passes `verifySignedQuote` and fills on-chain;
+  - a forecast signed by the CDP account is accepted by the forecast route.
+- [ ] **Step 2: Run** `pnpm check:cdp-wallet` with no env file. Expected: the test skips with the printed reason.
+- [ ] **Step 3: The operator runs** `pnpm check:cdp-wallet` with the env file. Expected: PASS. Record the pass or fail, the SDK version and the date in `docs/P3_AGENTS_PROGRESS.md`, with no key material.
+- [ ] **Step 4: Commit** `test: verify a CDP server wallet can onboard and sign agent payloads`.
+
 ### Task 8: P3 delivery docs
 
 **Files:**
@@ -473,7 +498,7 @@
   - the drill: its scenarios, its roster, the measured run time, and the CI job;
   - the LLM demo, and its not-in-CI status;
   - the pre-flight rulings;
-  - known limitations: the CDP wallets are unverified, there is no contract-wallet maker in the drill, and the "arbitration reaches no conclusion" path is covered only by forge;
+  - known limitations: the CDP check is manual and not in CI, CDP smart accounts (ERC-4337) are unverified, there is no contract-wallet maker in the drill, and the "arbitration reaches no conclusion" path is covered only by forge;
   - test commands with measured counts.
 - [ ] **Step 2: Run** `pnpm check && pnpm build`, the build in CI. Expected: PASS.
 - [ ] **Step 3: Commit and push** `docs: record P3 reference agents and autonomous drill delivery`.
@@ -488,7 +513,7 @@
 | B | 2 | The runtime and the boundary are shared by every role. |
 | C | 3 ∥ 4 | They use different role files and the same runtime. Merge 3 first, then rebase 4 onto it (their only overlap is `main.ts`'s role table). |
 | D | 5 ∥ 6 | The docs describe Tasks 1–4; the drill uses them. They share no files. |
-| E | 7 | It needs the Task 5 docs as its only knowledge. |
+| E | 7 ∥ 7b | 7 needs the Task 5 docs as its only knowledge. 7b needs only Tasks 1–2 and the operator's run. |
 | F | 8 | |
 
 ## Self-review notes
@@ -504,5 +529,5 @@
   - Covered elsewhere: §2.1.1 and §2.1.5 by P1/P2; §2.1.6 and the website by P4.
 - **Carried from P2 Task 12:**
   - the juror rule for unfetchable evidence (Task 4 and Task 5);
-  - the CDP wallet verification (pre-flight ruling; needs the user's credentials);
+  - the CDP wallet verification (Task 7b);
   - replacing the v0.1 role pages (Task 5).
