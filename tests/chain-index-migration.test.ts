@@ -87,6 +87,13 @@ test("protocol events are immutable except canonical, projections are indexer-on
       "fills",
       "anchors",
       "successors",
+      "proposals",
+      "disputes",
+      "rounds",
+      "votes",
+      "jurors",
+      "reward_pool",
+      "fees",
     ]) {
       await t.db.query(
         `INSERT INTO protocol.${table}(deployment_id,key,data,as_of_block_hash) VALUES('d1','1','{}',decode($1,'hex'))`,

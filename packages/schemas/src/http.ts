@@ -7,6 +7,19 @@ import { z } from "zod";
 import { AdminMetricsResponse, HealthResponse } from "./health.ts";
 import { PublicDeployment } from "./deployment-v1.ts";
 import {
+  AccountResponse,
+  DeploymentResponse,
+  DisputeDetail,
+  DisputesPage,
+  FeesResponse,
+  MarketDetail,
+  MarketsPage,
+  PositionsPage,
+  ReadPageQuery,
+  TemplatesPage,
+} from "./read-api.ts";
+import { MarketStateName } from "./protocol.ts";
+import {
   WalletChallengeRequest,
   WalletChallengeResponse,
   WalletVerificationRequest,
@@ -18,7 +31,6 @@ import {
   ChainCursor,
   DeploymentId,
   Hash,
-  MarketSpec,
   Mode,
   Outcome,
   PositiveUint256,
@@ -137,21 +149,6 @@ export const SignedQuoteResponse = z.strictObject({
   forecastSnapshotId: Id,
   chainCursor: ChainCursor,
 });
-const Ref = {
-  deploymentId: DeploymentId,
-  marketId: PositiveUint256,
-  mode: Mode,
-};
-const Summary = z.strictObject({
-  ...Ref,
-  specHash: Hash,
-  storedState: z.enum(["PENDING", "OPEN", "PROPOSED", "DISPUTED", "FINAL", "CANCELLED"]),
-  effectiveState: z.enum(["PENDING", "OPEN", "CLOSED", "PROPOSED", "DISPUTED", "FINAL", "CANCELLED"]),
-  paused: z.boolean(),
-  canTrade: z.boolean(),
-  reasons: z.array(z.string()),
-  chainCursor: ChainCursor,
-});
 const Window = z.strictObject({
   windowId: Id,
   horizonKey: Horizon,
@@ -170,17 +167,6 @@ const Forecast = z.strictObject({
   agentVersion: Text,
   withdrawnAt: Time.nullable(),
   contaminated: z.boolean(),
-});
-const Resolution = z.strictObject({
-  ...Ref,
-  proposedOutcome: Outcome.nullable(),
-  finalOutcome: Outcome.nullable(),
-  proposalEvidenceHash: Hash.nullable(),
-  finalEvidenceHash: Hash.nullable(),
-  proposedAt: Time.nullable(),
-  challengeEndsAt: Time.nullable(),
-  hardDeadline: Time,
-  chainCursor: ChainCursor,
 });
 const ListQuery = z
   .object({
@@ -284,24 +270,53 @@ const contracts = [
         "Public; no API key. Single use: a challenge issues or revokes once, then answers 409. Verification attempts are limited per challenge and per client IP. The apiKey secret is shown only in the first successful issue response.",
     },
   ),
-  operation("GET", "/v1/markets", list(Summary), {
-    query: ListQuery.extend({
-      deploymentId: DeploymentId.optional(),
-      mode: Mode.optional(),
-      status: z
-        .enum(["PENDING", "OPEN", "CLOSED", "PROPOSED", "DISPUTED", "FINAL", "CANCELLED"])
-        .optional(),
-    }),
+  operation("GET", "/v1/deployment", DeploymentResponse, {
+    description:
+      "The current protocol deployment manifest (blink.deployment/2): chain, contract addresses, generation and the Params that bind every rule.",
   }),
-  operation(
-    "GET",
-    "/v1/markets/:id",
-    Summary.extend({
-      spec: MarketSpec,
-      resolution: Resolution,
-    }),
-  ),
-  operation("GET", "/v1/markets/:id/spec", MarketSpec),
+  operation("GET", "/v1/markets", MarketsPage, {
+    query: ReadPageQuery.extend({ state: MarketStateName.optional() }),
+    description:
+      "Markets in id order, paged by after/limit (at most 100). Each item carries the parseMarketSpec result of its stored spec bytes, or the reason there is none (SPEC_UNAVAILABLE); an unreadable spec never hides a market.",
+  }),
+  operation("GET", "/v1/markets/:id", MarketDetail, {
+    query: noQuery,
+    description:
+      "The market, the parseMarketSpec result of its spec bytes, and its proposal (null before one).",
+  }),
+  operation("GET", "/v1/markets/:id/spec", z.string(), {
+    query: noQuery,
+    rawResponse: true,
+    description:
+      "The exact stored spec bytes with the stored media type, served as GET /v1/content/:hash serves them. 503 SPEC_UNAVAILABLE when the platform holds no intact bytes for the market's specHash.",
+  }),
+  operation("GET", "/v1/markets/:id/disputes", DisputesPage, {
+    query: ReadPageQuery,
+    description: "A market's disputes in id order.",
+  }),
+  operation("GET", "/v1/disputes/:id", DisputeDetail, {
+    params: z.strictObject({ id: PositiveUint256 }),
+    query: ReadPageQuery.extend({ round: z.coerce.number().int().min(0).optional() }),
+    description:
+      "The dispute with all its rounds, and a page of votes in (round, juror) order. A vote's choice is null until its reveal.",
+  }),
+  operation("GET", "/v1/markets/:id/fees", FeesResponse, {
+    query: noQuery,
+    description:
+      "How the market's fee pool was split by distributeFees, recomputed from the deployment Params and the final outcome; fees is null until it ran.",
+  }),
+  operation("GET", "/v1/accounts/:address", AccountResponse, {
+    description:
+      "Roles, credit per role decayed to the request time, and juror state. 404 for an address the index has not seen register.",
+  }),
+  operation("GET", "/v1/accounts/:address/positions", PositionsPage, {
+    query: ReadPageQuery,
+    description: "An account's positions in market-id order.",
+  }),
+  operation("GET", "/v1/templates", TemplatesPage, {
+    query: ReadPageQuery,
+    description: "Registered question templates in template-id order.",
+  }),
   operation(
     "POST",
     "/v1/content",
@@ -405,22 +420,6 @@ const contracts = [
       chainCursor: ChainCursor.nullable(),
     }),
   ),
-  operation(
-    "GET",
-    "/v1/accounts/:address/positions",
-    list(
-      z.strictObject({
-        ...Ref,
-        yesShares: Uint256,
-        noShares: Uint256,
-        payoutMicros: Uint256.nullable(),
-        pendingIntentIds: z.array(Id),
-        chainCursor: ChainCursor,
-      }),
-    ),
-    { query: ListQuery.extend({ deploymentId: DeploymentId }) },
-  ),
-  operation("GET", "/v1/markets/:id/resolution", Resolution),
   operation(
     "GET",
     "/v1/metrics",

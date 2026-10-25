@@ -293,10 +293,6 @@ test("unknown, reverted, reorged and re-included receipts retain correct confirm
       [address.slice(2), hash(10).slice(2)],
     );
     await run();
-    const positions = await t.app.inject(
-      "/v1/accounts/" + address + "/positions?deploymentId=d1",
-    );
-    assert.equal(positions.json().items[0].pendingIntentIds.length, 1);
     observation.receipt = {
       blockHash: hash(10),
       blockNumber: "10",

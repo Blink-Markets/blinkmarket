@@ -1,12 +1,22 @@
-import type { ProtocolReader } from "../../packages/ports/src/index.ts";
+import type {
+  ProtocolPosition,
+  ProtocolReader,
+  ProtocolTemplate,
+} from "../../packages/ports/src/index.ts";
 import {
   presets,
   type Anchor,
   type DigestStatus,
+  type FeeBreakdown,
   type IndexHealth,
+  type JurorState,
   type MakerState,
   type ProtocolAccount,
+  type ProtocolDispute,
   type ProtocolMarket,
+  type ProtocolProposal,
+  type ProtocolRound,
+  type ProtocolVote,
 } from "../../packages/schemas/src/index.ts";
 
 // BlinkRegistry decays credit by value >> floor(elapsed / halfLife) and zeroes it from 32 halvings.
@@ -21,6 +31,15 @@ export type FakeProtocolState = {
   makers: MakerState[];
   digests: Record<string, DigestStatus>;
   anchors: Anchor[];
+  proposals: ProtocolProposal[];
+  disputes: ProtocolDispute[];
+  rounds: ProtocolRound[];
+  /** Stored as given: a test may leave a choice on an unrevealed vote to prove it is never served. */
+  votes: ProtocolVote[];
+  jurors: JurorState[];
+  fees: FeeBreakdown[];
+  templates: ProtocolTemplate[];
+  positions: ProtocolPosition[];
 };
 
 const lower = (v: string) => v.toLowerCase();
@@ -40,12 +59,34 @@ export function fakeProtocolReader(
     makers: [],
     digests: {},
     anchors: [],
+    proposals: [],
+    disputes: [],
+    rounds: [],
+    votes: [],
+    jurors: [],
+    fees: [],
+    templates: [],
+    positions: [],
     ...initial,
   };
   const account = (address: string) =>
     state.accounts.find((a) => lower(a.address) === lower(address)) ?? null;
   const byId = (a: ProtocolMarket, b: ProtocolMarket) =>
     BigInt(a.marketId) < BigInt(b.marketId) ? -1 : 1;
+  const paged = <T>(
+    rows: T[],
+    q: { after?: string; limit: number },
+    key: (row: T) => string,
+    isAfter: (row: T, after: string) => boolean,
+  ) => {
+    const rest = rows.filter((r) => q.after === undefined || isAfter(r, q.after));
+    const items = rest.slice(0, q.limit);
+    return {
+      items,
+      next: rest.length > q.limit ? key(items[items.length - 1]!) : null,
+    };
+  };
+  const big = (v: string) => BigInt(v);
   return {
     set(patch) {
       state = { ...state, ...patch };
@@ -110,6 +151,55 @@ export function fakeProtocolReader(
     },
     async anchor(root) {
       return state.anchors.find((a) => lower(a.root) === lower(root)) ?? null;
+    },
+    async proposal(marketId) {
+      return state.proposals.find((p) => p.marketId === marketId) ?? null;
+    },
+    async disputes(marketId, q) {
+      const rows = state.disputes
+        .filter((d) => d.marketId === marketId)
+        .sort((a, b) => (big(a.disputeId) < big(b.disputeId) ? -1 : 1));
+      return paged(rows, q, (d) => d.disputeId, (d, after) => big(d.disputeId) > big(after));
+    },
+    async dispute(id) {
+      return state.disputes.find((d) => d.disputeId === id) ?? null;
+    },
+    async rounds(disputeId) {
+      return state.rounds
+        .filter((r) => r.disputeId === disputeId)
+        .sort((a, b) => a.round - b.round);
+    },
+    async votes(disputeId, q) {
+      const order = (v: ProtocolVote) => `${String(v.round).padStart(10, "0")}:${v.juror}`;
+      const rows = state.votes
+        .filter((v) => v.disputeId === disputeId && (q.round === undefined || v.round === q.round))
+        .sort((a, b) => (order(a) < order(b) ? -1 : 1));
+      const key = (v: ProtocolVote) => `${v.round}:${v.juror}`;
+      const page = paged(rows, q, key, (v, after) => {
+        const [round, juror] = after.split(":");
+        return order(v) > `${String(round).padStart(10, "0")}:${juror}`;
+      });
+      // Like the real reader, never show a choice that was not revealed.
+      return {
+        ...page,
+        items: page.items.map((v) => (v.revealed ? v : { ...v, choice: null })),
+      };
+    },
+    async juror(address) {
+      return state.jurors.find((j) => lower(j.address) === lower(address)) ?? null;
+    },
+    async fees(marketId) {
+      return state.fees.find((f) => f.marketId === marketId) ?? null;
+    },
+    async templates(q) {
+      const rows = [...state.templates].sort((a, b) => (a.templateId < b.templateId ? -1 : 1));
+      return paged(rows, q, (t) => t.templateId, (t, after) => t.templateId > after);
+    },
+    async positions(address, q) {
+      const rows = state.positions
+        .filter((p) => lower(p.account) === lower(address))
+        .sort((a, b) => (big(a.marketId) < big(b.marketId) ? -1 : 1));
+      return paged(rows, q, (p) => p.marketId, (p, after) => big(p.marketId) > big(after));
     },
   };
 }

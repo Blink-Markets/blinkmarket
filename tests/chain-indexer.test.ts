@@ -1,3 +1,4 @@
+import { presets } from "../packages/schemas/src/index.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -72,7 +73,7 @@ test("initial sync and overlapping duplicate logs count once", async () => {
     assert.equal((await s.indexer.syncOnce()).advancedTo, 14n);
     assert.deepEqual(
       await s.store.loadProjection("d1"),
-      foldProtocolEvents(s.chain.allEvents()),
+      foldProtocolEvents(s.chain.allEvents(), presets.alpha),
     );
     s.chain.mine();
     await s.indexer.syncOnce();
@@ -153,6 +154,7 @@ test("reorg tombstones events and restores all projection families", async () =>
         name: "CreditGained",
         args: { account: MAKER, role: "1", amount: "8", credit: "8" },
       },
+      { contract: "JURORS", name: "Staked", args: { juror: MAKER, amount: "1000" } },
     ]);
     await s.indexer.syncOnce();
     const before = await s.store.loadProjection("d1");
@@ -183,7 +185,39 @@ test("reorg tombstones events and restores all projection families", async () =>
       },
       marketCreated(2),
       quoteFilled(2),
+      { contract: "JURORS", name: "Staked", args: { juror: TAKER, amount: "500" } },
+      {
+        contract: "RESOLUTION",
+        name: "Proposed",
+        args: {
+          id: "1",
+          proposer: TAKER,
+          outcome: "0",
+          bond: "5",
+          challengeEnd: "1100",
+          evidenceHash: "0x" + "6".repeat(64),
+          evidenceURI: "ipfs://e",
+        },
+      },
       { name: "MarketProposed", args: { marketId: "1" } },
+      {
+        contract: "RESOLUTION",
+        name: "DisputeOpened",
+        args: {
+          disputeId: "1",
+          marketId: "1",
+          challenger: MAKER,
+          kind: "1",
+          bond: "5",
+          ground: "0",
+          evidenceHash: "0x" + "5".repeat(64),
+        },
+      },
+      {
+        contract: "RESOLUTION",
+        name: "VoteCommitted",
+        args: { disputeId: "1", round: "0", juror: TAKER, weight: "500" },
+      },
       { name: "MarketFinalized", args: { marketId: "1", outcome: "0" } },
       {
         name: "FeesDistributed",
@@ -223,6 +257,11 @@ test("reorg tombstones events and restores all projection families", async () =>
       },
     ]);
     await s.indexer.syncOnce();
+    const grown = await s.store.loadProjection("d1");
+    assert.deepEqual(
+      [grown.proposals.size, grown.disputes.size, grown.rounds.size, grown.votes.size, grown.jurors.size, grown.fees.size],
+      [1, 1, 1, 1, 2, 1],
+    );
     s.chain.rewind(15n);
     s.chain.mine();
     const reorg = await s.indexer.syncOnce();
@@ -235,7 +274,7 @@ test("reorg tombstones events and restores all projection families", async () =>
           "SELECT count(*)::int AS n FROM protocol.events WHERE NOT canonical",
         )
       ).rows[0].n,
-      15,
+      19, // the 15 older events plus the four resolution and juror events
     );
     await s.indexer.syncOnce();
     assert.equal((await s.cursor())?.gateReason, null);
@@ -243,6 +282,13 @@ test("reorg tombstones events and restores all projection families", async () =>
       "SELECT (SELECT count(*)::int FROM protocol.account_roles) AS roles,(SELECT count(*)::int FROM protocol.credit) AS credit",
     );
     assert.deepEqual(counts.rows[0], { roles: 7, credit: 7 });
+    // The newer resolution, juror and fee rows are gone; the older juror row stays.
+    const resolution = await s.t.pool.query(
+      `SELECT (SELECT count(*)::int FROM protocol.proposals) AS proposals,(SELECT count(*)::int FROM protocol.disputes) AS disputes,
+        (SELECT count(*)::int FROM protocol.rounds) AS rounds,(SELECT count(*)::int FROM protocol.votes) AS votes,
+        (SELECT count(*)::int FROM protocol.jurors) AS jurors,(SELECT count(*)::int FROM protocol.fees) AS fees`,
+    );
+    assert.deepEqual(resolution.rows[0], { proposals: 0, disputes: 0, rounds: 0, votes: 0, jurors: 1, fees: 0 });
   } finally {
     await s.close();
   }
@@ -261,7 +307,7 @@ test("a previously orphaned branch revives its event rows", async () => {
     await s.indexer.syncOnce();
     assert.deepEqual(
       await s.store.loadProjection("d1"),
-      foldProtocolEvents(s.chain.allEvents()),
+      foldProtocolEvents(s.chain.allEvents(), presets.alpha),
     );
     assert.equal(
       (
@@ -313,7 +359,7 @@ test("projection drift refolds the journal and repairs every changed row", async
     assert.equal((await s.indexer.syncOnce()).gateReason, null);
     assert.deepEqual(
       await s.store.loadProjection("d1"),
-      foldProtocolEvents(s.chain.allEvents()),
+      foldProtocolEvents(s.chain.allEvents(), presets.alpha),
     );
   } finally {
     await s.close();

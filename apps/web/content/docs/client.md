@@ -93,9 +93,9 @@ These need a key with the `admin` scope and are meant for the Blink team, not au
 
 | Method | Calls | Arguments | Returns |
 | --- | --- | --- | --- |
-| `listMarkets(query?)` | `GET /v1/markets` | optional `{ deploymentId, mode, status, entity, limit, cursor }` | a page (`items`, `nextCursor`) of market summaries with `specHash`, `effectiveState`, `canTrade` and `reasons` |
-| `getMarket(ref)` | `GET /v1/markets/:id?deploymentId=...` | `{ deploymentId, marketId, mode }`; `mode` is required by the type but not sent, only `marketId` (path) and `deploymentId` (query) are used | market summary with `spec`, `resolution`, `forecastSnapshotId`, `costMicros` |
-| `getMarketSpec(ref, specHash)` | `GET /v1/markets/:id/spec?deploymentId=...` | `{ deploymentId, marketId }` and the `specHash` you already trust, from `listMarkets` or a signed quote | the parsed market spec, only if the keccak256 of the returned bytes equals `specHash`; otherwise it throws `SPEC_HASH_MISMATCH` |
+| `listMarkets(query?)` | `GET /v1/markets` | optional `{ state, after, limit }` | a page (`items`, `next`, `index`); each item has the `market` and its `spec` parse result (the spec, or the reason there is none) |
+| `getMarket(ref)` | `GET /v1/markets/:id` | `{ marketId }` | `market`, `spec` parse result, `proposal` (null before one) and `index` |
+| `getMarketSpec(ref, specHash)` | `GET /v1/markets/:id/spec` | `{ marketId }` and the `specHash` you already trust, from `listMarkets` or a signed quote | the parsed market spec, only if the keccak256 of the returned bytes equals `specHash`; otherwise it throws `SPEC_HASH_MISMATCH` |
 
 ### Forecasts
 
@@ -113,7 +113,7 @@ These need a key with the `admin` scope and are meant for the Blink team, not au
 | `getQuote(quoteId)` | `GET /v1/quotes/:quoteId` | the quote ID (its EIP-712 digest) | `quote`, `status` and `chainCursor`; a quote that was never signed is a 404 |
 | `trackTransaction(input, key?)` | `POST /v1/transactions` | `{ deploymentId, txHash, action, quoteId? }`: `action` is `APPROVE`, `FILL` or `REDEEM`, and `FILL` needs `quoteId`; idempotency key | `trackingId`, `status` (`UNKNOWN`); HTTP 202 |
 | `getTransaction(ref)` | `GET /v1/transactions/:txHash?deploymentId=...` | `{ deploymentId, txHash }` | `status`, `replacementOf`, `rejectReason`, `chainCursor` |
-| `getPositions(ref, page?)` | `GET /v1/accounts/:address/positions?deploymentId=...` | `{ deploymentId, address }`, optional `{ limit, cursor }` | a page of positions with `yesShares`, `noShares`, `payoutMicros`, `pendingIntentIds` |
+| `getPositions(ref, page?)` | `GET /v1/accounts/:address/positions` | `{ address }`, optional `{ after, limit }` | a page of positions with `yesShares`, `noShares`, `payoutMicros` (set once the market is final) |
 
 If `requestQuote` is answered with a retryable 503 while the quote is still being signed, the client's retry repeats the same key and resumes the same quote.
 
@@ -122,7 +122,6 @@ If `requestQuote` is answered with a retryable 503 while the quote is still bein
 | Method | Calls | Arguments | Returns |
 | --- | --- | --- | --- |
 | `submitResolutionReport(ref, input, key?)` | `POST /v1/markets/:id/resolution-reports?deploymentId=...` | `{ deploymentId, marketId }`, `{ outcome, evidenceIds, reason }`, idempotency key | `reportId`, `state` (`RECEIVED`); HTTP 202 |
-| `getResolution(ref)` | `GET /v1/markets/:id/resolution?deploymentId=...` | `{ deploymentId, marketId }` | proposed and final outcome, evidence hashes, `challengeEndsAt`, `hardDeadline` |
 | `claimFaucet(input, key?)` | `POST /v1/faucet/claims` | `{ deploymentId }`, idempotency key | `claimId`, `intentId`, `state` (`QUEUED`); HTTP 202 |
 | `getMetrics(mode)` | `GET /v1/metrics?mode=...` | `"LIVE"` or `"REPLAY"` | event, missing and invalid counts, `brier`, and research spend: spent, reserved and unknown |
 

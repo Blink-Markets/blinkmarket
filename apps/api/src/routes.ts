@@ -20,24 +20,66 @@ export const routes = [
   },
   {
     "method": "GET",
+    "path": "/v1/deployment",
+    "module": "markets",
+    "access": "public",
+    "summary": "Current protocol deployment manifest"
+  },
+  {
+    "method": "GET",
     "path": "/v1/markets",
     "module": "markets",
     "access": "public",
-    "summary": "市場列表"
+    "summary": "Markets with their spec parse result"
   },
   {
     "method": "GET",
     "path": "/v1/markets/:id",
     "module": "markets",
     "access": "public",
-    "summary": "市場詳情"
+    "summary": "Market, spec parse result and proposal"
   },
   {
     "method": "GET",
     "path": "/v1/markets/:id/spec",
     "module": "markets",
     "access": "public",
-    "summary": "精確規格 bytes"
+    "summary": "Exact spec bytes"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/markets/:id/disputes",
+    "module": "resolution",
+    "access": "public",
+    "summary": "A market's disputes"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/disputes/:id",
+    "module": "resolution",
+    "access": "public",
+    "summary": "A dispute with rounds and revealed votes"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/markets/:id/fees",
+    "module": "resolution",
+    "access": "public",
+    "summary": "Recomputed fee split"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/accounts/:address",
+    "module": "chain",
+    "access": "public",
+    "summary": "Roles, credit and juror state"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/templates",
+    "module": "markets",
+    "access": "public",
+    "summary": "Registered question templates"
   },
   {
     "method": "POST",
@@ -122,13 +164,6 @@ export const routes = [
     "module": "chain",
     "access": "public",
     "summary": "持倉 projection"
-  },
-  {
-    "method": "GET",
-    "path": "/v1/markets/:id/resolution",
-    "module": "resolution",
-    "access": "public",
-    "summary": "結果與裁決證據"
   },
   {
     "method": "GET",

@@ -1,3 +1,4 @@
+import { presets } from "../../packages/schemas/src/index.ts";
 import { seedProtocolDeployment } from "../helpers/protocol-index.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -122,7 +123,7 @@ test(
       assert.equal(snapshot.events.length, chain.allEvents().length);
       assert.deepEqual(
         snapshot.projection,
-        foldProtocolEvents(chain.allEvents()),
+        foldProtocolEvents(chain.allEvents(), presets.alpha),
       );
       const versions = await owner.query<{ event_version: string }>(
         "SELECT event_version::text AS event_version FROM operations.outbox WHERE event_type='chain.synced' ORDER BY event_version::numeric",
@@ -220,7 +221,7 @@ test(
       );
       assert.deepEqual(
         await storeA.loadProjection("d1"),
-        foldProtocolEvents(chain.allEvents()),
+        foldProtocolEvents(chain.allEvents(), presets.alpha),
       );
     } finally {
       const ended = await Promise.allSettled([

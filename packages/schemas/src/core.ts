@@ -18,7 +18,6 @@ export const Hash = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 export type Hash = z.infer<typeof Hash>;
 export const Mode = z.enum(["LIVE", "REPLAY"]);
 export const Outcome = z.enum(["YES", "NO", "INVALID"]);
-export const MarketState = z.enum(["OPEN", "PROPOSED", "DISPUTED", "FINAL"]);
 export const TransactionState = z.enum([
   "CREATED",
   "SIGNED",
@@ -108,7 +107,6 @@ export const MarketSpecV011 = z
   });
 export const MarketSpec = z.union([MarketSpecV01, MarketSpecV011]);
 export type MarketSpec = z.infer<typeof MarketSpec>;
-export type NewMarketSpec = z.infer<typeof MarketSpecV011>;
 
 // 此 schema 是 wire shape；now、核准來源、公告污染與 cap 由 application policy 驗證。
 export const Quote = z
@@ -238,8 +236,6 @@ export const PublicMarketRef = z.strictObject({
 });
 export type PublicMarketRef = z.infer<typeof PublicMarketRef>;
 export type MarketRef = z.infer<typeof PublicMarketRef>;
-export const MarketRecordId = z.uuid().brand<"MarketRecordId">();
-export type MarketRecordId = z.infer<typeof MarketRecordId>;
 export const ChainCursor = z.strictObject({
   blockNumber: Uint256,
   blockHash: Hash,

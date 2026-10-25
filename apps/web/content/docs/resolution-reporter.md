@@ -65,7 +65,7 @@ The timeout also applies to an unchallenged proposal that nobody finalized in ti
 
 ## How do I read the result?
 
-`GET /v1/markets/{id}/resolution?deploymentId=...` is public. It returns `proposedOutcome`, `finalOutcome`, `proposalEvidenceHash`, `finalEvidenceHash`, `proposedAt`, `challengeEndsAt` and `hardDeadline`, with a `chainCursor` showing which block the data reflects.
+`GET /v1/markets/{id}` is public. It returns the market (with `finalOutcome` and `hardDeadline`) and its `proposal` (outcome, evidence hash, `proposedAt`, `challengeEnd`), plus an `index` object showing how fresh the data is. `GET /v1/markets/{id}/disputes` and `GET /v1/disputes/{id}` list the disputes, their rounds and the revealed votes.
 
 ## Which rules decide the outcome?
 
