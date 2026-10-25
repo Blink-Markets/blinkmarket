@@ -51,7 +51,7 @@ test("real PostgreSQL: concurrent RFQs never exceed five open per taker", async 
 test("real PostgreSQL: concurrent quotes keep one per maker and at most the cap per RFQ", async () => {
   await withDatabase(async ({ owner, login }) => {
     await seedProtocolDeployment(owner, DEPLOYMENT);
-    const store = postgresRfqStore(await login({ memberOf: ["blink_api"], max: 30 }), DEPLOYMENT);
+    const store = postgresRfqStore(await login({ memberOf: ["blink_api"], max: 30 }), DEPLOYMENT, () => NOW);
     const rfqId = randomUUID();
     assert.equal(await store.create(rfqInput(rfqId), 5), true);
     const sameMaker = await Promise.all(
@@ -75,10 +75,10 @@ test("real PostgreSQL: the API role can add rows but not rewrite or delete them"
   await withDatabase(async ({ owner, login }) => {
     await seedProtocolDeployment(owner, DEPLOYMENT);
     const api = await login({ memberOf: ["blink_api"] });
-    const store = postgresRfqStore(api, DEPLOYMENT);
+    const store = postgresRfqStore(api, DEPLOYMENT, () => NOW);
     const rfqId = randomUUID();
     await store.create(rfqInput(rfqId), 5);
-    await store.addQuote(quoteInput(rfqId, address(1), 1), 20);
+    assert.equal(await store.addQuote(quoteInput(rfqId, address(1), 1), 20), "OK");
     await assert.rejects(api.query("UPDATE rfq.quotes SET price_bps=1"), /permission denied/);
     await assert.rejects(api.query("DELETE FROM rfq.requests"), /permission denied/);
     await assert.rejects(owner.query("UPDATE rfq.quotes SET price_bps=1"), /append-only/);
