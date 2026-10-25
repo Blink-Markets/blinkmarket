@@ -72,7 +72,7 @@ Success is `201` with `digest` and `leaf`. A signature made for another window, 
 | `GET /v1/forecast-windows/{id}` | Public | `root`, sorted `leaves` and the `anchor` record (empty before the deadline) |
 | `GET /v1/forecast-windows/{id}/proof?leaf=...` | Public | The Merkle `proof` of a leaf |
 | `GET /v1/markets/{id}/consensus` | Public | Per closed window: `probabilityBps`, `submissions`, `contaminated` |
-| `GET /v1/forecasters`, `GET /v1/forecasters/{address}` | Public | `n`, `meanBrier`, `weight` |
+| `GET /v1/forecasters`, `GET /v1/forecasters/{address}` | Public | `n`, `meanBrier`, `weightNumerator`, `weightDenominator` |
 | `GET /v1/metrics?mode=LIVE` | Public | Event, missing and `INVALID` counts, `brier` and `consensusBrier` per mode |
 
 ## How are windows anchored?
@@ -84,7 +84,7 @@ When a window's deadline passes, the platform stores the Merkle root of its (non
 - The score is the binary Brier score, `(p - y)²`, where `y` is 1 for `YES` and 0 for `NO`. Lower is better.
 - Only `YES` and `NO` outcomes are scored. `INVALID` outcomes are counted separately and never treated as `y = 0.5`.
 - Each answer is scored for its wallet (`AGENT`), and each window has one `CONSENSUS` score.
-- The consensus is weighted by credit: a forecaster's `weight` is `0` below 5 scored LIVE answers, else `max(0, 0.25 - meanBrier)` over its latest 50. With no weight at all, the plain mean is used. Weights are frozen as of each window's deadline.
+- The consensus is weighted by credit: a forecaster's weight (the exact fraction `weightNumerator` / `weightDenominator`, in lowest terms) is `0` below 5 scored LIVE answers, else `max(0, 0.25 - meanBrier)` over its latest 50. With no weight at all, the plain mean is used. Weights are frozen as of each window's deadline.
 - `LIVE` and `REPLAY` results are kept apart, and withdrawals and missing answers are counted.
 - A window is `contaminated` automatically when the market's result had already been proposed at or before its deadline. It stays on record but earns no credit and is excluded from forward-looking comparisons.
 

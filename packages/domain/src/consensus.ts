@@ -19,6 +19,7 @@ export interface CreditStats {
   brierSum: string | null;
 }
 const ZERO: Weight = { num: 0n, den: 1n };
+const gcd = (a: bigint, b: bigint): bigint => (b === 0n ? a : gcd(b, a % b));
 
 /** A decimal text ("0.1249", "3") as an integer over a power of ten. */
 function decimal(text: string): Weight {
@@ -37,8 +38,17 @@ export function forecasterWeight(stats: CreditStats): Weight {
   const sum = decimal(stats.brierSum);
   const n = BigInt(stats.n);
   const num = n * sum.den - 4n * sum.num;
-  return num <= 0n ? ZERO : { num, den: 4n * n * sum.den };
+  if (num <= 0n) return ZERO;
+  const den = 4n * n * sum.den;
+  const g = gcd(num, den);
+  return { num: num / g, den: den / g };
 }
+/** Orders weights, highest first, by exact cross-multiplication. */
+export const compareWeightsDesc = (a: Weight, b: Weight): number => {
+  const left = a.num * b.den;
+  const right = b.num * a.den;
+  return left === right ? 0 : left > right ? -1 : 1;
+};
 /** For display only: never feed this back into the consensus. */
 export const weightValue = (w: Weight): number => Number(w.num) / Number(w.den);
 export const meanBrier = (stats: CreditStats): number | null => {
@@ -46,8 +56,6 @@ export const meanBrier = (stats: CreditStats): number | null => {
   const sum = decimal(stats.brierSum);
   return Number(sum.num) / Number(sum.den) / stats.n;
 };
-
-const gcd = (a: bigint, b: bigint): bigint => (b === 0n ? a : gcd(b, a % b));
 
 /**
  * The weighted mean of the answers in basis points, rounded half up to an integer. When every

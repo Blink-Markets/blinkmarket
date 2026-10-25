@@ -150,5 +150,10 @@ export const ForecasterView = z.strictObject({
   /** Scored LIVE submissions among the latest 50 that count toward credit. */
   n: z.number().int().min(0),
   meanBrier: z.number().min(0).max(1).nullable(),
-  weight: z.number().min(0).max(0.25),
+  /**
+   * The weight as an exact fraction in lowest terms ("0" / "1" for none): 0 below 5 scored answers,
+   * else 1/4 - meanBrier. Decimal integer strings, so nothing is rounded on the way out.
+   */
+  weightNumerator: z.string().regex(/^(0|[1-9][0-9]*)$/),
+  weightDenominator: z.string().regex(/^[1-9][0-9]*$/),
 });

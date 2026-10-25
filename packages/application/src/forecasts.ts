@@ -11,7 +11,7 @@ import {
   forecastLeaf,
   forecasterWeight,
   meanBrier,
-  weightValue,
+  compareWeightsDesc,
   merkleProof,
   merkleRoot,
   plannedWindows,
@@ -45,7 +45,6 @@ export const forecastPaths = [
   "/v1/forecasters/:address",
 ] as const;
 
-const WEIGHT_SCALE = 10n ** 18n;
 const HORIZONS: readonly HorizonType[] = ["DAILY", "PRE_CLOSE"];
 const sec = (date: Date) => Math.floor(date.getTime() / 1000);
 const lower = (value: string) => value.toLowerCase();
@@ -397,36 +396,44 @@ export function createForecastService(deps: {
     };
   }
 
-  // The numbers shown are for reading only; ranking and the consensus use the exact fraction.
   const creditView = (s: ForecasterStats) => {
     const w = forecasterWeight(s);
     return {
+      w,
       view: {
         address: s.address,
         n: s.n,
         meanBrier: meanBrier(s),
-        weight: weightValue(w),
+        weightNumerator: w.num.toString(),
+        weightDenominator: w.den.toString(),
       },
-      // Highest weight first (to 1e-18), then more scored answers, then address.
-      key: `${String(WEIGHT_SCALE - (w.num * WEIGHT_SCALE) / w.den).padStart(19, "0")}:${String(1_000_000 - s.n).padStart(7, "0")}:${s.address}`,
     };
   };
+  // Highest weight first, by exact cross-multiplication; ties by more scored answers, then address.
+  const byCredit = (
+    a: ReturnType<typeof creditView>,
+    b: ReturnType<typeof creditView>,
+  ) =>
+    compareWeightsDesc(a.w, b.w) ||
+    b.view.n - a.view.n ||
+    (a.view.address < b.view.address ? -1 : 1);
   async function listForecasters(req: ServiceRequest) {
     const { limit, cursor } = req.query as { limit: number; cursor?: string };
-    const keyed = (await store.creditStats(null, null))
-      .map(creditView)
-      .map((c) => [c.key, c.view] as const)
-      .sort((a, b) => (a[0] < b[0] ? -1 : 1));
-    // The cursor is the rank key of the last item, so a forecaster joining between pages shifts nothing.
-    if (cursor !== undefined && !/^\d{19}:\d{7}:0x[0-9a-f]{40}$/.test(cursor))
-      throw new IdentityError(400, "INVALID_CURSOR");
-    const rest = keyed.filter(([key]) => cursor === undefined || key > cursor);
-    const page = rest.slice(0, limit);
+    const sorted = (await store.creditStats(null, null)).map(creditView).sort(byCredit);
+    // The cursor is the last address of the page; credit only grows a forecaster's row, never removes it.
+    let start = 0;
+    if (cursor !== undefined) {
+      const at = sorted.findIndex((c) => c.view.address === cursor);
+      if (at < 0) throw new IdentityError(400, "INVALID_CURSOR");
+      start = at + 1;
+    }
+    const page = sorted.slice(start, start + limit);
     return {
       status: 200,
       body: {
-        items: page.map(([, v]) => v),
-        nextCursor: rest.length > limit ? page[page.length - 1]![0] : null,
+        items: page.map((c) => c.view),
+        nextCursor:
+          start + limit < sorted.length ? page[page.length - 1]!.view.address : null,
       },
     };
   }

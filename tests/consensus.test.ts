@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  compareWeightsDesc,
   consensus,
   forecasterWeight,
   meanBrier,
@@ -34,7 +35,19 @@ test("weights from Brier", () => {
   assert.equal(value(9, "6.3"), 0);
   assert.equal(value(5, "0"), 0.25);
   // Exact: a mean of 1/3 over three-fifths of the sample is not rounded to six decimals.
-  assert.deepEqual(forecasterWeight(stats(6, "1")), { num: 6n - 4n, den: 24n });
+  // n = 6 with a Brier sum of 1: (6 - 4) / 24, in lowest terms.
+  assert.deepEqual(forecasterWeight(stats(6, "1")), { num: 1n, den: 12n });
+  assert.deepEqual(forecasterWeight(stats(5, "2")), { num: 0n, den: 1n });
+});
+
+test("weights sort by exact cross-multiplication", () => {
+  const third = { num: 1n, den: 3n };
+  // Larger than 1/3 only at the 21st decimal: a truncated key would call them equal.
+  const barely = { num: 333_333_333_333_333_333_334n, den: 10n ** 21n };
+  assert.equal(compareWeightsDesc(barely, third), -1);
+  assert.equal(compareWeightsDesc(third, barely), 1);
+  assert.equal(compareWeightsDesc({ num: 2n, den: 6n }, third), 0);
+  assert.deepEqual([third, barely].sort(compareWeightsDesc), [barely, third]);
 });
 
 test("a tiny weight still outweighs a zero weight", () => {

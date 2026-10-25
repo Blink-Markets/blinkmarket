@@ -468,21 +468,40 @@ test("consensus weights come from scores recorded before the deadline", async ()
     // The forecaster routes show today's credit, highest weight first.
     const list = (await f.get("/v1/forecasters")).json();
     assert.deepEqual(
-      list.items.map((i: { address: string; weight: number }) => [
-        i.address,
-        i.weight,
-      ]),
+      list.items.map(
+        (i: {
+          address: string;
+          weightNumerator: string;
+          weightDenominator: string;
+        }) => [i.address, i.weightNumerator, i.weightDenominator],
+      ),
       [
-        [b.address.toLowerCase(), 0.25],
-        [a.address.toLowerCase(), 0.15],
+        [b.address.toLowerCase(), "1", "4"],
+        [a.address.toLowerCase(), "3", "20"],
       ],
+    );
+    // Pages are cut by the last address, in the same order.
+    const firstPage = (await f.get("/v1/forecasters?limit=1")).json();
+    assert.equal(firstPage.items.length, 1);
+    assert.equal(firstPage.nextCursor, b.address.toLowerCase());
+    const secondPage = (
+      await f.get(`/v1/forecasters?limit=1&cursor=${firstPage.nextCursor}`)
+    ).json();
+    assert.deepEqual(
+      [secondPage.items[0].address, secondPage.nextCursor],
+      [a.address.toLowerCase(), null],
+    );
+    assert.equal(
+      (await f.get("/v1/forecasters?cursor=0x00")).statusCode,
+      400,
     );
     const one = await f.get(`/v1/forecasters/${a.address.toLowerCase()}`);
     assert.deepEqual(one.json(), {
       address: a.address.toLowerCase(),
       n: 5,
       meanBrier: 0.1,
-      weight: 0.15,
+      weightNumerator: "3",
+      weightDenominator: "20",
     });
     assert.equal(
       (await f.get(`/v1/forecasters/${c.address.toLowerCase()}`)).statusCode,

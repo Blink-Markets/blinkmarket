@@ -406,14 +406,14 @@ const cases: Case[] = [
     method: "GET",
     path: "/v1/forecasters",
     query: { sort: "weight", limit: "20" },
-    answer: page({ address: WALLET, n: 5, meanBrier: 0.1, weight: 0.15 }),
+    answer: page({ address: WALLET, n: 5, meanBrier: 0.1, weightNumerator: "3", weightDenominator: "20" }),
   },
   {
     name: "getForecaster",
     call: (c) => c.getForecaster({ address: WALLET }),
     method: "GET",
     path: `/v1/forecasters/${WALLET}`,
-    answer: { address: WALLET, n: 5, meanBrier: 0.1, weight: 0.15 },
+    answer: { address: WALLET, n: 5, meanBrier: 0.1, weightNumerator: "3", weightDenominator: "20" },
   },
   {
     name: "trackTransaction",

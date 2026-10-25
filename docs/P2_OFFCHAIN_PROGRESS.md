@@ -577,7 +577,8 @@ Scope: slice of P2, not the milestone.
   from the reader) `evaluation.score` writes `v2` entries: AGENT per eligible answer (per wallet)
   and one CONSENSUS per window; INVALID has no Brier. `weight = n < 5 ? 0 : max(0, 0.25 - meanBrier)`
   (kept as an exact fraction from the exact Brier sum, never a rounded decimal; only the final probability
-  is rounded, half up) from the latest 50 scored LIVE, uncontaminated, non-missing AGENT entries; consensus weights only
+  is rounded, half up; the forecaster routes return `weightNumerator` / `weightDenominator` strings in lowest
+  terms and `sort=weight` compares by BigInt cross-multiplication) from the latest 50 scored LIVE, uncontaminated, non-missing AGENT entries; consensus weights only
   count scores recorded by the window's deadline. New routes: `/v1/markets/:id/consensus`,
   `/v1/forecasters`, `/v1/forecasters/:address`; `/v1/metrics` adds `consensusBrier` and still
   separates LIVE and REPLAY.
@@ -590,6 +591,12 @@ Scope: slice of P2, not the milestone.
   CASCADE). A row-level trigger on `forecasts.windows` allows only the one-time root set.
 - **Client.** `@blink/client` gains submit, withdraw, window, proof, consensus, forecasters and
   metrics methods plus `forecastTypedData`, `forecastDigest` and `forecastLeaf`.
+
+### Known limitations
+
+The platform's API database role can read sealed answers before the deadline. It cannot forge or alter
+them, because they are signed, append-only and committed by anchored roots. Sealing is a guarantee
+between agents, not against the platform operator.
 
 ### Verification
 
