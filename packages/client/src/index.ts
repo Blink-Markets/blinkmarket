@@ -6,10 +6,11 @@ import {
   type SignedQuoteResponse,
   ConfigResponse,
   IdempotencyHeaders,
-  MarketSpec,
+  parseMarketSpec,
   apiContracts,
   type ApiContract,
   type PublicMarketRef,
+  type MarketStateName,
 } from "@blink/schemas";
 
 export class BlinkApiError extends Error {
@@ -166,24 +167,22 @@ export function createBlinkClient(
     // --- config and markets ---
     getConfig: async () => ConfigResponse.parse(json(await send("/v1/config"))),
     listMarkets: (
-      query: Page & {
-        deploymentId?: string;
-        mode?: "LIVE" | "REPLAY";
-        status?: "OPEN" | "CLOSED" | "PROPOSED" | "DISPUTED" | "FINAL";
-      } = {},
+      query: { after?: string; limit?: number; state?: MarketStateName } = {},
     ) => call("GET", "/v1/markets", { query }),
-    // `mode` is part of the reference but not of the request: the market is `marketId` in a deployment.
-    getMarket: (ref: PublicMarketRef) =>
-      call("GET", "/v1/markets/:id", marketParams(ref)),
+    // The read API serves the one deployment behind the API; a market is its `marketId`.
+    getMarket: (ref: Pick<PublicMarketRef, "marketId">) =>
+      call("GET", "/v1/markets/:id", { params: { id: ref.marketId } }),
     /** The spec bytes, accepted only if keccak256(bytes) is the `specHash` the caller already trusts. */
-    async getMarketSpec(ref: MarketKey, specHash: string) {
-      const { url } = target("GET", "/v1/markets/:id/spec", marketParams(ref));
+    async getMarketSpec(ref: Pick<PublicMarketRef, "marketId">, specHash: string) {
+      const { url } = target("GET", "/v1/markets/:id/spec", {
+        params: { id: ref.marketId },
+      });
       const bytes = await send(url);
       if (keccak256(bytes) !== specHash.toLowerCase())
         throw new Error("SPEC_HASH_MISMATCH");
-      return MarketSpec.parse(
-        JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)),
-      );
+      const parsed = parseMarketSpec(bytes);
+      if (!parsed.ok) throw new Error(parsed.reason);
+      return parsed.spec;
     },
     // --- forecasts ---
     listForecastWindows: (ref: MarketKey, page: Page = {}) =>
@@ -224,16 +223,14 @@ export function createBlinkClient(
         query: { deploymentId: ref.deploymentId },
       }),
     getPositions: (
-      ref: { deploymentId: string; address: string },
-      page: Page = {},
+      ref: { address: string },
+      page: { after?: string; limit?: number } = {},
     ) =>
       call("GET", "/v1/accounts/:address/positions", {
         params: { address: ref.address },
-        query: { deploymentId: ref.deploymentId, ...page },
+        query: page,
       }),
-    // --- resolution, faucet and metrics ---
-    getResolution: (ref: MarketKey) =>
-      call("GET", "/v1/markets/:id/resolution", marketParams(ref)),
+    // --- faucet and metrics ---
     claimFaucet: async (_input: unknown, _key?: string): Promise<never> => {
       throw new Error("RETIRED_P2");
     },

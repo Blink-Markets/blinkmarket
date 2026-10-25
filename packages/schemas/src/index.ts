@@ -4,6 +4,7 @@ export * from "./deployment-v1.ts";
 export * from "./deployment.ts";
 export * from "./protocol.ts";
 export * from "./protocol-params.ts";
+export * from "./read-api.ts";
 export * from "./market-spec.ts";
 export * from "./http.ts";
 export * from "./evidence.ts";

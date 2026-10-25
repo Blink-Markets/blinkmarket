@@ -5,31 +5,40 @@ import {
   OutcomeName,
   type ProtocolAccount,
   type ProtocolMarket,
+  type ProtocolParams,
+  type ProtocolProposal,
+  type ProtocolDispute,
+  type ProtocolRound,
+  type ProtocolVote,
+  type FeeBreakdown,
   type MakerState,
   type DigestStatus,
   type Anchor,
 } from "@blink/schemas";
-export type EventValue =
-  string | boolean | EventValue[] | { [key: string]: EventValue };
-export interface ProtocolEvent {
-  contract:
-    | "REGISTRY"
-    | "JURORS"
-    | "MARKETS"
-    | "RESOLUTION"
-    | "FAUCET"
-    | "ANCHOR"
-    | "GOVERNOR";
-  emitter: string;
-  name: string;
-  args: Record<string, EventValue>;
-  blockNumber: bigint;
-  blockHash: string;
-  blockTimestamp: bigint;
-  txHash: string;
-  txIndex: number;
-  logIndex: number;
-}
+import {
+  add,
+  addr,
+  ChainProjectionError,
+  fail,
+  flag,
+  hash,
+  member,
+  num,
+  str,
+  uint,
+  type ProtocolEvent,
+} from "./protocol-event-args.ts";
+import {
+  applyJurorEvent,
+  POOL_KEY,
+  type JurorLedger,
+  type RewardPool,
+} from "./protocol-jurors.ts";
+import { applyResolutionEvent, feeBreakdown } from "./protocol-resolution.ts";
+export { ChainProjectionError };
+export type { EventValue, ProtocolEvent } from "./protocol-event-args.ts";
+export type { JurorLedger, RewardPool } from "./protocol-jurors.ts";
+export { feeBreakdown } from "./protocol-resolution.ts";
 export interface ProtocolPosition {
   marketId: string;
   account: string;
@@ -68,12 +77,19 @@ export interface ProtocolProjection {
   fills: Map<string, ProtocolFill>;
   anchors: Map<string, Anchor>;
   successors: Map<string, { registry: string; effectiveAt: number }>;
-}
-export class ChainProjectionError extends Error {
-  constructor(detail: string) {
-    super(detail);
-    this.name = "ChainProjectionError";
-  }
+  /** By market id. */
+  proposals: Map<string, ProtocolProposal>;
+  /** By dispute id. */
+  disputes: Map<string, ProtocolDispute>;
+  /** Key `disputeId:round`. */
+  rounds: Map<string, ProtocolRound>;
+  /** Key `disputeId:round:juror`. */
+  votes: Map<string, ProtocolVote>;
+  jurors: Map<string, JurorLedger>;
+  /** The single reward-stream row, key `pool`. */
+  rewardPool: Map<string, RewardPool>;
+  /** By market id; present once FeesDistributed was folded. */
+  fees: Map<string, FeeBreakdown>;
 }
 export const emptyProtocolProjection = (): ProtocolProjection => ({
   accounts: new Map(),
@@ -85,47 +101,20 @@ export const emptyProtocolProjection = (): ProtocolProjection => ({
   fills: new Map(),
   anchors: new Map(),
   successors: new Map(),
+  proposals: new Map(),
+  disputes: new Map(),
+  rounds: new Map(),
+  votes: new Map(),
+  jurors: new Map(),
+  rewardPool: new Map(),
+  fees: new Map(),
 });
-const fail = (e: ProtocolEvent, detail: string): never => {
-  throw new ChainProjectionError(
-    `${e.contract}.${e.name} at ${e.blockNumber}:${e.logIndex}: ${detail}`,
-  );
-};
-const str = (e: ProtocolEvent, k: string) => {
-  const v = e.args[k];
-  return typeof v === "string" ? v : fail(e, `invalid ${k}`);
-};
-const uint = (e: ProtocolEvent, k: string) => {
-  const v = str(e, k);
-  return /^\d+$/.test(v) ? BigInt(v) : fail(e, `invalid uint ${k}`);
-};
-const num = (e: ProtocolEvent, k: string) => {
-  const n = uint(e, k);
-  return n <= BigInt(Number.MAX_SAFE_INTEGER)
-    ? Number(n)
-    : fail(e, `unsafe integer ${k}`);
-};
-const hex = (e: ProtocolEvent, k: string, size: number) => {
-  const v = str(e, k).toLowerCase();
-  return new RegExp(`^0x[0-9a-f]{${size * 2}}$`).test(v)
-    ? v
-    : fail(e, `invalid hex ${k}`);
-};
-const addr = (e: ProtocolEvent, k: string) => hex(e, k, 20);
-const hash = (e: ProtocolEvent, k: string) => hex(e, k, 32);
-const flag = (e: ProtocolEvent, k: string) => {
-  const v = e.args[k];
-  return typeof v === "boolean" ? v : fail(e, `invalid bool ${k}`);
-};
-const member = <T extends string>(
-  e: ProtocolEvent,
-  k: string,
-  values: readonly T[],
-) => values[num(e, k)] ?? fail(e, `invalid enum ${k}`);
-const add = (value: string, delta: bigint, e: ProtocolEvent) => {
-  const n = BigInt(value) + delta;
-  return n >= 0n ? n.toString() : fail(e, "negative balance");
-};
+/** What the fold needs from the generation Params; a bare number overrides only the credit half-life. */
+export type ProtocolRules = number | ProtocolParams;
+const rulesOf = (rules: ProtocolRules): ProtocolParams =>
+  typeof rules === "number"
+    ? { ...presets.baseSepolia, creditHalfLife: rules }
+    : rules;
 export const tradable = (market: ProtocolMarket, at: number) =>
   market.state === "OPEN" && at < market.closeAt;
 /** BlinkRegistry.creditOf: integer right shift, capped at 32 halvings. */
@@ -206,37 +195,14 @@ function position(p: ProtocolProjection, id: string, address: string) {
   }
   return v;
 }
-// Task 7 folds these journaled juror/resolution events. Governance is observed, never executed.
+// Journal-only events change no projection. Governance is observed, never executed.
 export const recordOnlyEvents: Record<
   ProtocolEvent["contract"],
   readonly string[]
 > = {
   REGISTRY: ["Imported"],
-  JURORS: [
-    "JurorRewarded",
-    "RewardNotified",
-    "RewardsClaimed",
-    "RewardsForfeited",
-    "Slashed",
-    "Staked",
-    "UnstakeRequested",
-    "UnstakeWithdrawn",
-    "VoteLocked",
-    "VoteUnlocked",
-  ],
-  RESOLUTION: [
-    "Appealed",
-    "DisputeFinalized",
-    "DisputeOpened",
-    "Proposed",
-    "RoundRestarted",
-    "RoundSettled",
-    "TimeoutFinalized",
-    "UnchallengedFinalized",
-    "VoteCommitted",
-    "VoteRevealed",
-    "VoteSettled",
-  ],
+  JURORS: ["JurorRewarded", "RewardsForfeited"],
+  RESOLUTION: ["UnchallengedFinalized"],
   FAUCET: ["Claimed"],
   ANCHOR: [],
   MARKETS: ["EIP712DomainChanged"],
@@ -257,9 +223,12 @@ export const recordOnlyEvents: Record<
 function apply(
   p: ProtocolProjection,
   e: ProtocolEvent,
-  halfLife: number,
+  rules: ProtocolParams,
 ): void {
+  const halfLife = rules.creditHalfLife;
   if (recordOnlyEvents[e.contract]?.includes(e.name)) return;
+  if (e.contract === "RESOLUTION") return applyResolutionEvent(p, e, rules);
+  if (e.contract === "JURORS") return applyJurorEvent(p, e);
   if (e.contract === "REGISTRY") {
     const a = account(p, e);
     if (e.name === "Registered") {
@@ -470,6 +439,21 @@ function apply(
       const m = market(p, e);
       if (m.feePoolMicros !== uint(e, "amount").toString())
         fail(e, "fee pool mismatch");
+      if (m.state !== "FINAL") fail(e, "fees before the final outcome");
+      const breakdown = feeBreakdown(
+        rules,
+        m,
+        p.proposals.get(m.marketId),
+        [...p.disputes.values()].find(
+          (d) => d.marketId === m.marketId && d.kind === "RESULT",
+        ),
+        BigInt(m.feePoolMicros),
+        addr(e, "keeper"),
+        BigInt(p.rewardPool.get(POOL_KEY)?.totalStaked ?? "0") === 0n,
+      );
+      if (breakdown.keeperTip !== uint(e, "keeperTip").toString())
+        fail(e, "keeper tip differs from the parameters");
+      p.fees.set(m.marketId, breakdown);
       m.feePoolMicros = "0";
       m.feesDistributed = true;
       return;
@@ -509,10 +493,10 @@ function apply(
 export function applyProtocolEvent(
   p: ProtocolProjection,
   e: ProtocolEvent,
-  halfLife = presets.baseSepolia.creditHalfLife,
+  rules: ProtocolRules = presets.baseSepolia,
 ): ProtocolProjection {
   const next = structuredClone(p);
-  apply(next, e, halfLife);
+  apply(next, e, rulesOf(rules));
   return next;
 }
 export const compareEvents = (a: ProtocolEvent, b: ProtocolEvent) =>
@@ -523,10 +507,11 @@ export const compareEvents = (a: ProtocolEvent, b: ProtocolEvent) =>
       : a.logIndex - b.logIndex;
 export function foldProtocolEvents(
   events: readonly ProtocolEvent[],
-  halfLife = presets.baseSepolia.creditHalfLife,
+  rules: ProtocolRules = presets.baseSepolia,
 ): ProtocolProjection {
-  const p = emptyProtocolProjection();
-  for (const e of [...events].sort(compareEvents)) apply(p, e, halfLife);
+  const p = emptyProtocolProjection(),
+    resolved = rulesOf(rules);
+  for (const e of [...events].sort(compareEvents)) apply(p, e, resolved);
   return p;
 }
 export type ProjectionChanges = {

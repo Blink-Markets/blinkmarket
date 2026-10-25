@@ -1,3 +1,4 @@
+import type { ProtocolParams } from "@blink/schemas";
 import type {
   ProtocolProjection,
   ProtocolEvent,
@@ -12,6 +13,8 @@ export type {
   ProtocolTemplate,
   ProtocolFill,
   ProjectionChanges,
+  JurorLedger,
+  RewardPool,
 } from "@blink/domain";
 
 export type ChainGateReason =
@@ -98,7 +101,8 @@ export interface ChainSnapshot {
  * CHAIN_LEASE_LOST or CHAIN_VERSION_CONFLICT when either is stale.
  */
 export interface ChainIndexStore {
-  creditHalfLife(deploymentId: string): Promise<number>;
+  /** The generation Params the fold needs: credit half-life, round clocks and fee shares. */
+  protocolParams(deploymentId: string): Promise<ProtocolParams>;
   loadCursor(deploymentId: string): Promise<IndexCursor | null>;
   /** Database business clock (blink.now()). */
   now(): Promise<Date>;
@@ -156,4 +160,4 @@ export interface ChainIndexStore {
   ): Promise<bigint>;
 }
 
-export { hasRole, creditAt } from "@blink/domain";
+export { hasRole, creditAt, emptyProtocolProjection } from "@blink/domain";

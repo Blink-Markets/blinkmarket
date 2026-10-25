@@ -1,3 +1,4 @@
+import { presets } from "../packages/schemas/src/index.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -49,7 +50,9 @@ function verifier(chain: FakeChain) {
             ? "governor"
             : params[0].to === manifest.generation.registry
               ? "registry"
-              : "markets";
+              : params[0].to === manifest.generation.jurors
+                ? "jurors"
+                : "markets";
         const abi = protocolAbi[key] as Abi;
         const { functionName: fn, args = [] } = decodeFunctionData({
           abi,
@@ -59,12 +62,14 @@ function verifier(chain: FakeChain) {
         const b = [...chain.snapshot().blocks.values()].find(
           (b) => b.hash === params[1].blockHash,
         )!;
-        const p = foldProtocolEvents(chain.allEvents(b.number));
+        const p = foldProtocolEvents(chain.allEvents(b.number), presets.alpha);
         const latest = [...p.successors.values()].at(-1);
         const result =
           fn === "nextMarketId"
             ? 1n
-            : fn === "pendingSuccessor"
+            : fn === "totalStaked"
+              ? BigInt(p.rewardPool.get("pool")?.totalStaked ?? "0")
+              : fn === "pendingSuccessor"
               ? (latest?.registry ?? address(0))
               : fn === "successorEffectiveAt"
                 ? BigInt(latest?.effectiveAt ?? 0)
@@ -148,7 +153,7 @@ for (const replacement of [false, true])
       assert.equal(
         await rpc.reader.agrees(
           pending.hash,
-          foldProtocolEvents(chain.allEvents(pending.number)),
+          foldProtocolEvents(chain.allEvents(pending.number), presets.alpha),
         ),
         true,
       );
@@ -184,7 +189,7 @@ test("batch verification checks only touched entities with bounded RPC concurren
   assert.equal(
     await rpc.reader.agrees(
       b.hash,
-      foldProtocolEvents(chain.allEvents()),
+      foldProtocolEvents(chain.allEvents(), presets.alpha),
       events,
     ),
     true,

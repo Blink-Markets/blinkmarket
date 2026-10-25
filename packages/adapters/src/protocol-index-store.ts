@@ -1,6 +1,12 @@
 import type {
   ProtocolAccount,
   ProtocolMarket,
+  ProtocolProposal,
+  ProtocolDispute,
+  ProtocolRound,
+  ProtocolVote,
+  JurorState,
+  FeeBreakdown,
   MakerState,
   DigestStatus,
   Anchor,
@@ -8,6 +14,7 @@ import type {
 import {
   hasRole as registryHasRole,
   creditAt as decayCredit,
+  emptyProtocolProjection,
 } from "@blink/ports";
 import { loadProtocolDeployment } from "./deployment-registry.js";
 import { randomUUID } from "node:crypto";
@@ -24,6 +31,9 @@ import type {
   IndexCursor,
   ProjectionChanges,
   ProtocolReader,
+  ProtocolPosition,
+  ProtocolTemplate,
+  JurorLedger,
 } from "@blink/ports";
 import { createUnitOfWork } from "./database.js";
 
@@ -37,17 +47,6 @@ const bigOrNull = (value: unknown) => (value === null ? null : big(value));
 const text = (value: bigint | number | null) =>
   value === null ? null : String(value);
 
-const emptyProjection = (): ProtocolProjection => ({
-  accounts: new Map(),
-  templates: new Map(),
-  markets: new Map(),
-  positions: new Map(),
-  makers: new Map(),
-  digests: new Map(),
-  fills: new Map(),
-  anchors: new Map(),
-  successors: new Map(),
-});
 const tables = {
   accounts: "accounts",
   templates: "templates",
@@ -58,6 +57,13 @@ const tables = {
   fills: "fills",
   anchors: "anchors",
   successors: "successors",
+  proposals: "proposals",
+  disputes: "disputes",
+  rounds: "rounds",
+  votes: "votes",
+  jurors: "jurors",
+  rewardPool: "reward_pool",
+  fees: "fees",
 } as const;
 
 const cursorColumns = `deployment_id, block_number::text AS block_number, encode(block_hash,'hex') AS block_hash,
@@ -122,7 +128,7 @@ async function readProjection(
   db: Db,
   deploymentId: string,
 ): Promise<ProtocolProjection> {
-  const projection = emptyProjection();
+  const projection = emptyProtocolProjection();
   for (const [kind, table] of Object.entries(tables)) {
     const { rows } = await db.query<{ key: string; data: unknown }>(
       `SELECT key,data FROM protocol.${table} WHERE deployment_id=$1`,
@@ -306,9 +312,8 @@ async function advance(
 export function postgresProtocolIndexStore(pool: Pool): ChainIndexStore {
   const uow = createUnitOfWork(pool);
   return {
-    async creditHalfLife(deploymentId) {
-      return (await loadProtocolDeployment(pool, deploymentId)).params
-        .creditHalfLife;
+    async protocolParams(deploymentId) {
+      return (await loadProtocolDeployment(pool, deploymentId)).params;
     },
     async loadCursor(deploymentId) {
       return readCursor(pool, deploymentId);
@@ -682,5 +687,95 @@ export function postgresProtocolReader(
       return (await read<DigestStatus>("quote_digests", digest)) ?? "UNUSED";
     },
     anchor: (root) => read<Anchor>("anchors", root),
+    proposal: (marketId) => read<ProtocolProposal>("proposals", marketId),
+    dispute: (id) => read<ProtocolDispute>("disputes", id),
+    fees: (marketId) => read<FeeBreakdown>("fees", marketId),
+    async disputes(marketId, { after, limit }) {
+      checkPage(limit, after, /^\d+$/);
+      return pageOf(
+        await db.query<{ data: ProtocolDispute }>(
+          `SELECT data FROM protocol.disputes WHERE deployment_id=$1 AND (data->>'marketId')::numeric=$2::numeric
+           AND ($3::numeric IS NULL OR (data->>'disputeId')::numeric>$3::numeric)
+           ORDER BY (data->>'disputeId')::numeric LIMIT $4`,
+          [deploymentId, marketId, after ?? null, limit + 1],
+        ),
+        limit,
+        (d) => d.disputeId,
+      );
+    },
+    async rounds(disputeId) {
+      const { rows } = await db.query<{ data: ProtocolRound }>(
+        `SELECT data FROM protocol.rounds WHERE deployment_id=$1 AND (data->>'disputeId')::numeric=$2::numeric
+         ORDER BY (data->>'round')::numeric`,
+        [deploymentId, disputeId],
+      );
+      return rows.map((r) => r.data);
+    },
+    async votes(disputeId, { after, limit, round }) {
+      checkPage(limit, after, /^\d+:0x[0-9a-f]{40}$/);
+      const [afterRound, afterJuror] = after?.split(":") ?? [null, null];
+      const page = await db.query<{ data: ProtocolVote }>(
+        `SELECT data FROM protocol.votes WHERE deployment_id=$1 AND (data->>'disputeId')::numeric=$2::numeric
+         AND ($3::numeric IS NULL OR (data->>'round')::numeric=$3::numeric)
+         AND ($4::numeric IS NULL OR ((data->>'round')::numeric,(data->>'juror') COLLATE "C")>($4::numeric,$5::text COLLATE "C"))
+         ORDER BY (data->>'round')::numeric,(data->>'juror') COLLATE "C" LIMIT $6`,
+        [deploymentId, disputeId, round ?? null, afterRound, afterJuror, limit + 1],
+      );
+      const sealed = {
+        rows: page.rows.map((r) => ({ data: sealVote(r.data) })),
+      };
+      return pageOf(sealed, limit, (v) => `${v.round}:${v.juror}`);
+    },
+    async juror(address) {
+      const row = await read<JurorLedger>("jurors", address);
+      if (!row) return null;
+      const { rewardPaid: _checkpoint, ...state } = row;
+      return state satisfies JurorState;
+    },
+    async templates({ after, limit }) {
+      checkPage(limit, after, /^0x[0-9a-f]{64}$/);
+      return pageOf(
+        await db.query<{ data: ProtocolTemplate }>(
+          `SELECT data FROM protocol.templates WHERE deployment_id=$1 AND ($2::text IS NULL OR key>$2::text COLLATE "C")
+           ORDER BY key COLLATE "C" LIMIT $3`,
+          [deploymentId, after ?? null, limit + 1],
+        ),
+        limit,
+        (t) => t.templateId,
+      );
+    },
+    async positions(address, { after, limit }) {
+      checkPage(limit, after, /^\d+$/);
+      return pageOf(
+        await db.query<{ data: ProtocolPosition }>(
+          `SELECT data FROM protocol.positions WHERE deployment_id=$1 AND data->>'account'=$2
+           AND ($3::numeric IS NULL OR (data->>'marketId')::numeric>$3::numeric)
+           ORDER BY (data->>'marketId')::numeric LIMIT $4`,
+          [deploymentId, address.toLowerCase(), after ?? null, limit + 1],
+        ),
+        limit,
+        (p) => p.marketId,
+      );
+    },
   };
 }
+
+function checkPage(limit: number, after: string | undefined, shape: RegExp) {
+  if (
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    (after !== undefined && !shape.test(after))
+  )
+    throw new Error("INVALID_PAGE");
+}
+function pageOf<T>(
+  result: { rows: { data: T }[] },
+  limit: number,
+  cursor: (item: T) => string,
+) {
+  const items = result.rows.slice(0, limit).map((r) => r.data);
+  return { items, next: result.rows.length > limit ? cursor(items.at(-1)!) : null };
+}
+/** No stored row may show a choice that was not revealed. */
+const sealVote = (v: ProtocolVote): ProtocolVote =>
+  v.revealed ? v : { ...v, choice: null };

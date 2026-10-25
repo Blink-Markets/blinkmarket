@@ -1,3 +1,4 @@
+import { presets } from "../../packages/schemas/src/index.ts";
 import {
   foldProtocolEvents,
   projectionChanges,
@@ -234,7 +235,7 @@ export class FakeChain {
           (b) => b.hash === blockHash,
         );
         if (!block) throw new Error("UNKNOWN_BLOCK");
-        const truth = foldProtocolEvents(self.allEvents(block.number));
+        const truth = foldProtocolEvents(self.allEvents(block.number), presets.alpha);
         if (options.agrees) return options.agrees(truth, projection);
         return Object.values(projectionChanges(truth, projection)).every(
           (keys) => keys.length === 0,

@@ -303,6 +303,82 @@ buckets assume one API instance.
 This completes only the Task 6 scope, not the P2 milestone. No push, merge,
 deployment or live transaction was performed.
 
+## Task 7 — resolution, juror, credit and fee read models; public read API (2026-10-25)
+
+The indexer now folds `BlinkResolution` and `BlinkJurors` events into seven new
+projections, and the API serves them (with markets, accounts, positions and
+templates) as public, key-less, paged reads.
+
+- Projections (migration `0031_protocol_resolution.sql`, same key/data shape and
+  grants as 0029): `proposals` (by market), `disputes`, `rounds` (`disputeId:round`,
+  restarts included), `votes` (`disputeId:round:juror`), `jurors`, `reward_pool`
+  and `fees`. Reorgs restore them together with the older projections because they
+  are part of `ProtocolProjection`. Folded events: every `BlinkResolution` event
+  except `UnchallengedFinalized`, and `Staked`, `UnstakeRequested`,
+  `UnstakeWithdrawn`, `Slashed`, `RewardNotified`, `RewardsClaimed`, `VoteLocked`
+  and `VoteUnlocked`. `JurorRewarded` and `RewardsForfeited` stay journal-only.
+- The fold takes the deployment `Params` (not just the credit half-life):
+  round clocks, the finalized-market phase-in of the round credit threshold and
+  the fee shares all come from them. `ChainIndexStore.protocolParams` replaces
+  `creditHalfLife`. The reducer is split into `protocol-event-args.ts`,
+  `protocol-resolution.ts` and `protocol-jurors.ts`.
+- A vote's `choice` is `null` until its `VoteRevealed` event, in the projection,
+  the reader and the service (defence in depth), on every route and page.
+- `FeeBreakdown` is recomputed at `FeesDistributed` with the contract's own
+  arithmetic (R32: the treasury takes all rounding dust; the proposer's share is
+  paid only if the proposal won; the creator share goes to jurors on `INVALID`; the
+  bounty is paid only for an overturned, finalized result dispute, else it goes to
+  jurors). When no juror stake exists at the distribution, `BlinkJurors.notifyReward`
+  forwards the whole juror allocation to the treasury: `jurors` is then 0 and the
+  amount is added to `treasury`, so every figure equals its recipient's balance
+  delta. The keeper tip must equal the event's tip, or the fold fails closed. The
+  contract and the brief agree on the dust rule: no deviation.
+- `JurorState.rewardsOwed` simulates the seven-day reward stream from events alone
+  and is resynced at every `RewardNotified`. A `RewardsClaimed` event resets the
+  juror to 0 and its checkpoint to the current accumulator (never a subtraction),
+  exactly what the contract holds after a claim. Known gap: a juror's own
+  zero-value `claimRewards` (and a zero slash) settle the contract's checkpoint
+  but emit no event, so `rewardsOwed` can exceed the contract by under 1 micro per
+  such silent call until the juror's next claim; the claim always pays the contract
+  value. This is the one place where a read model is not exactly the contract.
+  Everything else about a juror is checked against the chain.
+- Verification against the chain: each batch also `eth_call`s only the touched
+  proposals (`proposerOf`, `proposedOutcome`), disputes (`getDispute`, including the
+  current round, and `bountyWinner`) and jurors (`slashableStake`, `pendingUnstake`,
+  `openVotes`), plus `totalStaked` when juror events occurred. Votes have no getter,
+  so they are checked through the round's committed and revealed weights. A
+  populated projection with the contract undeployed fails. The full cross-check
+  runs only in rebuild.
+- Routes, all public GET, paged by `after`/`limit` (at most 100). JSON bodies carry
+  `index` (`IndexHealth`), except error bodies. `/v1/markets/:id/spec` returns the
+  exact stored bytes, so it carries the health in the headers `Blink-Index-Stale`,
+  `Blink-Index-Indexed-Block`, `Blink-Index-Head-Block` and
+  `Blink-Index-Lag-Seconds` on 200, 404 and 503 (declared in OpenAPI for all three).
+  Success is `Cache-Control: no-cache` (immutable bytes, mutable health); errors are
+  `no-store`. Early 400 and 429 refusals carry no health on any route. Routes:
+  `/v1/deployment`, `/v1/markets?state=`,
+  `/v1/markets/:id` (market, spec parse result, proposal), `/v1/markets/:id/spec`
+  (exact bytes, `nosniff`, `Content-Security-Policy: sandbox`, `503
+  SPEC_UNAVAILABLE` when the platform holds no intact bytes), `/v1/markets/:id/disputes`,
+  `/v1/disputes/:id` (all rounds, a page of votes), `/v1/markets/:id/fees`,
+  `/v1/accounts/:address` (roles, credit per role decayed to the request time,
+  juror state), `/v1/accounts/:address/positions` (with the redeem payout once the
+  market is final) and `/v1/templates`. A market whose spec bytes are invalid or
+  missing is still listed, with the parse error or `SPEC_UNAVAILABLE`. A malformed
+  cursor answers `400 INVALID_CURSOR`.
+- Removed: `GET /v1/markets/:id/resolution` and the v0.1 market, position and
+  `deploymentId`/`mode` query shapes (client methods `getResolution` dropped;
+  `listMarkets`, `getMarket`, `getMarketSpec` and `getPositions` follow the new
+  shapes). `pendingIntentIds` is no longer part of positions. The transaction-hint
+  handlers (`POST /v1/transactions`, `GET /v1/transactions/:txHash`) stay in
+  `market-read.ts` and `market-read-store.ts`, grouped so Task 9 can cut them out.
+
+### Verification
+
+See `.superpowers/sdd/2026-10-24-p2-offchain-protocol/task-7-report.md`. Not run
+locally: `tests/postgres/*` (no PostgreSQL here) and `pnpm build` (Turbopack needs a
+newer glibc). This covers only the Task 7 scope, not the P2 milestone.
+
 ## Task 8 — content store and human suggestions (2026-10-25)
 
 `POST /v1/content` stores raw bytes (at most 1 MiB; `application/json`, `text/plain`,

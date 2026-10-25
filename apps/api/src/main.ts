@@ -16,12 +16,12 @@ import {
   identityCrypto,
   rpcSignatureVerifier,
   postgresProtocolReader,
+  loadProtocolDeployment,
   postgresIdentityStore,
   assertIdentityRuntimeRole,
   assertProductionClock,
   postgresForecastStore,
   fileObjectStore,
-  verifiedArchive,
   postgresContentStore,
   postgresSuggestionStore,
   postgresMarketReadStore,
@@ -42,7 +42,22 @@ const staleProtocolReader = {
   }),
   account: async () => null,
   hasRole: async () => false,
+  creditAt: async () => 0,
+  market: async () => null,
   marketBySpecHash: async () => null,
+  markets: async () => ({ items: [], next: null }),
+  maker: async (address: string) => ({ address, freeMicros: "0", epoch: "0" }),
+  digest: async () => "UNUSED" as const,
+  anchor: async () => null,
+  proposal: async () => null,
+  disputes: async () => ({ items: [], next: null }),
+  dispute: async () => null,
+  rounds: async () => [],
+  votes: async () => ({ items: [], next: null }),
+  juror: async () => null,
+  fees: async () => null,
+  templates: async () => ({ items: [], next: null }),
+  positions: async () => ({ items: [], next: null }),
 };
 
 const config = apiConfig(process.env);
@@ -90,6 +105,10 @@ try {
     pool && config.deploymentId
       ? postgresProtocolReader(pool, config.deploymentId)
       : staleProtocolReader;
+  const contentStore =
+    pool && modeAtLeast(config.mode, "markets")
+      ? postgresContentStore(pool, fileObjectStore(config.specDirectory!))
+      : undefined;
   const identity = pool
     ? createIdentityService(
         postgresIdentityStore(pool),
@@ -130,10 +149,7 @@ try {
                   : []),
                 createMetricsService({ store: postgresEvaluationStore(pool) }),
                 createContentService({
-                  store: postgresContentStore(
-                    pool,
-                    fileObjectStore(config.specDirectory!),
-                  ),
+                  store: contentStore!,
                   identity,
                   reader: protocolReader,
                   publicOrigin: config.specPublicOrigin!,
@@ -149,9 +165,12 @@ try {
                 }),
                 createMarketReadService({
                   store: postgresMarketReadStore(pool),
-                  archive: verifiedArchive(
-                    fileObjectStore(config.specDirectory!),
-                  ),
+                  reader: protocolReader,
+                  content: contentStore!,
+                  deployment: () =>
+                    loadProtocolDeployment(pool, config.deploymentId!).catch(
+                      () => null,
+                    ),
                   identity: {
                     authenticate: (authorization) =>
                       postgresIdentityStore(pool).run(async (tx) => {

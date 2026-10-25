@@ -141,22 +141,22 @@ test("a path claimed twice, by two services or by a built-in option, fails at bu
 });
 
 test("invalid params or query are rejected with 400 before the service runs", async () => {
-  const { service, calls } = fakeService(["/v1/markets/:id"]);
+  const { service, calls } = fakeService(["/v1/markets/:id/forecast-windows"]);
   const app = buildApi({ services: [service] });
   try {
-    const badParam = await app.inject("/v1/markets/abc?deploymentId=x");
+    const badParam = await app.inject("/v1/markets/abc/forecast-windows?deploymentId=x");
     assert.equal(badParam.statusCode, 400);
     assert.equal(badParam.json().code, "INVALID_REQUEST");
     assert.equal(badParam.json().retryable, false);
     assert.equal(typeof badParam.json().requestId, "string");
-    assert.equal((await app.inject("/v1/markets/1")).statusCode, 400);
+    assert.equal((await app.inject("/v1/markets/1/forecast-windows")).statusCode, 400);
     assert.equal(
-      (await app.inject("/v1/markets/1?deploymentId=x&extra=1")).statusCode,
+      (await app.inject("/v1/markets/1/forecast-windows?deploymentId=x&extra=1")).statusCode,
       400,
     );
     assert.equal(calls.length, 0);
     assert.equal(
-      (await app.inject("/v1/markets/1?deploymentId=x")).statusCode,
+      (await app.inject("/v1/markets/1/forecast-windows?deploymentId=x")).statusCode,
       200,
     );
     assert.equal(calls.length, 1);
@@ -455,7 +455,7 @@ test("Address and Hash params reach the service lowercased", async () => {
     const mixedAddress = "0xAbCdEf0123456789aBcDeF0123456789AbCdEf01";
     const mixedHash = "0x" + "aB".repeat(32);
     const positions = await app.inject(
-      `/v1/accounts/${mixedAddress}/positions?deploymentId=test`,
+      `/v1/accounts/${mixedAddress}/positions`,
     );
     assert.equal(positions.statusCode, 200);
     assert.deepEqual(calls[0]!.params, { address: mixedAddress.toLowerCase() });
@@ -465,7 +465,7 @@ test("Address and Hash params reach the service lowercased", async () => {
     assert.equal(tx.statusCode, 200);
     assert.deepEqual(calls[1]!.params, { txHash: mixedHash.toLowerCase() });
     assert.equal(
-      (await app.inject("/v1/accounts/0x12/positions?deploymentId=test"))
+      (await app.inject("/v1/accounts/0x12/positions"))
         .statusCode,
       400,
     );

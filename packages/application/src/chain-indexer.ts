@@ -7,6 +7,7 @@ import {
   type ProtocolProjection,
   type ProtocolEvent,
 } from "@blink/domain";
+import type { ProtocolParams } from "@blink/schemas";
 import type {
   ChainBlock,
   ChainGateReason,
@@ -84,10 +85,10 @@ const eventKey = (e: ProtocolEvent) =>
 // A contradiction between events and projection is a gate condition, not a crash.
 function tryFold(
   events: readonly ProtocolEvent[],
-  halfLife: number,
+  rules: ProtocolParams,
 ): ProtocolProjection | null {
   try {
-    return foldProtocolEvents(events, halfLife);
+    return foldProtocolEvents(events, rules);
   } catch (error) {
     if (error instanceof ChainProjectionError) return null;
     throw error;
@@ -96,12 +97,12 @@ function tryFold(
 function tryAdvance(
   base: ProtocolProjection,
   events: readonly ProtocolEvent[],
-  halfLife: number,
+  rules: ProtocolParams,
 ): ProtocolProjection | null {
   let next = base;
   try {
     for (const event of events)
-      next = applyProtocolEvent(next, event, halfLife);
+      next = applyProtocolEvent(next, event, rules);
     return next;
   } catch (error) {
     if (error instanceof ChainProjectionError) return null;
@@ -128,7 +129,7 @@ export function createChainIndexer(deps: {
     throw new Error("INVALID_CHAIN_INDEXER_DEPLOYMENT_BLOCK");
   const baselineNumber = deps.deploymentBlock - 1n;
   let chainVerified = false;
-  let halfLife: number;
+  let rules: ProtocolParams;
 
   const result = (
     gateReason: string | null,
@@ -178,7 +179,7 @@ export function createChainIndexer(deps: {
       (await store.loadCanonicalEvents(deploymentId)).filter(
         (e) => e.blockNumber <= ancestor!.number,
       ),
-      halfLife,
+      rules,
     );
     if (!projection) return stop("PROJECTION_MISMATCH");
     await store.commitReorg(lease, {
@@ -202,7 +203,7 @@ export function createChainIndexer(deps: {
       checkpoint();
       if (!chainVerified) {
         assertBaseSepolia(await reader.chainId());
-        halfLife = await store.creditHalfLife(deploymentId);
+        rules = await store.protocolParams(deploymentId);
         chainVerified = true;
       }
       if (!(await store.loadCursor(deploymentId))) {
@@ -315,12 +316,12 @@ export function createChainIndexer(deps: {
       let after: ProtocolProjection | null = null;
       let changes: ProjectionChanges | null = null;
       const next = events.length
-        ? tryAdvance(before, events, halfLife)
+        ? tryAdvance(before, events, rules)
         : before;
       // shortcut: membership refolds history per batch; persist a journal inventory if it reaches the lease budget.
       const refolded = tryFold(
         [...(await store.loadCanonicalEvents(deploymentId)), ...events],
-        halfLife,
+        rules,
       );
       const complete =
         next &&
@@ -463,7 +464,7 @@ export async function rebuildChainProjection(
     const snapshot = await store.loadSnapshot(deploymentId);
     const rebuilt = tryFold(
       snapshot.events,
-      await store.creditHalfLife(deploymentId),
+      await store.protocolParams(deploymentId),
     );
     if (!rebuilt) throw new Error("INCONSISTENT_EVENT");
     if (

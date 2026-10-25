@@ -2,7 +2,7 @@ import { seedReadMarket } from "./protocol-index.ts";
 import { buildApi } from "../../apps/api/src/server.js";
 import { createMarketReadService } from "../../packages/application/src/market-read.js";
 import { postgresMarketReadStore } from "../../packages/adapters/src/market-read-store.js";
-import { verifiedArchive } from "../../packages/adapters/src/content-store.js";
+import { postgresProtocolReader } from "../../packages/adapters/src/protocol-index-store.js";
 import { postgresIdentityStore } from "../../packages/adapters/src/identity-store.js";
 import { identityCrypto } from "../../packages/adapters/src/identity-crypto.js";
 import { authenticateIdentity } from "../../packages/application/src/identity.js";
@@ -10,9 +10,7 @@ import { createTestDatabase } from "./database.js";
 
 export const hash = (n: number) => "0x" + n.toString(16).padStart(64, "0");
 export const address = "0x" + "11".repeat(20);
-export async function fixture(
-  hooks?: Parameters<typeof createMarketReadService>[0]["hooks"],
-) {
+export async function fixture() {
   const t = await createTestDatabase();
   await t.db.query(
     "INSERT INTO markets.deployments(id,manifest,market_address) VALUES ('d1','{}',decode($1,'hex'))",
@@ -24,23 +22,22 @@ export async function fixture(
     VALUES ('d1',10,decode($1,'hex'),1000,10,3,blink.now())`,
     [hash(10).slice(2)],
   );
+  // Spec bytes by hash; a hash that is absent has no stored bytes.
   const objects = new Map<string, Uint8Array>();
-  const archive = verifiedArchive({
-    async read(uri) {
-      const bytes = objects.get(uri);
-      if (!bytes) throw new Error("MISSING");
-      return bytes;
+  const content = {
+    async get(h: string) {
+      const bytes = objects.get(h);
+      return bytes
+        ? { object: { hash: h, size: bytes.length, mediaType: "application/json" as const }, bytes }
+        : null;
     },
-    async putIfAbsent(bytes, h) {
-      objects.set(h, bytes);
-      return { uri: h };
-    },
-  });
+  };
   const identityStore = postgresIdentityStore(t.pool);
   const service = createMarketReadService({
     store: postgresMarketReadStore(t.pool),
-    archive,
-    ...(hooks ? { hooks } : {}),
+    reader: postgresProtocolReader(t.pool, "d1"),
+    content,
+    deployment: async () => null,
     identity: {
       authenticate: (authorization) =>
         identityStore.run(async (tx) => {
@@ -57,7 +54,6 @@ export async function fixture(
   return {
     ...t,
     app,
-    archive,
     objects,
     async close() {
       await app.close();

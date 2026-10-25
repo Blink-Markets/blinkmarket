@@ -1,6 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { keccak256 } from "viem";
@@ -17,7 +16,16 @@ const UUID = "00000000-0000-4000-8000-000000000001";
 const HASH = "0x" + "ab".repeat(32);
 const WALLET = testAccounts.taker.address.toLowerCase();
 const API_KEY = "test-api-key";
-const SPEC_BYTES = readFileSync("fixtures/replay/market-spec.json");
+const SPEC_BYTES = Buffer.from(
+  JSON.stringify({
+    schema: "blink.market-spec/0.2",
+    title: "Fixture market",
+    question: "Will the fixture happen?",
+    class: "B",
+    resolution: { yes: "It happened.", no: "It did not." },
+    sources: ["https://example.com/fixture-only"],
+  }),
+);
 
 type Seen = {
   method: string;
@@ -90,28 +98,30 @@ const cursor = {
   finality: "INCLUDED",
 };
 const ref = { deploymentId: DEPLOYMENT, marketId: MARKET, mode: "REPLAY" };
-const summary = {
-  ...ref,
+const index = { headBlock: 12, indexedBlock: 12, lagSeconds: 0, stale: false };
+const market = {
+  marketId: MARKET,
+  creator: WALLET,
+  class: "B",
+  state: "OPEN",
+  templateId: HASH,
   specHash: HASH,
-  storedState: "OPEN",
-  effectiveState: "OPEN",
-  paused: false,
-  canTrade: true,
-  reasons: [],
-  chainCursor: cursor,
-};
-const spec = JSON.parse(SPEC_BYTES.toString("utf8"));
-const resolution = {
-  ...ref,
-  proposedOutcome: null,
+  specUri: "memory:spec",
+  replay: false,
+  openAt: 1,
+  closeAt: 2,
+  proposalDeadline: 3,
+  hardDeadline: 4,
+  maxPairs: "10",
+  mintedPairs: "0",
+  escrowMicros: "0",
+  feePoolMicros: "0",
   finalOutcome: null,
-  proposalEvidenceHash: null,
-  finalEvidenceHash: null,
-  proposedAt: null,
-  challengeEndsAt: null,
-  hardDeadline: "2025-05-10T00:00:00.000Z",
-  chainCursor: cursor,
+  feesDistributed: false,
+  creationChallenged: false,
 };
+const spec = { ok: true, spec: JSON.parse(SPEC_BYTES.toString("utf8")) };
+const marketsPage = { items: [{ market, spec }], next: null, index };
 const horizonKey = {
   horizonType: "DAILY",
   scheduledAt: "2026-10-15T00:00:00.000Z",
@@ -165,35 +175,18 @@ const cases: Case[] = [
   {
     name: "listMarkets",
     call: (c) =>
-      c.listMarkets({
-        deploymentId: DEPLOYMENT,
-        mode: "REPLAY",
-        status: "OPEN",
-        limit: 5,
-        cursor: "next",
-      }),
+      c.listMarkets({ state: "OPEN", limit: 5, after: "3" }),
     method: "GET",
     path: "/v1/markets",
-    query: {
-      deploymentId: DEPLOYMENT,
-      mode: "REPLAY",
-      status: "OPEN",
-      limit: "5",
-      cursor: "next",
-    },
-    answer: page(summary),
+    query: { state: "OPEN", limit: "5", after: "3" },
+    answer: marketsPage,
   },
   {
     name: "getMarket",
-    call: (c) => c.getMarket(ref as never),
+    call: (c) => c.getMarket(marketRef),
     method: "GET",
     path: "/v1/markets/" + MARKET,
-    query: { deploymentId: DEPLOYMENT },
-    answer: {
-      ...summary,
-      spec,
-      resolution,
-    },
+    answer: { market, spec, proposal: null, index },
   },
   {
     name: "listForecastWindows",
@@ -283,29 +276,27 @@ const cases: Case[] = [
   {
     name: "getPositions",
     call: (c) =>
-      c.getPositions(
-        { deploymentId: DEPLOYMENT, address: WALLET },
-        { limit: 50 },
-      ),
+      c.getPositions({ address: WALLET }, { limit: 50 }),
     method: "GET",
     path: `/v1/accounts/${WALLET}/positions`,
-    query: { deploymentId: DEPLOYMENT, limit: "50" },
-    answer: page({
-      ...ref,
-      yesShares: "10",
-      noShares: "0",
-      payoutMicros: null,
-      pendingIntentIds: [],
-      chainCursor: cursor,
-    }),
-  },
-  {
-    name: "getResolution",
-    call: (c) => c.getResolution(marketRef),
-    method: "GET",
-    path: `/v1/markets/${MARKET}/resolution`,
-    query: { deploymentId: DEPLOYMENT },
-    answer: resolution,
+    query: { limit: "50" },
+    answer: {
+      items: [
+        {
+          marketId: MARKET,
+          account: WALLET,
+          yesShares: "10",
+          noShares: "0",
+          takerBoughtShares: "10",
+          redeemedPayoutMicros: "0",
+          marketState: "OPEN",
+          finalOutcome: null,
+          payoutMicros: null,
+        },
+      ],
+      next: null,
+      index,
+    },
   },
   {
     name: "getMetrics",
@@ -518,7 +509,7 @@ test("a business refusal is final, and reads are retried too", async () => {
           headers: { "Retry-After": "3" },
           body: apiError("RATE_LIMITED", true),
         }
-      : { body: page(summary) },
+      : { body: marketsPage },
   );
   const options = {
     sleep: async (milliseconds: number) => {
@@ -594,8 +585,8 @@ test("getMarketSpec returns the spec only when the bytes hash to the expected sp
   const specHash = keccak256(SPEC_BYTES);
   const altered = Buffer.from(
     SPEC_BYTES.toString("utf8").replace(
-      '"thresholdBps": 7000',
-      '"thresholdBps": 7001',
+      'Fixture market',
+      'Fixture marKet',
     ),
   );
   assert.notEqual(altered.toString(), SPEC_BYTES.toString());
@@ -603,16 +594,16 @@ test("getMarketSpec returns the spec only when the bytes hash to the expected sp
   const server = await scripted(() => ({ body: served }));
   try {
     const client = createBlinkClient(server.origin, API_KEY);
-    assert.deepEqual(await client.getMarketSpec(marketRef, specHash), spec);
+    assert.deepEqual(await client.getMarketSpec(marketRef, specHash), spec.spec);
     assert.equal(server.seen[0]!.path, `/v1/markets/${MARKET}/spec`);
-    assert.deepEqual(server.seen[0]!.query, { deploymentId: DEPLOYMENT });
+    assert.deepEqual(server.seen[0]!.query, {});
     // The hash may be written in either case.
     assert.deepEqual(
       await client.getMarketSpec(
         marketRef,
         specHash.toUpperCase().replace("0X", "0x"),
       ),
-      spec,
+      spec.spec,
     );
     served = altered;
     await assert.rejects(
@@ -660,7 +651,7 @@ test("an answer that breaks the contract is an error, an API refusal is a BlinkA
       (error) => !(error instanceof BlinkApiError),
     );
     await assert.rejects(
-      client.getMarket({ ...marketRef, mode: "REPLAY" }),
+      client.getMarket(marketRef),
       (error) => error instanceof BlinkApiError && error.status === 404,
     );
   } finally {

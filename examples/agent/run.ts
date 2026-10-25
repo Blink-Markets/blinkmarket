@@ -83,8 +83,6 @@ export function configFromEnv(env: NodeJS.ProcessEnv): AgentConfig {
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-const isUuid = (v: string) =>
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 
 export async function runAgent(config: AgentConfig): Promise<AgentResult> {
   const log = config.log ?? ((line: string) => console.log(line));
@@ -175,19 +173,20 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
   }
 
   // 3. A market that can trade, and its spec checked against the hash the market list gave.
-  const markets = await client.listMarkets({ deploymentId, status: "OPEN" });
-  const market = markets.items.find((m) => m.canTrade);
+  const markets = await client.listMarkets({ state: "OPEN" });
+  const market = markets.items.map((i) => i.market).find((m) => m.state === "OPEN");
   if (!market) throw new Error("NO_TRADABLE_MARKET");
   const ref = { deploymentId, marketId: market.marketId };
   const spec = await client.getMarketSpec(ref, market.specHash);
   log(
-    `market ${market.marketId} (${spec.entityId} ${spec.fiscalPeriod}) spec verified`,
+    `market ${market.marketId} (${spec.title}) spec verified`,
   );
 
   // 4. A forecast in the window that is open now, if there is one and this agent has not used it.
   const windows = await client.listForecastWindows(ref);
   const open = windows.items.find((w) => w.status === "OPEN");
-  const evidenceIds = spec.sourceEvidenceIds.filter(isUuid);
+  // Evidence ids belong to the retired v0.1 flow; Task 10 moves forecasts to signed content hashes.
+  const evidenceIds: string[] = [];
   if (open && evidenceIds.length > 0) {
     try {
       // A real agent forms this probability from the evidence; the example only shows the call.
@@ -409,7 +408,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
   }
   const holding = () =>
     client
-      .getPositions({ deploymentId, address })
+      .getPositions({ address })
       .then((positions) =>
         positions.items.find((p) => p.marketId === market.marketId),
       );
@@ -426,8 +425,8 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     "the market to be FINAL",
     waits.final,
     async () => {
-      const resolution = await client.getResolution(ref);
-      return resolution.finalOutcome === null ? undefined : resolution;
+      const current = (await client.getMarket(ref)).market;
+      return current.finalOutcome === null ? undefined : current;
     },
   );
   const finalOutcome = resolved.finalOutcome!;
