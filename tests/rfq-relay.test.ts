@@ -108,7 +108,7 @@ async function fixture() {
   });
   let clock = NOW;
   // The signature check is the slow step: this runs while it is pending, as time and the index move on.
-  const hooks: { whileVerifying?: () => void } = {};
+  const hooks: { whileVerifying?: () => void; storeSkew: number } = { storeSkew: 0 };
   const slowVerifier = {
     ...verifier,
     verifyTypedData: async (args: Parameters<typeof verifier.verifyTypedData>[0]) => {
@@ -120,7 +120,7 @@ async function fixture() {
   const app = buildApi({
     services: [
       createRfqService({
-        store: postgresRfqStore(t.pool, "d1"),
+        store: postgresRfqStore(t.pool, "d1", () => clock + hooks.storeSkew),
         identity: createIdentityService(
           postgresIdentityStore(t.pool),
           identityCrypto,
@@ -801,12 +801,31 @@ test("a quote is checked again after a slow signature check", async () => {
   }
 });
 
+test("the store decides openness by its own clock, read when the insert runs", async () => {
+  const f = await fixture();
+  try {
+    const { rfqId } = await f.openRfq();
+    const q = f.quoteFields(maker.address);
+    // Every look of the relay says the RFQ is open; by the time the insert holds the lock it is not.
+    f.hooks.storeSkew = 31;
+    const res = await f.post(rfqId, f.agents.maker, q, maker);
+    assert.deepEqual([res.statusCode, res.json().code], [409, "RFQ_CLOSED"]);
+    await nothingStored(f);
+    f.hooks.storeSkew = 29;
+    assert.equal((await f.post(rfqId, f.agents.maker, q, maker)).statusCode, 201);
+    await nothingStored(f, 1, 1);
+  } finally {
+    await f.close();
+  }
+});
+
 test("the store refuses a quote for an rfq that is no longer open", async () => {
   const f = await fixture();
   try {
     const { rfqId } = await f.openRfq();
-    const store = postgresRfqStore(f.t.pool, "d1");
-    const input = (receivedAt: number) => ({
+    let now = NOW + 30;
+    const store = postgresRfqStore(f.t.pool, "d1", () => now);
+    const input = {
       rfqId,
       maker: maker.address.toLowerCase(),
       digest: hash(77),
@@ -814,11 +833,11 @@ test("the store refuses a quote for an rfq that is no longer open", async () => 
       expiresAt: NOW + 30,
       quote: "{}",
       signature: "0x" + "11".repeat(65),
-      receivedAt,
-    });
-    assert.equal(await store.addQuote(input(NOW + 30), 20), "CLOSED");
+    };
+    assert.equal(await store.addQuote(input, 20), "CLOSED");
     await nothingStored(f);
-    assert.equal(await store.addQuote(input(NOW + 29), 20), "OK");
+    now = NOW + 29;
+    assert.equal(await store.addQuote(input, 20), "OK");
   } finally {
     await f.close();
   }

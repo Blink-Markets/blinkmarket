@@ -4,7 +4,6 @@ import { bytesToHex, getAbiItem, toFunctionSelector } from "viem";
 import { runAgent } from "../../examples/agent/run.ts";
 import { createBlinkClient } from "../../packages/client/src/index.ts";
 import type { QuoteFields } from "../../packages/schemas/src/index.ts";
-import { frontWithReadShim } from "../helpers/read-shim.ts";
 import { protocolAbi, startRfqStack } from "../helpers/rfq-stack.ts";
 import { rpcFaultProxy, type SendFault } from "../helpers/rpc-fault-proxy.ts";
 
@@ -30,7 +29,6 @@ async function scenario(
   }) => Promise<void>,
 ) {
   const stack = await startRfqStack();
-  const front = await frontWithReadShim(stack, new Set());
   let proxy: Awaited<ReturnType<typeof rpcFaultProxy>> | undefined;
   let running = true;
   try {
@@ -42,7 +40,7 @@ async function scenario(
     await stack.stakeJurors();
     const market = await stack.createOpenMarket();
     await stack.sync();
-    const makerClient = createBlinkClient(front.url, await stack.keyFor(accounts.maker));
+    const makerClient = createBlinkClient(stack.apiUrl, await stack.keyFor(accounts.maker));
 
     const quotes: QuoteFields[] = [];
     let faultSent = false;
@@ -59,7 +57,7 @@ async function scenario(
       return fault(ctx)(tx);
     });
     const agent = runAgent({
-      apiUrl: front.url,
+      apiUrl: stack.apiUrl,
       privateKey: bytesToHex(accounts.taker.getHdKey().privateKey!),
       rpcUrl: proxy.url,
       pollMs: POLL_MS,
@@ -110,7 +108,6 @@ async function scenario(
   } finally {
     running = false;
     await proxy?.close();
-    await front.close();
     await stack.close();
   }
 }

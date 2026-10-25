@@ -29,7 +29,12 @@ const record = (r: RfqRow): RfqRecord => ({
 const hex = (value: string) => value.slice(2);
 
 /** RFQs and relayed quotes of one protocol generation. Rows are immutable: openness is a time test. */
-export function postgresRfqStore(pool: Pool, deploymentId: string): RfqStore {
+export function postgresRfqStore(
+  pool: Pool,
+  deploymentId: string,
+  /** Unix seconds; the host clock unless a test or harness supplies chain time. Match the relay's. */
+  clock: () => number | Promise<number> = () => Math.floor(Date.now() / 1000),
+): RfqStore {
   const uow = createUnitOfWork(pool);
   return {
     async create(input, maxOpen) {
@@ -85,10 +90,12 @@ export function postgresRfqStore(pool: Pool, deploymentId: string): RfqStore {
         await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
           "rfq:quotes:" + input.rfqId,
         ]);
-        // The RFQ may have closed while the relay was checking the signature.
+        // The RFQ may have closed while the relay was checking the signature or this call waited
+        // for the lock, so the time is read only now.
+        const now = await clock();
         const open = await db.query(
           "SELECT 1 FROM rfq.requests WHERE id=$1 AND deployment_id=$2 AND expires_at>$3",
-          [input.rfqId, deploymentId, input.receivedAt],
+          [input.rfqId, deploymentId, now],
         );
         if (!open.rows.length) return "CLOSED";
         const count = await db.query<{ n: string }>(
@@ -113,7 +120,7 @@ export function postgresRfqStore(pool: Pool, deploymentId: string): RfqStore {
             input.expiresAt,
             input.quote,
             input.signature,
-            input.receivedAt,
+            now,
           ],
         );
         return "OK";

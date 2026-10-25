@@ -28,7 +28,6 @@ const quoteInput = (rfqId: string, maker: string, n: number) => ({
   expiresAt: NOW + 60,
   quote: '{"marketId":"1"}',
   signature: "0x" + "11".repeat(65),
-  receivedAt: NOW,
 });
 
 test("real PostgreSQL: concurrent RFQs never exceed five open per taker", async () => {
@@ -83,5 +82,33 @@ test("real PostgreSQL: the API role can add rows but not rewrite or delete them"
     await assert.rejects(api.query("UPDATE rfq.quotes SET price_bps=1"), /permission denied/);
     await assert.rejects(api.query("DELETE FROM rfq.requests"), /permission denied/);
     await assert.rejects(owner.query("UPDATE rfq.quotes SET price_bps=1"), /append-only/);
+  });
+});
+
+test("real PostgreSQL: an insert that waits on the per-RFQ lock reads the clock after it gets the lock", async () => {
+  await withDatabase(async ({ owner, login }) => {
+    await seedProtocolDeployment(owner, DEPLOYMENT);
+    let now = NOW;
+    const store = postgresRfqStore(await login({ memberOf: ["blink_api"] }), DEPLOYMENT, () => now);
+    const rfqId = randomUUID();
+    assert.equal(await store.create(rfqInput(rfqId), 5), true);
+    // Another transaction holds the RFQ's quote lock, as a concurrent insert would.
+    const holder = await owner.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", ["rfq:quotes:" + rfqId]);
+      const waiting = store.addQuote(quoteInput(rfqId, address(1), 1), 20);
+      let settled = false;
+      void waiting.then(() => (settled = true), () => (settled = true));
+      await new Promise((r) => setTimeout(r, 500));
+      assert.equal(settled, false, "the insert must be waiting for the lock");
+      // Time passes while it waits: the RFQ (open until NOW + 30) closes.
+      now = NOW + 31;
+      await holder.query("COMMIT");
+      assert.equal(await waiting, "CLOSED");
+    } finally {
+      holder.release();
+    }
+    assert.equal((await owner.query("SELECT count(*)::int AS n FROM rfq.quotes")).rows[0].n, 0);
   });
 });

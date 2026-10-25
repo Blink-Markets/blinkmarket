@@ -1,4 +1,7 @@
+import { mkdtemp, rm } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   encodeFunctionData,
   erc20Abi,
@@ -22,10 +25,15 @@ import {
   postgresProtocolIndexStore,
   postgresProtocolReader,
 } from "../../packages/adapters/src/protocol-index-store.ts";
+import { postgresContentStore } from "../../packages/adapters/src/content-store.ts";
+import { fileObjectStore } from "../../packages/adapters/src/file-object-store.ts";
+import { loadProtocolDeployment } from "../../packages/adapters/src/deployment-registry.ts";
+import { postgresMarketReadStore } from "../../packages/adapters/src/market-read-store.ts";
 import { postgresRfqStore } from "../../packages/adapters/src/rfq-store.ts";
 import { viemSignatureVerifier } from "../../packages/adapters/src/signature-verifier.ts";
 import { createChainIndexer } from "../../packages/application/src/chain-indexer.ts";
 import { createIdentityService } from "../../packages/application/src/identity.ts";
+import { createMarketReadService } from "../../packages/application/src/market-read.ts";
 import { createRfqService } from "../../packages/application/src/rfq-relay.ts";
 import { quoteTypes, type QuoteFields } from "../../packages/schemas/src/index.ts";
 import { createBlinkClient } from "../../packages/client/src/index.ts";
@@ -118,7 +126,7 @@ export async function startRfqStack() {
       { verifier, reader: publicReader },
     );
     const rfq = createRfqService({
-      store: postgresRfqStore(t.pool, d.deploymentId),
+      store: postgresRfqStore(t.pool, d.deploymentId, () => clock.seconds),
       identity,
       reader: publicReader,
       verifier,
@@ -129,7 +137,15 @@ export async function startRfqStack() {
       // Chain time as of the last sync: quotes expire by block timestamp.
       now: () => clock.seconds,
     });
-    const api = buildApi({ identity, services: [rfq] });
+    // The real read routes (Task 7): deployment, markets, spec, positions and the rest.
+    const specDirectory = await mkdtemp(join(tmpdir(), "blink-rfq-stack-"));
+    const reads = createMarketReadService({
+      store: postgresMarketReadStore(t.pool),
+      reader: publicReader,
+      content: postgresContentStore(t.pool, fileObjectStore(specDirectory)),
+      deployment: () => loadProtocolDeployment(t.pool, d.deploymentId),
+    });
+    const api = buildApi({ identity, services: [rfq, reads] });
     api.log.level = "silent";
     await api.listen({ port: 0, host: "127.0.0.1" });
     const apiUrl = "http://127.0.0.1:" + (api.server.address() as AddressInfo).port;
@@ -372,6 +388,7 @@ export async function startRfqStack() {
         syncing = false;
         await loop.catch(() => undefined);
         await api.close().catch(() => undefined);
+        await rm(specDirectory, { recursive: true, force: true });
         await t.close().catch(() => undefined);
         await anvil.stop();
       },

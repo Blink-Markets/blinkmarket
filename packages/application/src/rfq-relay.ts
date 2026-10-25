@@ -264,7 +264,7 @@ export function createRfqService(deps: {
     };
     await look();
     await checkSignature(quote, signature);
-    const now = await look();
+    await look();
     const result = await deps.store.addQuote(
       {
         rfqId: rfq.id,
@@ -274,7 +274,6 @@ export function createRfqService(deps: {
         expiresAt: Number(quote.expiresAt),
         quote: JSON.stringify(quote),
         signature,
-        receivedAt: now,
       },
       MAX_QUOTES_PER_RFQ,
     );

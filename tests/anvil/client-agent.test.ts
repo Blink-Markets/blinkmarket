@@ -4,7 +4,6 @@ import { bytesToHex, hashTypedData } from "viem";
 import { runAgent } from "../../examples/agent/run.ts";
 import { createBlinkClient } from "../../packages/client/src/index.ts";
 import { quoteTypes, type QuoteFields } from "../../packages/schemas/src/index.ts";
-import { frontWithReadShim } from "../helpers/read-shim.ts";
 import { quoteStruct, startRfqStack } from "../helpers/rfq-stack.ts";
 
 const QUANTITY = "10";
@@ -16,8 +15,6 @@ test(
   { timeout: 480_000 },
   async () => {
     const stack = await startRfqStack();
-    const shimmed = new Set<string>();
-    const front = await frontWithReadShim(stack, shimmed);
     try {
       const { accounts } = stack.anvil;
       // The agent is the taker account; it starts with nothing and does its own onboarding.
@@ -28,11 +25,11 @@ test(
       await stack.stakeJurors();
       const market = await stack.createOpenMarket();
       await stack.sync();
-      const makerClient = createBlinkClient(front.url, await stack.keyFor(accounts.maker));
+      const makerClient = createBlinkClient(stack.apiUrl, await stack.keyFor(accounts.maker));
 
       const logLines: string[] = [];
       const agent = runAgent({
-        apiUrl: front.url,
+        apiUrl: stack.apiUrl,
         privateKey: bytesToHex(accounts.taker.getHdKey().privateKey!),
         rpcUrl: stack.anvil.url,
         pollMs: POLL_MS,
@@ -105,10 +102,7 @@ test(
         quotesCancelledBeforeExpiry: 0,
       });
       assert.ok(logLines.some((l) => l.startsWith("claimed test bUSD")), logLines.join("\n"));
-      // Which read routes were answered by the test's shim instead of the API (see above).
-      console.log("read routes served by the test shim: " + ([...shimmed].join(", ") || "none"));
     } finally {
-      await front.close();
       await stack.close();
     }
   },

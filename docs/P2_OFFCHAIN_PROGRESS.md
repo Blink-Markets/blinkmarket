@@ -438,7 +438,7 @@ sandbox`, errors included; errors keep `Cache-Control: no-store`.
 
 Scope: the RFQ relay, transaction tracking for the protocol generation, the
 `@blink/client` surface for the P2 API and the external taker example. Not in scope:
-the Task 7 read routes themselves, P3 reference agents, deployment.
+P3 reference agents, deployment.
 
 ### What changed
 
@@ -501,6 +501,17 @@ checked off chain (wallet proofs, forecasts), not to quotes.
   re-checks that the RFQ is still open under the per-RFQ quote lock.
 - `examples/agent/run.ts` imports `@blink/client`; the repository root `tsconfig.json`
   maps that name to `packages/client/src/index.ts` for `tsc` and `tsx`.
+
+### Fix round 2
+
+- Task 7 merged. `postgresRfqStore` takes the relay's clock and reads it after the per-RFQ
+  lock is held; `addQuote` returns CLOSED (409 `RFQ_CLOSED`) when the RFQ expired by then,
+  so a close that races the insert cannot store a quote. The insert no longer takes a
+  pre-sampled `receivedAt`.
+- The test-local read shim is gone. `tests/helpers/rfq-stack.ts` wires the real
+  `createMarketReadService` (with a content store and the registered manifest) and both
+  client-agent Anvil suites talk to `stack.apiUrl`: the unchanged example reaches FINAL and
+  redeems through the real `/v1/deployment`, `/v1/markets` and `/v1/markets/:id`.
 
 ### Task 7 integration
 
