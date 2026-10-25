@@ -2,159 +2,201 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   encodeFunctionData,
-  hashTypedData,
   TransactionNotFoundError,
   TransactionReceiptNotFoundError,
   type PublicClient,
   type Hex,
 } from "viem";
-import { fixture, hash, address } from "./helpers/market-read.js";
-import { inviteAgent, bindWallet } from "./helpers/database.js";
-import {
-  apiContracts,
-  DeploymentManifest,
-  quoteTypes,
-} from "../packages/schemas/src/index.js";
-import { deploymentFixture } from "./helpers/deployment-fixture.js";
+import { buildApi } from "../apps/api/src/server.js";
+import { identityCrypto } from "../packages/adapters/src/identity-crypto.js";
+import { postgresIdentityStore } from "../packages/adapters/src/identity-store.js";
+import { postgresMarketReadStore } from "../packages/adapters/src/market-read-store.js";
 import { protocolAbi } from "../packages/adapters/src/protocol-abi.js";
-import { erc20Abi as blinkTestUsdAbi } from "viem";
-const blinkMarketAbi = protocolAbi.markets;
-import { postgresTxTrackingStore } from "../packages/adapters/src/tx-tracking-store.js";
 import { txReceiptReader } from "../packages/adapters/src/tx-receipt-reader.js";
-import { createTxTracker } from "../packages/application/src/tx-tracking.js";
+import { postgresTxTrackingStore } from "../packages/adapters/src/tx-tracking-store.js";
+import { createIdentityService } from "../packages/application/src/identity.js";
+import { createMarketReadService } from "../packages/application/src/market-read.js";
+import {
+  createTxTracker,
+  createTxTrackingService,
+} from "../packages/application/src/tx-tracking.js";
+import { apiContracts } from "../packages/schemas/src/index.js";
 import type {
   TrackedTransaction,
   TxObservation,
 } from "../packages/ports/src/index.js";
+import { fakeProtocolReader } from "./helpers/protocol-reader.js";
+import { bindWallet, createTestDatabase, inviteAgent } from "./helpers/database.js";
+import { address, hash, protocolManifest, seedProtocolDeployment } from "./helpers/protocol-index.js";
 
-const manifest = DeploymentManifest.parse({
-  ...deploymentFixture().manifest,
-  deploymentId: "d1",
-});
-const parse = (path: string, body: unknown) =>
-  apiContracts.find((c) => c.path === path)!.response.parse(body) as any;
+const manifest = protocolManifest("d1");
+const WALLET = "0x" + "11".repeat(20);
+const STRANGER = "0x" + "22".repeat(20);
+const parse = (method: string, path: string, body: unknown) =>
+  apiContracts.find((c) => c.method === method && c.path === path)!.response.parse(body) as any;
+
 async function setup() {
-  const t = await fixture();
-  const a = await inviteAgent(t, {
-    name: "trader",
-    scopes: ["forecast:write"],
+  const t = await createTestDatabase();
+  await seedProtocolDeployment(t.pool, "d1", manifest);
+  await t.db.query(
+    `INSERT INTO chain.cursors(deployment_id,block_number,block_hash,block_timestamp,head_number,finalized_number,synced_at)
+     VALUES ('d1',10,decode($1,'hex'),1000,10,3,blink.now())`,
+    [hash(10).slice(2)],
+  );
+  const a = await inviteAgent(t, { name: "taker", scopes: ["forecast:write"] });
+  const identity = createIdentityService(
+    postgresIdentityStore(t.pool),
+    identityCrypto,
+    "https://blink.example",
+  );
+  const reader = fakeProtocolReader();
+  // GET /v1/transactions/:txHash is served by the read service; POST by the tracking service.
+  const app = buildApi({
+    services: [
+      createTxTrackingService({
+        store: postgresTxTrackingStore(t.pool),
+        identity,
+        reader,
+        deploymentId: "d1",
+      }),
+      createMarketReadService({
+        store: postgresMarketReadStore(t.pool),
+        reader,
+        content: { get: async () => null },
+        deployment: async () => null,
+      }),
+    ],
   });
-  const post = (body: unknown, key = "hint", token = a.apiKey) =>
-    t.app.inject({
+  app.log.level = "silent";
+  const post = (body: unknown, token = a.apiKey) =>
+    app.inject({
       method: "POST",
       url: "/v1/transactions",
-      headers: { authorization: "Bearer " + token, "idempotency-key": key },
-      payload: body as any,
+      headers: { authorization: "Bearer " + token },
+      payload: body as object,
     });
   const get = async (txHash = hash(50)) => {
-    const r = await t.app.inject(
+    const r = await app.inject(
       "/v1/transactions/" + txHash + "?deploymentId=d1",
     );
     assert.equal(r.statusCode, 200, r.body);
-    return parse("/v1/transactions/:txHash", r.json());
+    return parse("GET", "/v1/transactions/:txHash", r.json());
   };
-  return { ...t, a, post, get };
+  return {
+    ...t,
+    a,
+    reader,
+    post,
+    get,
+    app,
+    async close() {
+      await app.close();
+      await t.close();
+    },
+  };
 }
-test("transaction hints require wallet binding, replay idempotently, and cannot set status", async () => {
+const observation = (patch: Partial<TxObservation> = {}): TxObservation => ({
+  chainId: 84532,
+  transaction: null,
+  receipt: null,
+  previousCanonical: null,
+  finalizedNumber: null,
+  ...patch,
+});
+const included = {
+  blockHash: hash(10),
+  blockNumber: "10",
+  success: true,
+  canonical: true,
+};
+const sent = (patch: Record<string, unknown> = {}) => ({
+  from: WALLET,
+  to: manifest.generation.markets,
+  contract: "markets" as const,
+  action: "redeem",
+  marketId: "3",
+  ...patch,
+});
+
+test("transaction hints need a key and a wallet, replay by hash, and cannot set status", async () => {
   const t = await setup();
   try {
-    const body = {
-      deploymentId: "d1",
-      txHash: hash(50),
-      action: "FILL",
-      quoteId: hash(60),
-    };
+    const body = { txHash: hash(50) };
     await t.setRole("blink_api");
-    assert.equal((await t.post(body, "anonymous", "invalid")).statusCode, 401);
+    assert.equal((await t.post(body, "invalid")).statusCode, 401);
     const unbound = await t.post(body);
     assert.equal(unbound.statusCode, 403);
-    assert.equal(unbound.json().code, "WALLET_NOT_VERIFIED");
-    await bindWallet(t, t.a.agentId, address);
-    assert.equal((await t.post(body)).statusCode, 403); // Persisted refusal also replays.
-    const first = await t.post(body, "bound");
+    assert.equal(unbound.json().code, "NOT_REGISTERED");
+    await bindWallet(t, t.a.agentId, WALLET);
+    const first = await t.post(body);
     assert.equal(first.statusCode, 202, first.body);
-    parse("/v1/transactions", first.json());
+    parse("POST", "/v1/transactions", first.json());
+    assert.equal(first.json().status, "UNKNOWN");
+    // The same hash by the same key (in any case) is the same tracking row.
     assert.deepEqual(
-      (
-        await t.post(
-          { ...body, txHash: body.txHash.toUpperCase().replace("0X", "0x") },
-          "bound",
-        )
-      ).json(),
+      (await t.post({ txHash: body.txHash.toUpperCase().replace("0X", "0x") })).json(),
       first.json(),
     );
-    assert.deepEqual((await t.post(body, "another-key")).json(), first.json());
-    const conflict = await t.post({ ...body, txHash: hash(51) }, "bound");
-    assert.equal(conflict.statusCode, 409);
-    assert.equal(conflict.json().code, "IDEMPOTENCY_CONFLICT");
-    const other = await inviteAgent(t, {
-      name: "other",
-      scopes: ["forecast:write"],
-    });
-    await bindWallet(t, other.agentId, "0x" + "22".repeat(20));
-    const taken = await t.post(body, "other", other.apiKey);
+    const another = await t.post({ txHash: hash(51) });
+    assert.notEqual(another.json().trackingId, first.json().trackingId);
+    // Another key cannot take over a tracked hash.
+    const other = await inviteAgent(t, { name: "other", scopes: ["rfq:write"] });
+    await bindWallet(t, other.agentId, STRANGER);
+    const taken = await t.post(body, other.apiKey);
     assert.equal(taken.statusCode, 409);
     assert.equal(taken.json().code, "TX_ALREADY_TRACKED");
-    assert.equal(
-      (await t.post({ ...body, quoteId: undefined }, "bad-fill")).statusCode,
-      400,
-    );
-    assert.equal(
-      (await t.post({ ...body, status: "FINALIZED" }, "bad-status")).statusCode,
-      400,
-    );
-    assert.equal((await t.get()).status, "UNKNOWN");
-    assert.equal((await t.get()).rejectReason, null);
-    assert.equal(
-      (await t.app.inject("/v1/transactions/" + hash(99) + "?deploymentId=d1"))
-        .statusCode,
-      404,
-    );
-    assert.equal(
-      (
-        await t.app.inject(
-          "/v1/transactions/" + hash(50) + "?deploymentId=wrong",
-        )
-      ).statusCode,
-      404,
-    );
+    // The caller cannot say what the transaction is or what happened to it.
+    for (const bad of [
+      { ...body, status: "FINALIZED" },
+      { ...body, action: "FILL" },
+      { txHash: "0x12" },
+      {},
+    ])
+      assert.equal((await t.post(bad)).statusCode, 400, JSON.stringify(bad));
+    const row = await t.get();
+    assert.equal(row.status, "UNKNOWN");
+    assert.equal(row.rejectReason, null);
+    for (const url of [
+      "/v1/transactions/" + hash(99) + "?deploymentId=d1",
+      "/v1/transactions/" + hash(50) + "?deploymentId=wrong",
+    ])
+      assert.equal((await t.app.inject(url)).statusCode, 404);
   } finally {
     await t.close();
   }
 });
-test("tracker verifies a fill before inclusion and projects its market id without touching positions", async () => {
+
+test("a transaction hint is refused while the index is stale and stores nothing", async () => {
   const t = await setup();
   try {
-    await bindWallet(t, t.a.agentId, address);
-    await t.post({
-      deploymentId: "d1",
-      txHash: hash(50),
-      action: "FILL",
-      quoteId: hash(60),
-    });
-    const observation: TxObservation = {
-      chainId: 84532,
-      transaction: {
-        from: address,
-        to: manifest.contracts.BlinkMarket,
-        action: "FILL",
-        quoteDigest: hash(60),
-        marketId: "1",
-      },
-      receipt: {
-        blockHash: hash(10),
-        blockNumber: "10",
-        success: true,
-        canonical: true,
-      },
-      previousCanonical: null,
-      finalizedNumber: "3",
-    };
+    await bindWallet(t, t.a.agentId, WALLET);
+    const count = async () =>
+      (await t.db.query<{ n: number }>("SELECT count(*)::int AS n FROM chain.transactions")).rows[0]!.n;
+    t.reader.set({ health: { headBlock: 100, indexedBlock: 10, lagSeconds: 31, stale: true } });
+    const stale = await t.post({ txHash: hash(50) });
+    assert.deepEqual([stale.statusCode, stale.json().code, stale.json().retryable], [503, "INDEX_STALE", true]);
+    assert.equal(await count(), 0);
+    t.reader.set({ health: { headBlock: 100, indexedBlock: 100, lagSeconds: 0, stale: false } });
+    assert.equal((await t.post({ txHash: hash(50) })).statusCode, 202);
+    assert.equal(await count(), 1);
+  } finally {
+    await t.close();
+  }
+});
+
+test("tracker decodes the action and projects a fill's market id", async () => {
+  const t = await setup();
+  try {
+    await bindWallet(t, t.a.agentId, WALLET);
+    await t.post({ txHash: hash(50) });
     const tracker = createTxTracker({
       store: postgresTxTrackingStore(t.pool),
       reader: {
         async read() {
-          return observation;
+          return observation({
+            transaction: sent({ action: "fillQuote", marketId: "7" }),
+            receipt: included,
+          });
         },
       },
       async manifest() {
@@ -165,71 +207,35 @@ test("tracker verifies a fill before inclusion and projects its market id withou
     assert.equal(await tracker.trackOnce(), 1);
     await t.setRole("blink_api");
     assert.equal((await t.get()).status, "INCLUDED");
-    const row = await t.db.query<{ market_id: string }>(
-      "SELECT market_id::text FROM chain.transactions",
+    const row = await t.db.query<{ market_id: string; action: string }>(
+      "SELECT market_id::text,action FROM chain.transactions",
     );
-    assert.equal(row.rows[0]!.market_id, "1");
-    assert.equal(
-      (await t.db.query("SELECT * FROM protocol.position_reads")).rows.length,
-      0,
-    );
+    assert.deepEqual(row.rows[0], { market_id: "7", action: "fillQuote" });
   } finally {
     await t.close();
   }
 });
-test("tracker rejects sender, target, selector, spender and quote mismatches and stops polling rejected hints", async () => {
+
+test("tracker rejects sender, target and action mismatches and stops polling rejected hints", async () => {
   const t = await setup();
   try {
-    await bindWallet(t, t.a.agentId, address);
+    await bindWallet(t, t.a.agentId, WALLET);
     const cases = [
-      { reason: "SENDER_MISMATCH", change: { from: "0x" + "33".repeat(20) } },
-      {
-        reason: "TARGET_MISMATCH",
-        change: { to: manifest.contracts.BlinkTestUSD },
-      },
-      { reason: "ACTION_MISMATCH", change: { action: "REDEEM" as const } },
-      { reason: "QUOTE_MISMATCH", change: { quoteDigest: hash(99) } },
-      {
-        reason: "ACTION_MISMATCH",
-        approve: true,
-        change: {
-          action: "APPROVE" as const,
-          to: manifest.contracts.BlinkTestUSD,
-          spender: "0x" + "33".repeat(20),
-        },
-      },
+      { reason: "SENDER_MISMATCH", change: { from: STRANGER } },
+      // Not the generation, faucet or anchor (for instance the bUSD token): no contract name.
+      { reason: "TARGET_MISMATCH", change: { to: manifest.shared.busd, contract: null } },
+      // A contract of the generation, but calldata that matches no function of its ABI.
+      { reason: "ACTION_MISMATCH", change: { action: null } },
     ];
+    for (const [i] of cases.entries()) await t.post({ txHash: hash(70 + i) });
     let calls = 0;
-    for (const [i, c] of cases.entries())
-      await t.post(
-        {
-          deploymentId: "d1",
-          txHash: hash(70 + i),
-          action: c.approve ? "APPROVE" : "FILL",
-          ...(c.approve ? {} : { quoteId: hash(60) }),
-        },
-        "case-" + i,
-      );
     const tracker = createTxTracker({
       store: postgresTxTrackingStore(t.pool),
       reader: {
         async read(row) {
           calls++;
           const c = cases[Number(BigInt(row.txHash)) - 70]!;
-          return {
-            chainId: 84532,
-            transaction: {
-              from: address,
-              to: manifest.contracts.BlinkMarket,
-              action: "FILL",
-              quoteDigest: hash(60),
-              marketId: "1",
-              ...c.change,
-            },
-            receipt: null,
-            previousCanonical: null,
-            finalizedNumber: null,
-          };
+          return observation({ transaction: sent(c.change) });
         },
       },
       async manifest() {
@@ -251,116 +257,79 @@ test("tracker rejects sender, target, selector, spender and quote mismatches and
     await t.close();
   }
 });
+
 test("unknown, reverted, reorged and re-included receipts retain correct confirmation states", async () => {
   const t = await setup();
   try {
-    await bindWallet(t, t.a.agentId, address);
-    await t.post({ deploymentId: "d1", txHash: hash(50), action: "REDEEM" });
-    let observation: TxObservation = {
-      chainId: 84532,
-      transaction: null,
-      receipt: null,
-      previousCanonical: null,
-      finalizedNumber: null,
-    };
+    await bindWallet(t, t.a.agentId, WALLET);
+    await t.post({ txHash: hash(50) });
+    let current = observation();
     const tracker = createTxTracker({
       store: postgresTxTrackingStore(t.pool),
       reader: {
         async read() {
-          return observation;
+          return current;
         },
       },
       async manifest() {
         return manifest;
       },
     });
-    const run = async () => {
+    const run = async (hashOf = hash(50)) => {
       await t.setRole("blink_indexer");
       await tracker.trackOnce();
       await t.setRole("blink_api");
-      return t.get();
+      return t.get(hashOf);
     };
     assert.equal((await run()).status, "UNKNOWN");
-    observation.transaction = {
-      from: address,
-      to: manifest.contracts.BlinkMarket,
-      action: "REDEEM",
-      marketId: "3",
-    };
-    await t.setRole(null);
-    await t.db.query(
-      "INSERT INTO protocol.positions(deployment_id,key,data,as_of_block_hash) VALUES ('d1','3:0x'||$1,jsonb_build_object('marketId','3','account','0x'||$1,'yesShares','2','noShares','0','takerBoughtShares','0','redeemedPayoutMicros','0'),decode($2,'hex'))",
-      [address.slice(2), hash(10).slice(2)],
-    );
-    await run();
-    observation.receipt = {
-      blockHash: hash(10),
-      blockNumber: "10",
-      success: true,
-      canonical: true,
-    };
+    current = observation({ transaction: sent() });
+    assert.equal((await run()).status, "UNKNOWN");
+    current = observation({ transaction: sent(), receipt: included });
     assert.equal((await run()).status, "INCLUDED");
-    observation = {
-      ...observation,
-      previousCanonical: false,
-      transaction: null,
-      receipt: null,
-    };
+    current = observation({ previousCanonical: false });
     const reorged = await run();
     assert.equal(reorged.status, "REORGED");
     assert.equal(reorged.chainCursor.finality, "UNKNOWN");
     assert.equal((await run()).status, "REORGED");
-    observation = {
-      ...observation,
-      transaction: {
-        from: address,
-        to: manifest.contracts.BlinkMarket,
-        action: "REDEEM",
-        marketId: "3",
-      },
-      receipt: {
-        blockHash: hash(11),
-        blockNumber: "11",
-        success: true,
-        canonical: true,
-      },
+    current = observation({
+      transaction: sent(),
+      receipt: { ...included, blockHash: hash(11), blockNumber: "11" },
       previousCanonical: false,
-    };
+    });
     assert.equal((await run()).status, "INCLUDED");
-    observation.previousCanonical = true;
-    observation.finalizedNumber = "11";
+    current = observation({
+      transaction: sent(),
+      receipt: { ...included, blockHash: hash(11), blockNumber: "11" },
+      previousCanonical: true,
+      finalizedNumber: "11",
+    });
     const final = await run();
     assert.equal(final.status, "FINALIZED");
     assert.equal(final.chainCursor.blockHash, hash(11));
     assert.equal(final.chainCursor.finality, "FINALIZED");
-    await t.post(
-      { deploymentId: "d1", txHash: hash(51), action: "REDEEM" },
-      "reverted",
-    );
-    observation.receipt!.success = false;
-    await run();
-    assert.equal((await t.get(hash(51))).status, "REVERTED");
+    await t.setRole("blink_api");
+    await t.post({ txHash: hash(51) });
+    current = observation({
+      transaction: sent(),
+      receipt: { ...included, success: false },
+    });
+    assert.equal((await run(hash(51))).status, "REVERTED");
   } finally {
     await t.close();
   }
 });
+
 test("tracker refuses mainnet and wrong-chain observations without changing the hint", async () => {
   const t = await setup();
   try {
-    await bindWallet(t, t.a.agentId, address);
-    await t.post({ deploymentId: "d1", txHash: hash(50), action: "REDEEM" });
+    await bindWallet(t, t.a.agentId, WALLET);
+    await t.post({ txHash: hash(50) });
     for (const chainId of [8453, 1]) {
       const tracker = createTxTracker({
         store: postgresTxTrackingStore(t.pool),
         reader: {
           async read() {
-            return {
-              chainId,
-              transaction: null,
-              receipt: null,
-              previousCanonical: null,
-              finalizedNumber: null,
-            };
+            return observation({ chainId });
           },
         },
         async manifest() {
@@ -377,11 +346,12 @@ test("tracker refuses mainnet and wrong-chain observations without changing the 
     await t.close();
   }
 });
+
 test("transaction table enforces least privilege and version CAS prevents stale overwrite", async () => {
   const t = await setup();
   try {
-    await bindWallet(t, t.a.agentId, address);
-    await t.post({ deploymentId: "d1", txHash: hash(50), action: "REDEEM" });
+    await bindWallet(t, t.a.agentId, WALLET);
+    await t.post({ txHash: hash(50) });
     const store = postgresTxTrackingStore(t.pool);
     await t.setRole("blink_api");
     await assert.rejects(
@@ -404,9 +374,7 @@ test("transaction table enforces least privilege and version CAS prevents stale 
     await t.setRole("blink_indexer");
     await assert.rejects(
       t.db.exec(
-        "UPDATE chain.transactions SET wallet=decode('" +
-          "44".repeat(20) +
-          "','hex')",
+        "UPDATE chain.transactions SET wallet=decode('" + "44".repeat(20) + "','hex')",
       ),
       /permission denied/,
     );
@@ -415,7 +383,10 @@ test("transaction table enforces least privilege and version CAS prevents stale 
       /permission denied/,
     );
     const row = (await store.pending(50))[0]!;
-    assert.equal(await store.update(row, { ...row, status: "INCLUDED" }), true);
+    assert.equal(
+      await store.update(row, { ...row, action: "redeem", status: "INCLUDED" }),
+      true,
+    );
     assert.equal(
       await store.update(row, { ...row, status: "REVERTED" }),
       false,
@@ -427,13 +398,13 @@ test("transaction table enforces least privilege and version CAS prevents stale 
   }
 });
 
-// The actual receipt adapter is exercised against deterministic RPC data, including real ABI bytes.
-test("receipt reader decodes actual fill, approve and redeem calldata and checks canonical hashes", async () => {
+// The receipt adapter is exercised against deterministic RPC data, including real ABI bytes.
+test("receipt reader decodes calldata by contract from the protocol ABI and checks canonical hashes", async () => {
   const q = {
     marketId: 123n,
     specHash: hash(1) as Hex,
-    maker: manifest.roles.maker as Hex,
-    taker: address as Hex,
+    maker: address(5) as Hex,
+    taker: WALLET as Hex,
     side: 0,
     quantity: 2n,
     priceBps: 5000,
@@ -442,25 +413,13 @@ test("receipt reader decodes actual fill, approve and redeem calldata and checks
     nonce: 1n,
     epoch: 0n,
   };
-  const digest = hashTypedData({
-    domain: {
-      name: "Blink RFQ",
-      version: "0.1",
-      chainId: 84532,
-      verifyingContract: manifest.contracts.BlinkMarket as Hex,
-    },
-    types: quoteTypes,
-    primaryType: "Quote",
-    message: q,
-  });
   const row: TrackedTransaction = {
     id: "test",
     deploymentId: "d1",
     txHash: hash(50),
     agentId: "agent",
-    wallet: address,
-    action: "FILL",
-    quoteId: digest,
+    wallet: WALLET,
+    action: null,
     marketId: null,
     status: "UNKNOWN",
     rejectReason: null,
@@ -468,8 +427,9 @@ test("receipt reader decodes actual fill, approve and redeem calldata and checks
     receiptBlockNumber: "9",
     version: "0",
   };
-  let input = encodeFunctionData({
-    abi: blinkMarketAbi,
+  let to: string = manifest.generation.markets;
+  let input: Hex = encodeFunctionData({
+    abi: protocolAbi.markets,
     functionName: "fillQuote",
     args: [q, "0x1234"],
   });
@@ -484,13 +444,7 @@ test("receipt reader decodes actual fill, approve and redeem calldata and checks
     async getTransaction() {
       if (missing)
         throw new TransactionNotFoundError({ hash: row.txHash as Hex });
-      return {
-        hash: row.txHash,
-        chainId,
-        from: address,
-        to: manifest.contracts.BlinkMarket,
-        input,
-      };
+      return { hash: row.txHash, chainId, from: WALLET, to, input };
     },
     async getTransactionReceipt() {
       if (missing)
@@ -509,31 +463,50 @@ test("receipt reader decodes actual fill, approve and redeem calldata and checks
   } as unknown as PublicClient;
   const reader = txReceiptReader(client);
   let o = await reader.read(row, manifest);
-  assert.equal(o.transaction!.quoteDigest, digest);
-  assert.equal(o.transaction!.marketId, "123");
+  assert.deepEqual(
+    [o.transaction!.contract, o.transaction!.action, o.transaction!.marketId],
+    ["markets", "fillQuote", "123"],
+  );
   assert.equal(o.receipt!.canonical, true);
   assert.equal(o.previousCanonical, false);
   assert.equal(o.finalizedNumber, "5");
-  input = encodeFunctionData({
-    abi: blinkMarketAbi,
-    functionName: "redeem",
-    args: [456n],
-  });
-  o = await reader.read({ ...row, action: "REDEEM" }, manifest);
-  assert.equal(o.transaction!.action, "REDEEM");
-  assert.equal(o.transaction!.marketId, "456");
-  input = encodeFunctionData({
-    abi: blinkTestUsdAbi,
-    functionName: "approve",
-    args: [manifest.contracts.BlinkMarket as Hex, 1000n],
-  });
-  o = await reader.read({ ...row, action: "APPROVE" }, manifest);
-  assert.equal(
-    o.transaction!.spender!.toLowerCase(),
-    manifest.contracts.BlinkMarket,
-  );
+  input = encodeFunctionData({ abi: protocolAbi.markets, functionName: "redeem", args: [456n] });
+  o = await reader.read(row, manifest);
+  assert.deepEqual([o.transaction!.action, o.transaction!.marketId], ["redeem", "456"]);
+  // Every contract of the generation, the faucet and the anchor is recognized by its address...
+  const cases: [string, "registry" | "faucet" | "anchor" | "resolution", Hex, string][] = [
+    [
+      manifest.generation.registry,
+      "registry",
+      encodeFunctionData({ abi: protocolAbi.registry, functionName: "joinRole", args: [2, 100n] } as never),
+      "joinRole",
+    ],
+    [manifest.shared.faucet, "faucet", encodeFunctionData({ abi: protocolAbi.faucet, functionName: "claim" }), "claim"],
+    [
+      manifest.shared.anchor,
+      "anchor",
+      encodeFunctionData({ abi: protocolAbi.anchor, functionName: "anchor", args: [hash(3) as Hex] }),
+      "anchor",
+    ],
+  ];
+  for (const [target, contract, data, action] of cases) {
+    to = target.toUpperCase().replace("0X", "0x");
+    input = data;
+    o = await reader.read(row, manifest);
+    assert.deepEqual([o.transaction!.contract, o.transaction!.action], [contract, action]);
+    assert.equal(o.transaction!.marketId, undefined);
+  }
+  // ...calldata of another contract's ABI matches nothing here...
+  to = manifest.generation.markets;
+  input = encodeFunctionData({ abi: protocolAbi.faucet, functionName: "claim" });
+  assert.equal((await reader.read(row, manifest)).transaction!.action, null);
   input = "0x12345678";
   assert.equal((await reader.read(row, manifest)).transaction!.action, null);
+  // ...and any other target (here bUSD) is not a tracked contract at all.
+  to = manifest.shared.busd;
+  o = await reader.read(row, manifest);
+  assert.deepEqual([o.transaction!.contract, o.transaction!.action], [null, null]);
+  to = manifest.generation.markets;
   canonicalHash = hash(99);
   finality = false;
   o = await reader.read(row, manifest);

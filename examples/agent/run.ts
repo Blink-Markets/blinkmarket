@@ -1,15 +1,21 @@
-// An external agent on the local stack: bind a wallet, forecast, get test bUSD, buy shares with a
-// verified RFQ, wait for the market to finalize, and redeem. Base Sepolia chain ID 84532 only, and
-// only against a local node: the key never goes near a remote RPC.
+// A taker agent on the local stack: claim test bUSD, register, join TAKER, get an API key by wallet
+// proof, post an RFQ, verify the quotes makers send back, approve exactly what the best one can
+// cost, fill it on chain, wait for the market to be FINAL and redeem. Base Sepolia chain ID 84532
+// only, and only against a local node: the key never goes near a remote RPC.
 //
-//   BLINK_API_URL=... BLINK_API_KEY=... AGENT_PRIVATE_KEY=0x... RPC_URL=http://127.0.0.1:8545 \
+//   BLINK_API_URL=... AGENT_PRIVATE_KEY=0x... RPC_URL=http://127.0.0.1:8545 \
 //     node --import tsx examples/agent/run.ts
 //
-// An agent outside this repository imports the same names from "@blink/client".
+// The platform only relays RFQs and quotes. It never quotes, signs or fills: this agent verifies a
+// quote itself and sends the fill itself. An agent outside this repository imports the same names
+// from "@blink/client".
 import { pathToFileURL } from "node:url";
 import {
+  BaseError,
+  ContractFunctionRevertedError,
   createPublicClient,
   createWalletClient,
+  decodeEventLog,
   defineChain,
   http,
   parseAbi,
@@ -21,45 +27,59 @@ import {
   QuoteVerificationError,
   createBlinkClient,
   verifySignedQuote,
-} from "../../packages/client/src/index.ts";
+} from "@blink/client";
 
 const CHAIN_ID = 84532;
 const MAINNET_CHAIN_ID = 8453;
 const LOOPBACK = ["127.0.0.1", "localhost", "[::1]"];
+const TAKER_ROLE = 2;
 const QUANTITY = "10";
-// The most this agent pays for one share, in micro-bUSD: the API refuses a dearer quote.
-const MAX_COST_PER_SHARE_MICROS = 900_000n;
-const MAX_QUOTE_ATTEMPTS = 3;
+const MAX_RFQ_ATTEMPTS = 3;
+const UNIT = 1_000_000n;
 
-// Just what a taker calls on the bUSD token and the market.
+// Just what a taker calls: the bUSD token, the faucet, the registry and the markets contract.
 const tokenAbi = parseAbi([
   "function approve(address spender, uint256 amount) returns (bool)",
   "function balanceOf(address owner) view returns (uint256)",
 ]);
-const marketAbi = parseAbi([
+const faucetAbi = parseAbi(["function claim()"]);
+const registryAbi = parseAbi([
+  "function register()",
+  "function isRegistered(address account) view returns (bool)",
+  "function hasRole(address account, uint8 role) view returns (bool)",
+  "function joinRole(uint8 role, uint256 amount)",
+]);
+const marketsAbi = parseAbi([
+  "struct Quote { uint256 marketId; bytes32 specHash; address maker; address taker; uint8 side; uint64 quantity; uint16 priceBps; uint64 validAfter; uint64 expiresAt; uint256 nonce; uint256 epoch; }",
+  "function fillQuote(Quote q, bytes signature)",
   "function consumed(bytes32 digest) view returns (bool)",
   "function redeem(uint256 id)",
+  "event PositionRedeemed(uint256 indexed marketId, address indexed account, uint256 yes, uint256 no, uint256 payout)",
 ]);
 
 export type AgentConfig = {
   apiUrl: string;
-  apiKey: string;
   privateKey: Hex;
   rpcUrl: string;
+  /** The market to trade; by default the first OPEN market the API lists. */
+  marketId?: string;
+  side?: "YES" | "NO";
   log?: (line: string) => void;
   /** Delay between polls of the API and the chain. */
   pollMs?: number;
-  /** How long to wait for the faucet credit, for the API to index a transaction, for FINAL, and for a receipt. */
+  /** How long to wait for the index, for quotes, for FINAL and for a receipt. */
   waitMs?: {
-    faucet?: number;
     indexing?: number;
+    quotes?: number;
     final?: number;
     receipt?: number;
+    /** How long to wait for an uncertain fill to settle before giving up (it is never resent). */
+    settle?: number;
   };
 };
 export type AgentResult = {
   marketId: string;
-  quoteId: string;
+  digest: string;
   /** Empty when the fill landed but this process lost its hash. */
   fillTxHash: string;
   redeemTxHash: string;
@@ -67,7 +87,7 @@ export type AgentResult = {
   payoutMicros: string;
 };
 
-/** Reads the four environment variables; the key is only ever passed on to the wallet. */
+/** Reads the three environment variables; the key is only ever passed on to the wallet. */
 export function configFromEnv(env: NodeJS.ProcessEnv): AgentConfig {
   const need = (name: string) => {
     const value = env[name];
@@ -76,22 +96,24 @@ export function configFromEnv(env: NodeJS.ProcessEnv): AgentConfig {
   };
   return {
     apiUrl: need("BLINK_API_URL"),
-    apiKey: need("BLINK_API_KEY"),
     privateKey: need("AGENT_PRIVATE_KEY") as Hex,
     rpcUrl: need("RPC_URL"),
   };
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const isRefusal = (error: unknown, ...codes: string[]) =>
+  error instanceof BlinkApiError && codes.includes(error.body.code);
 
 export async function runAgent(config: AgentConfig): Promise<AgentResult> {
   const log = config.log ?? ((line: string) => console.log(line));
   const pollMs = config.pollMs ?? 1000;
   const waits = {
-    faucet: config.waitMs?.faucet ?? 120_000,
     indexing: config.waitMs?.indexing ?? 120_000,
+    quotes: config.waitMs?.quotes ?? 20_000,
     final: config.waitMs?.final ?? 600_000,
     receipt: config.waitMs?.receipt ?? 180_000,
+    settle: config.waitMs?.settle ?? 180_000,
   };
   // The key signs transactions: refuse any node that is not on this machine.
   if (!LOOPBACK.includes(new URL(config.rpcUrl).hostname))
@@ -122,7 +144,6 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     chain,
     transport: http(config.rpcUrl, { retryCount: 0 }),
   });
-  const client = createBlinkClient(config.apiUrl, config.apiKey);
   const address = account.address.toLowerCase();
 
   async function until<T>(
@@ -142,318 +163,302 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
   /** Chain time, never this machine's clock: quotes expire by block timestamp. */
   const chainSeconds = async () =>
     (await publicClient.getBlock({ blockTag: "latest" })).timestamp;
-
-  // 1. The deployment: everything below trusts this and nothing a quote says about itself.
-  const publicConfig = await client.getConfig();
-  const deployment = publicConfig.deployment;
-  if (!deployment) throw new Error("NO_DEPLOYMENT: the API has no deployment");
-  const trusted = { ...publicConfig, deployment };
-  const deploymentId = deployment.deploymentId;
-  const marketAddress = deployment.contracts.BlinkMarket as Hex;
-  const tokenAddress = deployment.contracts.BlinkTestUSD as Hex;
-  log(
-    `deployment ${deploymentId} on chain ${publicConfig.chainId}, trading ${publicConfig.tradingEnabled}`,
-  );
-
-  // 2. Bind this wallet to the API key's agent (a second run finds it bound already).
-  try {
-    const challenge = await client.createWalletChallenge({ address });
-    await client.verifyWallet({
-      challengeId: challenge.challengeId,
-      signature: await account.signMessage({ message: challenge.message }),
+  /** A transaction of this wallet, waited for; a revert is an error. */
+  async function send(
+    what: string,
+    request: Parameters<typeof wallet.writeContract>[0],
+  ) {
+    const hash = await wallet.writeContract(request);
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash,
+      timeout: waits.receipt,
     });
-    log(`wallet ${address} bound`);
-  } catch (error) {
-    if (!(
-      error instanceof BlinkApiError &&
-      error.body.code === "WALLET_ALREADY_BOUND"
-    ))
-      throw error;
-    log("wallet already bound");
+    if (receipt.status !== "success") throw new Error(`${what}_REVERTED`);
+    return receipt;
   }
 
-  // 3. A market that can trade, and its spec checked against the hash the market list gave.
-  const markets = await client.listMarkets({ state: "OPEN" });
-  const market = markets.items.map((i) => i.market).find((m) => m.state === "OPEN");
-  if (!market) throw new Error("NO_TRADABLE_MARKET");
-  const ref = { deploymentId, marketId: market.marketId };
-  const spec = await client.getMarketSpec(ref, market.specHash);
-  log(
-    `market ${market.marketId} (${spec.title}) spec verified`,
-  );
+  // 1. The generation: everything below trusts this manifest and nothing a quote says about itself.
+  const anonymous = createBlinkClient(config.apiUrl);
+  const { deployment } = await anonymous.getDeployment();
+  if (deployment.chainId !== CHAIN_ID)
+    throw new Error("DEPLOYMENT_CHAIN_MISMATCH");
+  const { params, shared, generation } = deployment;
+  const busd = shared.busd as Hex;
+  const registry = generation.registry as Hex;
+  const markets = generation.markets as Hex;
+  const side = config.side ?? "YES";
 
-  // 4. A forecast in the window that is open now, if there is one and this agent has not used it.
-  const windows = await client.listForecastWindows(ref);
-  const open = windows.items.find((w) => w.status === "OPEN");
-  // Evidence ids belong to the retired v0.1 flow; Task 10 moves forecasts to signed content hashes.
-  const evidenceIds: string[] = [];
-  if (open && evidenceIds.length > 0) {
-    try {
-      // A real agent forms this probability from the evidence; the example only shows the call.
-      await client.submitForecast(ref, {
-        horizonKey: open.horizonKey,
-        probability: 0.6,
-        evidenceIds,
-        rationale:
-          "Example agent: fixed probability, not derived from evidence.",
-        agentVersion: "example-agent/0.1",
-      });
-      log(`forecast submitted for window ${open.windowId}`);
-    } catch (error) {
-      if (!(
-        error instanceof BlinkApiError &&
-        error.body.code === "FORECAST_ALREADY_SUBMITTED"
-      ))
-        throw error;
-      log("forecast already submitted for this window");
-    }
-  } else log("no open forecast window with usable evidence; forecast skipped");
-
-  // 5. Test bUSD from the faucet, unless the wallet already holds enough for the purchase.
-  const budget = BigInt(QUANTITY) * MAX_COST_PER_SHARE_MICROS;
+  // 2. Test bUSD, registration and the TAKER role, all on chain from this wallet.
+  const quantity = BigInt(QUANTITY);
+  const stake = BigInt(params.minRoleStake);
+  const fee = BigInt(params.registrationFee);
   const balance = () =>
     publicClient.readContract({
-      address: tokenAddress,
+      address: busd,
       abi: tokenAbi,
       functionName: "balanceOf",
       args: [account.address],
     });
-  if ((await balance()) < budget) {
-    try {
-      await client.claimFaucet({ deploymentId });
-      log("faucet claim queued");
-    } catch (error) {
-      // A claim made in the last 24 hours is paid or still pending: wait for its credit instead.
-      if (!(
-        error instanceof BlinkApiError &&
-        ["FAUCET_PENDING", "RATE_LIMITED"].includes(error.body.code)
-      ))
-        throw error;
-      log(`faucet answered ${error.body.code}; waiting for the balance`);
-    }
-    await until("the faucet credit", waits.faucet, async () =>
-      (await balance()) >= budget ? true : undefined,
-    );
-  }
-  log(`balance ${await balance()} micro-bUSD`);
-
-  // 6. RFQ, verify, approve exactly, fill. An expired quote is requoted under a new key.
-  const request = {
-    deploymentId,
-    marketId: market.marketId,
-    side: "YES",
-    quantity: QUANTITY,
-    maxCostMicros: String(budget),
-  } as const;
-  type Quote = Awaited<ReturnType<typeof client.requestQuote>>;
-  /**
-   * Throws QuoteVerificationError on the first thing wrong with the quote, by chain time. By
-   * default the quote must also have room left for an approval and a fill; `minValiditySeconds: 0n`
-   * asks only whether it has really expired.
-   */
-  const verify = async (quote: Quote, minValiditySeconds?: bigint) =>
-    verifySignedQuote(quote, {
-      config: trusted,
-      wallet: address,
-      request,
-      nowSeconds: await chainSeconds(),
-      minValiditySeconds,
+  // The most one fill can cost: all shares at nearly a dollar, plus the fee.
+  const worstFill = quantity * UNIT + (quantity * UNIT * BigInt(params.feeBps)) / 10_000n;
+  if ((await balance()) < fee + stake + worstFill) {
+    await send("FAUCET_CLAIM", {
+      address: shared.faucet as Hex,
+      abi: faucetAbi,
+      functionName: "claim",
     });
-  const isConsumed = (quote: Quote) =>
+    log("claimed test bUSD from the faucet");
+  }
+  const registryRead = (functionName: "isRegistered" | "hasRole", args: never) =>
     publicClient.readContract({
-      address: marketAddress,
-      abi: marketAbi,
-      functionName: "consumed",
-      args: [quote.quoteId as Hex],
-    });
-  /**
-   * Sends the verified calldata, once. It reads consumed(digest) first. If the outcome of the send
-   * is unknown (the answer was lost, the receipt never came) it is never sent again: it waits
-   * until consumed(digest) says the fill landed, or the quote expires by chain time (then the
-   * next quote is a different one). Returns the hash, or undefined when the fill landed but this
-   * process never saw its hash.
-   */
-  async function fill(quote: Quote): Promise<Hex | undefined> {
-    if (await isConsumed(quote))
-      throw new Error("QUOTE_CONSUMED: filled before this agent sent it");
-    await verify(quote);
-    // A fill that would revert is refused here, so a failure after this point is an unknown outcome.
-    await publicClient
-      .call({ account, to: marketAddress, data: quote.calldata as Hex })
-      .catch((error: { shortMessage?: string }) => {
-        throw new Error("FILL_WOULD_REVERT: " + (error.shortMessage ?? error));
-      });
-    let sent: Hex | undefined;
-    try {
-      sent = await wallet.sendTransaction({
-        to: marketAddress,
-        data: quote.calldata as Hex,
-      });
-      const receipt = await publicClient.waitForTransactionReceipt({
-        hash: sent,
-        timeout: waits.receipt,
-      });
-      if (receipt.status === "success") {
-        log(`fill ${sent} included in block ${receipt.blockNumber}`);
-        return sent;
-      }
-      // Reverted: if the quote really ran out meanwhile this throws EXPIRED, otherwise it is a real failure.
-      await verify(quote, 0n);
-      throw new Error("FILL_REVERTED: " + sent);
-    } catch (error) {
-      if (error instanceof QuoteVerificationError) throw error;
-      if (error instanceof Error && error.message.startsWith("FILL_REVERTED"))
-        throw error;
-      const why =
-        (error as { shortMessage?: string }).shortMessage ?? String(error);
-      log(`fill outcome unknown (${why}); not sending it again`);
-    }
-    // Chain time is read before consumed(digest), so a fill that lands between the two reads is
-    // found by the second one. Only real expiry ends the wait, and only when consumed(digest)
-    // still says no: until then the fill may land, and a requote could buy twice.
-    let behind = false;
-    for (;;) {
-      let expired: QuoteVerificationError | undefined;
-      try {
-        await verify(quote, 0n);
-        behind = false;
-      } catch (error) {
-        if (!(error instanceof QuoteVerificationError)) throw error;
-        if (error.code === "EXPIRED") expired = error;
-        else if (error.code === "NOT_YET_VALID") {
-          // Not an expiry: this node's chain time went backwards (a stale replica, a reorg).
-          if (!behind)
-            log(
-              "this node's chain time is before the quote's validAfter; still waiting for the fill",
-            );
-          behind = true;
-        } else throw error;
-      }
-      if (await isConsumed(quote)) return sent;
-      if (expired) throw expired;
-      await sleep(pollMs);
-    }
-  }
-  async function buy() {
-    // A new Idempotency-Key per quote; a retry of the same RFQ would reuse it.
-    const quote = await client.requestQuote(request, crypto.randomUUID());
-    await verify(quote);
-    if (quote.message.specHash.toLowerCase() !== market!.specHash.toLowerCase())
-      throw new Error("QUOTE_SPEC_MISMATCH: the quote is for another spec");
-    log(
-      `quote ${quote.quoteId} verified: ${QUANTITY} YES for ${quote.takerCostMicros} micro-bUSD, expires ${quote.expiresAt}`,
-    );
-    // Exactly the cost: the market can pull no more than this quote's price.
-    const approval = await wallet.writeContract({
-      address: tokenAddress,
+      address: registry,
+      abi: registryAbi,
+      functionName,
+      args,
+    } as never) as Promise<boolean>;
+  if (!(await registryRead("isRegistered", [account.address] as never))) {
+    await send("APPROVE_FEE", {
+      address: busd,
       abi: tokenAbi,
       functionName: "approve",
-      args: [marketAddress, BigInt(quote.takerCostMicros)],
+      args: [registry, fee],
     });
-    const approved = await publicClient.waitForTransactionReceipt({
-      hash: approval,
-      timeout: waits.receipt,
+    await send("REGISTER", {
+      address: registry,
+      abi: registryAbi,
+      functionName: "register",
     });
-    if (approved.status !== "success")
-      throw new Error("APPROVE_REVERTED: " + approval);
-    await client.trackTransaction({
-      deploymentId,
-      txHash: approval,
-      action: "APPROVE",
-    });
-    log(`approved ${quote.takerCostMicros} micro-bUSD in ${approval}`);
-    return { quote, fillTxHash: await fill(quote) };
+    log("registered");
   }
-  // A quote that ran out, or that this node's chain view has not reached yet (a lagging node):
-  // either way the answer is a new quote under a new key.
-  const isExpiry = (error: unknown) =>
-    (error instanceof QuoteVerificationError &&
-      (error.code === "EXPIRED" || error.code === "NOT_YET_VALID")) ||
-    (error instanceof BlinkApiError &&
-      (error.body.code === "QUOTE_EXPIRED" ||
-        error.body.details["reason"] === "QUOTE_EXPIRED"));
-  let bought: Awaited<ReturnType<typeof buy>> | undefined;
-  for (let attempt = 1; !bought; attempt++) {
+  if (!(await registryRead("hasRole", [account.address, TAKER_ROLE] as never))) {
+    await send("APPROVE_STAKE", {
+      address: busd,
+      abi: tokenAbi,
+      functionName: "approve",
+      args: [registry, stake],
+    });
+    await send("JOIN_TAKER", {
+      address: registry,
+      abi: registryAbi,
+      functionName: "joinRole",
+      args: [TAKER_ROLE, stake],
+    });
+    log("joined the TAKER role");
+  }
+
+  // 3. An API key by wallet proof. The API issues one only once its index has seen the registration,
+  //    so a not-yet-indexed wallet is retried with a fresh challenge and a growing pause.
+  let client = anonymous;
+  for (let attempt = 0, pause = pollMs; ; attempt++, pause *= 2) {
     try {
-      bought = await buy();
+      const challenge = await anonymous.createWalletChallenge({
+        address,
+        action: "issue",
+      });
+      const issued = await anonymous.verifyWallet({
+        challengeId: challenge.challengeId,
+        signature: await account.signMessage({ message: challenge.message }),
+      });
+      if (!("apiKey" in issued)) throw new Error("NO_API_KEY_ISSUED");
+      client = createBlinkClient(config.apiUrl, issued.apiKey);
+      break;
     } catch (error) {
-      if (!isExpiry(error) || attempt >= MAX_QUOTE_ATTEMPTS) throw error;
-      log(
-        "quote expired or not yet valid on this node; asking for a new one under a new key",
-      );
-      await sleep(pollMs);
+      if (!isRefusal(error, "NOT_REGISTERED", "INDEX_STALE") || attempt >= 6)
+        throw error;
+      await sleep(Math.min(pause, 30_000));
     }
   }
-  const { quote, fillTxHash } = bought;
+  log("got an API key");
 
-  // 7. Tell the API about the fill, then watch the transaction and the position it created.
-  if (fillTxHash) {
-    await client.trackTransaction({
-      deploymentId,
-      txHash: fillTxHash,
-      action: "FILL",
-      quoteId: quote.quoteId,
-    });
-    await until("the fill to be indexed", waits.indexing, async () => {
-      const tx = await client.getTransaction({
-        deploymentId,
-        txHash: fillTxHash,
+  // 4. The market to trade.
+  const open = config.marketId
+    ? undefined
+    : await until("an OPEN market", waits.indexing, async () => {
+        const now = Number(await chainSeconds());
+        const page = await client.listMarkets({ state: "OPEN", limit: 100 });
+        return page.items.find((i) => i.market.closeAt > now)?.market;
       });
-      if (tx.status === "REVERTED" || tx.status === "REORGED")
-        throw new Error(`FILL_${tx.status}: ${fillTxHash}`);
-      return tx.status === "INCLUDED" || tx.status === "FINALIZED"
-        ? tx
+  const { market } = await client.getMarket({
+    marketId: config.marketId ?? open!.marketId,
+  });
+  const marketId = market.marketId;
+  log(`trading market ${marketId}`);
+
+  const consumedNow = (digest: Hex) =>
+    publicClient.readContract({
+      address: markets,
+      abi: marketsAbi,
+      functionName: "consumed",
+      args: [digest],
+    });
+  /**
+   * Sends one fill and returns only when its outcome is known. A reverted receipt, or a rejection
+   * before broadcast, is a definitive miss. If the answer is lost or the receipt does not come, the
+   * transaction may still be pending, so nothing is resent and no replacement RFQ is made until a
+   * receipt arrives, `consumed(digest)` shows the fill, or chain time has passed the quote's expiry
+   * and the digest is then still unused (a block at or after expiry cannot include the fill).
+   */
+  async function sendFill(
+    quote: Record<string, unknown>,
+    signature: Hex,
+    digest: Hex,
+  ): Promise<{ landed: true; txHash: string } | { landed: false; reason: string }> {
+    let txHash: Hex | undefined;
+    try {
+      txHash = await wallet.writeContract({
+        address: markets,
+        abi: marketsAbi,
+        functionName: "fillQuote",
+        args: [quote, signature],
+      } as never);
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash: txHash,
+        timeout: waits.receipt,
+      });
+      return receipt.status === "success"
+        ? { landed: true, txHash }
+        : { landed: false, reason: "FILL_REVERTED" };
+    } catch (error) {
+      // The node refused it before broadcasting (the call would revert): nothing is pending.
+      if (
+        txHash === undefined &&
+        error instanceof BaseError &&
+        error.walk((e) => e instanceof ContractFunctionRevertedError)
+      )
+        return { landed: false, reason: "FILL_REJECTED_BEFORE_SEND" };
+      log(`fill outcome unknown: ${error instanceof Error ? error.message : error}`);
+    }
+    const expiresAt = quote["expiresAt"] as bigint;
+    return until("the fill's outcome", waits.settle, async () => {
+      if (txHash !== undefined) {
+        const receipt = await publicClient
+          .getTransactionReceipt({ hash: txHash })
+          .catch(() => undefined);
+        if (receipt)
+          return receipt.status === "success"
+            ? { landed: true as const, txHash }
+            : { landed: false as const, reason: "FILL_REVERTED" };
+      }
+      // Chain time first, then the digest: a fill that lands in between is found, and expiry is
+      // concluded only when the digest is still unused after the clock has passed it.
+      const now = await chainSeconds();
+      if (await consumedNow(digest))
+        return { landed: true as const, txHash: txHash ?? "" };
+      return now >= expiresAt
+        ? { landed: false as const, reason: "QUOTE_EXPIRED_UNUSED" }
         : undefined;
     });
   }
-  const holding = () =>
-    client
-      .getPositions({ address })
-      .then((positions) =>
-        positions.items.find((p) => p.marketId === market.marketId),
-      );
-  await until("the position", waits.indexing, async () => {
-    const position = await holding();
-    return position && BigInt(position.yesShares) >= BigInt(QUANTITY)
-      ? position
-      : undefined;
-  });
-  log(`position: ${QUANTITY} YES shares in market ${market.marketId}`);
 
-  // 8. The market finalizes on its own (the keeper); then the position pays out.
-  const resolved = await until(
-    "the market to be FINAL",
-    waits.final,
-    async () => {
-      const current = (await client.getMarket(ref)).market;
-      return current.finalOutcome === null ? undefined : current;
-    },
-  );
-  const finalOutcome = resolved.finalOutcome!;
-  log(`market final: ${finalOutcome}`);
-  const payoutMicros = (await holding())?.payoutMicros ?? "0";
-  const redeemTxHash = await wallet.writeContract({
-    address: marketAddress,
-    abi: marketAbi,
+  // 5. RFQ, verify, approve, fill. A quote that expires or is taken first is replaced by a new RFQ.
+  let digest: Hex | undefined;
+  let fillTxHash = "";
+  for (let attempt = 1; digest === undefined; attempt++) {
+    if (attempt > MAX_RFQ_ATTEMPTS) throw new Error("NO_USABLE_QUOTE");
+    const rfq = await until("the RFQ to be accepted", waits.indexing, async () => {
+      try {
+        return await client.createRfq({ marketId, side, quantity: QUANTITY });
+      } catch (error) {
+        // The TAKER role may not be indexed yet.
+        if (isRefusal(error, "ROLE_REQUIRED", "INDEX_STALE")) return undefined;
+        throw error;
+      }
+    });
+    log(`posted RFQ ${rfq.rfqId}`);
+    const verifyAll = async (minValiditySeconds?: bigint) => {
+      const now = await chainSeconds();
+      const verified = [];
+      for (const { quote, signature } of (await client.listQuotes(rfq.rfqId)).items) {
+        try {
+          verified.push({
+            quote,
+            signature: signature as Hex,
+            ...(await verifySignedQuote(quote, signature as Hex, {
+              publicClient,
+              deployment,
+              market,
+              rfq: { marketId, side, quantity: QUANTITY, taker: address },
+              now,
+              feeBps: params.feeBps,
+              minValiditySeconds,
+            })),
+          });
+        } catch (error) {
+          if (!(error instanceof QuoteVerificationError)) throw error;
+          log(`ignored a quote from ${quote.maker}: ${error.code}`);
+        }
+      }
+      return verified;
+    };
+    // Quotes arrive while the RFQ is open (30 seconds); the API lists them cheapest first.
+    const best = await until("a verified quote", waits.quotes, async () => (await verifyAll())[0]).catch(
+      () => undefined,
+    );
+    if (!best) continue;
+    // The approval covers the cost and the fee, never more.
+    await send("APPROVE_FILL", {
+      address: busd,
+      abi: tokenAbi,
+      functionName: "approve",
+      args: [markets, best.maxCost],
+    });
+    // The quote must still be usable and unused now that the approval has landed.
+    const stillGood = (await verifyAll(1n)).find((v) => v.digest === best.digest);
+    if (!stillGood || (await consumedNow(best.digest))) continue;
+    const q = best.quote;
+    const fill = await sendFill(
+      {
+        marketId: BigInt(q.marketId),
+        specHash: q.specHash as Hex,
+        maker: q.maker as Hex,
+        taker: q.taker as Hex,
+        side: Number(q.side),
+        quantity: BigInt(q.quantity),
+        priceBps: Number(q.priceBps),
+        validAfter: BigInt(q.validAfter),
+        expiresAt: BigInt(q.expiresAt),
+        nonce: BigInt(q.nonce),
+        epoch: BigInt(q.epoch),
+      },
+      best.signature,
+      best.digest,
+    );
+    if (!fill.landed) {
+      log(`fill did not land: ${fill.reason}`);
+      continue;
+    }
+    fillTxHash = fill.txHash;
+    digest = best.digest;
+    log(`filled ${QUANTITY} ${side} shares at ${best.quote.priceBps} bps`);
+  }
+
+  // 6. Wait for the market to settle, then redeem.
+  const finalOutcome = await until("FINAL", waits.final, async () => {
+    const { market: m } = await client.getMarket({ marketId });
+    return m.state === "FINAL" ? (m.finalOutcome ?? "INVALID") : undefined;
+  });
+  const redeemed = await send("REDEEM", {
+    address: markets,
+    abi: marketsAbi,
     functionName: "redeem",
-    args: [BigInt(market.marketId)],
+    args: [BigInt(marketId)],
   });
-  await publicClient.waitForTransactionReceipt({
-    hash: redeemTxHash,
-    timeout: waits.receipt,
-  });
-  await client.trackTransaction({
-    deploymentId,
-    txHash: redeemTxHash,
-    action: "REDEEM",
-  });
-  log(`redeemed in ${redeemTxHash}: ${payoutMicros} micro-bUSD`);
-
+  let payoutMicros = "0";
+  for (const entry of redeemed.logs) {
+    try {
+      const event = decodeEventLog({ abi: marketsAbi, ...entry });
+      if (event.eventName === "PositionRedeemed")
+        payoutMicros = event.args.payout.toString();
+    } catch {
+      // Not an event of the markets ABI.
+    }
+  }
+  log(`redeemed ${payoutMicros} micro-bUSD`);
   return {
-    marketId: market.marketId,
-    quoteId: quote.quoteId,
-    fillTxHash: fillTxHash ?? "",
-    redeemTxHash,
+    marketId,
+    digest,
+    fillTxHash,
+    redeemTxHash: redeemed.transactionHash,
     finalOutcome,
     payoutMicros,
   };

@@ -16,7 +16,12 @@ export * from "./forecasts.js";
 
 export { authenticateIdentity } from "./identity.js";
 export { createMarketReadService } from "./market-read.js";
-export { createTxTracker } from "./tx-tracking.js";
+export {
+  createTxTracker,
+  createTxTrackingService,
+  txTrackingPaths,
+} from "./tx-tracking.js";
+export { createRfqService, rfqPaths } from "./rfq-relay.js";
 export * from "./evaluation.js";
 export {
   assertBaseSepolia,

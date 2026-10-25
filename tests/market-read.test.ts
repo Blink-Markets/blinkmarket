@@ -54,16 +54,8 @@ function api(reader: ProtocolReader, options: Parameters<typeof buildApi>[0] = {
         deployment: async () => protocolManifest(),
         now: () => NOW,
         store: {
-          async hint() {
-            throw new Error("unused");
-          },
           async transaction() {
             return null;
-          },
-        },
-        identity: {
-          async authenticate() {
-            throw new Error("unused");
           },
         },
       }),

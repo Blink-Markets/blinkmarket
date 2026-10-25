@@ -1,12 +1,13 @@
-# External agent example
+# External taker agent example
 
-`run.ts` is a complete external agent for the local Blink stack: it binds a wallet, forecasts, claims test bUSD, buys YES shares with a verified quote, waits for the market to be FINAL and redeems. It uses only the public API through `@blink/client` and its own wallet through viem. Base Sepolia chain ID 84532 only, bUSD has no value, and nothing here is deployed anywhere.
+`run.ts` is a complete taker agent for the local Blink stack. It claims test bUSD, registers, joins the TAKER role, gets an API key by proving its wallet, posts an RFQ, verifies the quotes makers send back, approves exactly what the best one can cost, fills it on chain, waits for the market to be FINAL and redeems. It imports only `@blink/client` and `viem` (inside this repository the root `tsconfig.json` maps `@blink/client` to `packages/client`). Base Sepolia chain ID 84532 only, bUSD has no value, and nothing here is deployed anywhere.
+
+The platform only relays RFQs and quotes. It never prices, signs or fills: the agent checks every quote itself and sends the fill itself.
 
 ## Run it
 
 ```sh
 BLINK_API_URL=http://127.0.0.1:3001 \
-BLINK_API_KEY=<invited key> \
 AGENT_PRIVATE_KEY=<throwaway key for the local node> \
 RPC_URL=http://127.0.0.1:8545 \
 node --import tsx examples/agent/run.ts
@@ -15,31 +16,29 @@ node --import tsx examples/agent/run.ts
 | Variable | Meaning |
 | --- | --- |
 | `BLINK_API_URL` | The Blink API (HTTPS, or HTTP on loopback). |
-| `BLINK_API_KEY` | An invited key with `forecast:write`, `trade:quote` and `faucet:claim`. |
-| `AGENT_PRIVATE_KEY` | The wallet that is bound to the key and pays gas. The example refuses to run unless `RPC_URL` is on this machine. |
+| `AGENT_PRIVATE_KEY` | The agent's wallet. It pays gas and signs the wallet proof. The example refuses to run unless `RPC_URL` is on this machine. |
 | `RPC_URL` | A local node (loopback host) on chain ID 84532. Any other chain is refused. |
 
-The stack it expects is the one `docs/M2_RFQ.md` (runtime) and `docs/M3_KEEPER_FAUCET.md` describe: the API in trading mode with an indexed, trading-enabled deployment and one OPEN market, the signer, the indexer (with transaction tracking), the worker (faucet and keeper jobs), a funded maker, and the wallet allow-listed on the market contract. The market must have a recent ensemble forecast, or the quote is refused with `STALE_FORECAST`. The agent's gas comes from the local node's own funded accounts.
+No API key is configured: the agent obtains one by wallet proof once its registration is indexed. The stack it expects is the P2 one: the protocol generation deployed on the local node, the indexer, the API with the read routes and the RFQ relay, and at least one OPEN market with a maker that answers RFQs.
 
 ## What it does
 
-1. Reads `getConfig()`. Everything after trusts this deployment and nothing a quote says about itself.
-2. Binds the wallet (`createWalletChallenge`, sign, `verifyWallet`); an already bound agent is fine.
-3. Picks an OPEN market with `canTrade`, and checks its spec bytes against the listed `specHash` (`getMarketSpec`).
-4. Submits one forecast in the open window, if there is one (a fixed probability, to show the call).
-5. Claims the faucet and waits for the bUSD to arrive, unless the balance already covers the purchase.
-6. Requests a quote for 10 YES shares, then runs `verifySignedQuote` against the config, the wallet, the request and the chain's own block time.
-7. Approves exactly the quote's taker cost and checks that the approval succeeded (`APPROVE_REVERTED` otherwise), then re-reads `consumed(digest)` and re-verifies at the current chain time before it sends the quote's calldata once.
-8. Calls `trackTransaction`, polls `getTransaction` and `getPositions` until the fill is indexed, then waits for the market to be FINAL and redeems.
+1. Reads the current generation with `getDeployment()`. Everything after trusts this manifest and nothing a quote says about itself.
+2. Claims the faucet if its balance does not cover the registration fee, the role stake and one full fill, then registers and joins TAKER with the minimum role stake (each step is skipped if it is already done).
+3. Proves its wallet (`createWalletChallenge`, sign, `verifyWallet`). The API issues a key only after its index has seen the registration, so a refusal for that reason is retried with a fresh challenge.
+4. Picks an OPEN market that has not closed (`listMarkets`, `getMarket`) and posts an RFQ for 10 YES shares (`createRfq`).
+5. Lists the quotes (`listQuotes`, cheapest first) and runs `verifySignedQuote` on each one against the manifest, the market, the RFQ and the chain's block time. A quote that fails is ignored.
+6. Approves `maxCost` (the taker cost plus the fee, as `approvalFor` computes it), re-verifies the quote with at least one second left, checks `consumed(digest)` and sends `fillQuote` once.
+7. Waits until `getMarket` reports FINAL, calls `redeem` and reports the payout from the `PositionRedeemed` event.
 
 ## Safety rules it follows
 
-- **Quotes expire by block time.** `verifySignedQuote` gets the latest block's timestamp, not the host clock, and wants 6 seconds left for the approval and the fill. An expired quote, however it is noticed (verification, an API refusal, a fill that would revert), is replaced by a new request under a **new** Idempotency-Key, at most three times.
-- **A fill is never retried blindly.** `consumed(digest)` is read before the fill. If the send's outcome is unknown (a lost answer, no receipt), the calldata is not sent again: the agent waits until `consumed(digest)` shows it landed or the quote has really expired (no margin: the fill could still land before that), and only then moves on. Each round reads chain time first and `consumed(digest)` second, so a fill that lands in between is found, and it ends in expiry only when `consumed(digest)` still says no. If the node's chain time goes backwards (before the quote's `validAfter`), that is not an expiry: the agent logs it and keeps waiting.
-- **Retries reuse the key.** The client repeats a retryable answer with the same Idempotency-Key and body; a 503 `SERVICE_NOT_READY` while a quote is being signed resumes the same quote.
-- **Exact approvals.** The allowance is the quote's taker cost, not a larger or unlimited amount.
-- **No key leaves the process.** The private key only signs the binding message and the agent's own transactions.
+- **Quotes expire by block time.** `verifySignedQuote` gets the latest block's timestamp, not the host clock, and wants 6 seconds left for the approval and the fill.
+- **The signature is checked the way BlinkMarkets checks it.** A maker without code must give a canonical 65-byte ECDSA signature; a contract-wallet maker is asked through ERC-1271 on the node; an ERC-6492 wrapper is refused.
+- **Exact approvals.** The allowance is `maxCost`, not a larger or unlimited amount.
+- **A fill is never resent blindly, and an uncertain one is never replaced early.** If the answer to a fill is lost or its receipt does not come, the agent waits for the receipt, for `consumed(digest)`, or for chain time to pass the quote's expiry with the digest still unused. Only then may a new RFQ replace the quote (at most three times).
+- **No key leaves the process.** The private key only signs the wallet proof and the agent's own transactions, and only a loopback node is ever contacted with it.
 
 ## Tests
 
-`tests/anvil/client-agent.test.ts` runs this file unchanged against the real API, signer, worker and indexer on a local Anvil: once with a quote that expires before it is filled (the requote), once with a lost answer to the fill, and twice for the wait that follows an unknown fill (chain time going backwards, a fill landing just before expiry). `tests/client.test.ts` covers its refusals (a non-local node, the wrong chain).
+`tests/anvil/client-agent.test.ts` runs this file unchanged against the real API, indexer and protocol contracts on a local Anvil, with a maker and a proposer driven by the test. `tests/client.test.ts` covers its refusals (a non-local node, the wrong chain, a missing variable).

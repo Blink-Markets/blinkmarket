@@ -3,13 +3,11 @@ import { isClientHttpLoopbackHost } from "./url-policy.ts";
 import { keccak256 } from "viem";
 import {
   ApiError,
-  type SignedQuoteResponse,
   ConfigResponse,
   IdempotencyHeaders,
-  parseMarketSpec,
   apiContracts,
+  parseMarketSpec,
   type ApiContract,
-  type PublicMarketRef,
   type MarketStateName,
 } from "@blink/schemas";
 
@@ -32,8 +30,10 @@ type Out<M extends Method, P extends string> = Operation<
   M,
   P
 >["response"]["_output"];
-type MarketKey = Pick<PublicMarketRef, "deploymentId" | "marketId">;
 type Page = { limit?: number; cursor?: string };
+/** Paging of the protocol read routes and the RFQ list: `after` is the previous page's `next`. */
+type After = { limit?: number; after?: string };
+type ForecastMarket = { deploymentId: string; marketId: string };
 
 export type BlinkClientOptions = {
   /**
@@ -134,7 +134,7 @@ export function createBlinkClient(
     const { contract, url } = target(method, path, args);
     if (method === "GET")
       return contract.response.parse(json(await send(url))) as Out<M, P>;
-    const body = contract.body!.parse(args.body);
+    const body = contract.body ? contract.body.parse(args.body) : undefined;
     // The public wallet endpoints define no Idempotency-Key: a challenge is single use instead.
     const keyed = contract.idempotencyKey !== false;
     const key = args.key ?? crypto.randomUUID();
@@ -147,15 +147,23 @@ export function createBlinkClient(
             "Content-Type": "application/json",
             ...(keyed ? { "Idempotency-Key": key } : {}),
           },
-          body: JSON.stringify(body),
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         }),
       ),
     ) as Out<M, P>;
   }
-  const marketParams = (ref: MarketKey) => ({
+  const marketParams = (ref: ForecastMarket) => ({
     params: { id: ref.marketId },
     query: { deploymentId: ref.deploymentId },
   });
+  const segment = (value: string) => encodeURIComponent(value);
+  /** Bytes served by hash, accepted only if keccak256(bytes) is the hash asked for. */
+  const bytesByHash = async (path: string, hash: string) => {
+    const bytes = await send(path);
+    if (keccak256(bytes) !== hash.toLowerCase())
+      throw new Error("HASH_MISMATCH");
+    return bytes;
+  };
   return {
     // --- identity ---
     /** Public and not idempotent: each call creates a new challenge (300 s; limits are per client IP, and per client IP and address). */
@@ -164,16 +172,17 @@ export function createBlinkClient(
     /** Public and single use: sign the challenge message, then verify once to receive the key. */
     verifyWallet: (input: unknown) =>
       call("POST", "/v1/auth/wallet-verifications", { body: input }),
-    // --- config and markets ---
+    // --- config and protocol reads (public) ---
     getConfig: async () => ConfigResponse.parse(json(await send("/v1/config"))),
-    listMarkets: (
-      query: { after?: string; limit?: number; state?: MarketStateName } = {},
-    ) => call("GET", "/v1/markets", { query }),
-    // The read API serves the one deployment behind the API; a market is its `marketId`.
-    getMarket: (ref: Pick<PublicMarketRef, "marketId">) =>
+    /** The current generation's manifest and the index health it was read at. */
+    getDeployment: () => call("GET", "/v1/deployment"),
+    listMarkets: (query: After & { state?: MarketStateName } = {}) =>
+      call("GET", "/v1/markets", { query }),
+    /** The market, the parse of its spec bytes and its proposal. */
+    getMarket: (ref: { marketId: string }) =>
       call("GET", "/v1/markets/:id", { params: { id: ref.marketId } }),
     /** The spec bytes, accepted only if keccak256(bytes) is the `specHash` the caller already trusts. */
-    async getMarketSpec(ref: Pick<PublicMarketRef, "marketId">, specHash: string) {
+    async getMarketSpec(ref: { marketId: string }, specHash: string) {
       const { url } = target("GET", "/v1/markets/:id/spec", {
         params: { id: ref.marketId },
       });
@@ -184,65 +193,100 @@ export function createBlinkClient(
       if (!parsed.ok) throw new Error(parsed.reason);
       return parsed.spec;
     },
+    listDisputes: (ref: { marketId: string }, query: After = {}) =>
+      call("GET", "/v1/markets/:id/disputes", { params: { id: ref.marketId }, query }),
+    getDispute: (ref: { disputeId: string }, query: After & { round?: number } = {}) =>
+      call("GET", "/v1/disputes/:id", { params: { id: ref.disputeId }, query }),
+    getFees: (ref: { marketId: string }) =>
+      call("GET", "/v1/markets/:id/fees", { params: { id: ref.marketId } }),
+    getAccount: (ref: { address: string }) =>
+      call("GET", "/v1/accounts/:address", { params: { address: ref.address } }),
+    getPositions: (ref: { address: string }, query: After = {}) =>
+      call("GET", "/v1/accounts/:address/positions", {
+        params: { address: ref.address },
+        query,
+      }),
+    listTemplates: (query: After = {}) => call("GET", "/v1/templates", { query }),
+    // --- content and suggestions ---
+    /** Uploads bytes (needs a key with content:write); the answer must name keccak256 of what was sent. */
+    async uploadContent(bytes: Uint8Array, mediaType: string) {
+      const { contract } = target("POST", "/v1/content", {});
+      const answer = contract.response.parse(
+        json(
+          await send("/v1/content", {
+            method: "POST",
+            headers: { "Content-Type": mediaType },
+            body: new Uint8Array(bytes).buffer,
+          }),
+        ),
+      ) as { hash: string; size: number };
+      if (answer.hash !== keccak256(bytes) || answer.size !== bytes.length)
+        throw new Error("HASH_MISMATCH");
+      return answer as Out<"POST", "/v1/content">;
+    },
+    getContent: (hash: string) => bytesByHash("/v1/content/" + segment(hash), hash),
+    /** Public and not idempotent: each call adds a suggestion. */
+    submitSuggestion: (input: unknown) =>
+      call("POST", "/v1/suggestions", { body: input }),
+    listSuggestions: (
+      query: Page & { status?: "OPEN" | "CLAIMED" | "MARKET_CREATED" } = {},
+    ) => call("GET", "/v1/suggestions", { query }),
+    getSuggestion: (id: string) =>
+      call("GET", "/v1/suggestions/:id", { params: { id } }),
+    claimSuggestion: (id: string) =>
+      call("POST", "/v1/suggestions/:id/claims", { params: { id } }),
     // --- forecasts ---
-    listForecastWindows: (ref: MarketKey, page: Page = {}) =>
+    listForecastWindows: (ref: ForecastMarket, page: Page = {}) =>
       call("GET", "/v1/markets/:id/forecast-windows", {
         params: marketParams(ref).params,
         query: { deploymentId: ref.deploymentId, ...page },
       }),
-    submitForecast: (ref: MarketKey, input: unknown, key?: string) =>
+    submitForecast: (ref: ForecastMarket, input: unknown, key?: string) =>
       call("POST", "/v1/markets/:id/forecasts", {
         ...marketParams(ref),
         body: input,
         key,
       }),
-    listForecasts: (ref: MarketKey, query: Page & { windowId: string }) =>
+    listForecasts: (ref: ForecastMarket, query: Page & { windowId: string }) =>
       call("GET", "/v1/markets/:id/forecasts", {
         params: marketParams(ref).params,
         query: { deploymentId: ref.deploymentId, ...query },
       }),
-    // --- quotes and transactions ---
-    // Legacy methods fail closed until the P2 client is replaced.
-    requestQuote: async (
-      _input: unknown,
-      _key?: string,
-    ): Promise<(typeof SignedQuoteResponse)["_output"]> => {
-      throw new Error("RETIRED_P2");
-    },
-    getQuote: async (_quoteId: string): Promise<never> => {
-      throw new Error("RETIRED_P2");
-    },
-    trackTransaction: (input: unknown, key?: string) =>
-      call("POST", "/v1/transactions", {
-        body: input,
-        key,
-      }),
+    // --- RFQ relay (rfq:write) ---
+    /** Taker: `{ marketId, side, quantity }`. Open for 30 seconds; the relay never prices or fills. */
+    createRfq: (input: unknown) => call("POST", "/v1/rfqs", { body: input }),
+    /** Maker: the open RFQs. */
+    listRfqs: (query: After = {}) => call("GET", "/v1/rfqs", { query }),
+    /** Maker: `{ quote, signature }` for an RFQ. */
+    postQuote: (rfqId: string, input: unknown) =>
+      call("POST", "/v1/rfqs/:id/quotes", { params: { id: rfqId }, body: input }),
+    /** Taker: the RFQ's quotes, cheapest first, exactly as the makers posted them. Verify each one. */
+    listQuotes: (rfqId: string) =>
+      call("GET", "/v1/rfqs/:id/quotes", { params: { id: rfqId } }),
+    /** Public and informational: quotes relayed, filled and cancelled before expiry. */
+    getMakerStats: (address: string) =>
+      call("GET", "/v1/makers/:address/stats", { params: { address } }),
+    // --- transactions ---
+    /** Registers a hash the key's wallet sent to the current generation, the faucet or the anchor. */
+    trackTransaction: (input: { txHash: string }) =>
+      call("POST", "/v1/transactions", { body: input }),
     getTransaction: (ref: { deploymentId: string; txHash: string }) =>
       call("GET", "/v1/transactions/:txHash", {
         params: { txHash: ref.txHash },
         query: { deploymentId: ref.deploymentId },
       }),
-    getPositions: (
-      ref: { address: string },
-      page: { after?: string; limit?: number } = {},
-    ) =>
-      call("GET", "/v1/accounts/:address/positions", {
-        params: { address: ref.address },
-        query: page,
-      }),
-    // --- faucet and metrics ---
-    claimFaucet: async (_input: unknown, _key?: string): Promise<never> => {
-      throw new Error("RETIRED_P2");
-    },
     getMetrics: (mode: "LIVE" | "REPLAY") =>
       call("GET", "/v1/metrics", { query: { mode } }),
   };
 }
-export type { MarketRef as PublicMarketRef } from "@blink/schemas";
 export {
   DEFAULT_MIN_VALIDITY_SECONDS,
   QuoteVerificationError,
+  approvalFor,
+  feeOf,
+  takerCostOf,
   verifySignedQuote,
   type QuoteVerificationCode,
   type QuoteVerificationContext,
+  type VerifiedQuote,
 } from "./verify-quote.ts";

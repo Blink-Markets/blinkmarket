@@ -433,3 +433,98 @@ event leaves the window. The token bucket remains only for the public read limit
 which is a rate with a burst (60 at 1 per second), not an N-per-window ceiling.
 Every `/v1/content/*` response now carries `nosniff` and `Content-Security-Policy:
 sandbox`, errors included; errors keep `Cache-Control: no-store`.
+
+## Task 9 — multi-maker RFQ relay, protocol transaction tracking and the taker example (2026-10-25)
+
+Scope: the RFQ relay, transaction tracking for the protocol generation, the
+`@blink/client` surface for the P2 API and the external taker example. Not in scope:
+P3 reference agents, deployment.
+
+### What changed
+
+- **RFQ relay** (`packages/application/src/rfq-relay.ts`, `packages/adapters/src/rfq-store.ts`,
+  migration `0032_rfq_relay.sql`). `POST /v1/rfqs`, `GET /v1/rfqs`,
+  `POST|GET /v1/rfqs/:id/quotes` and the public `GET /v1/makers/:address/stats`. RFQs and
+  quotes live in PostgreSQL (`rfq.requests`, `rfq.quotes`, immutable; the API role may only
+  SELECT and INSERT), so every API instance sees the same state. An RFQ stays open 30
+  seconds (relay clock, unix seconds), a taker holds at most 5 open RFQs and an RFQ holds at
+  most 20 quotes, one per maker; both caps are enforced under advisory locks.
+- **Quote checks, in the order the relay applies them.** The caller needs `rfq:write` and the
+  MAKER role; the RFQ must be open; taker, market, side and quantity equal the RFQ's; the
+  spec hash equals the indexed market's; the quote names the caller as maker and is signed
+  (ECDSA for a maker without code, ERC-1271 for a contract wallet, the same rule as
+  `BlinkMarkets.fillQuote`; ERC-6492 wrappers and high-s signatures are refused);
+  `0 < priceBps < 10000`; lifetime at most 60 seconds; expiry after now and not after the
+  market closes; the maker's current epoch; the digest is UNUSED; the maker's free balance
+  covers `quantity x 1_000_000 - takerCost`. Every refusal happens before anything is
+  stored, and a signature check that cannot run answers 503 `SIGNATURE_CHECK_UNAVAILABLE`.
+  Writes answer 503 `INDEX_STALE` while the index lags. The quote JSON and signature are
+  returned byte for byte, only to the RFQ's taker, cheapest first. Maker stats are
+  informational and gate nothing.
+- **Transaction tracking.** `POST /v1/transactions {txHash}` (any key) and
+  `GET /v1/transactions/:txHash` now track the protocol generation: the tracker checks that
+  the sender is the key's wallet and the target is a contract of the current generation, the
+  faucet or the anchor, and records the function name decoded from the protocol ABI. A hint
+  is idempotent per hash for the same key (same `trackingId`) and 409 `TX_ALREADY_TRACKED`
+  for another key. Statuses are unchanged (UNKNOWN, INCLUDED, FINALIZED, REVERTED,
+  REORGED). Existing v0.1 hint rows are deleted by the migration (the old quote and action
+  columns are gone); the hint path in `market-read` was removed.
+- **`@blink/client`.** `verifySignedQuote(quote, signature, ctx)` is async and returns
+  `{digest, takerCost, fee, maxCost}`; it builds the "Blink RFQ" 0.2 domain from the trusted
+  deployment, checks the quote against the RFQ and the market, refuses non-canonical
+  signatures and verifies through the node (`verifyTypedData`), so contract wallets work.
+  `approvalFor(quote, feeBps)` is the fee-inclusive allowance. New methods: RFQ relay,
+  maker stats, `trackTransaction`, auth, deployment/markets/spec/disputes/fees/accounts/
+  positions/templates reads, content upload and suggestions. The retired v0.1 methods
+  (`requestQuote`, `getQuote`, `claimFaucet`, `getResolution`) are gone.
+- **`examples/agent/run.ts`.** The taker-only flow described in `examples/agent/README.md`.
+
+### ERC-6492
+
+Quotes keep strict parity with `BlinkMarkets.fillQuote`, which rejects ERC-6492 wrappers: a
+wrapped quote cannot fill on chain, so the relay and `verifySignedQuote` refuse it. The
+global "off-chain checks accept ERC-6492" rule applies to signatures that are only ever
+checked off chain (wallet proofs, forecasts), not to quotes.
+
+### Fix round 1
+
+- The example agent no longer treats an uncertain fill as a failed one. After a lost answer
+  or a receipt timeout it keeps the hash (if any) and requests no replacement RFQ until a
+  receipt arrives, `consumed(digest)` shows the fill, or chain time has passed the quote's
+  expiry and the digest is then still unused. Covered by
+  `tests/anvil/client-agent-uncertain-fill.test.ts` (a fill reported lost that lands just
+  before expiry; a send that never reaches the node).
+- `POST /v1/transactions` is refused with 503 `INDEX_STALE` while the index lags, before
+  anything is stored.
+- A quote is checked a second time after the signature check (clock, RFQ openness, quote
+  expiry, market tradability, index health, epoch, digest, balance), and the store
+  re-checks that the RFQ is still open under the per-RFQ quote lock.
+- `examples/agent/run.ts` imports `@blink/client`; the repository root `tsconfig.json`
+  maps that name to `packages/client/src/index.ts` for `tsc` and `tsx`.
+
+### Fix round 2
+
+- Task 7 merged. `postgresRfqStore` takes the relay's clock and reads it after the per-RFQ
+  lock is held; `addQuote` returns CLOSED (409 `RFQ_CLOSED`) when the RFQ expired by then,
+  so a close that races the insert cannot store a quote. The insert no longer takes a
+  pre-sampled `receivedAt`.
+- The test-local read shim is gone. `tests/helpers/rfq-stack.ts` wires the real
+  `createMarketReadService` (with a content store and the registered manifest) and both
+  client-agent Anvil suites talk to `stack.apiUrl`: the unchanged example reaches FINAL and
+  redeems through the real `/v1/deployment`, `/v1/markets` and `/v1/markets/:id`.
+
+### Task 7 integration
+
+Task 7 is merged into this branch. The client reads the real shapes of `read-api.ts`:
+`getDeployment()` returns `{deployment, index}`, `listMarkets()` pages of `{market, spec}`,
+`getMarket({marketId})` `{market, spec, proposal, index}`; `getMarketSpec`, disputes, fees,
+accounts, positions and templates use the same contracts. The `market-read` service keeps only
+`GET /v1/transactions/:txHash` besides the read routes; its hint path and unused identity
+dependency are gone, and `POST /v1/transactions` belongs to the tx-tracking service.
+
+### Verification
+
+See `.superpowers/sdd/2026-10-24-p2-offchain-protocol/task-9-report.md`. Not run locally:
+`tests/postgres/*` (no PostgreSQL here), including the new
+`tests/postgres/rfq-relay.test.ts`; `pnpm build` (Turbopack needs a newer glibc). This
+covers only the Task 9 scope, not the P2 milestone.

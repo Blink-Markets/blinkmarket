@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { keccak256 } from "viem";
+import { RoleName } from "../packages/schemas/src/index.js";
 import {
   BlinkApiError,
   createBlinkClient,
 } from "../packages/client/src/index.js";
 import { configFromEnv, runAgent } from "../examples/agent/run.js";
 import { testAccounts } from "./helpers/protocol-fixture.js";
+import { protocolManifest } from "./helpers/protocol-index.js";
 
 const DEPLOYMENT = "client-test";
 const MARKET = "7";
@@ -16,15 +18,20 @@ const UUID = "00000000-0000-4000-8000-000000000001";
 const HASH = "0x" + "ab".repeat(32);
 const WALLET = testAccounts.taker.address.toLowerCase();
 const API_KEY = "test-api-key";
+const manifest = protocolManifest(DEPLOYMENT);
 const SPEC_BYTES = Buffer.from(
-  JSON.stringify({
-    schema: "blink.market-spec/0.2",
-    title: "Fixture market",
-    question: "Will the fixture happen?",
-    class: "B",
-    resolution: { yes: "It happened.", no: "It did not." },
-    sources: ["https://example.com/fixture-only"],
-  }),
+  JSON.stringify(
+    {
+      schema: "blink.market-spec/0.2",
+      title: "Will the Base Sepolia gas price exceed 1 gwei on 2026-12-01?",
+      question: "Does the median gas price of block 1,000,000 exceed 1 gwei?",
+      class: "B",
+      resolution: { yes: "Median above 1 gwei.", no: "Median at or below 1 gwei." },
+      sources: ["https://sepolia.basescan.org/"],
+    },
+    null,
+    2,
+  ),
 );
 
 type Seen = {
@@ -97,22 +104,21 @@ const cursor = {
   blockHash: "0x" + "cd".repeat(32),
   finality: "INCLUDED",
 };
-const ref = { deploymentId: DEPLOYMENT, marketId: MARKET, mode: "REPLAY" };
 const index = { headBlock: 12, indexedBlock: 12, lagSeconds: 0, stale: false };
 const market = {
   marketId: MARKET,
   creator: WALLET,
-  class: "B",
+  class: "A",
   state: "OPEN",
   templateId: HASH,
   specHash: HASH,
-  specUri: "memory:spec",
+  specUri: "https://blink.example/v1/content/" + HASH,
   replay: false,
-  openAt: 1,
-  closeAt: 2,
-  proposalDeadline: 3,
-  hardDeadline: 4,
-  maxPairs: "10",
+  openAt: 1000,
+  closeAt: 2000,
+  proposalDeadline: 3000,
+  hardDeadline: 4000,
+  maxPairs: "100",
   mintedPairs: "0",
   escrowMicros: "0",
   feePoolMicros: "0",
@@ -120,8 +126,59 @@ const market = {
   feesDistributed: false,
   creationChallenged: false,
 };
-const spec = { ok: true, spec: JSON.parse(SPEC_BYTES.toString("utf8")) };
-const marketsPage = { items: [{ market, spec }], next: null, index };
+const spec = JSON.parse(SPEC_BYTES.toString("utf8"));
+const specResult = { ok: true, spec };
+const marketsPage = { items: [{ market, spec: specResult }], next: null, index };
+const dispute = {
+  disputeId: "1",
+  marketId: MARKET,
+  kind: "RESULT",
+  ground: 0,
+  challenger: WALLET,
+  evidenceHash: HASH,
+  currentRound: 1,
+  appealRound: 0,
+  settled: false,
+  timedOut: false,
+  finalChoice: null,
+};
+const round = {
+  disputeId: "1",
+  round: 1,
+  level: 0,
+  snapshotAt: 10,
+  commitEnd: 20,
+  revealEnd: 30,
+  appealEnd: 40,
+  committedWeight: "5",
+  revealedWeight: ["0", "0"],
+  committers: 1,
+  revealers: 0,
+  leadingChoice: 0,
+  restarted: false,
+  settled: false,
+  creditThreshold: 0,
+};
+const templatesPage = {
+  items: [{ templateId: HASH, class: "B", parserHash: HASH, uri: "ipfs://template" }],
+  next: null,
+  index,
+};
+const rfqId = "00000000-0000-4000-8000-0000000000aa";
+const quote = {
+  marketId: MARKET,
+  specHash: HASH,
+  maker: testAccounts.maker.address.toLowerCase(),
+  taker: WALLET,
+  side: "0",
+  quantity: "10",
+  priceBps: "4000",
+  validAfter: "1000",
+  expiresAt: "1030",
+  nonce: "1",
+  epoch: "0",
+};
+const signedQuote = { quote, signature: "0x" + "22".repeat(65) };
 const horizonKey = {
   horizonType: "DAILY",
   scheduledAt: "2026-10-15T00:00:00.000Z",
@@ -174,8 +231,7 @@ const cases: Case[] = [
   },
   {
     name: "listMarkets",
-    call: (c) =>
-      c.listMarkets({ state: "OPEN", limit: 5, after: "3" }),
+    call: (c) => c.listMarkets({ state: "OPEN", limit: 5, after: "3" }),
     method: "GET",
     path: "/v1/markets",
     query: { state: "OPEN", limit: "5", after: "3" },
@@ -186,7 +242,71 @@ const cases: Case[] = [
     call: (c) => c.getMarket(marketRef),
     method: "GET",
     path: "/v1/markets/" + MARKET,
-    answer: { market, spec, proposal: null, index },
+    answer: { market, spec: specResult, proposal: null, index },
+  },
+  {
+    name: "getDeployment",
+    call: (c) => c.getDeployment(),
+    method: "GET",
+    path: "/v1/deployment",
+    answer: { deployment: manifest, index },
+  },
+  {
+    name: "listDisputes",
+    call: (c) => c.listDisputes(marketRef, { limit: 2 }),
+    method: "GET",
+    path: `/v1/markets/${MARKET}/disputes`,
+    query: { limit: "2" },
+    answer: { items: [dispute], next: null, index },
+  },
+  {
+    name: "getDispute",
+    call: (c) => c.getDispute({ disputeId: "1" }, { round: 1 }),
+    method: "GET",
+    path: "/v1/disputes/1",
+    query: { round: "1", limit: "20" },
+    answer: { dispute, rounds: [round], votes: [], next: null, index },
+  },
+  {
+    name: "getFees",
+    call: (c) => c.getFees(marketRef),
+    method: "GET",
+    path: `/v1/markets/${MARKET}/fees`,
+    answer: { marketId: MARKET, fees: null, index },
+  },
+  {
+    name: "getAccount",
+    call: (c) => c.getAccount({ address: WALLET }),
+    method: "GET",
+    path: `/v1/accounts/${WALLET}`,
+    answer: {
+      address: WALLET,
+      registered: true,
+      creditAt: 100,
+      roles: Object.fromEntries(
+        RoleName.options.map((role) => [
+          role,
+          {
+            hasRole: role === "TAKER",
+            stakeMicros: role === "TAKER" ? "100000000" : "0",
+            active: role === "TAKER",
+            exitRequestedAt: null,
+            openObligations: 0,
+            credit: 0,
+          },
+        ]),
+      ),
+      juror: null,
+      index,
+    },
+  },
+  {
+    name: "listTemplates",
+    call: (c) => c.listTemplates(),
+    method: "GET",
+    path: "/v1/templates",
+    query: { limit: "20" },
+    answer: templatesPage,
   },
   {
     name: "listForecastWindows",
@@ -237,26 +357,72 @@ const cases: Case[] = [
   },
   {
     name: "trackTransaction",
-    call: (c) =>
-      c.trackTransaction(
-        {
-          deploymentId: DEPLOYMENT,
-          txHash: HASH,
-          action: "FILL",
-          quoteId: HASH,
-        },
-        "track-key",
-      ),
+    call: (c) => c.trackTransaction({ txHash: HASH }),
     method: "POST",
     path: "/v1/transactions",
-    body: {
-      deploymentId: DEPLOYMENT,
-      txHash: HASH,
-      action: "FILL",
-      quoteId: HASH,
-    },
+    body: { txHash: HASH },
     answer: { trackingId: UUID, status: "UNKNOWN" },
     status: 202,
+    idempotent: false,
+  },
+  {
+    name: "createRfq",
+    call: (c) => c.createRfq({ marketId: MARKET, side: "YES", quantity: "10" }),
+    method: "POST",
+    path: "/v1/rfqs",
+    body: { marketId: MARKET, side: "YES", quantity: "10" },
+    answer: { rfqId, expiresAt: 1030 },
+    status: 201,
+    idempotent: false,
+  },
+  {
+    name: "listRfqs",
+    call: (c) => c.listRfqs({ limit: 10, after: "4" }),
+    method: "GET",
+    path: "/v1/rfqs",
+    query: { limit: "10", after: "4" },
+    answer: {
+      items: [
+        {
+          rfqId,
+          marketId: MARKET,
+          specHash: HASH,
+          side: "YES",
+          quantity: "10",
+          taker: WALLET,
+          expiresAt: 1030,
+        },
+      ],
+      next: null,
+    },
+  },
+  {
+    name: "postQuote",
+    call: (c) => c.postQuote(rfqId, signedQuote),
+    method: "POST",
+    path: `/v1/rfqs/${rfqId}/quotes`,
+    body: signedQuote,
+    answer: { digest: HASH },
+    status: 201,
+    idempotent: false,
+  },
+  {
+    name: "listQuotes",
+    call: (c) => c.listQuotes(rfqId),
+    method: "GET",
+    path: `/v1/rfqs/${rfqId}/quotes`,
+    answer: { items: [signedQuote] },
+  },
+  {
+    name: "getMakerStats",
+    call: (c) => c.getMakerStats(WALLET),
+    method: "GET",
+    path: `/v1/makers/${WALLET}/stats`,
+    answer: {
+      quotesRelayed: 3,
+      quotesFilled: 1,
+      quotesCancelledBeforeExpiry: 0,
+    },
   },
   {
     name: "getTransaction",
@@ -275,8 +441,7 @@ const cases: Case[] = [
   },
   {
     name: "getPositions",
-    call: (c) =>
-      c.getPositions({ address: WALLET }, { limit: 50 }),
+    call: (c) => c.getPositions({ address: WALLET }, { limit: 50 }),
     method: "GET",
     path: `/v1/accounts/${WALLET}/positions`,
     query: { limit: "50" },
@@ -585,8 +750,8 @@ test("getMarketSpec returns the spec only when the bytes hash to the expected sp
   const specHash = keccak256(SPEC_BYTES);
   const altered = Buffer.from(
     SPEC_BYTES.toString("utf8").replace(
-      'Fixture market',
-      'Fixture marKet',
+      "exceed 1 gwei on",
+      "exceed 2 gwei on",
     ),
   );
   assert.notEqual(altered.toString(), SPEC_BYTES.toString());
@@ -594,7 +759,7 @@ test("getMarketSpec returns the spec only when the bytes hash to the expected sp
   const server = await scripted(() => ({ body: served }));
   try {
     const client = createBlinkClient(server.origin, API_KEY);
-    assert.deepEqual(await client.getMarketSpec(marketRef, specHash), spec.spec);
+    assert.deepEqual(await client.getMarketSpec(marketRef, specHash), spec);
     assert.equal(server.seen[0]!.path, `/v1/markets/${MARKET}/spec`);
     assert.deepEqual(server.seen[0]!.query, {});
     // The hash may be written in either case.
@@ -603,7 +768,7 @@ test("getMarketSpec returns the spec only when the bytes hash to the expected sp
         marketRef,
         specHash.toUpperCase().replace("0X", "0x"),
       ),
-      spec.spec,
+      spec,
     );
     served = altered;
     await assert.rejects(
@@ -625,14 +790,123 @@ test("getMarketSpec returns the spec only when the bytes hash to the expected sp
   }
 });
 
-test("retired execution client methods refuse without issuing HTTP requests", async () => {
+test("the retired v0.1 execution methods are gone, not stubbed", () => {
+  const client = createBlinkClient("https://blink.example") as Record<string, unknown>;
+  for (const name of ["requestQuote", "getQuote", "claimFaucet", "getResolution"])
+    assert.equal(client[name], undefined, name);
+});
+
+test("the read methods accept only the answer shapes of the read API", async () => {
+  let served: unknown = { market, spec: specResult, proposal: null, index };
+  const server = await scripted(() => ({ body: served }));
+  try {
+    const client = createBlinkClient(server.origin, API_KEY);
+    assert.equal((await client.getMarket(marketRef)).market.marketId, MARKET);
+    // A flattened market, a bare manifest and a market that breaks the schema are all refused.
+    served = { ...market, index };
+    await assert.rejects(client.getMarket(marketRef));
+    served = { market: { ...market, closeAt: "soon" }, spec: specResult, proposal: null, index };
+    await assert.rejects(client.getMarket(marketRef));
+    served = { deployment: manifest, index };
+    assert.equal((await client.getDeployment()).deployment.deploymentId, DEPLOYMENT);
+    served = { ...manifest, index };
+    await assert.rejects(client.getDeployment());
+  } finally {
+    await server.close();
+  }
+});
+
+test("uploadContent sends the raw bytes and accepts only an answer that names their keccak256 hash", async () => {
+  const bytes = Buffer.from('{"hello":"world"}');
+  const hash = keccak256(bytes);
+  let answer: unknown = {
+    hash,
+    size: bytes.length,
+    mediaType: "application/json",
+    uri: "https://blink.example/v1/content/" + hash,
+  };
+  const server = await scripted(() => ({ status: 201, body: answer }));
+  try {
+    const client = createBlinkClient(server.origin, API_KEY);
+    assert.deepEqual(await client.uploadContent(bytes, "application/json"), answer);
+    const [seen] = server.seen;
+    assert.equal(seen!.method, "POST");
+    assert.equal(seen!.path, "/v1/content");
+    assert.equal(seen!.headers["content-type"], "application/json");
+    assert.equal(seen!.body, bytes.toString());
+    answer = { ...(answer as object), hash: HASH };
+    await assert.rejects(client.uploadContent(bytes, "application/json"), /HASH_MISMATCH/);
+    answer = { ...(answer as object), hash, size: 3 };
+    await assert.rejects(client.uploadContent(bytes, "application/json"), /HASH_MISMATCH/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("getContent returns bytes only when they hash to the name asked for", async () => {
+  const bytes = Buffer.from("proof");
+  let served: Uint8Array = bytes;
+  const server = await scripted(() => ({ body: served }));
+  try {
+    const client = createBlinkClient(server.origin, API_KEY);
+    assert.deepEqual(Buffer.from(await client.getContent(keccak256(bytes))), bytes);
+    served = Buffer.from("forged");
+    await assert.rejects(client.getContent(keccak256(bytes)), /HASH_MISMATCH/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("suggestions are submitted without a key and listed, read and claimed through the contract", async () => {
+  const suggestion = {
+    id: UUID,
+    text: "Will it rain?",
+    sourceUrls: [],
+    status: "OPEN",
+    claimCount: 0,
+    specHashes: [],
+    createdAt: "2026-10-15T00:00:00.000Z",
+  };
+  const server = await scripted((seen) => ({
+    status: seen.method === "POST" ? 201 : 200,
+    body:
+      seen.path === "/v1/suggestions" && seen.method === "POST"
+        ? { id: UUID }
+        : seen.path === "/v1/suggestions"
+          ? { items: [suggestion], nextCursor: null }
+          : suggestion,
+  }));
+  try {
+    const client = createBlinkClient(server.origin);
+    assert.deepEqual(await client.submitSuggestion({ text: "Will it rain in Taipei tomorrow afternoon?", sourceUrls: [] }), { id: UUID });
+    await client.listSuggestions({ status: "OPEN", limit: 5 });
+    await client.getSuggestion(UUID);
+    await client.claimSuggestion(UUID);
+    assert.deepEqual(
+      server.seen.map((s) => [s.method, s.path]),
+      [
+        ["POST", "/v1/suggestions"],
+        ["GET", "/v1/suggestions"],
+        ["GET", "/v1/suggestions/" + UUID],
+        ["POST", "/v1/suggestions/" + UUID + "/claims"],
+      ],
+    );
+    assert.deepEqual(server.seen[1]!.query, { status: "OPEN", limit: "5" });
+  } finally {
+    await server.close();
+  }
+});
+
+test("an RFQ body or a quote that breaks the contract never leaves the process", async () => {
   const server = await scripted(() => ({ body: {} }));
   try {
     const client = createBlinkClient(server.origin, API_KEY);
-    await assert.rejects(client.requestQuote({}), /RETIRED_P2/);
-    await assert.rejects(client.getQuote(HASH), /RETIRED_P2/);
-    await assert.rejects(client.claimFaucet({}), /RETIRED_P2/);
-    assert.deepEqual(server.seen, []);
+    await assert.rejects(client.createRfq({ marketId: MARKET, side: "MAYBE", quantity: "1" }));
+    await assert.rejects(client.createRfq({ marketId: MARKET, side: "YES", quantity: "1", extra: 1 }));
+    await assert.rejects(client.postQuote(rfqId, { quote: { ...quote, priceBps: "70000" }, signature: signedQuote.signature }));
+    await assert.rejects(client.postQuote("not-a-uuid", signedQuote));
+    await assert.rejects(client.trackTransaction({ txHash: "0x12" }));
+    assert.equal(server.seen.length, 0);
   } finally {
     await server.close();
   }
@@ -677,7 +951,6 @@ test("the example agent refuses a node that is not local or not chain 84532 befo
     const agent = (rpcUrl: string) =>
       runAgent({
         apiUrl: api.origin,
-        apiKey: API_KEY,
         privateKey: dummyKey,
         rpcUrl,
         log: () => undefined,
@@ -701,13 +974,11 @@ test("the example agent refuses a node that is not local or not chain 84532 befo
   assert.deepEqual(
     configFromEnv({
       BLINK_API_URL: "http://127.0.0.1:3001",
-      BLINK_API_KEY: "k",
       AGENT_PRIVATE_KEY: dummyKey,
       RPC_URL: "http://127.0.0.1:8545",
     }),
     {
       apiUrl: "http://127.0.0.1:3001",
-      apiKey: "k",
       privateKey: dummyKey,
       rpcUrl: "http://127.0.0.1:8545",
     },

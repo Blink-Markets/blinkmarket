@@ -1,17 +1,59 @@
 import {
   decodeFunctionData,
-  hashTypedData,
   TransactionNotFoundError,
   TransactionReceiptNotFoundError,
   BlockNotFoundError,
+  type Abi,
   type PublicClient,
   type Hex,
 } from "viem";
-import { quoteTypes } from "@blink/schemas";
-import type { TxReceiptReader, TxObservation } from "@blink/ports";
+import type { ProtocolDeployment } from "@blink/schemas";
+import type {
+  TrackedContract,
+  TxReceiptReader,
+  TxObservation,
+} from "@blink/ports";
 import { protocolAbi } from "./protocol-abi.js";
-import { erc20Abi as blinkTestUsdAbi } from "viem";
-const blinkMarketAbi = protocolAbi.markets;
+
+// The function name is decoded from the protocol ABI of the contract the transaction targets.
+/** The tracked contract at `to`: the current generation's, the faucet or the anchor; else null. */
+export function trackedContract(
+  manifest: ProtocolDeployment,
+  to: string | null,
+): TrackedContract | null {
+  if (!to) return null;
+  const slots: [TrackedContract, string][] = [
+    ["registry", manifest.generation.registry],
+    ["jurors", manifest.generation.jurors],
+    ["markets", manifest.generation.markets],
+    ["resolution", manifest.generation.resolution],
+    ["faucet", manifest.shared.faucet],
+    ["anchor", manifest.shared.anchor],
+  ];
+  return (
+    slots.find(([, address]) => address.toLowerCase() === to.toLowerCase())?.[0] ??
+    null
+  );
+}
+// The market a markets-contract call acts on, where the call names one.
+function marketIdOf(
+  contract: TrackedContract,
+  decoded: { functionName: string; args?: readonly unknown[] | undefined },
+): string | undefined {
+  if (contract !== "markets") return undefined;
+  const first = decoded.args?.[0];
+  if (decoded.functionName === "redeem" && typeof first === "bigint")
+    return first.toString();
+  if (
+    decoded.functionName === "fillQuote" &&
+    typeof first === "object" &&
+    first !== null &&
+    "marketId" in first &&
+    typeof first.marketId === "bigint"
+  )
+    return first.marketId.toString();
+  return undefined;
+}
 
 export function txReceiptReader(client: PublicClient): TxReceiptReader {
   async function canonical(number: string, hash: string) {
@@ -59,52 +101,20 @@ export function txReceiptReader(client: PublicClient): TxReceiptReader {
         throw new Error("RPC_TRANSACTION_MISMATCH");
       let transaction: TxObservation["transaction"] = null;
       if (tx) {
-        transaction = { from: tx.from, to: tx.to, action: null };
-        try {
-          if (row.action === "APPROVE") {
+        const contract = trackedContract(manifest, tx.to);
+        transaction = { from: tx.from, to: tx.to, contract, action: null };
+        if (contract) {
+          try {
             const decoded = decodeFunctionData({
-              abi: blinkTestUsdAbi,
+              abi: protocolAbi[contract] as Abi,
               data: tx.input,
             });
-            if (decoded.functionName === "approve")
-              transaction = {
-                ...transaction,
-                action: "APPROVE",
-                spender: decoded.args[0],
-              };
-          } else {
-            const decoded = decodeFunctionData({
-              abi: blinkMarketAbi,
-              data: tx.input,
-            });
-            if (decoded.functionName === "redeem")
-              transaction = {
-                ...transaction,
-                action: "REDEEM",
-                marketId: decoded.args[0].toString(),
-              };
-            else if (decoded.functionName === "fillQuote") {
-              const quote = decoded.args[0];
-              transaction = {
-                ...transaction,
-                action: "FILL",
-                marketId: quote.marketId.toString(),
-                quoteDigest: hashTypedData({
-                  domain: {
-                    name: "Blink RFQ",
-                    version: "0.1",
-                    chainId: 84532,
-                    verifyingContract: manifest.contracts.BlinkMarket as Hex,
-                  },
-                  types: quoteTypes,
-                  primaryType: "Quote",
-                  message: quote,
-                }),
-              };
-            }
+            transaction = { ...transaction, action: decoded.functionName };
+            const marketId = marketIdOf(contract, decoded);
+            if (marketId !== undefined) transaction = { ...transaction, marketId };
+          } catch {
+            /* Unrecognized or malformed calldata remains an action mismatch. */
           }
-        } catch {
-          /* Unrecognized or malformed calldata remains an action mismatch. */
         }
       }
       let finalizedNumber: string | null = null;

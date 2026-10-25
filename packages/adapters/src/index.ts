@@ -2,6 +2,7 @@ export { createUnitOfWork } from "./database.js";
 export { migrate, migratePostgres } from "./migrations.js";
 export { postgresContentStore, verifiedArchive } from "./content-store.js";
 export { postgresSuggestionStore } from "./suggestion-store.js";
+export { postgresRfqStore } from "./rfq-store.js";
 export { fileObjectStore } from "./file-object-store.js";
 export { keccak256Hex } from "./content-hash.js";
 export {

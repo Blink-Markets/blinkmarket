@@ -10,7 +10,8 @@ import {
   createMetricsService,
   createContentService,
   createSuggestionService,
-  authenticateIdentity,
+  createRfqService,
+  createTxTrackingService,
 } from "@blink/application";
 import {
   identityCrypto,
@@ -24,6 +25,8 @@ import {
   fileObjectStore,
   postgresContentStore,
   postgresSuggestionStore,
+  postgresRfqStore,
+  postgresTxTrackingStore,
   postgresMarketReadStore,
   postgresEvaluationStore,
   postgresHealthReader,
@@ -84,6 +87,7 @@ try {
     if (modeAtLeast(config.mode, "markets")) {
       await pool.query("SELECT hash FROM content.objects LIMIT 0");
       await pool.query("SELECT id FROM suggestions.items LIMIT 0");
+      await pool.query("SELECT id FROM rfq.requests LIMIT 0");
     }
     await pool.query("SELECT id FROM identity.api_keys LIMIT 0");
     if (modeAtLeast(config.mode, "markets"))
@@ -105,6 +109,7 @@ try {
     pool && config.deploymentId
       ? postgresProtocolReader(pool, config.deploymentId)
       : staleProtocolReader;
+  const verifier = rpcSignatureVerifier(config.rpcUrl);
   const contentStore =
     pool && modeAtLeast(config.mode, "markets")
       ? postgresContentStore(pool, fileObjectStore(config.specDirectory!))
@@ -114,12 +119,14 @@ try {
         postgresIdentityStore(pool),
         identityCrypto,
         config.walletOrigin!,
-        {
-          verifier: rpcSignatureVerifier(config.rpcUrl),
-          reader: protocolReader,
-        },
+        { verifier, reader: protocolReader },
       )
     : undefined;
+  // The relay and transaction tracking belong to one registered generation.
+  const generation =
+    pool && identity && config.deploymentId && modeAtLeast(config.mode, "markets")
+      ? await loadProtocolDeployment(pool, config.deploymentId)
+      : undefined;
   const app = buildApi(
     pool && identity
       ? {
@@ -159,6 +166,26 @@ try {
                   identity,
                   reader: protocolReader,
                 }),
+                ...(generation && config.deploymentId
+                  ? [
+                      createRfqService({
+                        store: postgresRfqStore(pool, config.deploymentId),
+                        identity,
+                        reader: protocolReader,
+                        verifier,
+                        deployment: {
+                          markets: generation.generation.markets,
+                          maxFillShares: generation.params.maxFillShares,
+                        },
+                      }),
+                      createTxTrackingService({
+                        store: postgresTxTrackingStore(pool),
+                        identity,
+                        reader: protocolReader,
+                        deploymentId: config.deploymentId,
+                      }),
+                    ]
+                  : []),
                 createForecastService({
                   store: postgresForecastStore(pool),
                   crypto: identityCrypto,
@@ -171,20 +198,6 @@ try {
                     loadProtocolDeployment(pool, config.deploymentId!).catch(
                       () => null,
                     ),
-                  identity: {
-                    authenticate: (authorization) =>
-                      postgresIdentityStore(pool).run(async (tx) => {
-                        const principal = await authenticateIdentity(
-                          tx,
-                          identityCrypto,
-                          authorization,
-                        );
-                        return {
-                          ...principal,
-                          wallet: await tx.wallet(principal.agentId),
-                        };
-                      }),
-                  },
                 }),
               ]
             : [],

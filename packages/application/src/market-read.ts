@@ -1,6 +1,4 @@
 import {
-  apiContracts,
-  IdempotencyHeaders,
   parseMarketSpec,
   RoleName,
   type ProtocolDeployment,
@@ -10,10 +8,8 @@ import {
 } from "@blink/schemas";
 import type {
   ContentStore,
-  IdentityPrincipal,
   MarketReadStore,
   ProtocolReader,
-  TransactionHint,
 } from "@blink/ports";
 import type { RouteService, ServiceRequest } from "./route-service.js";
 import { IdentityError } from "./identity.js";
@@ -33,40 +29,11 @@ const readPaths = [
 ] as const;
 const SPEC_UNAVAILABLE: SpecResult = { ok: false, error: "SPEC_UNAVAILABLE" };
 
-// --- transaction hints: unchanged by the read-model work; Task 9 moves them to protocol tx tracking ---
-const hintBody = apiContracts.find(
-  (c) => c.method === "POST" && c.path === "/v1/transactions",
-)!.body!;
-const transactionPaths = ["/v1/transactions", "/v1/transactions/:txHash"];
-type TransactionDeps = {
-  store: Pick<MarketReadStore, "hint" | "transaction">;
-  identity: {
-    authenticate(
-      authorization: string | undefined,
-    ): Promise<IdentityPrincipal & { wallet: string | null }>;
-  };
-};
+// --- tracked transactions: hints are written by the tx-tracking service; this only reads them ---
+const transactionPaths = ["/v1/transactions/:txHash"];
+type TransactionDeps = { store: Pick<MarketReadStore, "transaction"> };
 async function handleTransaction(deps: TransactionDeps, req: ServiceRequest) {
   const deployment = req.query.deploymentId as string;
-  if (req.path === "/v1/transactions") {
-    const principal = await deps.identity.authenticate(req.authorization);
-    const parsed = hintBody.safeParse(req.body);
-    if (
-      !parsed.success ||
-      !IdempotencyHeaders.safeParse({
-        "idempotency-key": req.idempotencyKey,
-      }).success
-    )
-      throw new IdentityError(400, "INVALID_REQUEST");
-    const b = parsed.data as TransactionHint;
-    const body = {
-      deploymentId: b.deploymentId,
-      txHash: b.txHash.toLowerCase(),
-      action: b.action,
-      ...(b.quoteId ? { quoteId: b.quoteId.toLowerCase() } : {}),
-    };
-    return await deps.store.hint(principal, body, req.idempotencyKey!);
-  }
   const t = await deps.store.transaction(deployment, req.params.txHash!);
   if (!t) throw new IdentityError(404, "NOT_FOUND");
   return {
@@ -81,7 +48,7 @@ async function handleTransaction(deps: TransactionDeps, req: ServiceRequest) {
     },
   };
 }
-// --- end of the transaction-hint group ---
+// --- end of the tracked-transaction group ---
 
 const payout = (m: ProtocolMarket, yes: bigint, no: bigint) =>
   m.state !== "FINAL"

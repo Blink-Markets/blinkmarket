@@ -3,9 +3,6 @@ import { buildApi } from "../../apps/api/src/server.js";
 import { createMarketReadService } from "../../packages/application/src/market-read.js";
 import { postgresMarketReadStore } from "../../packages/adapters/src/market-read-store.js";
 import { postgresProtocolReader } from "../../packages/adapters/src/protocol-index-store.js";
-import { postgresIdentityStore } from "../../packages/adapters/src/identity-store.js";
-import { identityCrypto } from "../../packages/adapters/src/identity-crypto.js";
-import { authenticateIdentity } from "../../packages/application/src/identity.js";
 import { createTestDatabase } from "./database.js";
 
 export const hash = (n: number) => "0x" + n.toString(16).padStart(64, "0");
@@ -32,23 +29,11 @@ export async function fixture() {
         : null;
     },
   };
-  const identityStore = postgresIdentityStore(t.pool);
   const service = createMarketReadService({
     store: postgresMarketReadStore(t.pool),
     reader: postgresProtocolReader(t.pool, "d1"),
     content,
     deployment: async () => null,
-    identity: {
-      authenticate: (authorization) =>
-        identityStore.run(async (tx) => {
-          const p = await authenticateIdentity(
-            tx,
-            identityCrypto,
-            authorization,
-          );
-          return { ...p, wallet: await tx.wallet(p.agentId) };
-        }),
-    },
   });
   const app = buildApi({ services: [service] });
   return {
