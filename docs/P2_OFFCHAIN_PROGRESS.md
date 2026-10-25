@@ -403,6 +403,29 @@ the Task 7 read routes themselves, P3 reference agents, deployment.
   (`requestQuote`, `getQuote`, `claimFaucet`, `getResolution`) are gone.
 - **`examples/agent/run.ts`.** The taker-only flow described in `examples/agent/README.md`.
 
+### ERC-6492
+
+Quotes keep strict parity with `BlinkMarkets.fillQuote`, which rejects ERC-6492 wrappers: a
+wrapped quote cannot fill on chain, so the relay and `verifySignedQuote` refuse it. The
+global "off-chain checks accept ERC-6492" rule applies to signatures that are only ever
+checked off chain (wallet proofs, forecasts), not to quotes.
+
+### Fix round 1
+
+- The example agent no longer treats an uncertain fill as a failed one. After a lost answer
+  or a receipt timeout it keeps the hash (if any) and requests no replacement RFQ until a
+  receipt arrives, `consumed(digest)` shows the fill, or chain time has passed the quote's
+  expiry and the digest is then still unused. Covered by
+  `tests/anvil/client-agent-uncertain-fill.test.ts` (a fill reported lost that lands just
+  before expiry; a send that never reaches the node).
+- `POST /v1/transactions` is refused with 503 `INDEX_STALE` while the index lags, before
+  anything is stored.
+- A quote is checked a second time after the signature check (clock, RFQ openness, quote
+  expiry, market tradability, index health, epoch, digest, balance), and the store
+  re-checks that the RFQ is still open under the per-RFQ quote lock.
+- `examples/agent/run.ts` imports `@blink/client`; the repository root `tsconfig.json`
+  maps that name to `packages/client/src/index.ts` for `tsc` and `tsx`.
+
 ### Interface assumptions about Task 7
 
 Task 7 was not merged when this task was built. The client reads `/v1/deployment`,

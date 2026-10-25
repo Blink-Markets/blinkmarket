@@ -233,31 +233,38 @@ export function createRfqService(deps: {
     const { quote, signature } = body.data;
     const rfq = await deps.store.get(req.params.id!);
     if (!rfq) throw new IdentityError(404, "NOT_FOUND");
-    const now = await clock();
-    if (rfq.expiresAt <= now) throw new IdentityError(409, "RFQ_CLOSED");
-    // One consistent look at the index: the role, the market and the maker's balance and epoch.
-    const { market, state } = await readFreshIndex(deps.reader, async () => {
-      await requireRole(maker, "MAKER");
-      return {
-        market: await deps.reader.market(rfq.marketId),
-        state: await deps.reader.maker(maker),
-      };
-    });
-    if (!market) throw new IdentityError(404, "NOT_FOUND");
-    if (lower(quote.maker) !== maker) throw new IdentityError(403, "MAKER_MISMATCH");
-    if (!tradable(market, now)) throw new IdentityError(409, "MARKET_NOT_TRADABLE");
-    checkTerms(quote, rfq, market, now);
-    if (BigInt(quote.epoch) !== BigInt(state.epoch))
-      throw refuse(409, "STALE_EPOCH", { epoch: state.epoch });
     const digest = hashTypedData(typedData(quote));
-    const status = await readFreshIndex(deps.reader, () => deps.reader.digest(digest));
-    if (status === "CONSUMED") throw new IdentityError(409, "QUOTE_CONSUMED");
-    if (status === "CANCELLED") throw new IdentityError(409, "QUOTE_CANCELLED");
-    const notional = BigInt(quote.quantity) * UNIT;
-    const makerCost = notional - BigInt(quote.quantity) * BigInt(quote.priceBps) * 100n;
-    if (BigInt(state.freeMicros) < makerCost)
-      throw new IdentityError(409, "INSUFFICIENT_MAKER_BALANCE");
+    // One consistent look at the clock and the index: the RFQ, the role, the market, the maker's
+    // balance and epoch and the digest. It runs again after the signature check, which can take a
+    // long time, so a quote is never accepted against a clock or an index older than the check.
+    const look = async () => {
+      const now = await clock();
+      if (rfq.expiresAt <= now) throw new IdentityError(409, "RFQ_CLOSED");
+      const { market, state, status } = await readFreshIndex(deps.reader, async () => {
+        await requireRole(maker, "MAKER");
+        return {
+          market: await deps.reader.market(rfq.marketId),
+          state: await deps.reader.maker(maker),
+          status: await deps.reader.digest(digest),
+        };
+      });
+      if (!market) throw new IdentityError(404, "NOT_FOUND");
+      if (lower(quote.maker) !== maker) throw new IdentityError(403, "MAKER_MISMATCH");
+      if (!tradable(market, now)) throw new IdentityError(409, "MARKET_NOT_TRADABLE");
+      checkTerms(quote, rfq, market, now);
+      if (BigInt(quote.epoch) !== BigInt(state.epoch))
+        throw refuse(409, "STALE_EPOCH", { epoch: state.epoch });
+      if (status === "CONSUMED") throw new IdentityError(409, "QUOTE_CONSUMED");
+      if (status === "CANCELLED") throw new IdentityError(409, "QUOTE_CANCELLED");
+      const makerCost =
+        BigInt(quote.quantity) * UNIT - BigInt(quote.quantity) * BigInt(quote.priceBps) * 100n;
+      if (BigInt(state.freeMicros) < makerCost)
+        throw new IdentityError(409, "INSUFFICIENT_MAKER_BALANCE");
+      return now;
+    };
+    await look();
     await checkSignature(quote, signature);
+    const now = await look();
     const result = await deps.store.addQuote(
       {
         rfqId: rfq.id,
@@ -271,6 +278,7 @@ export function createRfqService(deps: {
       },
       MAX_QUOTES_PER_RFQ,
     );
+    if (result === "CLOSED") throw new IdentityError(409, "RFQ_CLOSED");
     if (result === "DUPLICATE") throw new IdentityError(409, "QUOTE_ALREADY_POSTED");
     if (result === "FULL")
       throw refuse(409, "RFQ_FULL", { maxQuotes: MAX_QUOTES_PER_RFQ });

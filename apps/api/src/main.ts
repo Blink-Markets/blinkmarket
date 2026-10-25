@@ -170,6 +170,7 @@ try {
                       createTxTrackingService({
                         store: postgresTxTrackingStore(pool),
                         identity,
+                        reader: protocolReader,
                         deploymentId: config.deploymentId,
                       }),
                     ]

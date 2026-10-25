@@ -85,6 +85,12 @@ export function postgresRfqStore(pool: Pool, deploymentId: string): RfqStore {
         await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
           "rfq:quotes:" + input.rfqId,
         ]);
+        // The RFQ may have closed while the relay was checking the signature.
+        const open = await db.query(
+          "SELECT 1 FROM rfq.requests WHERE id=$1 AND deployment_id=$2 AND expires_at>$3",
+          [input.rfqId, deploymentId, input.receivedAt],
+        );
+        if (!open.rows.length) return "CLOSED";
         const count = await db.query<{ n: string }>(
           "SELECT count(*)::text AS n FROM rfq.quotes WHERE rfq_id=$1",
           [input.rfqId],

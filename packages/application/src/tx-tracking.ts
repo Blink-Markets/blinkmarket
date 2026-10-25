@@ -2,12 +2,13 @@ import { apiContracts, type ProtocolDeployment } from "@blink/schemas";
 import type {
   IdentityPrincipal,
   KeyScope,
+  ProtocolReader,
   TrackedTransaction,
   TrackedUpdate,
   TxTrackingStore,
   TxReceiptReader,
 } from "@blink/ports";
-import { IdentityError } from "./identity.js";
+import { IdentityError, readFreshIndex } from "./identity.js";
 import type { RouteService } from "./route-service.js";
 const same = (a: string | null | undefined, b: string | null | undefined) =>
   typeof a === "string" &&
@@ -113,6 +114,8 @@ export function createTxTrackingService(deps: {
       scope?: KeyScope,
     ): Promise<IdentityPrincipal>;
   };
+  /** A hint is written for an identity, so it is refused (503 INDEX_STALE) while the index lags. */
+  reader: Pick<ProtocolReader, "health">;
   /** The registered protocol generation hints belong to. */
   deploymentId: string;
   newId?: () => string;
@@ -124,6 +127,7 @@ export function createTxTrackingService(deps: {
       const body = hintBody.safeParse(req.body);
       if (!body.success) throw new IdentityError(400, "INVALID_REQUEST");
       if (!principal.address) throw new IdentityError(403, "NOT_REGISTERED");
+      await readFreshIndex(deps.reader, async () => undefined);
       const row = await deps.store.track({
         id: (deps.newId ?? (() => crypto.randomUUID()))(),
         deploymentId: deps.deploymentId,

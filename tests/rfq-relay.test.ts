@@ -107,6 +107,16 @@ async function fixture() {
     contractWallets: { [WALLET_MAKER]: trader.address },
   });
   let clock = NOW;
+  // The signature check is the slow step: this runs while it is pending, as time and the index move on.
+  const hooks: { whileVerifying?: () => void } = {};
+  const slowVerifier = {
+    ...verifier,
+    verifyTypedData: async (args: Parameters<typeof verifier.verifyTypedData>[0]) => {
+      const result = await verifier.verifyTypedData(args);
+      hooks.whileVerifying?.();
+      return result;
+    },
+  };
   const app = buildApi({
     services: [
       createRfqService({
@@ -117,7 +127,7 @@ async function fixture() {
           "https://blink.example",
         ),
         reader,
-        verifier,
+        verifier: slowVerifier,
         deployment: { markets: MARKETS, maxFillShares: 100 },
         now: () => clock,
       }),
@@ -226,6 +236,7 @@ async function fixture() {
     sign,
     post,
     stored,
+    hooks,
     setClock: (seconds: number) => {
       clock = seconds;
     },
@@ -742,6 +753,72 @@ test("maker stats count fills and early cancels", async () => {
     assert.deepEqual(counted.json(), { quotesRelayed: 4, quotesFilled: 1, quotesCancelledBeforeExpiry: 1 });
     const none = await f.call("GET", `/v1/makers/0x${"ab".repeat(20)}/stats`, null);
     assert.deepEqual(none.json(), { quotesRelayed: 0, quotesFilled: 0, quotesCancelledBeforeExpiry: 0 });
+  } finally {
+    await f.close();
+  }
+});
+
+test("a quote is checked again after a slow signature check", async () => {
+  const f = await fixture();
+  try {
+    const { rfqId } = await f.openRfq();
+    const q = f.quoteFields(maker.address);
+    const refused = async (code: string, status: number) => {
+      const res = await f.post(rfqId, f.agents.maker, q, maker);
+      assert.deepEqual([res.statusCode, res.json().code], [status, code]);
+      await nothingStored(f);
+    };
+    // The RFQ closes while the check is pending.
+    f.hooks.whileVerifying = () => f.setClock(NOW + 31);
+    await refused("RFQ_CLOSED", 409);
+    // The quote itself expires while the check is pending (the RFQ is still open: 30s long).
+    f.setClock(NOW);
+    f.hooks.whileVerifying = () => f.setClock(NOW + 29);
+    const short = f.quoteFields(maker.address, { expiresAt: String(NOW + 20) });
+    const res = await f.post(rfqId, f.agents.maker, short, maker);
+    assert.deepEqual([res.statusCode, res.json().code], [400, "INVALID_QUOTE_TERMS"]);
+    await nothingStored(f);
+    // The market closes while the check is pending.
+    f.setClock(NOW);
+    f.hooks.whileVerifying = () => f.reader.set({ markets: [market({ state: "PROPOSED" })] });
+    await refused("MARKET_NOT_TRADABLE", 409);
+    f.reader.set({ markets: [market()] });
+    // The index goes stale while the check is pending.
+    f.hooks.whileVerifying = () =>
+      f.reader.set({ health: { headBlock: 100, indexedBlock: 10, lagSeconds: 31, stale: true } });
+    await refused("INDEX_STALE", 503);
+    f.reader.set({ health: { headBlock: 100, indexedBlock: 100, lagSeconds: 0, stale: false } });
+    // The maker's epoch moves on while the check is pending.
+    f.hooks.whileVerifying = () =>
+      f.reader.set({ makers: [{ address: maker.address.toLowerCase(), freeMicros: "100000000", epoch: "1" }] });
+    await refused("STALE_EPOCH", 409);
+    f.reader.set({ makers: [{ address: maker.address.toLowerCase(), freeMicros: "100000000", epoch: "0" }] });
+    // Nothing changed: the same quote is accepted.
+    f.hooks.whileVerifying = undefined as never;
+    assert.equal((await f.post(rfqId, f.agents.maker, q, maker)).statusCode, 201);
+  } finally {
+    await f.close();
+  }
+});
+
+test("the store refuses a quote for an rfq that is no longer open", async () => {
+  const f = await fixture();
+  try {
+    const { rfqId } = await f.openRfq();
+    const store = postgresRfqStore(f.t.pool, "d1");
+    const input = (receivedAt: number) => ({
+      rfqId,
+      maker: maker.address.toLowerCase(),
+      digest: hash(77),
+      priceBps: 6000,
+      expiresAt: NOW + 30,
+      quote: "{}",
+      signature: "0x" + "11".repeat(65),
+      receivedAt,
+    });
+    assert.equal(await store.addQuote(input(NOW + 30), 20), "CLOSED");
+    await nothingStored(f);
+    assert.equal(await store.addQuote(input(NOW + 29), 20), "OK");
   } finally {
     await f.close();
   }

@@ -1,6 +1,6 @@
 # External taker agent example
 
-`run.ts` is a complete taker agent for the local Blink stack. It claims test bUSD, registers, joins the TAKER role, gets an API key by proving its wallet, posts an RFQ, verifies the quotes makers send back, approves exactly what the best one can cost, fills it on chain, waits for the market to be FINAL and redeems. It imports only `@blink/client` and `viem`. Base Sepolia chain ID 84532 only, bUSD has no value, and nothing here is deployed anywhere.
+`run.ts` is a complete taker agent for the local Blink stack. It claims test bUSD, registers, joins the TAKER role, gets an API key by proving its wallet, posts an RFQ, verifies the quotes makers send back, approves exactly what the best one can cost, fills it on chain, waits for the market to be FINAL and redeems. It imports only `@blink/client` and `viem` (inside this repository the root `tsconfig.json` maps `@blink/client` to `packages/client`). Base Sepolia chain ID 84532 only, bUSD has no value, and nothing here is deployed anywhere.
 
 The platform only relays RFQs and quotes. It never prices, signs or fills: the agent checks every quote itself and sends the fill itself.
 
@@ -36,7 +36,7 @@ No API key is configured: the agent obtains one by wallet proof once its registr
 - **Quotes expire by block time.** `verifySignedQuote` gets the latest block's timestamp, not the host clock, and wants 6 seconds left for the approval and the fill.
 - **The signature is checked the way BlinkMarkets checks it.** A maker without code must give a canonical 65-byte ECDSA signature; a contract-wallet maker is asked through ERC-1271 on the node; an ERC-6492 wrapper is refused.
 - **Exact approvals.** The allowance is `maxCost`, not a larger or unlimited amount.
-- **A fill is never resent blindly.** If a fill fails, `consumed(digest)` decides whether it landed; only a quote that did not land is replaced by a new RFQ, at most three times.
+- **A fill is never resent blindly, and an uncertain one is never replaced early.** If the answer to a fill is lost or its receipt does not come, the agent waits for the receipt, for `consumed(digest)`, or for chain time to pass the quote's expiry with the digest still unused. Only then may a new RFQ replace the quote (at most three times).
 - **No key leaves the process.** The private key only signs the wallet proof and the agent's own transactions, and only a loopback node is ever contacted with it.
 
 ## Tests

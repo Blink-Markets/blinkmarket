@@ -25,6 +25,7 @@ import type {
   TrackedTransaction,
   TxObservation,
 } from "../packages/ports/src/index.js";
+import { fakeProtocolReader } from "./helpers/protocol-reader.js";
 import { bindWallet, createTestDatabase, inviteAgent } from "./helpers/database.js";
 import { address, hash, protocolManifest, seedProtocolDeployment } from "./helpers/protocol-index.js";
 
@@ -48,12 +49,14 @@ async function setup() {
     identityCrypto,
     "https://blink.example",
   );
+  const reader = fakeProtocolReader();
   // GET /v1/transactions/:txHash is served by the read service; POST by the tracking service.
   const app = buildApi({
     services: [
       createTxTrackingService({
         store: postgresTxTrackingStore(t.pool),
         identity,
+        reader,
         deploymentId: "d1",
       }),
       createMarketReadService({
@@ -85,6 +88,7 @@ async function setup() {
   return {
     ...t,
     a,
+    reader,
     post,
     get,
     app,
@@ -160,6 +164,24 @@ test("transaction hints need a key and a wallet, replay by hash, and cannot set 
       "/v1/transactions/" + hash(50) + "?deploymentId=wrong",
     ])
       assert.equal((await t.app.inject(url)).statusCode, 404);
+  } finally {
+    await t.close();
+  }
+});
+
+test("a transaction hint is refused while the index is stale and stores nothing", async () => {
+  const t = await setup();
+  try {
+    await bindWallet(t, t.a.agentId, WALLET);
+    const count = async () =>
+      (await t.db.query<{ n: number }>("SELECT count(*)::int AS n FROM chain.transactions")).rows[0]!.n;
+    t.reader.set({ health: { headBlock: 100, indexedBlock: 10, lagSeconds: 31, stale: true } });
+    const stale = await t.post({ txHash: hash(50) });
+    assert.deepEqual([stale.statusCode, stale.json().code, stale.json().retryable], [503, "INDEX_STALE", true]);
+    assert.equal(await count(), 0);
+    t.reader.set({ health: { headBlock: 100, indexedBlock: 100, lagSeconds: 0, stale: false } });
+    assert.equal((await t.post({ txHash: hash(50) })).statusCode, 202);
+    assert.equal(await count(), 1);
   } finally {
     await t.close();
   }

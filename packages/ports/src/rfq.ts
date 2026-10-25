@@ -30,7 +30,7 @@ export interface RfqStore {
   get(id: string): Promise<RfqRecord | null>;
   /** Open RFQs (expiresAt > now) with seq > after, oldest first. */
   listOpen(q: { after: string | null; limit: number; now: number }): Promise<RfqRecord[]>;
-  /** Atomic: at most `maxPerRfq` quotes per RFQ and one per maker; nothing is stored on a refusal. */
+  /** Atomic: the RFQ is open at `receivedAt`, at most `maxPerRfq` quotes per RFQ and one per maker; nothing is stored on a refusal. */
   addQuote(
     input: {
       rfqId: string;
@@ -41,10 +41,11 @@ export interface RfqStore {
       expiresAt: number;
       quote: string;
       signature: string;
+      /** The relay's clock when the quote was accepted; the RFQ must still be open at this time. */
       receivedAt: number;
     },
     maxPerRfq: number,
-  ): Promise<"OK" | "DUPLICATE" | "FULL">;
+  ): Promise<"OK" | "DUPLICATE" | "FULL" | "CLOSED">;
   /** priceBps ascending, then arrival. */
   quotes(rfqId: string): Promise<StoredQuote[]>;
   stats(maker: string): Promise<MakerStatsRecord>;

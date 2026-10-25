@@ -10,7 +10,8 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "noEmit": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "paths": { "@blink/client": ["./packages/client/src/index.ts"] }
   },
   "include": [
     "apps/*/src/**/*.ts",

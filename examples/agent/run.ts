@@ -11,6 +11,8 @@
 // from "@blink/client".
 import { pathToFileURL } from "node:url";
 import {
+  BaseError,
+  ContractFunctionRevertedError,
   createPublicClient,
   createWalletClient,
   decodeEventLog,
@@ -25,7 +27,7 @@ import {
   QuoteVerificationError,
   createBlinkClient,
   verifySignedQuote,
-} from "../../packages/client/src/index.ts";
+} from "@blink/client";
 
 const CHAIN_ID = 84532;
 const MAINNET_CHAIN_ID = 8453;
@@ -71,6 +73,8 @@ export type AgentConfig = {
     quotes?: number;
     final?: number;
     receipt?: number;
+    /** How long to wait for an uncertain fill to settle before giving up (it is never resent). */
+    settle?: number;
   };
 };
 export type AgentResult = {
@@ -109,6 +113,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     quotes: config.waitMs?.quotes ?? 20_000,
     final: config.waitMs?.final ?? 600_000,
     receipt: config.waitMs?.receipt ?? 180_000,
+    settle: config.waitMs?.settle ?? 180_000,
   };
   // The key signs transactions: refuse any node that is not on this machine.
   if (!LOOPBACK.includes(new URL(config.rpcUrl).hostname))
@@ -277,6 +282,72 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
   const marketId = market.marketId;
   log(`trading market ${marketId}`);
 
+  const consumedNow = (digest: Hex) =>
+    publicClient.readContract({
+      address: markets,
+      abi: marketsAbi,
+      functionName: "consumed",
+      args: [digest],
+    });
+  /**
+   * Sends one fill and returns only when its outcome is known. A reverted receipt, or a rejection
+   * before broadcast, is a definitive miss. If the answer is lost or the receipt does not come, the
+   * transaction may still be pending, so nothing is resent and no replacement RFQ is made until a
+   * receipt arrives, `consumed(digest)` shows the fill, or chain time has passed the quote's expiry
+   * and the digest is then still unused (a block at or after expiry cannot include the fill).
+   */
+  async function sendFill(
+    quote: Record<string, unknown>,
+    signature: Hex,
+    digest: Hex,
+  ): Promise<{ landed: true; txHash: string } | { landed: false; reason: string }> {
+    let txHash: Hex | undefined;
+    try {
+      txHash = await wallet.writeContract({
+        address: markets,
+        abi: marketsAbi,
+        functionName: "fillQuote",
+        args: [quote, signature],
+      } as never);
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash: txHash,
+        timeout: waits.receipt,
+      });
+      return receipt.status === "success"
+        ? { landed: true, txHash }
+        : { landed: false, reason: "FILL_REVERTED" };
+    } catch (error) {
+      // The node refused it before broadcasting (the call would revert): nothing is pending.
+      if (
+        txHash === undefined &&
+        error instanceof BaseError &&
+        error.walk((e) => e instanceof ContractFunctionRevertedError)
+      )
+        return { landed: false, reason: "FILL_REJECTED_BEFORE_SEND" };
+      log(`fill outcome unknown: ${error instanceof Error ? error.message : error}`);
+    }
+    const expiresAt = quote["expiresAt"] as bigint;
+    return until("the fill's outcome", waits.settle, async () => {
+      if (txHash !== undefined) {
+        const receipt = await publicClient
+          .getTransactionReceipt({ hash: txHash })
+          .catch(() => undefined);
+        if (receipt)
+          return receipt.status === "success"
+            ? { landed: true as const, txHash }
+            : { landed: false as const, reason: "FILL_REVERTED" };
+      }
+      // Chain time first, then the digest: a fill that lands in between is found, and expiry is
+      // concluded only when the digest is still unused after the clock has passed it.
+      const now = await chainSeconds();
+      if (await consumedNow(digest))
+        return { landed: true as const, txHash: txHash ?? "" };
+      return now >= expiresAt
+        ? { landed: false as const, reason: "QUOTE_EXPIRED_UNUSED" }
+        : undefined;
+    });
+  }
+
   // 5. RFQ, verify, approve, fill. A quote that expires or is taken first is replaced by a new RFQ.
   let digest: Hex | undefined;
   let fillTxHash = "";
@@ -331,51 +402,30 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     });
     // The quote must still be usable and unused now that the approval has landed.
     const stillGood = (await verifyAll(1n)).find((v) => v.digest === best.digest);
-    const taken = await publicClient.readContract({
-      address: markets,
-      abi: marketsAbi,
-      functionName: "consumed",
-      args: [best.digest],
-    });
-    if (!stillGood || taken) continue;
+    if (!stillGood || (await consumedNow(best.digest))) continue;
     const q = best.quote;
-    try {
-      const receipt = await send("FILL", {
-        address: markets,
-        abi: marketsAbi,
-        functionName: "fillQuote",
-        args: [
-          {
-            marketId: BigInt(q.marketId),
-            specHash: q.specHash as Hex,
-            maker: q.maker as Hex,
-            taker: q.taker as Hex,
-            side: Number(q.side),
-            quantity: BigInt(q.quantity),
-            priceBps: Number(q.priceBps),
-            validAfter: BigInt(q.validAfter),
-            expiresAt: BigInt(q.expiresAt),
-            nonce: BigInt(q.nonce),
-            epoch: BigInt(q.epoch),
-          },
-          best.signature,
-        ],
-      });
-      fillTxHash = receipt.transactionHash;
-    } catch (error) {
-      // Never resend a fill blindly: if the quote was consumed, it landed and this process lost
-      // the hash; otherwise the fill failed and a new RFQ starts over.
-      const landed = await publicClient.readContract({
-        address: markets,
-        abi: marketsAbi,
-        functionName: "consumed",
-        args: [best.digest],
-      });
-      if (!landed) {
-        log(`fill failed: ${error instanceof Error ? error.message : error}`);
-        continue;
-      }
+    const fill = await sendFill(
+      {
+        marketId: BigInt(q.marketId),
+        specHash: q.specHash as Hex,
+        maker: q.maker as Hex,
+        taker: q.taker as Hex,
+        side: Number(q.side),
+        quantity: BigInt(q.quantity),
+        priceBps: Number(q.priceBps),
+        validAfter: BigInt(q.validAfter),
+        expiresAt: BigInt(q.expiresAt),
+        nonce: BigInt(q.nonce),
+        epoch: BigInt(q.epoch),
+      },
+      best.signature,
+      best.digest,
+    );
+    if (!fill.landed) {
+      log(`fill did not land: ${fill.reason}`);
+      continue;
     }
+    fillTxHash = fill.txHash;
     digest = best.digest;
     log(`filled ${QUANTITY} ${side} shares at ${best.quote.priceBps} bps`);
   }
