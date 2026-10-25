@@ -1,31 +1,32 @@
-import { hasMainnetChain } from "./chain-guard.ts";
-import { Secp256k1, Signature } from "ox";
-import { encodeFunctionData, hashTypedData, parseAbi, type Hex } from "viem";
+import {
+  hashTypedData,
+  isErc6492Signature,
+  isHex,
+  size,
+  slice,
+  hexToBigInt,
+  type Hex,
+  type PublicClient,
+} from "viem";
 import {
   CHAIN_ID,
   quoteTypes,
-  type ConfigResponse,
-  type PublicDeployment,
-  type RfqRequest as RfqRequestSchema,
-  type SignedQuoteResponse as SignedQuoteSchema,
+  type ProtocolDeployment,
+  type ProtocolMarket,
+  type QuoteFields,
 } from "@blink/schemas";
-type RfqRequest = (typeof RfqRequestSchema)["_output"];
-type SignedQuote = (typeof SignedQuoteSchema)["_output"];
 
 export type QuoteVerificationCode =
-  | "MAINNET_REFUSED"
   | "DEPLOYMENT_MISMATCH"
-  | "DOMAIN_MISMATCH"
   | "MAKER_MISMATCH"
-  | "SIGNATURE_INVALID"
-  | "DIGEST_MISMATCH"
   | "TAKER_MISMATCH"
   | "TERMS_MISMATCH"
-  | "COST_MISMATCH"
-  | "MAX_COST_EXCEEDED"
+  | "INVALID_PRICE"
+  | "INVALID_LIFETIME"
   | "NOT_YET_VALID"
   | "EXPIRED"
-  | "CALLDATA_MISMATCH";
+  | "AFTER_CLOSE"
+  | "SIGNATURE_INVALID";
 
 export class QuoteVerificationError extends Error {
   constructor(public readonly code: QuoteVerificationCode) {
@@ -34,160 +35,169 @@ export class QuoteVerificationError extends Error {
   }
 }
 
-export type QuoteVerificationContext = {
-  /** The deployment the taker trusts: from `getConfig()`, never from the quote itself. */
-  config: ConfigResponse & { deployment: PublicDeployment };
-  /** The taker's verified wallet, the only account the quote may name. */
-  wallet: string;
-  request: RfqRequest;
-  /** Chain time in seconds (the latest block's timestamp), never the host clock. */
-  nowSeconds: bigint;
-  /**
-   * Seconds the quote must still have left (default `DEFAULT_MIN_VALIDITY_SECONDS`); 0 accepts a
-   * quote until its last second. Use 0 only to ask whether a quote has really expired.
-   */
-  minValiditySeconds?: bigint | undefined;
-};
-
 /**
- * Time to approve and fill, assuming a 2-second block interval (an assumption, not measured here):
- * the approval takes one block, the fill the next, and one more covers propagation and polling. The API signs quotes
- * for 30 seconds (never fewer than 5), so this costs a taker a fifth of a normal quote.
+ * Seconds a quote must still have left (unless the caller says otherwise): one block for the
+ * approval, one for the fill and one of slack, assuming 2-second blocks. An assumption, not
+ * something measured here.
  */
 export const DEFAULT_MIN_VALIDITY_SECONDS = 6n;
-
-// OpenZeppelin ECDSA.tryRecover, which fillQuote uses, refuses s above half the curve order.
+/** BlinkMarkets refuses a quote that lives longer than this. */
+const MAX_LIFETIME_SECONDS = 60n;
+// OpenZeppelin ECDSA.tryRecover, which fillQuote uses for a maker without code, refuses s above half
+// the curve order.
 const HALF_CURVE_ORDER =
   0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n;
-
-const fillQuoteAbi = parseAbi([
-  "struct Quote { uint256 marketId; bytes32 specHash; address maker; address taker; uint8 side; uint64 quantity; uint16 priceBps; uint64 validAfter; uint64 expiresAt; uint256 nonce; uint256 epoch; }",
-  "function fillQuote(Quote q, bytes signature)",
-]);
-const UNIT_MICROS = 1_000_000n;
 const lower = (value: string) => value.toLowerCase();
 
+export type QuoteVerificationContext = {
+  /** The node the taker trusts (chain 84532). Reads the maker's code and checks the signature. */
+  publicClient: Pick<PublicClient, "getCode" | "verifyTypedData">;
+  /** The generation the taker trusts: from `getDeployment()`, never from the quote itself. */
+  deployment: Pick<ProtocolDeployment, "chainId" | "generation">;
+  /** The market as the indexer reports it; the quote must name its spec hash and end before it closes. */
+  market: Pick<ProtocolMarket, "marketId" | "specHash" | "closeAt">;
+  /** What the taker asked for, and its own address, the only account the quote may name. */
+  rfq: {
+    marketId: string;
+    side: "YES" | "NO";
+    quantity: string;
+    taker: string;
+  };
+  /** Chain time in seconds (the latest block's timestamp), never the host clock. */
+  now: bigint;
+  /** Params.feeBps of the generation. */
+  feeBps: number;
+  /** The maker the taker means to deal with, if it picked one. */
+  maker?: string | undefined;
+  /** Default `DEFAULT_MIN_VALIDITY_SECONDS`; 0 accepts a quote until its last second. */
+  minValiditySeconds?: bigint | undefined;
+};
+export type VerifiedQuote = {
+  /** The EIP-712 digest BlinkMarkets records as consumed. */
+  digest: Hex;
+  takerCost: bigint;
+  fee: bigint;
+  /** takerCost + fee: what the taker's allowance must cover. */
+  maxCost: bigint;
+};
+
+/** takerCost = quantity x priceBps x 100 micro-bUSD. */
+export const takerCostOf = (quote: Pick<QuoteFields, "quantity" | "priceBps">) =>
+  BigInt(quote.quantity) * BigInt(quote.priceBps) * 100n;
+/** The fee is charged on top of the taker cost, rounded down, as fillQuote does. */
+export const feeOf = (takerCost: bigint, feeBps: number) =>
+  (takerCost * BigInt(feeBps)) / 10_000n;
+
+/** What a taker must approve for this quote: the cost plus the fee, never less. */
+export function approvalFor(
+  quote: Pick<QuoteFields, "quantity" | "priceBps">,
+  feeBps: number,
+): bigint {
+  const takerCost = takerCostOf(quote);
+  return takerCost + feeOf(takerCost, feeBps);
+}
+
+// What fillQuote accepts from a maker without code: 65 bytes, low s, v of 27 or 28.
+function isCanonicalEcdsa(signature: Hex): boolean {
+  if (!isHex(signature, { strict: true }) || size(signature) !== 65)
+    return false;
+  const v = hexToBigInt(slice(signature, 64, 65));
+  return (
+    (v === 27n || v === 28n) &&
+    hexToBigInt(slice(signature, 32, 64)) <= HALF_CURVE_ORDER
+  );
+}
+
 /**
- * Throws `QuoteVerificationError` with the first failed check. Everything the taker will pay or
- * send is recomputed from the maker-signed message and the deployment from `getConfig()`; the
- * envelope's own unsigned fields only have to agree with it. Call this before approving or filling.
+ * Throws `QuoteVerificationError` with the first failed check, else returns the digest and what
+ * the taker will pay. The domain and types come from this code and the trusted deployment, never
+ * from the relay, and the signature is checked against chain state with viem `verifyTypedData`, so a
+ * contract-wallet maker (ERC-1271) verifies like an EOA. It is async: a caller that forgets to
+ * await gets a promise, not a quote it may use.
  */
-export function verifySignedQuote(
-  envelope: SignedQuote,
+export async function verifySignedQuote(
+  quote: QuoteFields,
+  signature: Hex,
   ctx: QuoteVerificationContext,
-): void {
+): Promise<VerifiedQuote> {
   const fail = (code: QuoteVerificationCode): never => {
     throw new QuoteVerificationError(code);
   };
-  const { config, request, wallet } = ctx;
-  if (hasMainnetChain(config) || hasMainnetChain(envelope))
-    return fail("MAINNET_REFUSED");
-  const deployment = config.deployment as PublicDeployment | null;
+  const { deployment, market, rfq } = ctx;
+  if (deployment.chainId !== CHAIN_ID) return fail("DEPLOYMENT_MISMATCH");
+  if (ctx.maker !== undefined && lower(quote.maker) !== lower(ctx.maker))
+    return fail("MAKER_MISMATCH");
+  if (lower(quote.taker) !== lower(rfq.taker)) return fail("TAKER_MISMATCH");
   if (
-    !deployment ||
-    envelope.deploymentId !== deployment.deploymentId ||
-    request.deploymentId !== deployment.deploymentId
-  )
-    return fail("DEPLOYMENT_MISMATCH");
-  const market = lower(deployment.contracts.BlinkMarket);
-  const { domain, message } = envelope;
-  if (
-    domain.name !== "Blink RFQ" ||
-    domain.version !== "0.1" ||
-    domain.chainId !== CHAIN_ID ||
-    envelope.chainId !== CHAIN_ID ||
-    config.chainId !== CHAIN_ID ||
-    lower(domain.verifyingContract) !== market ||
-    lower(envelope.verifyingContract) !== market
-  )
-    return fail("DOMAIN_MISMATCH");
-  const maker = lower(deployment.roles.maker);
-  if (lower(message.maker) !== maker) return fail("MAKER_MISMATCH");
-
-  // Types and domain come from this code and the trusted config, not from the envelope.
-  const typed = {
-    domain: {
-      name: "Blink RFQ",
-      version: "0.1",
-      chainId: CHAIN_ID,
-      verifyingContract: market as Hex,
-    },
-    types: quoteTypes,
-    primaryType: "Quote" as const,
-    message: {
-      marketId: BigInt(message.marketId),
-      specHash: message.specHash as Hex,
-      maker: message.maker as Hex,
-      taker: message.taker as Hex,
-      side: Number(message.side),
-      quantity: BigInt(message.quantity),
-      priceBps: Number(message.priceBps),
-      validAfter: BigInt(message.validAfter),
-      expiresAt: BigInt(message.expiresAt),
-      nonce: BigInt(message.nonce),
-      epoch: BigInt(message.epoch),
-    },
-  };
-  const signature = envelope.signature as Hex;
-  const digest = hashTypedData(typed);
-  // Synchronous on purpose (viem's own recovery is not): a verifier that returned a promise could
-  // be called without `await` and would then verify nothing.
-  let signer: string | null = null;
-  try {
-    // The contract recovers with OpenZeppelin's ECDSA: s in the lower half and v of 27 or 28. A
-    // signature outside that recovers the maker here (`ox` is lenient) and then reverts on chain.
-    const s = BigInt("0x" + signature.slice(66, 130));
-    const v = Number.parseInt(signature.slice(130, 132), 16);
-    if (s <= HALF_CURVE_ORDER && (v === 27 || v === 28))
-      signer = lower(
-        Secp256k1.recoverAddress({
-          payload: digest,
-          signature: Signature.fromHex(signature),
-        }),
-      );
-  } catch {
-    // A signature that cannot be recovered is as invalid as one by another key.
-  }
-  if (signer !== maker) return fail("SIGNATURE_INVALID");
-  if (digest !== lower(envelope.quoteId)) return fail("DIGEST_MISMATCH");
-  if (lower(message.taker) !== lower(wallet)) return fail("TAKER_MISMATCH");
-
-  if (
-    BigInt(message.marketId) !== BigInt(request.marketId) ||
-    BigInt(envelope.marketId) !== BigInt(request.marketId) ||
-    message.side !== (request.side === "YES" ? "0" : "1") ||
-    BigInt(message.quantity) !== BigInt(request.quantity) ||
-    BigInt(envelope.expiresAt) !== BigInt(message.expiresAt)
+    BigInt(quote.marketId) !== BigInt(rfq.marketId) ||
+    BigInt(quote.marketId) !== BigInt(market.marketId) ||
+    quote.side !== (rfq.side === "YES" ? "0" : "1") ||
+    BigInt(quote.quantity) !== BigInt(rfq.quantity) ||
+    lower(quote.specHash) !== lower(market.specHash)
   )
     return fail("TERMS_MISMATCH");
-
-  // taker = q * price * 100 and maker = q * 1e6 - taker (spec 7.2), from the signed price.
-  const quantity = BigInt(message.quantity);
-  const priceBps = BigInt(message.priceBps);
-  const takerCost = quantity * priceBps * 100n;
+  const price = BigInt(quote.priceBps);
+  if (price < 1n || price > 9999n) return fail("INVALID_PRICE");
+  const validAfter = BigInt(quote.validAfter);
+  const expiresAt = BigInt(quote.expiresAt);
   if (
-    priceBps < 1n ||
-    priceBps > 9999n ||
-    BigInt(envelope.takerCostMicros) !== takerCost ||
-    BigInt(envelope.makerCostMicros) !== quantity * UNIT_MICROS - takerCost
+    expiresAt <= validAfter ||
+    expiresAt - validAfter > MAX_LIFETIME_SECONDS
   )
-    return fail("COST_MISMATCH");
-  if (takerCost > BigInt(request.maxCostMicros))
-    return fail("MAX_COST_EXCEEDED");
-  // Chain time against the signed window (the contract needs validAfter <= now < expiresAt) and
-  // the room an approval and a fill need.
-  if (ctx.nowSeconds < BigInt(message.validAfter)) return fail("NOT_YET_VALID");
-  const left = BigInt(message.expiresAt) - ctx.nowSeconds;
-  if (
-    left <= 0n ||
-    left < (ctx.minValiditySeconds ?? DEFAULT_MIN_VALIDITY_SECONDS)
-  )
+    return fail("INVALID_LIFETIME");
+  if (expiresAt > BigInt(market.closeAt)) return fail("AFTER_CLOSE");
+  // The contract needs validAfter <= now < expiresAt, and the taker needs room to approve and fill.
+  if (ctx.now < validAfter) return fail("NOT_YET_VALID");
+  const left = expiresAt - ctx.now;
+  if (left <= 0n || left < (ctx.minValiditySeconds ?? DEFAULT_MIN_VALIDITY_SECONDS))
     return fail("EXPIRED");
 
-  const expected = encodeFunctionData({
-    abi: fillQuoteAbi,
-    functionName: "fillQuote",
-    args: [typed.message, signature],
+  const domain = {
+    name: "Blink RFQ",
+    version: "0.2",
+    chainId: CHAIN_ID,
+    verifyingContract: deployment.generation.markets as Hex,
+  };
+  const message = {
+    marketId: BigInt(quote.marketId),
+    specHash: quote.specHash as Hex,
+    maker: quote.maker as Hex,
+    taker: quote.taker as Hex,
+    side: Number(quote.side),
+    quantity: BigInt(quote.quantity),
+    priceBps: Number(quote.priceBps),
+    validAfter,
+    expiresAt,
+    nonce: BigInt(quote.nonce),
+    epoch: BigInt(quote.epoch),
+  };
+  const typed = {
+    domain,
+    types: quoteTypes,
+    primaryType: "Quote" as const,
+    message,
+  };
+  // BlinkMarkets takes ECDSA (no code) or ERC-1271 (code), never an ERC-6492 wrapper; viem's
+  // validator would accept one, so the same rule is applied here, not a looser one.
+  if (isErc6492Signature(signature)) return fail("SIGNATURE_INVALID");
+  const code = await ctx.publicClient.getCode({
+    address: quote.maker as Hex,
   });
-  if (lower(envelope.calldata) !== expected) return fail("CALLDATA_MISMATCH");
+  if ((!code || code === "0x") && !isCanonicalEcdsa(signature))
+    return fail("SIGNATURE_INVALID");
+  const valid = await ctx.publicClient.verifyTypedData({
+    address: quote.maker as Hex,
+    ...typed,
+    signature,
+  });
+  if (!valid) return fail("SIGNATURE_INVALID");
+
+  const takerCost = takerCostOf(quote);
+  const fee = feeOf(takerCost, ctx.feeBps);
+  return {
+    digest: hashTypedData(typed),
+    takerCost,
+    fee,
+    maxCost: takerCost + fee,
+  };
 }

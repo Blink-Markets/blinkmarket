@@ -5,6 +5,7 @@ export * from "./chain-index.js";
 export type * from "./protocol-read.js";
 export * from "./content.js";
 export * from "./signature.js";
+export type * from "./rfq.js";
 
 // 邊界合約：實作留到後續 milestone；不公開 ORM 或私鑰。
 export interface ImmutableObjectStore {

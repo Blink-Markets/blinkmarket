@@ -104,10 +104,45 @@ export const routes = [
   },
   {
     "method": "POST",
+    "path": "/v1/rfqs",
+    "module": "trading",
+    "access": "rfq:write",
+    "summary": "Taker posts an RFQ for the relay to forward to makers"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/rfqs",
+    "module": "trading",
+    "access": "rfq:write",
+    "summary": "Makers read the open RFQs"
+  },
+  {
+    "method": "POST",
+    "path": "/v1/rfqs/:id/quotes",
+    "module": "trading",
+    "access": "rfq:write",
+    "summary": "Maker posts a signed quote for an RFQ"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/rfqs/:id/quotes",
+    "module": "trading",
+    "access": "rfq:write",
+    "summary": "The RFQ's taker reads its quotes, unchanged"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/makers/:address/stats",
+    "module": "trading",
+    "access": "public",
+    "summary": "Informational maker relay statistics"
+  },
+  {
+    "method": "POST",
     "path": "/v1/transactions",
     "module": "chain",
-    "access": "verified-wallet",
-    "summary": "登記交易追蹤提示"
+    "access": "key",
+    "summary": "Register a transaction hash for tracking"
   },
   {
     "method": "GET",

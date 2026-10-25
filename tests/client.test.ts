@@ -1,6 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { keccak256 } from "viem";
@@ -10,6 +9,7 @@ import {
 } from "../packages/client/src/index.js";
 import { configFromEnv, runAgent } from "../examples/agent/run.js";
 import { testAccounts } from "./helpers/protocol-fixture.js";
+import { protocolManifest } from "./helpers/protocol-index.js";
 
 const DEPLOYMENT = "client-test";
 const MARKET = "7";
@@ -17,7 +17,21 @@ const UUID = "00000000-0000-4000-8000-000000000001";
 const HASH = "0x" + "ab".repeat(32);
 const WALLET = testAccounts.taker.address.toLowerCase();
 const API_KEY = "test-api-key";
-const SPEC_BYTES = readFileSync("fixtures/replay/market-spec.json");
+const manifest = protocolManifest(DEPLOYMENT);
+const SPEC_BYTES = Buffer.from(
+  JSON.stringify(
+    {
+      schema: "blink.market-spec/0.2",
+      title: "Will the Base Sepolia gas price exceed 1 gwei on 2026-12-01?",
+      question: "Does the median gas price of block 1,000,000 exceed 1 gwei?",
+      class: "B",
+      resolution: { yes: "Median above 1 gwei.", no: "Median at or below 1 gwei." },
+      sources: ["https://sepolia.basescan.org/"],
+    },
+    null,
+    2,
+  ),
+);
 
 type Seen = {
   method: string;
@@ -89,29 +103,45 @@ const cursor = {
   blockHash: "0x" + "cd".repeat(32),
   finality: "INCLUDED",
 };
-const ref = { deploymentId: DEPLOYMENT, marketId: MARKET, mode: "REPLAY" };
-const summary = {
-  ...ref,
+const index = { headBlock: 12, indexedBlock: 12, lagSeconds: 0, stale: false };
+const market = {
+  marketId: MARKET,
+  creator: WALLET,
+  class: "A",
+  state: "OPEN",
+  templateId: HASH,
   specHash: HASH,
-  storedState: "OPEN",
-  effectiveState: "OPEN",
-  paused: false,
-  canTrade: true,
-  reasons: [],
-  chainCursor: cursor,
+  specUri: "https://blink.example/v1/content/" + HASH,
+  replay: false,
+  openAt: 1000,
+  closeAt: 2000,
+  proposalDeadline: 3000,
+  hardDeadline: 4000,
+  maxPairs: "100",
+  mintedPairs: "0",
+  escrowMicros: "0",
+  feePoolMicros: "0",
+  finalOutcome: null,
+  feesDistributed: false,
+  creationChallenged: false,
 };
 const spec = JSON.parse(SPEC_BYTES.toString("utf8"));
-const resolution = {
-  ...ref,
-  proposedOutcome: null,
-  finalOutcome: null,
-  proposalEvidenceHash: null,
-  finalEvidenceHash: null,
-  proposedAt: null,
-  challengeEndsAt: null,
-  hardDeadline: "2025-05-10T00:00:00.000Z",
-  chainCursor: cursor,
+const protocolPage = (item: unknown) => ({ items: [item], next: null, index });
+const rfqId = "00000000-0000-4000-8000-0000000000aa";
+const quote = {
+  marketId: MARKET,
+  specHash: HASH,
+  maker: testAccounts.maker.address.toLowerCase(),
+  taker: WALLET,
+  side: "0",
+  quantity: "10",
+  priceBps: "4000",
+  validAfter: "1000",
+  expiresAt: "1030",
+  nonce: "1",
+  epoch: "0",
 };
+const signedQuote = { quote, signature: "0x" + "22".repeat(65) };
 const horizonKey = {
   horizonType: "DAILY",
   scheduledAt: "2026-10-15T00:00:00.000Z",
@@ -164,36 +194,61 @@ const cases: Case[] = [
   },
   {
     name: "listMarkets",
-    call: (c) =>
-      c.listMarkets({
-        deploymentId: DEPLOYMENT,
-        mode: "REPLAY",
-        status: "OPEN",
-        limit: 5,
-        cursor: "next",
-      }),
+    call: (c) => c.listMarkets({ state: "OPEN", limit: 5, after: "3" }),
     method: "GET",
     path: "/v1/markets",
-    query: {
-      deploymentId: DEPLOYMENT,
-      mode: "REPLAY",
-      status: "OPEN",
-      limit: "5",
-      cursor: "next",
-    },
-    answer: page(summary),
+    query: { state: "OPEN", limit: "5", after: "3" },
+    answer: protocolPage(market),
   },
   {
     name: "getMarket",
-    call: (c) => c.getMarket(ref as never),
+    call: (c) => c.getMarket(MARKET),
     method: "GET",
     path: "/v1/markets/" + MARKET,
-    query: { deploymentId: DEPLOYMENT },
-    answer: {
-      ...summary,
-      spec,
-      resolution,
-    },
+    answer: { ...market, index },
+  },
+  {
+    name: "getDeployment",
+    call: (c) => c.getDeployment(),
+    method: "GET",
+    path: "/v1/deployment",
+    answer: manifest,
+  },
+  {
+    name: "listDisputes",
+    call: (c) => c.listDisputes(MARKET, { limit: 2 }),
+    method: "GET",
+    path: `/v1/markets/${MARKET}/disputes`,
+    query: { limit: "2" },
+    answer: protocolPage({ disputeId: "1" }),
+  },
+  {
+    name: "getDispute",
+    call: (c) => c.getDispute("1"),
+    method: "GET",
+    path: "/v1/disputes/1",
+    answer: { disputeId: "1", index },
+  },
+  {
+    name: "getFees",
+    call: (c) => c.getFees(MARKET),
+    method: "GET",
+    path: `/v1/markets/${MARKET}/fees`,
+    answer: { feePoolMicros: "0", index },
+  },
+  {
+    name: "getAccount",
+    call: (c) => c.getAccount(WALLET),
+    method: "GET",
+    path: `/v1/accounts/${WALLET}`,
+    answer: { address: WALLET, index },
+  },
+  {
+    name: "listTemplates",
+    call: (c) => c.listTemplates(),
+    method: "GET",
+    path: "/v1/templates",
+    answer: protocolPage({ templateId: HASH }),
   },
   {
     name: "listForecastWindows",
@@ -244,26 +299,72 @@ const cases: Case[] = [
   },
   {
     name: "trackTransaction",
-    call: (c) =>
-      c.trackTransaction(
-        {
-          deploymentId: DEPLOYMENT,
-          txHash: HASH,
-          action: "FILL",
-          quoteId: HASH,
-        },
-        "track-key",
-      ),
+    call: (c) => c.trackTransaction({ txHash: HASH }),
     method: "POST",
     path: "/v1/transactions",
-    body: {
-      deploymentId: DEPLOYMENT,
-      txHash: HASH,
-      action: "FILL",
-      quoteId: HASH,
-    },
+    body: { txHash: HASH },
     answer: { trackingId: UUID, status: "UNKNOWN" },
     status: 202,
+    idempotent: false,
+  },
+  {
+    name: "createRfq",
+    call: (c) => c.createRfq({ marketId: MARKET, side: "YES", quantity: "10" }),
+    method: "POST",
+    path: "/v1/rfqs",
+    body: { marketId: MARKET, side: "YES", quantity: "10" },
+    answer: { rfqId, expiresAt: 1030 },
+    status: 201,
+    idempotent: false,
+  },
+  {
+    name: "listRfqs",
+    call: (c) => c.listRfqs({ limit: 10, after: "4" }),
+    method: "GET",
+    path: "/v1/rfqs",
+    query: { limit: "10", after: "4" },
+    answer: {
+      items: [
+        {
+          rfqId,
+          marketId: MARKET,
+          specHash: HASH,
+          side: "YES",
+          quantity: "10",
+          taker: WALLET,
+          expiresAt: 1030,
+        },
+      ],
+      next: null,
+    },
+  },
+  {
+    name: "postQuote",
+    call: (c) => c.postQuote(rfqId, signedQuote),
+    method: "POST",
+    path: `/v1/rfqs/${rfqId}/quotes`,
+    body: signedQuote,
+    answer: { digest: HASH },
+    status: 201,
+    idempotent: false,
+  },
+  {
+    name: "listQuotes",
+    call: (c) => c.listQuotes(rfqId),
+    method: "GET",
+    path: `/v1/rfqs/${rfqId}/quotes`,
+    answer: { items: [signedQuote] },
+  },
+  {
+    name: "getMakerStats",
+    call: (c) => c.getMakerStats(WALLET),
+    method: "GET",
+    path: `/v1/makers/${WALLET}/stats`,
+    answer: {
+      quotesRelayed: 3,
+      quotesFilled: 1,
+      quotesCancelledBeforeExpiry: 0,
+    },
   },
   {
     name: "getTransaction",
@@ -282,30 +383,11 @@ const cases: Case[] = [
   },
   {
     name: "getPositions",
-    call: (c) =>
-      c.getPositions(
-        { deploymentId: DEPLOYMENT, address: WALLET },
-        { limit: 50 },
-      ),
+    call: (c) => c.getPositions(WALLET, { limit: 50 }),
     method: "GET",
     path: `/v1/accounts/${WALLET}/positions`,
-    query: { deploymentId: DEPLOYMENT, limit: "50" },
-    answer: page({
-      ...ref,
-      yesShares: "10",
-      noShares: "0",
-      payoutMicros: null,
-      pendingIntentIds: [],
-      chainCursor: cursor,
-    }),
-  },
-  {
-    name: "getResolution",
-    call: (c) => c.getResolution(marketRef),
-    method: "GET",
-    path: `/v1/markets/${MARKET}/resolution`,
-    query: { deploymentId: DEPLOYMENT },
-    answer: resolution,
+    query: { limit: "50" },
+    answer: protocolPage({ marketId: MARKET, yes: "10", no: "0" }),
   },
   {
     name: "getMetrics",
@@ -518,7 +600,7 @@ test("a business refusal is final, and reads are retried too", async () => {
           headers: { "Retry-After": "3" },
           body: apiError("RATE_LIMITED", true),
         }
-      : { body: page(summary) },
+      : { body: protocolPage(market) },
   );
   const options = {
     sleep: async (milliseconds: number) => {
@@ -594,8 +676,8 @@ test("getMarketSpec returns the spec only when the bytes hash to the expected sp
   const specHash = keccak256(SPEC_BYTES);
   const altered = Buffer.from(
     SPEC_BYTES.toString("utf8").replace(
-      '"thresholdBps": 7000',
-      '"thresholdBps": 7001',
+      "exceed 1 gwei on",
+      "exceed 2 gwei on",
     ),
   );
   assert.notEqual(altered.toString(), SPEC_BYTES.toString());
@@ -603,45 +685,154 @@ test("getMarketSpec returns the spec only when the bytes hash to the expected sp
   const server = await scripted(() => ({ body: served }));
   try {
     const client = createBlinkClient(server.origin, API_KEY);
-    assert.deepEqual(await client.getMarketSpec(marketRef, specHash), spec);
+    assert.deepEqual(await client.getMarketSpec(MARKET, specHash), spec);
     assert.equal(server.seen[0]!.path, `/v1/markets/${MARKET}/spec`);
-    assert.deepEqual(server.seen[0]!.query, { deploymentId: DEPLOYMENT });
+    assert.deepEqual(server.seen[0]!.query, {});
     // The hash may be written in either case.
     assert.deepEqual(
       await client.getMarketSpec(
-        marketRef,
+        MARKET,
         specHash.toUpperCase().replace("0X", "0x"),
       ),
       spec,
     );
     served = altered;
     await assert.rejects(
-      client.getMarketSpec(marketRef, specHash),
-      /SPEC_HASH_MISMATCH/,
+      client.getMarketSpec(MARKET, specHash),
+      /HASH_MISMATCH/,
     );
     // Bytes that match their hash but are not a market spec are refused as well.
     const notSpec = Buffer.from('{"schemaVersion":"other"}');
     served = notSpec;
-    await assert.rejects(client.getMarketSpec(marketRef, keccak256(notSpec)));
+    await assert.rejects(client.getMarketSpec(MARKET, keccak256(notSpec)));
     // And a wrong expectation is refused even though the server's bytes are fine.
     served = SPEC_BYTES;
     await assert.rejects(
-      client.getMarketSpec(marketRef, "0x" + "00".repeat(32)),
-      /SPEC_HASH_MISMATCH/,
+      client.getMarketSpec(MARKET, "0x" + "00".repeat(32)),
+      /HASH_MISMATCH/,
     );
   } finally {
     await server.close();
   }
 });
 
-test("retired execution client methods refuse without issuing HTTP requests", async () => {
+test("the retired v0.1 execution methods are gone, not stubbed", () => {
+  const client = createBlinkClient("https://blink.example") as Record<string, unknown>;
+  for (const name of ["requestQuote", "getQuote", "claimFaucet", "getResolution"])
+    assert.equal(client[name], undefined, name);
+});
+
+test("getMarket accepts the market flattened or nested, and getDeployment the manifest bare or wrapped", async () => {
+  const flat = { ...market, spec: { a: 1 }, proposal: null, index };
+  let served: unknown = flat;
+  const server = await scripted(() => ({ body: served }));
+  try {
+    const client = createBlinkClient(server.origin, API_KEY);
+    assert.deepEqual(await client.getMarket(MARKET), flat);
+    served = { market, spec: { a: 1 }, index };
+    assert.equal((await client.getMarket(MARKET)).marketId, MARKET);
+    served = { deployment: manifest, index };
+    assert.equal((await client.getDeployment()).deploymentId, DEPLOYMENT);
+    served = { ...manifest, index };
+    assert.equal((await client.getDeployment()).deploymentId, DEPLOYMENT);
+    served = { ...market, closeAt: "soon" };
+    await assert.rejects(client.getMarket(MARKET));
+  } finally {
+    await server.close();
+  }
+});
+
+test("uploadContent sends the raw bytes and accepts only an answer that names their keccak256 hash", async () => {
+  const bytes = Buffer.from('{"hello":"world"}');
+  const hash = keccak256(bytes);
+  let answer: unknown = {
+    hash,
+    size: bytes.length,
+    mediaType: "application/json",
+    uri: "https://blink.example/v1/content/" + hash,
+  };
+  const server = await scripted(() => ({ status: 201, body: answer }));
+  try {
+    const client = createBlinkClient(server.origin, API_KEY);
+    assert.deepEqual(await client.uploadContent(bytes, "application/json"), answer);
+    const [seen] = server.seen;
+    assert.equal(seen!.method, "POST");
+    assert.equal(seen!.path, "/v1/content");
+    assert.equal(seen!.headers["content-type"], "application/json");
+    assert.equal(seen!.body, bytes.toString());
+    answer = { ...(answer as object), hash: HASH };
+    await assert.rejects(client.uploadContent(bytes, "application/json"), /HASH_MISMATCH/);
+    answer = { ...(answer as object), hash, size: 3 };
+    await assert.rejects(client.uploadContent(bytes, "application/json"), /HASH_MISMATCH/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("getContent returns bytes only when they hash to the name asked for", async () => {
+  const bytes = Buffer.from("proof");
+  let served: Uint8Array = bytes;
+  const server = await scripted(() => ({ body: served }));
+  try {
+    const client = createBlinkClient(server.origin, API_KEY);
+    assert.deepEqual(Buffer.from(await client.getContent(keccak256(bytes))), bytes);
+    served = Buffer.from("forged");
+    await assert.rejects(client.getContent(keccak256(bytes)), /HASH_MISMATCH/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("suggestions are submitted without a key and listed, read and claimed through the contract", async () => {
+  const suggestion = {
+    id: UUID,
+    text: "Will it rain?",
+    sourceUrls: [],
+    status: "OPEN",
+    claimCount: 0,
+    specHashes: [],
+    createdAt: "2026-10-15T00:00:00.000Z",
+  };
+  const server = await scripted((seen) => ({
+    status: seen.method === "POST" ? 201 : 200,
+    body:
+      seen.path === "/v1/suggestions" && seen.method === "POST"
+        ? { id: UUID }
+        : seen.path === "/v1/suggestions"
+          ? { items: [suggestion], nextCursor: null }
+          : suggestion,
+  }));
+  try {
+    const client = createBlinkClient(server.origin);
+    assert.deepEqual(await client.submitSuggestion({ text: "Will it rain in Taipei tomorrow afternoon?", sourceUrls: [] }), { id: UUID });
+    await client.listSuggestions({ status: "OPEN", limit: 5 });
+    await client.getSuggestion(UUID);
+    await client.claimSuggestion(UUID);
+    assert.deepEqual(
+      server.seen.map((s) => [s.method, s.path]),
+      [
+        ["POST", "/v1/suggestions"],
+        ["GET", "/v1/suggestions"],
+        ["GET", "/v1/suggestions/" + UUID],
+        ["POST", "/v1/suggestions/" + UUID + "/claims"],
+      ],
+    );
+    assert.deepEqual(server.seen[1]!.query, { status: "OPEN", limit: "5" });
+  } finally {
+    await server.close();
+  }
+});
+
+test("an RFQ body or a quote that breaks the contract never leaves the process", async () => {
   const server = await scripted(() => ({ body: {} }));
   try {
     const client = createBlinkClient(server.origin, API_KEY);
-    await assert.rejects(client.requestQuote({}), /RETIRED_P2/);
-    await assert.rejects(client.getQuote(HASH), /RETIRED_P2/);
-    await assert.rejects(client.claimFaucet({}), /RETIRED_P2/);
-    assert.deepEqual(server.seen, []);
+    await assert.rejects(client.createRfq({ marketId: MARKET, side: "MAYBE", quantity: "1" }));
+    await assert.rejects(client.createRfq({ marketId: MARKET, side: "YES", quantity: "1", extra: 1 }));
+    await assert.rejects(client.postQuote(rfqId, { quote: { ...quote, priceBps: "70000" }, signature: signedQuote.signature }));
+    await assert.rejects(client.postQuote("not-a-uuid", signedQuote));
+    await assert.rejects(client.trackTransaction({ txHash: "0x12" }));
+    assert.equal(server.seen.length, 0);
   } finally {
     await server.close();
   }
@@ -660,7 +851,7 @@ test("an answer that breaks the contract is an error, an API refusal is a BlinkA
       (error) => !(error instanceof BlinkApiError),
     );
     await assert.rejects(
-      client.getMarket({ ...marketRef, mode: "REPLAY" }),
+      client.getMarket(MARKET),
       (error) => error instanceof BlinkApiError && error.status === 404,
     );
   } finally {
@@ -686,7 +877,6 @@ test("the example agent refuses a node that is not local or not chain 84532 befo
     const agent = (rpcUrl: string) =>
       runAgent({
         apiUrl: api.origin,
-        apiKey: API_KEY,
         privateKey: dummyKey,
         rpcUrl,
         log: () => undefined,
@@ -710,13 +900,11 @@ test("the example agent refuses a node that is not local or not chain 84532 befo
   assert.deepEqual(
     configFromEnv({
       BLINK_API_URL: "http://127.0.0.1:3001",
-      BLINK_API_KEY: "k",
       AGENT_PRIVATE_KEY: dummyKey,
       RPC_URL: "http://127.0.0.1:8545",
     }),
     {
       apiUrl: "http://127.0.0.1:3001",
-      apiKey: "k",
       privateKey: dummyKey,
       rpcUrl: "http://127.0.0.1:8545",
     },

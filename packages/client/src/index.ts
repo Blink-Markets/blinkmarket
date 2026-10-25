@@ -3,13 +3,15 @@ import { isClientHttpLoopbackHost } from "./url-policy.ts";
 import { keccak256 } from "viem";
 import {
   ApiError,
-  type SignedQuoteResponse,
   ConfigResponse,
   IdempotencyHeaders,
-  MarketSpec,
+  ProtocolDeployment,
+  ProtocolMarket,
   apiContracts,
+  parseMarketSpec,
   type ApiContract,
-  type PublicMarketRef,
+  type IndexHealth,
+  type MarketStateName,
 } from "@blink/schemas";
 
 export class BlinkApiError extends Error {
@@ -31,8 +33,18 @@ type Out<M extends Method, P extends string> = Operation<
   M,
   P
 >["response"]["_output"];
-type MarketKey = Pick<PublicMarketRef, "deploymentId" | "marketId">;
 type Page = { limit?: number; cursor?: string };
+/** Paging of the protocol read routes and the RFQ list: `after` is the previous page's `next`. */
+type After = { limit?: number; after?: string };
+type ForecastMarket = { deploymentId: string; marketId: string };
+/** A page of the protocol read routes. Every such answer carries the index health it was read at. */
+export type ProtocolPage<T = Record<string, unknown>> = {
+  items: T[];
+  next: string | null;
+  index: IndexHealth;
+};
+/** A market from the read API: the indexed fields plus whatever the route adds (spec, proposal, index). */
+export type MarketDetail = ProtocolMarket & Record<string, unknown>;
 
 export type BlinkClientOptions = {
   /**
@@ -133,7 +145,7 @@ export function createBlinkClient(
     const { contract, url } = target(method, path, args);
     if (method === "GET")
       return contract.response.parse(json(await send(url))) as Out<M, P>;
-    const body = contract.body!.parse(args.body);
+    const body = contract.body ? contract.body.parse(args.body) : undefined;
     // The public wallet endpoints define no Idempotency-Key: a challenge is single use instead.
     const keyed = contract.idempotencyKey !== false;
     const key = args.key ?? crypto.randomUUID();
@@ -146,15 +158,26 @@ export function createBlinkClient(
             "Content-Type": "application/json",
             ...(keyed ? { "Idempotency-Key": key } : {}),
           },
-          body: JSON.stringify(body),
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         }),
       ),
     ) as Out<M, P>;
   }
-  const marketParams = (ref: MarketKey) => ({
+  const marketParams = (ref: ForecastMarket) => ({
     params: { id: ref.marketId },
     query: { deploymentId: ref.deploymentId },
   });
+  /** A route of the protocol read API (deployment, markets, disputes, fees, accounts, templates). */
+  const read = async (path: string, query: Record<string, unknown> = {}) =>
+    json(await send(path + queryString(query)));
+  const segment = (value: string) => encodeURIComponent(value);
+  /** Bytes served by hash, accepted only if keccak256(bytes) is the hash asked for. */
+  const bytesByHash = async (path: string, hash: string) => {
+    const bytes = await send(path);
+    if (keccak256(bytes) !== hash.toLowerCase())
+      throw new Error("HASH_MISMATCH");
+    return bytes;
+  };
   return {
     // --- identity ---
     /** Public and not idempotent: each call creates a new challenge (300 s; limits are per client IP, and per client IP and address). */
@@ -163,89 +186,134 @@ export function createBlinkClient(
     /** Public and single use: sign the challenge message, then verify once to receive the key. */
     verifyWallet: (input: unknown) =>
       call("POST", "/v1/auth/wallet-verifications", { body: input }),
-    // --- config and markets ---
+    // --- config and protocol reads (public) ---
     getConfig: async () => ConfigResponse.parse(json(await send("/v1/config"))),
-    listMarkets: (
-      query: Page & {
-        deploymentId?: string;
-        mode?: "LIVE" | "REPLAY";
-        status?: "OPEN" | "CLOSED" | "PROPOSED" | "DISPUTED" | "FINAL";
-      } = {},
-    ) => call("GET", "/v1/markets", { query }),
-    // `mode` is part of the reference but not of the request: the market is `marketId` in a deployment.
-    getMarket: (ref: PublicMarketRef) =>
-      call("GET", "/v1/markets/:id", marketParams(ref)),
-    /** The spec bytes, accepted only if keccak256(bytes) is the `specHash` the caller already trusts. */
-    async getMarketSpec(ref: MarketKey, specHash: string) {
-      const { url } = target("GET", "/v1/markets/:id/spec", marketParams(ref));
-      const bytes = await send(url);
-      if (keccak256(bytes) !== specHash.toLowerCase())
-        throw new Error("SPEC_HASH_MISMATCH");
-      return MarketSpec.parse(
-        JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)),
+    /** The current generation's manifest v2: contract addresses and Params. */
+    async getDeployment(): Promise<ProtocolDeployment> {
+      const body = (await read("/v1/deployment")) as Record<string, unknown>;
+      const { index: _index, ...manifest } = body;
+      return ProtocolDeployment.parse(
+        manifest.deployment !== undefined ? manifest.deployment : manifest,
       );
     },
+    listMarkets: (
+      query: After & { state?: MarketStateName } = {},
+    ): Promise<ProtocolPage<ProtocolMarket>> =>
+      read("/v1/markets", query) as Promise<ProtocolPage<ProtocolMarket>>,
+    async getMarket(marketId: string): Promise<MarketDetail> {
+      const body = (await read("/v1/markets/" + segment(marketId))) as Record<
+        string,
+        unknown
+      >;
+      const nested = body.market;
+      return ProtocolMarket.loose().parse(
+        typeof nested === "object" && nested !== null && !("marketId" in body)
+          ? { ...nested, ...body }
+          : body,
+      ) as MarketDetail;
+    },
+    /** The spec bytes, accepted only if keccak256(bytes) is the `specHash` the caller already trusts. */
+    async getMarketSpec(marketId: string, specHash: string) {
+      const bytes = await bytesByHash(
+        "/v1/markets/" + segment(marketId) + "/spec",
+        specHash,
+      );
+      const parsed = parseMarketSpec(bytes);
+      if (!parsed.ok) throw new Error(parsed.reason);
+      return parsed.spec;
+    },
+    listDisputes: (marketId: string, query: After = {}) =>
+      read("/v1/markets/" + segment(marketId) + "/disputes", query) as Promise<ProtocolPage>,
+    getDispute: (disputeId: string) =>
+      read("/v1/disputes/" + segment(disputeId)),
+    getFees: (marketId: string) =>
+      read("/v1/markets/" + segment(marketId) + "/fees"),
+    getAccount: (address: string) =>
+      read("/v1/accounts/" + segment(address)),
+    getPositions: (address: string, query: After = {}) =>
+      read("/v1/accounts/" + segment(address) + "/positions", query) as Promise<ProtocolPage>,
+    listTemplates: (query: After = {}) =>
+      read("/v1/templates", query) as Promise<ProtocolPage>,
+    // --- content and suggestions ---
+    /** Uploads bytes (needs a key with content:write); the answer must name keccak256 of what was sent. */
+    async uploadContent(bytes: Uint8Array, mediaType: string) {
+      const { contract } = target("POST", "/v1/content", {});
+      const answer = contract.response.parse(
+        json(
+          await send("/v1/content", {
+            method: "POST",
+            headers: { "Content-Type": mediaType },
+            body: new Uint8Array(bytes).buffer,
+          }),
+        ),
+      ) as { hash: string; size: number };
+      if (answer.hash !== keccak256(bytes) || answer.size !== bytes.length)
+        throw new Error("HASH_MISMATCH");
+      return answer as Out<"POST", "/v1/content">;
+    },
+    getContent: (hash: string) => bytesByHash("/v1/content/" + segment(hash), hash),
+    /** Public and not idempotent: each call adds a suggestion. */
+    submitSuggestion: (input: unknown) =>
+      call("POST", "/v1/suggestions", { body: input }),
+    listSuggestions: (
+      query: Page & { status?: "OPEN" | "CLAIMED" | "MARKET_CREATED" } = {},
+    ) => call("GET", "/v1/suggestions", { query }),
+    getSuggestion: (id: string) =>
+      call("GET", "/v1/suggestions/:id", { params: { id } }),
+    claimSuggestion: (id: string) =>
+      call("POST", "/v1/suggestions/:id/claims", { params: { id } }),
     // --- forecasts ---
-    listForecastWindows: (ref: MarketKey, page: Page = {}) =>
+    listForecastWindows: (ref: ForecastMarket, page: Page = {}) =>
       call("GET", "/v1/markets/:id/forecast-windows", {
         params: marketParams(ref).params,
         query: { deploymentId: ref.deploymentId, ...page },
       }),
-    submitForecast: (ref: MarketKey, input: unknown, key?: string) =>
+    submitForecast: (ref: ForecastMarket, input: unknown, key?: string) =>
       call("POST", "/v1/markets/:id/forecasts", {
         ...marketParams(ref),
         body: input,
         key,
       }),
-    listForecasts: (ref: MarketKey, query: Page & { windowId: string }) =>
+    listForecasts: (ref: ForecastMarket, query: Page & { windowId: string }) =>
       call("GET", "/v1/markets/:id/forecasts", {
         params: marketParams(ref).params,
         query: { deploymentId: ref.deploymentId, ...query },
       }),
-    // --- quotes and transactions ---
-    // Legacy methods fail closed until the P2 client is replaced.
-    requestQuote: async (
-      _input: unknown,
-      _key?: string,
-    ): Promise<(typeof SignedQuoteResponse)["_output"]> => {
-      throw new Error("RETIRED_P2");
-    },
-    getQuote: async (_quoteId: string): Promise<never> => {
-      throw new Error("RETIRED_P2");
-    },
-    trackTransaction: (input: unknown, key?: string) =>
-      call("POST", "/v1/transactions", {
-        body: input,
-        key,
-      }),
+    // --- RFQ relay (rfq:write) ---
+    /** Taker: `{ marketId, side, quantity }`. Open for 30 seconds; the relay never prices or fills. */
+    createRfq: (input: unknown) => call("POST", "/v1/rfqs", { body: input }),
+    /** Maker: the open RFQs. */
+    listRfqs: (query: After = {}) => call("GET", "/v1/rfqs", { query }),
+    /** Maker: `{ quote, signature }` for an RFQ. */
+    postQuote: (rfqId: string, input: unknown) =>
+      call("POST", "/v1/rfqs/:id/quotes", { params: { id: rfqId }, body: input }),
+    /** Taker: the RFQ's quotes, cheapest first, exactly as the makers posted them. Verify each one. */
+    listQuotes: (rfqId: string) =>
+      call("GET", "/v1/rfqs/:id/quotes", { params: { id: rfqId } }),
+    /** Public and informational: quotes relayed, filled and cancelled before expiry. */
+    getMakerStats: (address: string) =>
+      call("GET", "/v1/makers/:address/stats", { params: { address } }),
+    // --- transactions ---
+    /** Registers a hash the key's wallet sent to the current generation, the faucet or the anchor. */
+    trackTransaction: (input: { txHash: string }) =>
+      call("POST", "/v1/transactions", { body: input }),
     getTransaction: (ref: { deploymentId: string; txHash: string }) =>
       call("GET", "/v1/transactions/:txHash", {
         params: { txHash: ref.txHash },
         query: { deploymentId: ref.deploymentId },
       }),
-    getPositions: (
-      ref: { deploymentId: string; address: string },
-      page: Page = {},
-    ) =>
-      call("GET", "/v1/accounts/:address/positions", {
-        params: { address: ref.address },
-        query: { deploymentId: ref.deploymentId, ...page },
-      }),
-    // --- resolution, faucet and metrics ---
-    getResolution: (ref: MarketKey) =>
-      call("GET", "/v1/markets/:id/resolution", marketParams(ref)),
-    claimFaucet: async (_input: unknown, _key?: string): Promise<never> => {
-      throw new Error("RETIRED_P2");
-    },
     getMetrics: (mode: "LIVE" | "REPLAY") =>
       call("GET", "/v1/metrics", { query: { mode } }),
   };
 }
-export type { MarketRef as PublicMarketRef } from "@blink/schemas";
 export {
   DEFAULT_MIN_VALIDITY_SECONDS,
   QuoteVerificationError,
+  approvalFor,
+  feeOf,
+  takerCostOf,
   verifySignedQuote,
   type QuoteVerificationCode,
   type QuoteVerificationContext,
+  type VerifiedQuote,
 } from "./verify-quote.ts";

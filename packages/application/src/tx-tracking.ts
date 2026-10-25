@@ -1,9 +1,14 @@
-import type { DeploymentManifest } from "@blink/schemas";
+import { apiContracts, type ProtocolDeployment } from "@blink/schemas";
 import type {
+  IdentityPrincipal,
+  KeyScope,
   TrackedTransaction,
+  TrackedUpdate,
   TxTrackingStore,
   TxReceiptReader,
 } from "@blink/ports";
+import { IdentityError } from "./identity.js";
+import type { RouteService } from "./route-service.js";
 const same = (a: string | null | undefined, b: string | null | undefined) =>
   typeof a === "string" &&
   typeof b === "string" &&
@@ -11,7 +16,7 @@ const same = (a: string | null | undefined, b: string | null | undefined) =>
 export function createTxTracker(deps: {
   store: TxTrackingStore;
   reader: TxReceiptReader;
-  manifest(deploymentId: string): Promise<DeploymentManifest | null>;
+  manifest(deploymentId: string): Promise<ProtocolDeployment | null>;
 }) {
   return {
     async trackOnce(limit = 50): Promise<number> {
@@ -20,14 +25,8 @@ export function createTxTracker(deps: {
       let updated = 0;
       let failure: unknown;
       for (const row of await deps.store.pending(limit)) {
-        const next: Pick<
-          TrackedTransaction,
-          | "status"
-          | "rejectReason"
-          | "receiptBlockHash"
-          | "receiptBlockNumber"
-          | "marketId"
-        > = {
+        const next: TrackedUpdate = {
+          action: row.action,
           status: row.status,
           rejectReason: row.rejectReason,
           receiptBlockHash: row.receiptBlockHash,
@@ -58,28 +57,13 @@ export function createTxTracker(deps: {
           else if (tx) {
             if (!same(tx.from, row.wallet))
               next.rejectReason = "SENDER_MISMATCH";
-            else if (
-              !same(
-                tx.to,
-                row.action === "APPROVE"
-                  ? manifest.contracts.BlinkTestUSD
-                  : manifest.contracts.BlinkMarket,
-              )
-            )
+            else if (tx.contract === null)
               next.rejectReason = "TARGET_MISMATCH";
-            else if (
-              tx.action !== row.action ||
-              (row.action === "APPROVE" &&
-                !same(tx.spender, manifest.contracts.BlinkMarket))
-            )
+            else if (tx.action === null)
               next.rejectReason = "ACTION_MISMATCH";
-            else if (
-              row.action === "FILL" &&
-              !same(tx.quoteDigest, row.quoteId)
-            )
-              next.rejectReason = "QUOTE_MISMATCH";
             else {
-              if (row.action !== "APPROVE") next.marketId = tx.marketId ?? null;
+              next.action = tx.action;
+              next.marketId = tx.marketId ?? null;
               if (receipt?.canonical) {
                 next.receiptBlockHash = receipt.blockHash;
                 next.receiptBlockNumber = receipt.blockNumber;
@@ -107,6 +91,49 @@ export function createTxTracker(deps: {
       }
       if (failure) throw failure;
       return updated;
+    },
+  };
+}
+
+export const txTrackingPaths = ["/v1/transactions"] as const;
+const hintBody = apiContracts.find(
+  (c) => c.method === "POST" && c.path === "/v1/transactions",
+)!.body!;
+
+/**
+ * POST /v1/transactions: any API key registers a hash for tracking. Nothing is trusted here: the
+ * tracker later decodes the transaction and rejects a sender other than the key's wallet or a
+ * target outside the current generation, the faucet and the anchor.
+ */
+export function createTxTrackingService(deps: {
+  store: Pick<TxTrackingStore, "track">;
+  identity: {
+    authenticate(
+      authorization: string | undefined,
+      scope?: KeyScope,
+    ): Promise<IdentityPrincipal>;
+  };
+  /** The registered protocol generation hints belong to. */
+  deploymentId: string;
+  newId?: () => string;
+}): RouteService {
+  return {
+    paths: txTrackingPaths,
+    async handle(req) {
+      const principal = await deps.identity.authenticate(req.authorization);
+      const body = hintBody.safeParse(req.body);
+      if (!body.success) throw new IdentityError(400, "INVALID_REQUEST");
+      if (!principal.address) throw new IdentityError(403, "NOT_REGISTERED");
+      const row = await deps.store.track({
+        id: (deps.newId ?? (() => crypto.randomUUID()))(),
+        deploymentId: deps.deploymentId,
+        txHash: (body.data as { txHash: string }).txHash.toLowerCase(),
+        agentId: principal.agentId,
+        wallet: principal.address.toLowerCase(),
+      });
+      if (row.agentId !== principal.agentId)
+        throw new IdentityError(409, "TX_ALREADY_TRACKED");
+      return { status: 202, body: { trackingId: row.id, status: row.status } };
     },
   };
 }

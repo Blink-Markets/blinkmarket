@@ -10,6 +10,8 @@ import {
   createMetricsService,
   createContentService,
   createSuggestionService,
+  createRfqService,
+  createTxTrackingService,
   authenticateIdentity,
 } from "@blink/application";
 import {
@@ -24,6 +26,9 @@ import {
   verifiedArchive,
   postgresContentStore,
   postgresSuggestionStore,
+  postgresRfqStore,
+  postgresTxTrackingStore,
+  loadProtocolDeployment,
   postgresMarketReadStore,
   postgresEvaluationStore,
   postgresHealthReader,
@@ -43,6 +48,9 @@ const staleProtocolReader = {
   account: async () => null,
   hasRole: async () => false,
   marketBySpecHash: async () => null,
+  market: async () => null,
+  maker: async (address: string) => ({ address, freeMicros: "0", epoch: "0" }),
+  digest: async () => "UNUSED" as const,
 };
 
 const config = apiConfig(process.env);
@@ -69,6 +77,7 @@ try {
     if (modeAtLeast(config.mode, "markets")) {
       await pool.query("SELECT hash FROM content.objects LIMIT 0");
       await pool.query("SELECT id FROM suggestions.items LIMIT 0");
+      await pool.query("SELECT id FROM rfq.requests LIMIT 0");
     }
     await pool.query("SELECT id FROM identity.api_keys LIMIT 0");
     if (modeAtLeast(config.mode, "markets"))
@@ -90,17 +99,20 @@ try {
     pool && config.deploymentId
       ? postgresProtocolReader(pool, config.deploymentId)
       : staleProtocolReader;
+  const verifier = rpcSignatureVerifier(config.rpcUrl);
   const identity = pool
     ? createIdentityService(
         postgresIdentityStore(pool),
         identityCrypto,
         config.walletOrigin!,
-        {
-          verifier: rpcSignatureVerifier(config.rpcUrl),
-          reader: protocolReader,
-        },
+        { verifier, reader: protocolReader },
       )
     : undefined;
+  // The relay and transaction tracking belong to one registered generation.
+  const generation =
+    pool && identity && config.deploymentId && modeAtLeast(config.mode, "markets")
+      ? await loadProtocolDeployment(pool, config.deploymentId)
+      : undefined;
   const app = buildApi(
     pool && identity
       ? {
@@ -143,6 +155,25 @@ try {
                   identity,
                   reader: protocolReader,
                 }),
+                ...(generation && config.deploymentId
+                  ? [
+                      createRfqService({
+                        store: postgresRfqStore(pool, config.deploymentId),
+                        identity,
+                        reader: protocolReader,
+                        verifier,
+                        deployment: {
+                          markets: generation.generation.markets,
+                          maxFillShares: generation.params.maxFillShares,
+                        },
+                      }),
+                      createTxTrackingService({
+                        store: postgresTxTrackingStore(pool),
+                        identity,
+                        deploymentId: config.deploymentId,
+                      }),
+                    ]
+                  : []),
                 createForecastService({
                   store: postgresForecastStore(pool),
                   crypto: identityCrypto,

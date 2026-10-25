@@ -25,22 +25,15 @@ test("scaffold never advertises deployment or transaction readiness", async () =
       method: "POST",
       url: "/v1/rfqs",
       headers: { "idempotency-key": "smoke" },
-      payload: {
-        deploymentId: "test",
-        marketId: "1",
-        side: "YES",
-        quantity: "10",
-        maxCostMicros: "6500000",
-      },
+      payload: { marketId: "1", side: "YES", quantity: "10" },
     });
-    assert.equal(write.statusCode, 404);
+    // Without the relay wired in, a valid RFQ is refused as not implemented, never accepted.
+    assert.ok(write.statusCode >= 400, String(write.statusCode));
+    assert.equal(write.statusCode === 201, false);
     const openapi = (await app.inject("/openapi.json")).json();
-    for (const path of [
-      "/v1/rfqs",
-      "/v1/quotes/{quoteId}",
-      "/v1/faucet/claims",
-    ])
+    for (const path of ["/v1/quotes/{quoteId}", "/v1/faucet/claims"])
       assert.equal(openapi.paths[path], undefined);
+    assert.equal(openapi.paths["/v1/rfqs"].post["x-status"], "not-implemented");
     assert.equal(
       openapi.paths["/v1/markets/{id}"].get["x-status"],
       "not-implemented",

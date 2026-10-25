@@ -1,4 +1,4 @@
-import { apiContracts, IdempotencyHeaders, MarketSpec } from "@blink/schemas";
+import { MarketSpec } from "@blink/schemas";
 import type { ChainCursor } from "@blink/schemas";
 import type {
   MarketReadStore,
@@ -7,13 +7,9 @@ import type {
   IndexedMarketRow,
   IndexCursorRow,
   MarketListQuery,
-  TransactionHint,
 } from "@blink/ports";
 import type { RouteService } from "./route-service.js";
 import { IdentityError } from "./identity.js";
-const hintBody = apiContracts.find(
-  (c) => c.method === "POST" && c.path === "/v1/transactions",
-)!.body!;
 export function createMarketReadService(deps: {
   store: MarketReadStore;
   archive: SpecArchive;
@@ -35,7 +31,6 @@ export function createMarketReadService(deps: {
     "/v1/markets/:id/spec",
     "/v1/accounts/:address/positions",
     "/v1/markets/:id/resolution",
-    "/v1/transactions",
     "/v1/transactions/:txHash",
   ];
   const ref = (m: IndexedMarketRow) => ({
@@ -101,25 +96,6 @@ export function createMarketReadService(deps: {
     async handle(req) {
       try {
         const deployment = req.query.deploymentId as string;
-        if (req.path === "/v1/transactions") {
-          const principal = await deps.identity.authenticate(req.authorization);
-          const parsed = hintBody.safeParse(req.body);
-          if (
-            !parsed.success ||
-            !IdempotencyHeaders.safeParse({
-              "idempotency-key": req.idempotencyKey,
-            }).success
-          )
-            throw new IdentityError(400, "INVALID_REQUEST");
-          const b = parsed.data as TransactionHint;
-          const body = {
-            deploymentId: b.deploymentId,
-            txHash: b.txHash.toLowerCase(),
-            action: b.action,
-            ...(b.quoteId ? { quoteId: b.quoteId.toLowerCase() } : {}),
-          };
-          return await deps.store.hint(principal, body, req.idempotencyKey!);
-        }
         if (req.path === "/v1/transactions/:txHash") {
           const t = await deps.store.transaction(
             deployment,

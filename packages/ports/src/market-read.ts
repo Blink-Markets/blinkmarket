@@ -1,6 +1,5 @@
-import type { TransactionHint, TrackedTransaction } from "./tx-tracking.js";
+import type { TrackedTransaction } from "./tx-tracking.js";
 import type { ChainCursor } from "@blink/schemas";
-import type { IdentityPrincipal, IdentityResponse } from "./identity.js";
 
 export interface IndexCursorRow {
   blockNumber: string;
@@ -64,11 +63,6 @@ export interface MarketReadStore {
     query: MarketListQuery,
   ): Promise<{ items: PositionReadRow[]; nextCursor: string | null }>;
   integrityFailure(market: IndexedMarketRow, requestId: string): Promise<void>;
-  hint(
-    principal: IdentityPrincipal & { wallet: string | null },
-    body: TransactionHint,
-    key: string,
-  ): Promise<IdentityResponse>;
   transaction(
     deploymentId: string,
     hash: string,

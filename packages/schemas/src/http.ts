@@ -17,12 +17,12 @@ import {
   ApiError,
   ChainCursor,
   DeploymentId,
+  DecimalInteger,
   Hash,
   MarketSpec,
   Mode,
   Outcome,
   PositiveUint256,
-  Quote,
   Uint256,
   Uint64,
   TransactionState,
@@ -90,12 +90,62 @@ const Suggestion = z.strictObject({
   specHashes: z.array(Hash),
   createdAt: Time,
 });
+/** An RFQ stays open this long; a taker may hold at most MAX_OPEN_RFQS open ones. */
+export const RFQ_TTL_SECONDS = 30;
+export const MAX_OPEN_RFQS = 5;
+/** One RFQ holds at most this many quotes, one per maker. */
+export const MAX_QUOTES_PER_RFQ = 20;
+/** BlinkMarkets refuses a quote that lives longer than this. */
+export const MAX_QUOTE_LIFETIME_SECONDS = 60;
+/** Room for the quote fields and a signature of up to 8192 bytes (a contract wallet may sign long). */
+export const RFQ_BODY_MAX_BYTES = 20_000;
+const SignatureHex = z.string().regex(/^0x(?:[0-9a-fA-F]{2}){1,8192}$/);
 export const RfqRequest = z.strictObject({
-  deploymentId: DeploymentId,
   marketId: PositiveUint256,
   side: Side,
-  quantity: Uint64.refine((v) => BigInt(v) > 0n && BigInt(v) <= 100n),
-  maxCostMicros: Uint256,
+  quantity: Uint64.refine((v) => BigInt(v) > 0n, "quantity must be positive"),
+});
+/**
+ * The eleven fields of the EIP-712 Quote, as the maker signed them (decimal strings, side "0" for
+ * YES and "1" for NO). Range rules (price, lifetime, epoch) are checked by the relay so that each
+ * refusal carries its own code.
+ */
+export const QuoteFields = z.strictObject({
+  marketId: PositiveUint256,
+  specHash: Hash,
+  maker: Address,
+  taker: Address,
+  side: z.enum(["0", "1"]),
+  quantity: Uint64,
+  priceBps: DecimalInteger.refine((v) => BigInt(v) <= 65535n, "uint16 overflow"),
+  validAfter: Uint64,
+  expiresAt: Uint64,
+  nonce: Uint256,
+  epoch: Uint256,
+});
+export type QuoteFields = z.infer<typeof QuoteFields>;
+export const SignedQuote = z.strictObject({
+  quote: QuoteFields,
+  signature: SignatureHex,
+});
+export type SignedQuote = z.infer<typeof SignedQuote>;
+export const RfqView = z.strictObject({
+  rfqId: Id,
+  marketId: PositiveUint256,
+  specHash: Hash,
+  side: Side,
+  quantity: Uint64,
+  taker: Address,
+  expiresAt: z.number().int().min(0),
+});
+export const MakerStats = z.strictObject({
+  quotesRelayed: z.number().int().min(0),
+  quotesFilled: z.number().int().min(0),
+  quotesCancelledBeforeExpiry: z.number().int().min(0),
+});
+const AfterQuery = z.strictObject({
+  after: z.string().regex(/^[0-9]{1,18}$/).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 export const ConfigResponse = z.strictObject({
   chainId: z.literal(84532),
@@ -110,33 +160,6 @@ export const ConfigResponse = z.strictObject({
   }),
 });
 export type ConfigResponse = z.infer<typeof ConfigResponse>;
-export const SignedQuoteResponse = z.strictObject({
-  deploymentId: DeploymentId,
-  quoteId: Hash,
-  marketId: PositiveUint256,
-  mode: Mode,
-  chainId: z.literal(84532),
-  verifyingContract: Address,
-  domain: z.strictObject({
-    name: z.literal("Blink RFQ"),
-    version: z.literal("0.1"),
-    chainId: z.literal(84532),
-    verifyingContract: Address,
-  }),
-  types: z.strictObject({
-    Quote: z
-      .array(z.strictObject({ name: z.string(), type: z.string() }))
-      .length(11),
-  }),
-  message: Quote,
-  signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/),
-  takerCostMicros: Uint256,
-  makerCostMicros: Uint256,
-  expiresAt: Uint64,
-  calldata: z.string().regex(/^0x(?:[0-9a-fA-F]{2})+$/),
-  forecastSnapshotId: Id,
-  chainCursor: ChainCursor,
-});
 const Ref = {
   deploymentId: DeploymentId,
   marketId: PositiveUint256,
@@ -375,22 +398,66 @@ const contracts = [
   }),
   operation(
     "POST",
-    "/v1/transactions",
-    z.strictObject({ trackingId: Id, status: z.literal("UNKNOWN") }),
+    "/v1/rfqs",
+    z.strictObject({ rfqId: Id, expiresAt: z.number().int().min(0) }),
     {
-      body: z
-        .strictObject({
-          deploymentId: DeploymentId,
-          txHash: Hash,
-          action: z.enum(["APPROVE", "FILL", "REDEEM"]),
-          quoteId: Hash.optional(),
-        })
-        .refine(
-          (v) => v.action !== "FILL" || v.quoteId !== undefined,
-          "FILL requires quoteId",
-        ),
+      body: RfqRequest,
+      access: "rfq:write",
+      status: 201,
+      idempotencyKey: false,
+      bodyLimit: RFQ_BODY_MAX_BYTES,
+      description:
+        "Needs the rfq:write scope and the TAKER role in the indexed current generation; refused with 503 INDEX_STALE while the index lags. The market must be OPEN before its close time (409 MARKET_NOT_TRADABLE) and 1 <= quantity <= maxFillShares. An RFQ stays open 30 seconds; a taker may hold 5 open RFQs. Not idempotent: each call creates an RFQ. The platform only relays: it never prices, signs or fills.",
+    },
+  ),
+  operation("GET", "/v1/rfqs", z.strictObject({ items: z.array(RfqView), next: z.string().nullable() }), {
+    query: AfterQuery,
+    access: "rfq:write",
+    description:
+      "Open RFQs for makers, oldest first. Needs the rfq:write scope and the MAKER role in the indexed current generation. `after` is the `next` of the previous page.",
+  }),
+  operation(
+    "POST",
+    "/v1/rfqs/:id/quotes",
+    z.strictObject({ digest: Hash }),
+    {
+      body: SignedQuote,
+      access: "rfq:write",
+      status: 201,
+      idempotencyKey: false,
+      bodyLimit: RFQ_BODY_MAX_BYTES,
+      description:
+        "Needs the rfq:write scope and the MAKER role. The quote must equal the RFQ's taker, market, side and quantity, name the caller as maker, be signed by the maker (EOA, or ERC-1271 for a contract wallet; ERC-6492 wrappers are refused), live at most 60 seconds, expire after now and no later than the market close, carry the maker's current epoch, have an unused digest and be covered by the maker's free balance. One quote per maker per RFQ, 20 per RFQ. The fields and signature bytes are stored and returned unchanged. Refused with 503 INDEX_STALE while the index lags and 503 SIGNATURE_CHECK_UNAVAILABLE when the signature cannot be checked; a refused quote is never stored.",
+    },
+  ),
+  operation(
+    "GET",
+    "/v1/rfqs/:id/quotes",
+    z.strictObject({ items: z.array(SignedQuote) }),
+    {
+      access: "rfq:write",
+      description:
+        "Only the RFQ's taker (the key's wallet). Quotes ordered by priceBps ascending, then arrival, exactly as the makers posted them. Verify each one (see @blink/client verifySignedQuote) before approving or filling.",
+    },
+  ),
+  operation("GET", "/v1/makers/:address/stats", MakerStats, {
+    description:
+      "Public and informational only: quotes relayed, quotes filled (matched by digest against QuoteFilled) and quotes cancelled before they expired (matched against QuoteCancelled). It gates nothing and quotes that bypass the relay are invisible to it.",
+  }),
+  operation(
+    "POST",
+    "/v1/transactions",
+    z.strictObject({
+      trackingId: Id,
+      status: z.enum(["UNKNOWN", "INCLUDED", "FINALIZED", "REVERTED", "REORGED"]),
+    }),
+    {
+      body: z.strictObject({ txHash: Hash }),
       status: 202,
-      access: "verified-wallet",
+      access: "key",
+      idempotencyKey: false,
+      description:
+        "Any API key. Registers a transaction hash for tracking; the sender must be the key's wallet and the target a contract of the current generation, the faucet or the anchor, otherwise the tracked row carries a rejectReason. Posting a hash the same key already tracks returns the same trackingId; a hash tracked by another key answers 409 TX_ALREADY_TRACKED.",
     },
   ),
   operation(
