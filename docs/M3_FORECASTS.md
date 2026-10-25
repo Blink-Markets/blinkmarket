@@ -1,5 +1,9 @@
 # M3 forecast windows, submissions and snapshots
 
+> Historical. P2 Task 10 (migration `0033`) replaced the submission and annotation model described
+> below with signed forecasts and removed `blink_forecast_admin`, the `forecast-admin` CLI and the
+> `evidence.*` tables. See `docs/P2_OFFCHAIN_PROGRESS.md`.
+
 ## Delivered scope
 
 Migration `0009_forecasts.sql` adds the platform-agent registry, DAILY/PRE_CLOSE windows, immutable submissions, append-only annotations and snapshots, and model-run provenance/lifecycle records. Windows deliberately have no foreign key to the rebuildable chain market projection. API, worker and forecast-admin grants are separate; workers cannot read submissions or snapshots.

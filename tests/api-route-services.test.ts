@@ -144,19 +144,22 @@ test("invalid params or query are rejected with 400 before the service runs", as
   const { service, calls } = fakeService(["/v1/markets/:id/forecast-windows"]);
   const app = buildApi({ services: [service] });
   try {
-    const badParam = await app.inject("/v1/markets/abc/forecast-windows?deploymentId=x");
+    const badParam = await app.inject("/v1/markets/abc/forecast-windows");
     assert.equal(badParam.statusCode, 400);
     assert.equal(badParam.json().code, "INVALID_REQUEST");
     assert.equal(badParam.json().retryable, false);
     assert.equal(typeof badParam.json().requestId, "string");
-    assert.equal((await app.inject("/v1/markets/1/forecast-windows")).statusCode, 400);
     assert.equal(
-      (await app.inject("/v1/markets/1/forecast-windows?deploymentId=x&extra=1")).statusCode,
+      (await app.inject("/v1/markets/1/forecast-windows?limit=0")).statusCode,
+      400,
+    );
+    assert.equal(
+      (await app.inject("/v1/markets/1/forecast-windows?extra=1")).statusCode,
       400,
     );
     assert.equal(calls.length, 0);
     assert.equal(
-      (await app.inject("/v1/markets/1/forecast-windows?deploymentId=x")).statusCode,
+      (await app.inject("/v1/markets/1/forecast-windows")).statusCode,
       200,
     );
     assert.equal(calls.length, 1);
@@ -175,7 +178,7 @@ test("POST needs a valid Idempotency-Key and passes the raw body through", async
     const send = (headers: Record<string, string>, payload: object = rawBody) =>
       app.inject({
         method: "POST",
-        url: "/v1/markets/1/forecasts?deploymentId=x",
+        url: "/v1/markets/1/forecasts",
         headers,
         payload,
       });
@@ -465,8 +468,7 @@ test("Address and Hash params reach the service lowercased", async () => {
     assert.equal(tx.statusCode, 200);
     assert.deepEqual(calls[1]!.params, { txHash: mixedHash.toLowerCase() });
     assert.equal(
-      (await app.inject("/v1/accounts/0x12/positions"))
-        .statusCode,
+      (await app.inject("/v1/accounts/0x12/positions")).statusCode,
       400,
     );
   } finally {

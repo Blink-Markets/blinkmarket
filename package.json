@@ -18,7 +18,6 @@
     "test:contracts:seeds": "node scripts/foundry.mjs forge test --root contracts --match-contract ProtocolInvariantTest --fuzz-seed 0x01 && node scripts/foundry.mjs forge test --root contracts --match-contract ProtocolInvariantTest --fuzz-seed 0x02",
     "db:migrate": "node --import tsx scripts/migrate.ts",
     "ops:status": "node --import tsx scripts/ops-status.ts",
-    "forecast:admin": "node --import tsx scripts/forecast-admin.ts",
     "manifest:validate": "node --import tsx scripts/validate-manifest.ts",
     "contracts:deploy": "node --import tsx scripts/deploy-contracts.ts",
     "manifest:verify": "node --import tsx scripts/verify-deployment.ts",

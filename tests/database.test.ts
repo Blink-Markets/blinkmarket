@@ -310,15 +310,23 @@ test("0026 retires research and approval objects", async () => {
       ).rows,
       [],
     );
-    // What survives: submissions and windows, evidence, the markets schema and the resolution schema.
+    // What survives: submissions, windows and annotations, and the markets schema (0033 drops the evidence records).
     const kept = (
       await db.query<{ name: string }>(
         `SELECT schemaname || '.' || tablename AS name FROM pg_tables
          WHERE schemaname || '.' || tablename IN ('forecasts.windows','forecasts.submissions',
-           'forecasts.annotations','evidence.sources','evidence.records','markets.deployments')`,
+           'forecasts.annotations','markets.deployments')`,
       )
     ).rows;
-    assert.equal(kept.length, 6);
+    assert.equal(kept.length, 4);
+    assert.deepEqual(
+      (
+        await db.query(
+          "SELECT 1 FROM pg_namespace WHERE nspname='evidence' UNION ALL SELECT 1 FROM pg_roles WHERE rolname='blink_forecast_admin'",
+        )
+      ).rows,
+      [],
+    );
     // The scoring view no longer depends on platform agents.
     assert.deepEqual(
       (

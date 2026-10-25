@@ -2,162 +2,260 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type {
   ForecastStore,
-  ForecastTransaction,
   ForecastWindow,
+  ForecasterStats,
+  StoredForecast,
 } from "@blink/ports";
 import { createUnitOfWork } from "./database.js";
-import { identityTransaction } from "./identity-store.js";
 
-const windowColumns = `id,deployment_id AS "deploymentId",market_id::text AS "marketId",horizon_type AS "horizonType",scheduled_at AS "scheduledAt",open_at AS "openAt",deadline`;
-const dates = (w: ForecastWindow): ForecastWindow => ({
+const windowColumns = `id,market_id::text AS "marketId",horizon_type AS "horizonType",scheduled_at AS "scheduledAt",open_at AS "openAt",deadline,
+  CASE WHEN merkle_root IS NULL THEN NULL ELSE '0x'||encode(merkle_root,'hex') END AS "merkleRoot",root_at AS "rootAt"`;
+const toWindow = (w: ForecastWindow): ForecastWindow => ({
   ...w,
   scheduledAt: new Date(w.scheduledAt),
   openAt: new Date(w.openAt),
   deadline: new Date(w.deadline),
+  rootAt: w.rootAt ? new Date(w.rootAt) : null,
 });
+const submissionColumns = `s.id AS "submissionId",s.window_id AS "windowId",'0x'||encode(s.forecaster_address,'hex') AS forecaster,
+  s.probability_bps AS "probabilityBps",'0x'||encode(s.content_hash,'hex') AS "contentHash",'0x'||encode(s.digest,'hex') AS digest,
+  s.signature,s.verified_block::text AS "verifiedBlock",s.received_at AS "receivedAt",
+  (SELECT min(a.created_at) FROM forecasts.annotations a WHERE a.submission_id=s.id AND a.kind='WITHDRAWN') AS "withdrawnAt"`;
+type SubmissionRow = Omit<StoredForecast, "verifiedBlock" | "receivedAt" | "withdrawnAt"> & {
+  verifiedBlock: string;
+  receivedAt: Date;
+  withdrawnAt: Date | null;
+};
+const toSubmission = (r: SubmissionRow): StoredForecast => ({
+  ...r,
+  verifiedBlock: Number(r.verifiedBlock),
+  receivedAt: new Date(r.receivedAt),
+  withdrawnAt: r.withdrawnAt ? new Date(r.withdrawnAt) : null,
+});
+const hex = (value: string) => value.slice(2).toLowerCase();
 
-export function postgresForecastStore(pool: Pool): ForecastStore {
-  const uow = createUnitOfWork(pool);
-  return {
-    run: (work) => uow.run((ctx) => work(forecastTransaction(uow.client(ctx)))),
-  };
+/** At most this many scored submissions count toward a forecaster's credit. */
+const CREDIT_WINDOW = 50;
+
+/**
+ * Credit stats from the latest 50 scored LIVE AGENT submissions per forecaster: not withdrawn, not
+ * contaminated, with a Brier score. With `at`, only scores recorded by then count. Shared by the API
+ * (forecaster reads) and the worker (frozen consensus weights).
+ */
+export async function queryCreditStats(
+  db: Pick<PoolClient, "query">,
+  forecasters: string[] | null,
+  at: Date | null,
+): Promise<ForecasterStats[]> {
+  const { rows } = await db.query<{ address: string; n: number; mean: number | null }>(
+    `WITH who AS (
+       SELECT DISTINCT forecaster_address AS f FROM forecasts.submissions
+       WHERE forecaster_address IS NOT NULL
+         AND ($1::text[] IS NULL OR encode(forecaster_address,'hex')=ANY($1::text[]))
+     ), scored AS (
+       SELECT e.forecaster AS f,e.brier,
+         row_number() OVER (PARTITION BY e.forecaster ORDER BY w.deadline DESC,e.window_id DESC) AS rn
+       FROM analytics.score_entries e JOIN forecasts.windows w ON w.id=e.window_id
+       WHERE e.scorer='AGENT' AND e.evaluation_version='v2' AND e.mode='LIVE'
+         AND NOT e.missing AND NOT e.contaminated AND e.brier IS NOT NULL
+         AND e.forecaster IN (SELECT f FROM who)
+         AND ($2::timestamptz IS NULL OR e.created_at<=$2)
+     ), credit AS (
+       SELECT f,count(*)::int AS n,avg(brier)::float8 AS mean FROM scored WHERE rn<=$3 GROUP BY f
+     )
+     SELECT '0x'||encode(who.f,'hex') AS address,COALESCE(credit.n,0) AS n,credit.mean
+     FROM who LEFT JOIN credit ON credit.f=who.f ORDER BY who.f`,
+    [forecasters ? forecasters.map(hex) : null, at, CREDIT_WINDOW],
+  );
+  return rows.map((r) => ({ address: r.address, n: r.n, meanBrier: r.mean }));
 }
-function forecastTransaction(db: PoolClient): ForecastTransaction {
+
+export function postgresForecastStore(
+  pool: Pool,
+  deploymentId: string,
+): ForecastStore {
+  const uow = createUnitOfWork(pool);
+  const tx = <T>(work: (db: PoolClient) => Promise<T>) =>
+    uow.run((ctx) => work(uow.client(ctx)));
+  const one = async (sql: string, params: unknown[]) => {
+    const { rows } = await pool.query<ForecastWindow>(sql, params);
+    return rows[0] ? toWindow(rows[0]) : null;
+  };
   return {
-    ...identityTransaction(db),
     async now() {
-      return new Date(
-        (await db.query("SELECT blink.now() AS now")).rows[0].now,
-      );
+      const { rows } = await pool.query("SELECT blink.now() AS now");
+      return new Date(rows[0].now);
     },
-    async windows(deploymentId, marketId, limit, after) {
-      const result = await db.query<ForecastWindow>(
-        `SELECT ${windowColumns} FROM forecasts.windows WHERE deployment_id=$1 AND market_id=$2 AND ($4::timestamptz IS NULL OR (scheduled_at,horizon_type)>($4::timestamptz,$5::text)) ORDER BY scheduled_at,horizon_type LIMIT $3`,
-        [
-          deploymentId,
-          marketId,
-          limit,
-          after?.scheduledAt ?? null,
-          after?.horizonType ?? null,
-        ],
+    async windows(marketId, limit, after) {
+      const { rows } = await pool.query<ForecastWindow>(
+        `SELECT ${windowColumns} FROM forecasts.windows WHERE deployment_id=$1 AND market_id=$2
+         AND ($4::timestamptz IS NULL OR (scheduled_at,horizon_type)>($4::timestamptz,$5::text))
+         ORDER BY scheduled_at,horizon_type LIMIT $3`,
+        [deploymentId, marketId, limit, after?.scheduledAt ?? null, after?.horizonType ?? null],
       );
-      return result.rows.map(dates);
+      return rows.map(toWindow);
     },
-    async window(deploymentId, marketId, selector, lock) {
-      const byId = typeof selector === "string";
-      const result = await db.query<ForecastWindow>(
-        `SELECT ${windowColumns} FROM forecasts.windows WHERE deployment_id=$1 AND market_id=$2 AND ${byId ? "id=$3" : "horizon_type=$3 AND scheduled_at=$4"} ${lock ? "FOR UPDATE" : ""}`,
-        [
-          deploymentId,
-          marketId,
-          ...(byId ? [selector] : [selector.horizonType, selector.scheduledAt]),
-        ],
+    windowById: (id) =>
+      one(`SELECT ${windowColumns} FROM forecasts.windows WHERE id=$1 AND deployment_id=$2`, [
+        id,
+        deploymentId,
+      ]),
+    windowFor: (marketId, horizonType, scheduledAt) =>
+      one(
+        `SELECT ${windowColumns} FROM forecasts.windows
+         WHERE deployment_id=$1 AND market_id=$2 AND horizon_type=$3 AND scheduled_at=$4`,
+        [deploymentId, marketId, horizonType, scheduledAt],
+      ),
+    async submissionOf(windowId, forecaster) {
+      const { rows } = await pool.query<SubmissionRow>(
+        `SELECT ${submissionColumns} FROM forecasts.submissions s
+         WHERE s.window_id=$1 AND s.forecaster_address=decode($2,'hex')`,
+        [windowId, hex(forecaster)],
       );
-      return result.rows[0] ? dates(result.rows[0]) : null;
+      return rows[0] ? toSubmission(rows[0]) : null;
     },
-    async marketOpen(deploymentId, marketId, now) {
-      return (
-        (
-          await db.query(
-            "SELECT 1 FROM protocol.market_reads WHERE deployment_id=$1 AND market_id=$2 AND state='OPEN' AND close_at>extract(epoch from $3::timestamptz)",
-            [deploymentId, marketId, now],
-          )
-        ).rows.length === 1
+    submit: (input) =>
+      tx(async (db) => {
+        // The window lock serializes admission with the root: whoever holds it decides, by the
+        // database clock, whether the window is still open.
+        const locked = await db.query(
+          "SELECT id FROM forecasts.windows WHERE id=$1 AND deployment_id=$2 FOR UPDATE",
+          [input.windowId, deploymentId],
+        );
+        if (!locked.rows.length) return { state: "CLOSED" };
+        const taken = await db.query(
+          "SELECT 1 FROM forecasts.submissions WHERE window_id=$1 AND forecaster_address=decode($2,'hex')",
+          [input.windowId, hex(input.forecaster)],
+        );
+        if (taken.rows.length) return { state: "DUPLICATE" };
+        // One precise database timestamp at insertion: neither network or verification delay nor JS
+        // millisecond truncation admits a late row.
+        const inserted = await db.query<{ received_at: Date }>(
+          `WITH stamp AS MATERIALIZED (SELECT blink.now() AS received_at)
+           INSERT INTO forecasts.submissions(id,window_id,agent_id,operator_id,key_id,forecaster_address,digest,signature,
+             content_hash,verified_block,probability_bps,received_at)
+           SELECT $1,w.id,$3,$4,$5,decode($6,'hex'),decode($7,'hex'),$8,decode($9,'hex'),$10,$11,stamp.received_at
+           FROM forecasts.windows w CROSS JOIN stamp
+           WHERE w.id=$2 AND stamp.received_at>=w.open_at AND stamp.received_at<w.deadline
+           RETURNING received_at`,
+          [
+            input.id,
+            input.windowId,
+            input.agentId,
+            input.operatorId,
+            input.keyId,
+            hex(input.forecaster),
+            hex(input.digest),
+            input.signature,
+            hex(input.contentHash),
+            input.verifiedBlock.toString(),
+            input.probabilityBps,
+          ],
+        );
+        if (!inserted.rows[0]) return { state: "CLOSED" };
+        await db.query(
+          "INSERT INTO operations.audit_log(id,actor,action,resource,reason,request_id) VALUES($1,$2,'forecast.submitted',$3,'Immutable signed forecast submission',$4)",
+          [randomUUID(), input.keyId, input.id, input.requestId],
+        );
+        return { state: "ADMITTED", receivedAt: new Date(inserted.rows[0].received_at) };
+      }),
+    withdraw: (submissionId, forecaster) =>
+      tx(async (db) => {
+        const found = await db.query<{ window_id: string }>(
+          "SELECT window_id FROM forecasts.submissions WHERE id=$1 AND forecaster_address=decode($2,'hex')",
+          [submissionId, hex(forecaster)],
+        );
+        if (!found.rows[0]) return { state: "NOT_FOUND" };
+        await db.query("SELECT id FROM forecasts.windows WHERE id=$1 FOR UPDATE", [
+          found.rows[0].window_id,
+        ]);
+        const first = await db.query<{ created_at: Date }>(
+          "SELECT min(created_at) AS created_at FROM forecasts.annotations WHERE submission_id=$1 AND kind='WITHDRAWN'",
+          [submissionId],
+        );
+        if (first.rows[0]?.created_at)
+          return { state: "WITHDRAWN", withdrawnAt: new Date(first.rows[0].created_at) };
+        const stamped = await db.query<{ created_at: Date }>(
+          `WITH stamp AS MATERIALIZED (SELECT blink.now() AS at)
+           INSERT INTO forecasts.annotations(id,submission_id,kind,reason,actor,created_at)
+           SELECT $2,$1,'WITHDRAWN','Withdrawn by the forecaster',$3,stamp.at
+           FROM forecasts.windows w CROSS JOIN stamp WHERE w.id=$4 AND stamp.at<w.deadline
+           RETURNING created_at`,
+          [submissionId, randomUUID(), forecaster, found.rows[0].window_id],
+        );
+        if (!stamped.rows[0]) return { state: "CLOSED" };
+        return { state: "WITHDRAWN", withdrawnAt: new Date(stamped.rows[0].created_at) };
+      }),
+    async submissions(windowId, forecaster, limit, after) {
+      const { rows } = await pool.query<SubmissionRow>(
+        `SELECT ${submissionColumns} FROM forecasts.submissions s
+         WHERE s.window_id=$1 AND s.forecaster_address IS NOT NULL
+           AND ($2::text IS NULL OR s.forecaster_address=decode($2,'hex')) AND ($4::uuid IS NULL OR s.id>$4)
+         ORDER BY s.id LIMIT $3`,
+        [windowId, forecaster === null ? null : hex(forecaster), limit, after],
       );
+      return rows.map(toSubmission);
     },
-    async evidenceAllowed(ids, operatorId) {
-      const result = await db.query(
-        "SELECT id FROM evidence.records WHERE id=ANY($1::uuid[]) AND (access_policy IN ('PUBLIC','EXCERPT') OR operator_id=$2)",
-        [ids, operatorId],
+    async digests(windowId) {
+      const { rows } = await pool.query<{ digest: string }>(
+        `SELECT '0x'||encode(s.digest,'hex') AS digest FROM forecasts.submissions s
+         WHERE s.window_id=$1 AND s.digest IS NOT NULL
+           AND NOT EXISTS(SELECT 1 FROM forecasts.annotations a WHERE a.submission_id=s.id AND a.kind='WITHDRAWN')
+         ORDER BY s.digest`,
+        [windowId],
       );
-      // UUIDs are case-insensitive: count distinct ids the way PostgreSQL does.
-      return (
-        result.rows.length === new Set(ids.map((id) => id.toLowerCase())).size
-      );
+      return rows.map((r) => r.digest);
     },
-    async submitted(windowId, agentId) {
-      return (
-        (
-          await db.query(
-            "SELECT 1 FROM forecasts.submissions WHERE window_id=$1 AND agent_id=$2",
-            [windowId, agentId],
-          )
-        ).rows.length > 0
+    async answers(windowId) {
+      const { rows } = await pool.query<{ forecaster: string; probabilityBps: number }>(
+        `SELECT '0x'||encode(s.forecaster_address,'hex') AS forecaster,s.probability_bps AS "probabilityBps"
+         FROM forecasts.submissions s WHERE s.window_id=$1 AND s.forecaster_address IS NOT NULL
+           AND NOT EXISTS(SELECT 1 FROM forecasts.annotations a WHERE a.submission_id=s.id AND a.kind='WITHDRAWN')
+         ORDER BY s.id`,
+        [windowId],
       );
+      return rows;
     },
-    async submit(id, window, principal, input) {
-      // The window lock is already held. Capture one precise DB timestamp at insertion,
-      // so neither network/validation delay nor JS millisecond truncation admits a late row.
-      const result = await db.query(
-        `WITH stamp AS MATERIALIZED (SELECT blink.now() AS received_at)
-    INSERT INTO forecasts.submissions(id,window_id,agent_id,operator_id,key_id,probability,evidence_ids,rationale,agent_version,received_at)
-    SELECT $1,w.id,$3,$4,$5,$6,$7,$8,$9,stamp.received_at FROM forecasts.windows w CROSS JOIN stamp
-    WHERE w.id=$2 AND stamp.received_at>=w.open_at AND stamp.received_at<w.deadline
-    RETURNING received_at`,
-        [
-          id,
-          window.id,
-          principal.agentId,
-          principal.operatorId,
-          principal.keyId,
-          input.probability,
-          input.evidenceIds,
-          input.rationale,
-          input.agentVersion,
-        ],
-      );
-      return result.rows[0] ? new Date(result.rows[0].received_at) : null;
-    },
-    async auditForecast(actor, submissionId, requestId) {
-      await db.query(
-        "INSERT INTO operations.audit_log(id,actor,action,resource,reason,request_id) VALUES($1,$2,'forecast.submitted',$3,'Immutable forecast submission',$4)",
-        [randomUUID(), actor, submissionId, requestId],
-      );
-    },
-    async submissions(windowId, agentId, limit, after) {
-      const result = await db.query(
-        `SELECT s.id AS "submissionId",agent_id AS "agentId",window_id AS "windowId",probability::float8 AS probability,
-    received_at AS "receivedAt",evidence_ids AS "evidenceIds",rationale,agent_version AS "agentVersion",
-    (SELECT min(created_at) FROM forecasts.annotations a WHERE a.submission_id=s.id AND kind='WITHDRAWN') AS "withdrawnAt",
-    EXISTS(SELECT 1 FROM forecasts.annotations a WHERE a.submission_id=s.id AND kind IN ('OUTCOME_ALREADY_PUBLIC','WINDOW_CONTAMINATED')) AS contaminated
-    FROM forecasts.submissions s WHERE window_id=$1 AND ($2::uuid IS NULL OR agent_id=$2) AND ($4::uuid IS NULL OR s.id>$4)
-    ORDER BY s.id LIMIT $3`,
-        [windowId, agentId, limit, after],
-      );
-      return result.rows.map((r) => ({
-        ...r,
-        receivedAt: new Date(r.receivedAt).toISOString(),
-        withdrawnAt: r.withdrawnAt
-          ? new Date(r.withdrawnAt).toISOString()
-          : null,
-      }));
-    },
-    async openMarkets() {
-      const result = await db.query(
-        `SELECT deployment_id AS "deploymentId",market_id::text AS "marketId",to_timestamp(close_at::double precision) AS "closeAt" FROM protocol.market_reads WHERE state='OPEN' AND close_at>extract(epoch from blink.now())`,
-      );
-      return result.rows.map((r) => ({
-        deploymentId: String(r.deploymentId),
-        marketId: String(r.marketId),
-        closeAt: new Date(r.closeAt),
-      }));
-    },
+    creditStats: (forecasters, at) => queryCreditStats(pool, forecasters, at),
     async addWindow(w) {
-      const result = await db.query(
+      const result = await pool.query(
         `INSERT INTO forecasts.windows(id,deployment_id,market_id,horizon_type,scheduled_at,open_at,deadline)
-    SELECT $1,$2,$3,$4,$5,$6,$7 WHERE $7::timestamptz>blink.now()
-    ON CONFLICT DO NOTHING RETURNING id`,
-        [
-          randomUUID(),
-          w.deploymentId,
-          w.marketId,
-          w.horizonType,
-          w.scheduledAt,
-          w.openAt,
-          w.deadline,
-        ],
+         SELECT $1,$2,$3,$4,$5,$6,$7 WHERE $7::timestamptz>blink.now()
+         ON CONFLICT DO NOTHING RETURNING id`,
+        [randomUUID(), deploymentId, w.marketId, w.horizonType, w.scheduledAt, w.openAt, w.deadline],
       );
       return result.rows.length > 0;
     },
+    async dueWindows(limit) {
+      const { rows } = await pool.query<{ id: string }>(
+        `SELECT id FROM forecasts.windows WHERE deployment_id=$1 AND root_at IS NULL AND deadline<=blink.now()
+         ORDER BY deadline,id LIMIT $2`,
+        [deploymentId, limit],
+      );
+      return rows.map((r) => r.id);
+    },
+    closeWindow: (id, rootOf) =>
+      tx(async (db) => {
+        // Anyone admitting an answer holds this lock until it commits, so the digests read below
+        // are complete: an answer that was admitted before the deadline is in, a later one cannot be.
+        const locked = await db.query(
+          `SELECT id FROM forecasts.windows WHERE id=$1 AND deployment_id=$2 AND root_at IS NULL
+             AND deadline<=blink.now() FOR UPDATE`,
+          [id, deploymentId],
+        );
+        if (!locked.rows.length) return false;
+        const { rows } = await db.query<{ digest: string }>(
+          `SELECT '0x'||encode(s.digest,'hex') AS digest FROM forecasts.submissions s
+           WHERE s.window_id=$1 AND s.digest IS NOT NULL
+             AND NOT EXISTS(SELECT 1 FROM forecasts.annotations a WHERE a.submission_id=s.id AND a.kind='WITHDRAWN')`,
+          [id],
+        );
+        const root = rootOf(rows.map((r) => r.digest));
+        await db.query(
+          "UPDATE forecasts.windows SET merkle_root=CASE WHEN $2::text IS NULL THEN NULL ELSE decode($2,'hex') END,root_at=blink.now() WHERE id=$1",
+          [id, root === null ? null : hex(root)],
+        );
+        return true;
+      }),
   };
 }

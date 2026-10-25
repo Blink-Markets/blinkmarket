@@ -17,6 +17,7 @@ import {
   identityCrypto,
   rpcSignatureVerifier,
   postgresProtocolReader,
+  staleProtocolReader,
   loadProtocolDeployment,
   postgresIdentityStore,
   assertIdentityRuntimeRole,
@@ -33,35 +34,6 @@ import {
   postgresOperatorStatusStore,
 } from "@blink/adapters";
 import { apiConfig, modeAtLeast } from "./config.js";
-
-// Without a deployment there is no index, so the index counts as stale: no key is issued and no
-// upload or claim is accepted.
-const staleProtocolReader = {
-  health: async () => ({
-    headBlock: 0,
-    indexedBlock: 0,
-    lagSeconds: 0,
-    stale: true,
-  }),
-  account: async () => null,
-  hasRole: async () => false,
-  creditAt: async () => 0,
-  market: async () => null,
-  marketBySpecHash: async () => null,
-  markets: async () => ({ items: [], next: null }),
-  maker: async (address: string) => ({ address, freeMicros: "0", epoch: "0" }),
-  digest: async () => "UNUSED" as const,
-  anchor: async () => null,
-  proposal: async () => null,
-  disputes: async () => ({ items: [], next: null }),
-  dispute: async () => null,
-  rounds: async () => [],
-  votes: async () => ({ items: [], next: null }),
-  juror: async () => null,
-  fees: async () => null,
-  templates: async () => ({ items: [], next: null }),
-  positions: async () => ({ items: [], next: null }),
-};
 
 const config = apiConfig(process.env);
 const pool =
@@ -108,7 +80,7 @@ try {
   const protocolReader =
     pool && config.deploymentId
       ? postgresProtocolReader(pool, config.deploymentId)
-      : staleProtocolReader;
+      : staleProtocolReader; // Without a deployment there is no index: no key, upload or claim is accepted.
   const verifier = rpcSignatureVerifier(config.rpcUrl);
   const contentStore =
     pool && modeAtLeast(config.mode, "markets")
@@ -154,7 +126,9 @@ try {
                       }),
                     ]
                   : []),
-                createMetricsService({ store: postgresEvaluationStore(pool) }),
+                createMetricsService({
+                  store: postgresEvaluationStore(pool, config.deploymentId!),
+                }),
                 createContentService({
                   store: contentStore!,
                   identity,
@@ -184,12 +158,18 @@ try {
                         reader: protocolReader,
                         deploymentId: config.deploymentId,
                       }),
+                      createForecastService({
+                        store: postgresForecastStore(pool, config.deploymentId),
+                        identity,
+                        reader: protocolReader,
+                        verifier,
+                        deployment: {
+                          markets: generation.generation.markets,
+                          anchor: generation.shared.anchor,
+                        },
+                      }),
                     ]
                   : []),
-                createForecastService({
-                  store: postgresForecastStore(pool),
-                  crypto: identityCrypto,
-                }),
                 createMarketReadService({
                   store: postgresMarketReadStore(pool),
                   reader: protocolReader,

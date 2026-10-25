@@ -20,7 +20,6 @@ test("real PostgreSQL: each service requires exactly one runtime group and no ad
         "blink_worker",
         "blink_indexer",
         "blink_deployment_admin",
-        "blink_forecast_admin",
       ].filter((r) => r !== role)) {
         await assert.rejects(
           guard(await login({ memberOf: [role, second] })),

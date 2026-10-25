@@ -20,6 +20,18 @@ import {
 } from "./read-api.ts";
 import { MarketStateName } from "./protocol.ts";
 import {
+  ConsensusItem,
+  ForecastProof,
+  ForecastReceipt,
+  ForecastSubmission,
+  ForecastView,
+  ForecastWindowRecord,
+  ForecastWindowView,
+  ForecastWithdrawal,
+  ForecasterView,
+  SignatureHex,
+} from "./research.ts";
+import {
   WalletChallengeRequest,
   WalletChallengeResponse,
   WalletVerificationRequest,
@@ -41,20 +53,8 @@ import {
 } from "./core.ts";
 
 const Id = z.uuid();
-const Text = z.string().min(1).max(4000);
 const Time = z.iso.datetime();
-const EvidenceIds = z.array(Id).min(1).max(50);
 const Side = z.enum(["YES", "NO"]);
-const Horizon = z.strictObject({
-  horizonType: z.enum(["DAILY", "PRE_CLOSE"]),
-  scheduledAt: Time,
-});
-export const Probability = z
-  .number()
-  .finite()
-  .min(0)
-  .max(1)
-  .refine((v) => Number(v.toFixed(6)) === v, "At most six decimal places");
 /** Media types /v1/content stores and serves; anything else is refused. */
 export const CONTENT_MEDIA_TYPES = [
   "application/json",
@@ -111,7 +111,8 @@ export const MAX_QUOTES_PER_RFQ = 20;
 export const MAX_QUOTE_LIFETIME_SECONDS = 60;
 /** Room for the quote fields and a signature of up to 8192 bytes (a contract wallet may sign long). */
 export const RFQ_BODY_MAX_BYTES = 20_000;
-const SignatureHex = z.string().regex(/^0x(?:[0-9a-fA-F]{2}){1,8192}$/);
+/** A forecast body: five short fields and a signature of up to 8192 bytes. */
+export const FORECAST_BODY_MAX_BYTES = 20_000;
 export const RfqRequest = z.strictObject({
   marketId: PositiveUint256,
   side: Side,
@@ -172,25 +173,6 @@ export const ConfigResponse = z.strictObject({
   }),
 });
 export type ConfigResponse = z.infer<typeof ConfigResponse>;
-const Window = z.strictObject({
-  windowId: Id,
-  horizonKey: Horizon,
-  openAt: Time,
-  deadline: Time,
-  status: z.enum(["UPCOMING", "OPEN", "CLOSED"]),
-});
-const Forecast = z.strictObject({
-  submissionId: Id,
-  agentId: Id,
-  windowId: Id,
-  probability: Probability,
-  receivedAt: Time,
-  evidenceIds: EvidenceIds,
-  rationale: Text,
-  agentVersion: Text,
-  withdrawnAt: Time.nullable(),
-  contaminated: z.boolean(),
-});
 const ListQuery = z
   .object({
     limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -396,28 +378,53 @@ const contracts = [
     description:
       "Needs the suggestion:claim scope and the CREATOR role in the indexed current generation. One claim per creator; claims are informational and give no exclusivity.",
   }),
-  operation("GET", "/v1/markets/:id/forecast-windows", list(Window), {
-    query: ListQuery.extend({ deploymentId: DeploymentId }),
+  operation("GET", "/v1/markets/:id/forecast-windows", list(ForecastWindowView), {
+    query: ListQuery,
+    description:
+      "The market's forecast windows in (scheduledAt, horizon) order. openAt and deadline are unix seconds, so an agent learns the schedule here; a window's root appears once the deadline passed and the worker stored it.",
   }),
-  operation(
-    "POST",
-    "/v1/markets/:id/forecasts",
-    z.strictObject({ submissionId: Id, receivedAt: Time, windowId: Id }),
-    {
-      body: z.strictObject({
-        horizonKey: Horizon,
-        probability: Probability,
-        evidenceIds: EvidenceIds,
-        rationale: Text,
-        agentVersion: Text,
-      }),
-      access: "forecast:write",
-      status: 201,
-    },
-  ),
-  operation("GET", "/v1/markets/:id/forecasts", list(Forecast), {
-    query: ListQuery.extend({ deploymentId: DeploymentId, windowId: Id }),
+  operation("POST", "/v1/markets/:id/forecasts", ForecastReceipt, {
+    body: ForecastSubmission,
+    query: noQuery,
+    access: "forecast:write",
+    status: 201,
+    bodyLimit: FORECAST_BODY_MAX_BYTES,
+    description:
+      "Needs the forecast:write scope and the FORECASTER role in the indexed current generation. The signature must be the EIP-712 Forecast struct (domain \"Blink Forecast\" 1, chain 84532, verifyingContract the manifest's shared.anchor) for the key's wallet, the route's market, this deployment's BlinkMarkets and the window named by horizon and scheduledAt; EOA, ERC-1271 and ERC-6492 signatures are accepted and the checked block is stored as verifiedBlock. Admitted by the database clock between the window's openAt and deadline, once per forecaster per window; needs an Idempotency-Key, and repeating the identical submission (same key or not) returns the same receipt. Answers: digest and leaf. Refused with 503 INDEX_STALE while the index lags and 503 SIGNATURE_CHECK_UNAVAILABLE when the signature cannot be checked; a refused forecast is never stored. Answers are sealed: nobody else can read one before the window's deadline.",
+  }),
+  operation("GET", "/v1/markets/:id/forecasts", list(ForecastView), {
+    query: ListQuery.extend({ windowId: z.uuid() }),
     access: "public; own before deadline",
+    description:
+      "A window's answers with their signatures. Before the deadline only the caller's own answer is returned (send the API key); an anonymous caller sees none. Withdrawn answers stay listed with withdrawnAt.",
+  }),
+  operation("POST", "/v1/forecasts/:id/withdrawal", ForecastWithdrawal, {
+    access: "forecast:write",
+    idempotencyKey: false,
+    description:
+      "The forecaster withdraws its own answer by submission id, before the window's deadline. A withdrawn answer stays stored (an annotation, not a deletion) but leaves the Merkle root, the consensus and the scores. Withdrawing twice returns the first withdrawal.",
+  }),
+  operation("GET", "/v1/forecast-windows/:id", ForecastWindowRecord, {
+    description:
+      "The window with its Merkle root, its sorted leaves and the BlinkAnchor record of the root (null until anyone anchored it). Before the deadline root and leaves are empty. The platform never anchors: any agent may call BlinkAnchor.anchor(root), and a forecaster may anchor its own single leaf.",
+  }),
+  operation("GET", "/v1/forecast-windows/:id/proof", ForecastProof, {
+    query: z.strictObject({ leaf: Hash }),
+    description:
+      "The sibling path of a leaf, checkable with OpenZeppelin MerkleProof.verify against the root. 409 WINDOW_SEALED before the deadline, 409 ROOT_PENDING until the worker stored the root, 404 LEAF_NOT_FOUND for a leaf the window does not hold.",
+  }),
+  operation("GET", "/v1/markets/:id/consensus", list(ConsensusItem), {
+    query: ListQuery,
+    description:
+      "The credit-weighted consensus of every closed window of the market, with the number of answers and whether the outcome was already public at the deadline. Weights are frozen as of each window's deadline. Open windows are not listed.",
+  }),
+  operation("GET", "/v1/forecasters", list(ForecasterView), {
+    query: ListQuery.extend({ sort: z.literal("weight").default("weight") }),
+    description:
+      "Forecasters by credit weight, highest first: n and meanBrier come from the latest 50 scored LIVE submissions, and weight is 0 below 5 of them, else max(0, 0.25 - meanBrier). Informational: it gates nothing.",
+  }),
+  operation("GET", "/v1/forecasters/:address", ForecasterView, {
+    description: "One forecaster's credit; 404 for an address that never submitted.",
   }),
   operation(
     "POST",
@@ -504,8 +511,13 @@ const contracts = [
       missingCount: Uint256,
       invalidCount: Uint256,
       brier: z.number().min(0).max(1).nullable(),
+      consensusBrier: z.number().min(0).max(1).nullable(),
     }),
-    { query: z.strictObject({ mode: Mode }) },
+    {
+      query: z.strictObject({ mode: Mode }),
+      description:
+        "Per mode, LIVE and REPLAY never mix. eventCount counts markets with an eligible answer; brier is the mean over those markets of the mean agent Brier, consensusBrier the same for the consensus of each window. Contaminated windows, withdrawn answers and INVALID outcomes are left out of both.",
+    },
   ),
 ] satisfies readonly HttpContract[];
 export const apiContracts: readonly HttpContract[] = contracts;

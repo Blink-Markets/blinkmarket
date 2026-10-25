@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  DEFAULT_WINDOW_SCHEDULE,
+  assertWindowSchedule,
   plannedWindows,
-  snapshotPriceBase,
 } from "../packages/domain/src/forecast-windows.ts";
 
 test("plans future UTC deadlines, including overlapping horizons, without backfill", () => {
@@ -39,20 +40,52 @@ test("plans future UTC deadlines, including overlapping horizons, without backfi
   );
 });
 
-test("snapshot price uses integer millionths and rounds each side upward", () => {
-  for (const [sum, yes, no] of [
-    [1200000, 6000, 4000],
-    [1200001, 6001, 4000],
-    [0, 0, 10000],
-    [2000000, 10000, 0],
-  ]) {
-    assert.equal(
-      snapshotPriceBase({ probabilitySumMillionths: sum!, side: "YES" }),
-      yes,
+test("schedule shortens PRE_CLOSE for alpha", () => {
+  const closeAt = new Date("2026-10-14T10:10:00Z");
+  const now = new Date("2026-10-14T10:00:00Z");
+  const windows = plannedWindows({
+    closeAt,
+    now,
+    schedule: { preCloseLeadSeconds: 120, openSeconds: 60 },
+  });
+  assert.deepEqual(
+    windows.map((w) => [w.horizonType, w.openAt.toISOString(), w.deadline.toISOString()]),
+    [["PRE_CLOSE", "2026-10-14T10:07:00.000Z", "2026-10-14T10:08:00.000Z"]],
+  );
+  // Past the shortened deadline, nothing is planned.
+  assert.equal(
+    plannedWindows({
+      closeAt,
+      now: new Date("2026-10-14T10:08:00Z"),
+      schedule: { preCloseLeadSeconds: 120, openSeconds: 60 },
+    }).length,
+    0,
+  );
+  // DAILY windows keep their 30 minutes whatever the schedule says.
+  const daily = plannedWindows({
+    closeAt: new Date("2026-10-16T00:30:00Z"),
+    now: new Date("2026-10-14T10:00:00Z"),
+    schedule: { preCloseLeadSeconds: 120, openSeconds: 60 },
+  }).filter((w) => w.horizonType === "DAILY");
+  assert.equal(daily.length, 2);
+  for (const w of daily) assert.equal(w.deadline.getTime() - w.openAt.getTime(), 1_800_000);
+});
+
+test("the default schedule is the one-hour lead and half-hour window", () => {
+  assert.deepEqual(DEFAULT_WINDOW_SCHEDULE, { preCloseLeadSeconds: 3600, openSeconds: 1800 });
+});
+
+test("an invalid schedule is refused", () => {
+  for (const schedule of [
+    { preCloseLeadSeconds: 0, openSeconds: 0 },
+    { preCloseLeadSeconds: 60, openSeconds: 61 },
+    { preCloseLeadSeconds: 1.5, openSeconds: 1 },
+    { preCloseLeadSeconds: -60, openSeconds: 30 },
+    { preCloseLeadSeconds: Number.NaN, openSeconds: 30 },
+  ])
+    assert.throws(
+      () => assertWindowSchedule(schedule),
+      /INVALID_FORECAST_WINDOW_SCHEDULE/,
     );
-    assert.equal(
-      snapshotPriceBase({ probabilitySumMillionths: sum!, side: "NO" }),
-      no,
-    );
-  }
+  assertWindowSchedule({ preCloseLeadSeconds: 60, openSeconds: 60 });
 });

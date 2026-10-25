@@ -7,6 +7,9 @@ import { RoleName } from "../packages/schemas/src/index.js";
 import {
   BlinkApiError,
   createBlinkClient,
+  forecastDigest,
+  forecastLeaf,
+  forecastTypedData,
 } from "../packages/client/src/index.js";
 import { configFromEnv, runAgent } from "../examples/agent/run.js";
 import { testAccounts } from "./helpers/protocol-fixture.js";
@@ -26,7 +29,10 @@ const SPEC_BYTES = Buffer.from(
       title: "Will the Base Sepolia gas price exceed 1 gwei on 2026-12-01?",
       question: "Does the median gas price of block 1,000,000 exceed 1 gwei?",
       class: "B",
-      resolution: { yes: "Median above 1 gwei.", no: "Median at or below 1 gwei." },
+      resolution: {
+        yes: "Median above 1 gwei.",
+        no: "Median at or below 1 gwei.",
+      },
       sources: ["https://sepolia.basescan.org/"],
     },
     null,
@@ -128,7 +134,11 @@ const market = {
 };
 const spec = JSON.parse(SPEC_BYTES.toString("utf8"));
 const specResult = { ok: true, spec };
-const marketsPage = { items: [{ market, spec: specResult }], next: null, index };
+const marketsPage = {
+  items: [{ market, spec: specResult }],
+  next: null,
+  index,
+};
 const dispute = {
   disputeId: "1",
   marketId: MARKET,
@@ -160,7 +170,9 @@ const round = {
   creditThreshold: 0,
 };
 const templatesPage = {
-  items: [{ templateId: HASH, class: "B", parserHash: HASH, uri: "ipfs://template" }],
+  items: [
+    { templateId: HASH, class: "B", parserHash: HASH, uri: "ipfs://template" },
+  ],
   next: null,
   index,
 };
@@ -179,21 +191,25 @@ const quote = {
   epoch: "0",
 };
 const signedQuote = { quote, signature: "0x" + "22".repeat(65) };
-const horizonKey = {
-  horizonType: "DAILY",
-  scheduledAt: "2026-10-15T00:00:00.000Z",
-} as const;
 const forecast = {
-  horizonKey,
-  probability: 0.62,
-  evidenceIds: [UUID],
-  rationale: "fixture rationale",
-  agentVersion: "v1",
+  horizon: 0,
+  scheduledAt: 1793016600,
+  probabilityBps: 6200,
+  contentHash: "0x" + "00".repeat(32),
+  signature: "0x" + "22".repeat(65),
 } as const;
-const forecastAnswer = {
-  submissionId: UUID,
-  receivedAt: "2026-10-15T00:00:01.000Z",
+const forecastAnswer = { digest: HASH, leaf: HASH };
+const trackAnswer = { trackingId: UUID, status: "UNKNOWN" };
+const windowView = {
   windowId: UUID,
+  horizon: 0,
+  horizonType: "DAILY",
+  scheduledAt: 1793016600,
+  openAt: 1793014800,
+  deadline: 1793016600,
+  status: "OPEN",
+  root: null,
+  rootAt: null,
 };
 const page = (item: unknown) => ({ items: [item], nextCursor: null });
 const marketRef = { deploymentId: DEPLOYMENT, marketId: MARKET };
@@ -310,50 +326,94 @@ const cases: Case[] = [
   },
   {
     name: "listForecastWindows",
-    call: (c) => c.listForecastWindows(marketRef, { limit: 3, cursor: "c1" }),
+    call: (c) =>
+      c.listForecastWindows({ marketId: MARKET }, { limit: 3, cursor: "c1" }),
     method: "GET",
     path: `/v1/markets/${MARKET}/forecast-windows`,
-    query: { deploymentId: DEPLOYMENT, limit: "3", cursor: "c1" },
-    answer: page({
-      windowId: UUID,
-      horizonKey,
-      openAt: "2026-10-14T23:30:00.000Z",
-      deadline: "2026-10-15T00:00:00.000Z",
-      status: "OPEN",
-    }),
+    query: { limit: "3", cursor: "c1" },
+    answer: page(windowView),
   },
   {
     name: "submitForecast",
-    call: (c) => c.submitForecast(marketRef, forecast, "forecast-key"),
+    call: (c) => c.submitForecast({ marketId: MARKET }, forecast),
     method: "POST",
     path: `/v1/markets/${MARKET}/forecasts`,
-    query: { deploymentId: DEPLOYMENT },
     body: forecast,
-    answer: {
-      submissionId: UUID,
-      receivedAt: "2026-10-15T00:00:01.000Z",
-      windowId: UUID,
-    },
+    answer: forecastAnswer,
     status: 201,
   },
   {
     name: "listForecasts",
-    call: (c) => c.listForecasts(marketRef, { windowId: UUID }),
+    call: (c) => c.listForecasts({ marketId: MARKET }, { windowId: UUID }),
     method: "GET",
     path: `/v1/markets/${MARKET}/forecasts`,
-    query: { deploymentId: DEPLOYMENT, windowId: UUID, limit: "20" },
+    query: { windowId: UUID, limit: "20" },
     answer: page({
       submissionId: UUID,
-      agentId: UUID,
       windowId: UUID,
-      probability: 0.62,
-      receivedAt: "2026-10-15T00:00:01.000Z",
-      evidenceIds: [UUID],
-      rationale: "fixture rationale",
-      agentVersion: "v1",
+      forecaster: WALLET,
+      probabilityBps: 6200,
+      contentHash: forecast.contentHash,
+      digest: HASH,
+      leaf: HASH,
+      signature: forecast.signature,
+      verifiedBlock: 12,
+      receivedAt: 1793016000,
       withdrawnAt: null,
+    }),
+  },
+  {
+    name: "getForecastWindow",
+    call: (c) => c.getForecastWindow({ windowId: UUID }),
+    method: "GET",
+    path: `/v1/forecast-windows/${UUID}`,
+    answer: {
+      ...windowView,
+      marketId: MARKET,
+      leaves: [HASH],
+      anchor: null,
+      index,
+    },
+  },
+  {
+    name: "getForecastProof",
+    call: (c) => c.getForecastProof({ windowId: UUID }, HASH),
+    method: "GET",
+    path: `/v1/forecast-windows/${UUID}/proof`,
+    query: { leaf: HASH },
+    answer: { root: HASH, leaf: HASH, proof: [] },
+  },
+  {
+    name: "getConsensus",
+    call: (c) => c.getConsensus({ marketId: MARKET }),
+    method: "GET",
+    path: `/v1/markets/${MARKET}/consensus`,
+    query: { limit: "20" },
+    answer: page({
+      windowId: UUID,
+      horizon: 0,
+      horizonType: "DAILY",
+      scheduledAt: 1793016600,
+      deadline: 1793016600,
+      probabilityBps: 4500,
+      submissions: 2,
       contaminated: false,
     }),
+  },
+  {
+    name: "listForecasters",
+    call: (c) => c.listForecasters(),
+    method: "GET",
+    path: "/v1/forecasters",
+    query: { sort: "weight", limit: "20" },
+    answer: page({ address: WALLET, n: 5, meanBrier: 0.1, weight: 0.15 }),
+  },
+  {
+    name: "getForecaster",
+    call: (c) => c.getForecaster({ address: WALLET }),
+    method: "GET",
+    path: `/v1/forecasters/${WALLET}`,
+    answer: { address: WALLET, n: 5, meanBrier: 0.1, weight: 0.15 },
   },
   {
     name: "trackTransaction",
@@ -475,6 +535,7 @@ const cases: Case[] = [
       missingCount: "0",
       invalidCount: "0",
       brier: 0.25,
+      consensusBrier: 0.2,
     },
   },
   {
@@ -536,42 +597,43 @@ for (const c of cases) {
   });
 }
 
-test("a POST without a key gets a fresh UUID per call; a given key is sent as it is", async () => {
-  const server = await scripted(() => ({
-    status: 202,
-    body: forecastAnswer,
-  }));
+test("a forecast POST without a key gets a fresh UUID per call; a given key is sent as it is", async () => {
+  const server = await scripted(() => ({ status: 201, body: forecastAnswer }));
   try {
     const client = createBlinkClient(server.origin, API_KEY);
-    await client.submitForecast(marketRef, forecast);
-    await client.submitForecast(marketRef, forecast);
-    await client.submitForecast(marketRef, forecast, "my-own-key");
+    const ref = { marketId: MARKET };
+    await client.submitForecast(ref, forecast);
+    await client.submitForecast(ref, forecast);
+    await client.submitForecast(ref, forecast, "my-own-key");
     const keys = server.seen.map((s) => s.headers["idempotency-key"]);
     assert.match(String(keys[0]), /^[0-9a-f-]{36}$/);
-    assert.match(String(keys[1]), /^[0-9a-f-]{36}$/);
     assert.notEqual(keys[0], keys[1]);
     assert.equal(keys[2], "my-own-key");
+    // A malformed key never leaves the process.
+    await assert.rejects(client.submitForecast(ref, forecast, "has space"));
+    assert.equal(server.seen.length, 3);
   } finally {
     await server.close();
   }
 });
 
-test("a malformed key or a body that breaks the contract never leaves the process", async () => {
+test("a malformed body or query never leaves the process", async () => {
   const server = await scripted(() => ({ body: {} }));
   try {
     const client = createBlinkClient(server.origin, API_KEY);
     await assert.rejects(
-      client.submitForecast(marketRef, forecast, "has space"),
+      client.submitForecast(
+        { marketId: MARKET },
+        { ...forecast, probabilityBps: 10000 },
+      ),
     );
     await assert.rejects(
-      client.submitForecast(marketRef, forecast, "x".repeat(129)),
+      client.submitForecast(
+        { marketId: MARKET },
+        { ...forecast, rationale: "x" },
+      ),
     );
-    await assert.rejects(
-      client.submitForecast(marketRef, { ...forecast, probability: 2 }),
-    );
-    await assert.rejects(
-      client.submitForecast(marketRef, { ...forecast, rationale: "" }),
-    );
+    await assert.rejects(client.getForecastProof({ windowId: UUID }, "0x12"));
     await assert.rejects(
       client.getTransaction({ deploymentId: DEPLOYMENT, txHash: "0x12" }),
     );
@@ -582,7 +644,45 @@ test("a malformed key or a body that breaks the contract never leaves the proces
   }
 });
 
-test("a retryable refusal is retried with the same key and the same body, waiting as the server asks", async () => {
+test("withdrawing sends no body and no key", async () => {
+  const server = await scripted(() => ({
+    body: { submissionId: UUID, withdrawnAt: 1793016000 },
+  }));
+  try {
+    await createBlinkClient(server.origin, API_KEY).withdrawForecast({
+      submissionId: UUID,
+    });
+    const [seen] = server.seen;
+    assert.deepEqual(
+      [seen!.method, seen!.path, seen!.body],
+      ["POST", `/v1/forecasts/${UUID}/withdrawal`, ""],
+    );
+    assert.equal(seen!.headers["idempotency-key"], undefined);
+  } finally {
+    await server.close();
+  }
+});
+
+test("a forecast digest and leaf the client computes are the ones the platform returns", () => {
+  const message = {
+    forecaster: WALLET,
+    markets: manifest.generation.markets,
+    marketId: MARKET,
+    horizon: 0 as const,
+    scheduledAt: 1793016600,
+    probabilityBps: 6200,
+    contentHash: forecast.contentHash,
+  };
+  const digest = forecastDigest({ anchor: manifest.shared.anchor, message });
+  assert.match(digest, /^0x[0-9a-f]{64}$/);
+  assert.equal(forecastLeaf(digest), keccak256(keccak256(digest)));
+  assert.equal(
+    forecastTypedData({ anchor: manifest.shared.anchor, message }).domain.name,
+    "Blink Forecast",
+  );
+});
+
+test("a retryable refusal is retried with the same body, waiting as the server asks", async () => {
   const slept: number[] = [];
   const server = await scripted((_seen, count) =>
     count === 1
@@ -597,7 +697,7 @@ test("a retryable refusal is retried with the same key and the same body, waitin
             headers: { "Retry-After": "2" },
             body: apiError("REQUEST_IN_PROGRESS", true),
           }
-        : { body: forecastAnswer },
+        : { body: trackAnswer },
   );
   try {
     const client = createBlinkClient(server.origin, API_KEY, {
@@ -605,15 +705,12 @@ test("a retryable refusal is retried with the same key and the same body, waitin
         slept.push(milliseconds);
       },
     });
-    // No key given: the client picks one and keeps it for every attempt.
+    // The body is the same on every attempt.
     assert.deepEqual(
-      await client.submitForecast(marketRef, forecast),
-      forecastAnswer,
+      await client.trackTransaction({ txHash: HASH }),
+      trackAnswer,
     );
     assert.equal(server.seen.length, 3);
-    const keys = new Set(server.seen.map((s) => s.headers["idempotency-key"]));
-    assert.equal(keys.size, 1);
-    assert.match([...keys][0] as string, /^[0-9a-f-]{36}$/);
     assert.equal(new Set(server.seen.map((s) => s.body)).size, 1);
     assert.deepEqual(slept, [1000, 2000]);
   } finally {
@@ -634,7 +731,7 @@ test("without Retry-After the wait grows, and the answer after the last attempt 
       },
     });
     await assert.rejects(
-      client.submitForecast(marketRef, forecast, "stuck"),
+      client.trackTransaction({ txHash: HASH }),
       (error) =>
         error instanceof BlinkApiError &&
         error.status === 503 &&
@@ -652,7 +749,7 @@ test("without Retry-After the wait grows, and the answer after the last attempt 
         sleep: async (milliseconds) => {
           slept.push(milliseconds);
         },
-      }).submitForecast(marketRef, forecast, "once"),
+      }).trackTransaction({ txHash: HASH }),
       BlinkApiError,
     );
     assert.deepEqual([server.seen.length, slept.length], [1, 0]);
@@ -683,11 +780,9 @@ test("a business refusal is final, and reads are retried too", async () => {
   };
   try {
     await assert.rejects(
-      createBlinkClient(noQuote.origin, API_KEY, options).submitForecast(
-        marketRef,
-        forecast,
-        "k",
-      ),
+      createBlinkClient(noQuote.origin, API_KEY, options).trackTransaction({
+        txHash: HASH,
+      }),
       (error) =>
         error instanceof BlinkApiError &&
         error.body.details["reason"] === "CAP_EXCEEDED",
@@ -710,15 +805,13 @@ test("the default policy really waits, and never longer than ten seconds", async
           headers: { "Retry-After": "0" },
           body: apiError("INDEXER_LAG", true),
         }
-      : { body: forecastAnswer },
+      : { body: trackAnswer },
   );
   try {
     const started = Date.now();
-    await createBlinkClient(server.origin, API_KEY).submitForecast(
-      marketRef,
-      forecast,
-      "k",
-    );
+    await createBlinkClient(server.origin, API_KEY).trackTransaction({
+      txHash: HASH,
+    });
     assert.equal(server.seen.length, 2);
     assert.ok(Date.now() - started < 5000);
   } finally {
@@ -732,14 +825,14 @@ test("the default policy really waits, and never longer than ten seconds", async
           headers: { "Retry-After": "3600" },
           body: apiError("INDEXER_LAG", true),
         }
-      : { body: forecastAnswer },
+      : { body: trackAnswer },
   );
   try {
     await createBlinkClient(slow.origin, API_KEY, {
       sleep: async (milliseconds) => {
         slept.push(milliseconds);
       },
-    }).submitForecast(marketRef, forecast, "k");
+    }).trackTransaction({ txHash: HASH });
     assert.deepEqual(slept, [10_000]);
   } finally {
     await slow.close();
@@ -749,10 +842,7 @@ test("the default policy really waits, and never longer than ten seconds", async
 test("getMarketSpec returns the spec only when the bytes hash to the expected specHash", async () => {
   const specHash = keccak256(SPEC_BYTES);
   const altered = Buffer.from(
-    SPEC_BYTES.toString("utf8").replace(
-      "exceed 1 gwei on",
-      "exceed 2 gwei on",
-    ),
+    SPEC_BYTES.toString("utf8").replace("exceed 1 gwei on", "exceed 2 gwei on"),
   );
   assert.notEqual(altered.toString(), SPEC_BYTES.toString());
   let served: Uint8Array = SPEC_BYTES;
@@ -791,8 +881,16 @@ test("getMarketSpec returns the spec only when the bytes hash to the expected sp
 });
 
 test("the retired v0.1 execution methods are gone, not stubbed", () => {
-  const client = createBlinkClient("https://blink.example") as Record<string, unknown>;
-  for (const name of ["requestQuote", "getQuote", "claimFaucet", "getResolution"])
+  const client = createBlinkClient("https://blink.example") as Record<
+    string,
+    unknown
+  >;
+  for (const name of [
+    "requestQuote",
+    "getQuote",
+    "claimFaucet",
+    "getResolution",
+  ])
     assert.equal(client[name], undefined, name);
 });
 
@@ -805,10 +903,18 @@ test("the read methods accept only the answer shapes of the read API", async () 
     // A flattened market, a bare manifest and a market that breaks the schema are all refused.
     served = { ...market, index };
     await assert.rejects(client.getMarket(marketRef));
-    served = { market: { ...market, closeAt: "soon" }, spec: specResult, proposal: null, index };
+    served = {
+      market: { ...market, closeAt: "soon" },
+      spec: specResult,
+      proposal: null,
+      index,
+    };
     await assert.rejects(client.getMarket(marketRef));
     served = { deployment: manifest, index };
-    assert.equal((await client.getDeployment()).deployment.deploymentId, DEPLOYMENT);
+    assert.equal(
+      (await client.getDeployment()).deployment.deploymentId,
+      DEPLOYMENT,
+    );
     served = { ...manifest, index };
     await assert.rejects(client.getDeployment());
   } finally {
@@ -828,16 +934,25 @@ test("uploadContent sends the raw bytes and accepts only an answer that names th
   const server = await scripted(() => ({ status: 201, body: answer }));
   try {
     const client = createBlinkClient(server.origin, API_KEY);
-    assert.deepEqual(await client.uploadContent(bytes, "application/json"), answer);
+    assert.deepEqual(
+      await client.uploadContent(bytes, "application/json"),
+      answer,
+    );
     const [seen] = server.seen;
     assert.equal(seen!.method, "POST");
     assert.equal(seen!.path, "/v1/content");
     assert.equal(seen!.headers["content-type"], "application/json");
     assert.equal(seen!.body, bytes.toString());
     answer = { ...(answer as object), hash: HASH };
-    await assert.rejects(client.uploadContent(bytes, "application/json"), /HASH_MISMATCH/);
+    await assert.rejects(
+      client.uploadContent(bytes, "application/json"),
+      /HASH_MISMATCH/,
+    );
     answer = { ...(answer as object), hash, size: 3 };
-    await assert.rejects(client.uploadContent(bytes, "application/json"), /HASH_MISMATCH/);
+    await assert.rejects(
+      client.uploadContent(bytes, "application/json"),
+      /HASH_MISMATCH/,
+    );
   } finally {
     await server.close();
   }
@@ -849,7 +964,10 @@ test("getContent returns bytes only when they hash to the name asked for", async
   const server = await scripted(() => ({ body: served }));
   try {
     const client = createBlinkClient(server.origin, API_KEY);
-    assert.deepEqual(Buffer.from(await client.getContent(keccak256(bytes))), bytes);
+    assert.deepEqual(
+      Buffer.from(await client.getContent(keccak256(bytes))),
+      bytes,
+    );
     served = Buffer.from("forged");
     await assert.rejects(client.getContent(keccak256(bytes)), /HASH_MISMATCH/);
   } finally {
@@ -878,7 +996,13 @@ test("suggestions are submitted without a key and listed, read and claimed throu
   }));
   try {
     const client = createBlinkClient(server.origin);
-    assert.deepEqual(await client.submitSuggestion({ text: "Will it rain in Taipei tomorrow afternoon?", sourceUrls: [] }), { id: UUID });
+    assert.deepEqual(
+      await client.submitSuggestion({
+        text: "Will it rain in Taipei tomorrow afternoon?",
+        sourceUrls: [],
+      }),
+      { id: UUID },
+    );
     await client.listSuggestions({ status: "OPEN", limit: 5 });
     await client.getSuggestion(UUID);
     await client.claimSuggestion(UUID);
@@ -901,9 +1025,23 @@ test("an RFQ body or a quote that breaks the contract never leaves the process",
   const server = await scripted(() => ({ body: {} }));
   try {
     const client = createBlinkClient(server.origin, API_KEY);
-    await assert.rejects(client.createRfq({ marketId: MARKET, side: "MAYBE", quantity: "1" }));
-    await assert.rejects(client.createRfq({ marketId: MARKET, side: "YES", quantity: "1", extra: 1 }));
-    await assert.rejects(client.postQuote(rfqId, { quote: { ...quote, priceBps: "70000" }, signature: signedQuote.signature }));
+    await assert.rejects(
+      client.createRfq({ marketId: MARKET, side: "MAYBE", quantity: "1" }),
+    );
+    await assert.rejects(
+      client.createRfq({
+        marketId: MARKET,
+        side: "YES",
+        quantity: "1",
+        extra: 1,
+      }),
+    );
+    await assert.rejects(
+      client.postQuote(rfqId, {
+        quote: { ...quote, priceBps: "70000" },
+        signature: signedQuote.signature,
+      }),
+    );
     await assert.rejects(client.postQuote("not-a-uuid", signedQuote));
     await assert.rejects(client.trackTransaction({ txHash: "0x12" }));
     assert.equal(server.seen.length, 0);

@@ -1,12 +1,14 @@
 import { hasMainnetChain } from "./chain-guard.ts";
 import { isClientHttpLoopbackHost } from "./url-policy.ts";
-import { keccak256 } from "viem";
+import { hashTypedData, keccak256, type Hex } from "viem";
 import {
   ApiError,
   ConfigResponse,
   IdempotencyHeaders,
   apiContracts,
+  forecastTypedData,
   parseMarketSpec,
+  type ForecastMessage,
   type ApiContract,
   type MarketStateName,
 } from "@blink/schemas";
@@ -33,7 +35,6 @@ type Out<M extends Method, P extends string> = Operation<
 type Page = { limit?: number; cursor?: string };
 /** Paging of the protocol read routes and the RFQ list: `after` is the previous page's `next`. */
 type After = { limit?: number; after?: string };
-type ForecastMarket = { deploymentId: string; marketId: string };
 
 export type BlinkClientOptions = {
   /**
@@ -152,10 +153,6 @@ export function createBlinkClient(
       ),
     ) as Out<M, P>;
   }
-  const marketParams = (ref: ForecastMarket) => ({
-    params: { id: ref.marketId },
-    query: { deploymentId: ref.deploymentId },
-  });
   const segment = (value: string) => encodeURIComponent(value);
   /** Bytes served by hash, accepted only if keccak256(bytes) is the hash asked for. */
   const bytesByHash = async (path: string, hash: string) => {
@@ -235,23 +232,54 @@ export function createBlinkClient(
       call("GET", "/v1/suggestions/:id", { params: { id } }),
     claimSuggestion: (id: string) =>
       call("POST", "/v1/suggestions/:id/claims", { params: { id } }),
-    // --- forecasts ---
-    listForecastWindows: (ref: ForecastMarket, page: Page = {}) =>
+    // --- signed forecasts ---
+    /** The market's windows with their schedule (unix seconds) and, once closed, their Merkle roots. */
+    listForecastWindows: (ref: { marketId: string }, page: Page = {}) =>
       call("GET", "/v1/markets/:id/forecast-windows", {
-        params: marketParams(ref).params,
-        query: { deploymentId: ref.deploymentId, ...page },
+        params: { id: ref.marketId },
+        query: page,
       }),
-    submitForecast: (ref: ForecastMarket, input: unknown, key?: string) =>
+    /**
+     * forecast:write and the FORECASTER role. `{ horizon, scheduledAt, probabilityBps, contentHash,
+     * signature }`, where the signature covers `forecastTypedData` for the key's wallet. Answers
+     * `{ digest, leaf }`.
+     */
+    submitForecast: (ref: { marketId: string }, input: unknown, key?: string) =>
       call("POST", "/v1/markets/:id/forecasts", {
-        ...marketParams(ref),
+        params: { id: ref.marketId },
         body: input,
         key,
       }),
-    listForecasts: (ref: ForecastMarket, query: Page & { windowId: string }) =>
+    /** A window's answers; before its deadline only the key's own (sealed). */
+    listForecasts: (ref: { marketId: string }, query: Page & { windowId: string }) =>
       call("GET", "/v1/markets/:id/forecasts", {
-        params: marketParams(ref).params,
-        query: { deploymentId: ref.deploymentId, ...query },
+        params: { id: ref.marketId },
+        query,
       }),
+    /** Withdraws the key's own answer before the window's deadline. */
+    withdrawForecast: (ref: { submissionId: string }) =>
+      call("POST", "/v1/forecasts/:id/withdrawal", {
+        params: { id: ref.submissionId },
+      }),
+    /** The window's root, sorted leaves and BlinkAnchor record; empty until its deadline. */
+    getForecastWindow: (ref: { windowId: string }) =>
+      call("GET", "/v1/forecast-windows/:id", { params: { id: ref.windowId } }),
+    /** The sibling path of a leaf, for OpenZeppelin MerkleProof.verify against the root. */
+    getForecastProof: (ref: { windowId: string }, leaf: string) =>
+      call("GET", "/v1/forecast-windows/:id/proof", {
+        params: { id: ref.windowId },
+        query: { leaf },
+      }),
+    /** The credit-weighted consensus of the market's closed windows. */
+    getConsensus: (ref: { marketId: string }, page: Page = {}) =>
+      call("GET", "/v1/markets/:id/consensus", {
+        params: { id: ref.marketId },
+        query: page,
+      }),
+    listForecasters: (page: Page = {}) =>
+      call("GET", "/v1/forecasters", { query: { sort: "weight", ...page } }),
+    getForecaster: (ref: { address: string }) =>
+      call("GET", "/v1/forecasters/:address", { params: { address: ref.address } }),
     // --- RFQ relay (rfq:write) ---
     /** Taker: `{ marketId, side, quantity }`. Open for 30 seconds; the relay never prices or fills. */
     createRfq: (input: unknown) => call("POST", "/v1/rfqs", { body: input }),
@@ -279,6 +307,23 @@ export function createBlinkClient(
       call("GET", "/v1/metrics", { query: { mode } }),
   };
 }
+/**
+ * What a forecaster signs: the typed data of its answer, bound to the deployment's BlinkAnchor
+ * (`shared.anchor` of the manifest) and BlinkMarkets, the market and the window.
+ */
+export {
+  FORECAST_HORIZONS,
+  NO_CONTENT_HASH,
+  forecastTypedData,
+  forecastTypes,
+  type ForecastMessage,
+} from "@blink/schemas";
+/** The EIP-712 digest of a forecast: what the platform returns as `digest`. */
+export const forecastDigest = (input: { anchor: string; message: ForecastMessage }) =>
+  hashTypedData(forecastTypedData(input));
+/** The leaf of a digest in the window tree: keccak256(keccak256(digest)), what BlinkAnchor may anchor. */
+export const forecastLeaf = (digest: string): Hex =>
+  keccak256(keccak256(digest as Hex));
 export {
   DEFAULT_MIN_VALIDITY_SECONDS,
   QuoteVerificationError,

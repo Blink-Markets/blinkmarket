@@ -314,7 +314,7 @@ test("public GET rate limit covers every read route", async () => {
 
 test("every read route is a public GET contract", () => {
   const read = apiContracts.filter(
-    (c) => c.method === "GET" && /^\/v1\/(deployment|markets|disputes|accounts|templates)/.test(c.path) && !c.path.includes("forecast"),
+    (c) => c.method === "GET" && /^\/v1\/(deployment|markets|disputes|accounts|templates)/.test(c.path) && !c.path.includes("forecast") && !c.path.includes("consensus"),
   );
   assert.equal(read.length, 10);
   for (const c of read) assert.match(c.access, /^public/, c.path);
