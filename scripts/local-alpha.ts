@@ -44,7 +44,27 @@ const DEPLOYMENT_ID = "local-alpha";
 const HEARTBEAT_MS = 1000;
 const READY_TIMEOUT_MS = 90_000;
 const LOG_LINES = 120;
+// ponytail: fixed worker port, one stack at a time; switch to an ephemeral port if P3 needs concurrent stacks.
 const WORKER_PORT = 3002; // fixed in apps/worker/src/main.ts
+
+/**
+ * Runs every cleanup step in order, even after one fails, then reports all failures together. A
+ * cleanup that silently fails would leave a chain process, database or login behind for the next run.
+ */
+export async function runCleanup(steps: readonly (readonly [string, () => Promise<unknown>])[]) {
+  const failures: { step: string; error: unknown }[] = [];
+  for (const [step, run] of steps)
+    try {
+      await run();
+    } catch (error) {
+      failures.push({ step, error });
+    }
+  if (failures.length)
+    throw new AggregateError(
+      failures.map((failure) => failure.error),
+      "LOCAL_ALPHA_CLEANUP_FAILED: " + failures.map((failure) => failure.step).join(", "),
+    );
+}
 
 export const protocolAbi = typedAbi as unknown as Record<ProtocolContractName, Abi>;
 export const ROLE = {
@@ -67,8 +87,12 @@ export interface PlatformProcess {
   exited(): boolean;
 }
 
-/** The window schedule that fits a PRE_CLOSE forecast window inside an alpha market. */
-export const ALPHA_FORECAST_SCHEDULE = { preCloseLeadSeconds: 50, openSeconds: 50 } as const;
+/**
+ * The window schedule that fits a PRE_CLOSE forecast window inside an alpha market: the window is
+ * open for 80 s and closes 80 s before the market does. The worker plans windows per 30 s bucket, so
+ * a long window leaves the submitting actor time even when the plan lands late.
+ */
+export const ALPHA_FORECAST_SCHEDULE = { preCloseLeadSeconds: 80, openSeconds: 80 } as const;
 
 async function freePort(): Promise<number> {
   const probe = createServer();
@@ -216,15 +240,16 @@ export async function startLocalAlpha(
   const stop = () =>
     (stopping ??= (async () => {
       clearInterval(heartbeat);
-      await Promise.allSettled(processes.map((p) => p.stop()));
-      await Promise.allSettled(pools.map((p) => p.end()));
-      for (const cleanup of cleanups.reverse()) await cleanup().catch(() => undefined);
-      await control
-        .query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`)
-        .catch(() => undefined);
-      for (const login of Object.values(logins))
-        await control.query(`DROP ROLE IF EXISTS "${login.user}"`).catch(() => undefined);
-      await control.end().catch(() => undefined);
+      await runCleanup([
+        ...processes.map((p) => ["process " + p.name, () => p.stop()] as const),
+        ...pools.map((p, index) => ["pool " + index, () => p.end()] as const),
+        ...[...cleanups].reverse().map((cleanup, index) => ["cleanup " + index, cleanup] as const),
+        ["drop database", () => control.query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`)],
+        ...Object.values(logins).map(
+          (login) => ["drop role " + login.user, () => control.query(`DROP ROLE IF EXISTS "${login.user}"`)] as const,
+        ),
+        ["close control connection", () => control.end()],
+      ]);
     })());
 
   try {
@@ -440,7 +465,8 @@ export async function startLocalAlpha(
       stop,
     };
   } catch (error) {
-    await stop();
+    // The startup failure is the primary error; a cleanup failure on top of it is only reported.
+    await stop().catch((cleanupError) => console.error(String(cleanupError)));
     throw error;
   }
 }

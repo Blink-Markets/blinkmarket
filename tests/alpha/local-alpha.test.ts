@@ -27,6 +27,7 @@ import { quoteTypes, type QuoteFields } from "../../packages/schemas/src/index.t
 import { rebuildChainProjection } from "../../packages/application/src/chain-indexer.ts";
 import { postgresProtocolIndexStore } from "../../packages/adapters/src/protocol-index-store.ts";
 import {
+  ALPHA_FORECAST_SCHEDULE,
   ROLE,
   protocolAbi,
   startLocalAlpha,
@@ -46,7 +47,7 @@ import { contractWalletArtifacts } from "../helpers/contract-wallet.ts";
  * scenario waits for chain time with `waitForChainTime` (a condition on the chain head, which a
  * heartbeat keeps moving) and for the platform with polling. The database clock and the chain clock
  * both follow the wall clock; no clock offset or chain timestamp is shifted, because the API and the
- * worker refuse a shifted business clock. About four to five minutes in total.
+ * worker refuse a shifted business clock. About six minutes in total.
  */
 const adminUrl = process.env.TEST_POSTGRES_ADMIN_URL;
 const skip = adminUrl
@@ -55,8 +56,15 @@ const skip = adminUrl
 if (skip) console.error("local-alpha test skipped: " + skip);
 
 const MAKER_DEPOSIT = 100_000_000n;
-/** Market lifetime after it opens: room for two RFQs, a forecast window and its root. */
-const OPEN_FOR_SECONDS = 110n;
+/**
+ * Market lifetime after it opens. The PRE_CLOSE window closes FORECAST_LEAD seconds before the market
+ * does and opens as far ahead, so with this lifetime it is open from the moment the market opens and
+ * closes 80 s later; the rest is room for two RFQs and their fills after the forecasts.
+ */
+const FORECAST_LEAD = BigInt(ALPHA_FORECAST_SCHEDULE.preCloseLeadSeconds);
+const OPEN_FOR_SECONDS = 2n * FORECAST_LEAD;
+/** What the two forecast submissions need before the window closes; the test refuses to race it. */
+const SUBMIT_BUDGET_SECONDS = 25n;
 const POLL_MS = 1500; // the public read limit refills one request per second
 const wait = <T>(what: string, read: () => Promise<T | null | undefined | false>, timeoutMs = 120_000) =>
   waitFor(what, read, timeoutMs, POLL_MS);
@@ -92,16 +100,23 @@ test(
   async () => {
     const started = Date.now();
     const alpha = await startLocalAlpha({ adminUrl: adminUrl! });
+    let failure: unknown;
     try {
       await scenario(alpha);
       console.log("local alpha: lifecycle finished in " + Math.round((Date.now() - started) / 1000) + " s");
     } catch (error) {
       // Codes only: the processes print no secrets.
       console.error(alpha.failureLogs());
-      throw error;
-    } finally {
-      await alpha.stop();
+      failure = error;
     }
+    // Every cleanup step runs; a cleanup failure never hides the scenario's own failure.
+    try {
+      await alpha.stop();
+    } catch (cleanupError) {
+      if (failure === undefined) throw cleanupError;
+      console.error(String(cleanupError));
+    }
+    if (failure !== undefined) throw failure;
   },
 );
 
@@ -146,58 +161,7 @@ async function scenario(alpha: LocalAlpha) {
   const creatorApi = as(await alpha.apiKeyFor(creator));
   assert.equal((await creatorApi.claimSuggestion(suggestionId)).status, "CLAIMED");
 
-  // --- Template, content upload and market creation -----------------------------------------------
-  const templateReceipt = await write(creator, markets, protocolAbi.markets, "registerTemplate", [
-    1, // B_VERIFIABLE
-    keccak256(toBytes("local-alpha-parser")),
-    "ipfs://local-alpha-template",
-  ]);
-  const templateId = events(templateReceipt, protocolAbi.markets, "TemplateRegistered")[0]!.args.templateId as Hex;
-  const specBytes = new TextEncoder().encode(
-    JSON.stringify({
-      schema: "blink.market-spec/0.2",
-      title: "Local alpha market",
-      question: "Does the local alpha scenario finish with YES?",
-      class: "B",
-      resolution: { yes: "The proposer says YES.", no: "The proposer says NO." },
-      sources: ["https://example.com/local-alpha"],
-      suggestionId,
-    }),
-  );
-  const specHash = keccak256(specBytes);
-  const uploaded = await creatorApi.uploadContent(specBytes, "application/json");
-  assert.equal(uploaded.hash, specHash);
-  const createdAt = (await anvil.publicClient.getBlock()).timestamp;
-  // openAt = creation + the class window (60 s) + the first-use extra window (30 s).
-  const closeAt = createdAt + 90n + OPEN_FOR_SECONDS + 5n;
-  const created = await write(creator, markets, protocolAbi.markets, "createMarket", [
-    {
-      templateId,
-      specHash,
-      specURI: alpha.apiUrl + "/v1/content/" + specHash,
-      replay: false,
-      closeAt,
-      proposalDeadline: closeAt + 120n,
-      hardDeadline: closeAt + 120n + 400n,
-      maxPairs: 100n,
-    },
-  ]);
-  const marketId = events(created, protocolAbi.markets, "MarketCreated")[0]!.args.marketId as bigint;
-  const ref = { marketId: String(marketId) };
-  const onChain = await mread("getMarket", [marketId]);
-  const openAt = BigInt(onChain.openAt);
-  assert.equal(BigInt(onChain.closeAt), closeAt);
-
-  // The suggestion shows MARKET_CREATED as soon as the index has the linked market.
-  const linked = await wait("suggestion MARKET_CREATED", async () => {
-    const found = await anonymous.getSuggestion(suggestionId);
-    return found.status === "MARKET_CREATED" ? found : null;
-  });
-  assert.deepEqual(linked.specHashes, [specHash]);
-  assert.equal((await anonymous.getMarket(ref)).market.state, "PENDING");
-  assert.deepEqual(await anonymous.getMarketSpec(ref, specHash).then((s) => s.suggestionId), suggestionId);
-
-  // --- The other actors join during the creation window --------------------------------------------
+  // --- The other actors join before the market exists: their delays then cannot eat the market's deadlines --------------------------------------------
   await alpha.onboard(taker, ROLE.TAKER);
   await write(taker, d.generation.registry, protocolAbi.registry, "joinRole", [ROLE.FORECASTER, BigInt(d.params.minRoleStake)]);
   await alpha.onboard(makerEoa, ROLE.MAKER);
@@ -226,10 +190,102 @@ async function scenario(alpha: LocalAlpha) {
   assert.equal(account.registered, true);
   assert.equal(account.roles.MAKER?.hasRole, true);
 
+  // --- Template, content upload and market creation -----------------------------------------------
+  const templateReceipt = await write(creator, markets, protocolAbi.markets, "registerTemplate", [
+    1, // B_VERIFIABLE
+    keccak256(toBytes("local-alpha-parser")),
+    "ipfs://local-alpha-template",
+  ]);
+  const templateId = events(templateReceipt, protocolAbi.markets, "TemplateRegistered")[0]!.args.templateId as Hex;
+  const specBytes = new TextEncoder().encode(
+    JSON.stringify({
+      schema: "blink.market-spec/0.2",
+      title: "Local alpha market",
+      question: "Does the local alpha scenario finish with YES?",
+      class: "B",
+      resolution: { yes: "The proposer says YES.", no: "The proposer says NO." },
+      sources: ["https://example.com/local-alpha"],
+      suggestionId,
+    }),
+  );
+  const specHash = keccak256(specBytes);
+  const uploaded = await creatorApi.uploadContent(specBytes, "application/json");
+  assert.equal(uploaded.hash, specHash);
+  const createdAt = (await anvil.publicClient.getBlock()).timestamp;
+  // openAt = creation + the class window (60 s) + the first-use extra window (30 s). Every actor is
+  // onboarded already, so the market's whole lifetime is spent on the steps that need it.
+  const closeAt = createdAt + 90n + OPEN_FOR_SECONDS + 5n;
+  const created = await write(creator, markets, protocolAbi.markets, "createMarket", [
+    {
+      templateId,
+      specHash,
+      specURI: alpha.apiUrl + "/v1/content/" + specHash,
+      replay: false,
+      closeAt,
+      proposalDeadline: closeAt + 120n,
+      hardDeadline: closeAt + 120n + 400n,
+      maxPairs: 100n,
+    },
+  ]);
+  const marketId = events(created, protocolAbi.markets, "MarketCreated")[0]!.args.marketId as bigint;
+  const ref = { marketId: String(marketId) };
+  const onChain = await mread("getMarket", [marketId]);
+  const openAt = BigInt(onChain.openAt);
+  assert.equal(BigInt(onChain.closeAt), closeAt);
+
+  // The suggestion shows MARKET_CREATED as soon as the index has the linked market.
+  const linked = await wait("suggestion MARKET_CREATED", async () => {
+    const found = await anonymous.getSuggestion(suggestionId);
+    return found.status === "MARKET_CREATED" ? found : null;
+  });
+  assert.deepEqual(linked.specHashes, [specHash]);
+  assert.equal((await anonymous.getMarket(ref)).market.state, "PENDING");
+  assert.deepEqual(await anonymous.getMarketSpec(ref, specHash).then((s) => s.suggestionId), suggestionId);
+
   // --- Open ----------------------------------------------------------------------------------------
   await alpha.waitForChainTime(openAt);
   await write(keeper, markets, protocolAbi.markets, "open", [marketId]);
   await wait("market OPEN", async () => (await anonymous.getMarket(ref)).market.state === "OPEN");
+
+  // --- Signed forecasts in the PRE_CLOSE window --------------------------------------------------
+  const window = await wait("PRE_CLOSE window open", async () => {
+    const page = await anonymous.listForecastWindows(ref);
+    return page.items.find((w) => w.horizonType === "PRE_CLOSE" && w.status === "OPEN") ?? null;
+  }, 60_000);
+  assert.equal(BigInt(window.deadline), closeAt - FORECAST_LEAD);
+  const remaining = BigInt(window.deadline) - (await alpha.chainNow());
+  assert.ok(
+    remaining >= SUBMIT_BUDGET_SECONDS,
+    `the forecast window has ${remaining} s left, the submissions need ${SUBMIT_BUDGET_SECONDS} s: the runner is too slow for this scenario`,
+  );
+  const answers: { digest: Hex; leaf: Hex }[] = [];
+  for (const [signer, apiKey, probabilityBps] of [
+    [forecasterA, key.forecasterA, 7200],
+    [forecasterB, key.taker, 6400],
+  ] as const) {
+    const message = {
+      forecaster: signer.address.toLowerCase(),
+      markets,
+      marketId: ref.marketId,
+      horizon: window.horizon,
+      scheduledAt: window.scheduledAt,
+      probabilityBps,
+      contentHash: NO_CONTENT_HASH,
+    };
+    const signature = await signer.signTypedData(forecastTypedData({ anchor: d.shared.anchor, message }));
+    const receipt = await as(apiKey).submitForecast(ref, {
+      horizon: window.horizon,
+      scheduledAt: window.scheduledAt,
+      probabilityBps,
+      contentHash: NO_CONTENT_HASH,
+      signature,
+    });
+    const digest = forecastDigest({ anchor: d.shared.anchor, message });
+    assert.deepEqual(receipt, { digest, leaf: forecastLeaf(digest) });
+    answers.push(receipt as { digest: Hex; leaf: Hex });
+  }
+  // Sealed until the deadline: an outsider sees no root and no leaves.
+  assert.equal((await anonymous.getForecastWindow({ windowId: window.windowId })).root, null);
 
   // --- RFQ with two makers: one EOA and one contract wallet, the taker fills the best --------------
   let nonce = BigInt(Date.now()) * 1000n;
@@ -316,41 +372,6 @@ async function scenario(alpha: LocalAlpha) {
     return found?.yesShares === "15" ? found : null;
   });
   assert.equal(position.marketState, "OPEN");
-
-  // --- Signed forecasts in the PRE_CLOSE window --------------------------------------------------
-  const window = await wait("PRE_CLOSE window open", async () => {
-    const page = await anonymous.listForecastWindows(ref);
-    return page.items.find((w) => w.horizonType === "PRE_CLOSE" && w.status === "OPEN") ?? null;
-  });
-  assert.equal(BigInt(window.deadline), closeAt - 50n);
-  const answers: { digest: Hex; leaf: Hex }[] = [];
-  for (const [signer, apiKey, probabilityBps] of [
-    [forecasterA, key.forecasterA, 7200],
-    [forecasterB, key.taker, 6400],
-  ] as const) {
-    const message = {
-      forecaster: signer.address.toLowerCase(),
-      markets,
-      marketId: ref.marketId,
-      horizon: window.horizon,
-      scheduledAt: window.scheduledAt,
-      probabilityBps,
-      contentHash: NO_CONTENT_HASH,
-    };
-    const signature = await signer.signTypedData(forecastTypedData({ anchor: d.shared.anchor, message }));
-    const receipt = await as(apiKey).submitForecast(ref, {
-      horizon: window.horizon,
-      scheduledAt: window.scheduledAt,
-      probabilityBps,
-      contentHash: NO_CONTENT_HASH,
-      signature,
-    });
-    const digest = forecastDigest({ anchor: d.shared.anchor, message });
-    assert.deepEqual(receipt, { digest, leaf: forecastLeaf(digest) });
-    answers.push(receipt as { digest: Hex; leaf: Hex });
-  }
-  // Sealed until the deadline: an outsider sees no root and no leaves.
-  assert.equal((await anonymous.getForecastWindow({ windowId: window.windowId })).root, null);
 
   // --- The worker stores the window root; a participant anchors it from its own wallet ------------
   const closed = await wait(

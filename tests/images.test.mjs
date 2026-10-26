@@ -194,6 +194,15 @@ for (const name of Object.keys(services)) {
       assert.equal(started.status, 0, started.stderr);
       const id = started.stdout.trim();
       try {
+        // A started platform container holds no role key and mounts nothing (same rule as
+        // assertNoRoleKeys in packages/runtime, which this plain-Node test cannot import).
+        const running = JSON.parse(docker(["inspect", id]).stdout)[0];
+        for (const entry of running.Config.Env) {
+          const at = entry.indexOf("=");
+          assert.doesNotMatch(entry.slice(0, at), /PRIVATE_KEY|MNEMONIC|KEY_FILE|SEED/i);
+          assert.doesNotMatch(entry.slice(at + 1), /^0x[0-9a-fA-F]{64}$/);
+        }
+        assert.deepEqual(running.Mounts, []);
         let status = "";
         for (let n = 0; n < 60 && status !== "healthy"; n++) {
           await delay(1000);

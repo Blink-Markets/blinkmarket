@@ -112,7 +112,12 @@ test("compose.alpha.yaml has no key env or key volumes", () => {
     const environment = Array.isArray(service.environment)
       ? Object.fromEntries(service.environment.map((entry) => entry.split(/=(.*)/s).slice(0, 2)))
       : (service.environment ?? {});
-    for (const [variable, value] of Object.entries(environment)) {
+    // Build arguments end up in the image history: they are held to the same rule.
+    const build = service["build"] as { args?: Record<string, unknown> | string[] } | undefined;
+    const buildArgs = Array.isArray(build?.args)
+      ? Object.fromEntries(build.args.map((entry) => entry.split(/=(.*)/s).slice(0, 2)))
+      : (build?.args ?? {});
+    for (const [variable, value] of [...Object.entries(buildArgs), ...Object.entries(environment)]) {
       assert.ok(!NAME_RULE.test(variable), where + " sets " + variable);
       // A value can reference a key variable by name (${...}) as well as hold one.
       assert.ok(!HEX_RULE.test(String(value)), where + " sets a 32-byte value in " + variable);
@@ -133,6 +138,7 @@ test("the service Dockerfiles bake in no key variable, argument or key file", ()
     const file = "infra/Dockerfile." + service;
     for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
       if (line.trim().startsWith("#")) continue;
+      // Any ENV or ARG naming a key (a line holds one or several NAME=value pairs) matches here.
       assert.ok(!NAME_RULE.test(line), file + ": " + line);
       assert.ok(!/0x[0-9a-fA-F]{64}/.test(line), file + " carries a 32-byte value");
       assert.ok(!/\.(key|pem)\b|keystore/i.test(line), file + " copies key material: " + line);

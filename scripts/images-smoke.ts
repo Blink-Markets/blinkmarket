@@ -15,6 +15,7 @@ import {
   deployProtocol,
   planProtocolDeployment,
 } from "../packages/adapters/src/protocol-deployer.js";
+import { assertNoRoleKeys } from "../packages/runtime/src/index.js";
 import { presets } from "../packages/schemas/src/index.js";
 import { verifyProtocolDeployment } from "../packages/adapters/src/deployment-verifier.js";
 import { registerProtocolDeployment } from "../packages/adapters/src/deployment-registry.js";
@@ -204,12 +205,32 @@ async function main() {
 
     for (const service of ["api", "indexer", "worker"]) {
       const id = compose("ps", "-q", service).stdout.trim();
-      const state = JSON.parse(docker(["inspect", id]).stdout)[0].State as {
-        Status: string;
-        Health: { Status: string };
+      const inspected = JSON.parse(docker(["inspect", id]).stdout)[0] as {
+        State: { Status: string; Health: { Status: string } };
+        Config: { Env: string[] };
+        Mounts: { Type: string; Name?: string; Source: string; Destination: string }[];
       };
+      const state = inspected.State;
       assert.equal(state.Status, "running", service);
       assert.equal(state.Health.Status, "healthy", service);
+      // The platform holds no role key: the container's configured environment carries none (the
+      // check names the variable, never the value) and no key file is mounted into it.
+      assertNoRoleKeys(
+        Object.fromEntries(
+          inspected.Config.Env.map((entry) => {
+            const at = entry.indexOf("=");
+            return [entry.slice(0, at), entry.slice(at + 1)];
+          }),
+        ),
+      );
+      for (const mount of inspected.Mounts)
+        assert.ok(
+          mount.Type === "volume" &&
+            !/key|seed|mnemonic|secret|keystore|\.pem/i.test(
+              [mount.Name, mount.Source, mount.Destination].join(" "),
+            ),
+          service + " mounts " + mount.Destination,
+        );
       const user = docker(["exec", id, "id", "-u"]).stdout.trim();
       assert.notEqual(user, "0", service + " runs as root");
     }
