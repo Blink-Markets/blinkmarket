@@ -1,5 +1,7 @@
 # M2 public reads and transaction tracking
 
+> Partly historical: the v0.1 read routes described here (`/v1/markets/:id/resolution`, the `deploymentId` and `mode` query shapes, `pendingIntentIds`) were replaced by the protocol read API in P2 Task 7, and `POST /v1/transactions` now tracks the protocol generation (Task 9). The transaction table and tracker design still apply. For the current routes see [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This slice enables the public read endpoints of spec §10.2 from the chain projections (`chain.*`, migration 0007) and adds `POST /v1/transactions` hints with an indexer-side tracker that independently verifies them. Nothing here signs or sends a transaction, and trading stays disabled: `canTrade` is `false` unless a later task injects `hooks.canTrade`.
 
 ## What was added

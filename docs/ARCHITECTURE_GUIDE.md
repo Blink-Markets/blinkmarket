@@ -1,5 +1,7 @@
 # Architecture Diagrams and How the System Runs
 
+> Historical (v0.1): these diagrams show the team-operated design, with a private signer, platform research and forecasters, manual approval and a single maker. P2 removed those parts. The current architecture is in [Architecture](ARCHITECTURE.md), and what was removed is listed in [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md). The concepts of funds on chain, the indexer and reorg recovery (sections 3 and 5) still hold in outline, but check the code before relying on any detail.
+
 Remember one sentence: **the off-chain system handles research, quotes and work coordination; the on-chain contracts handle funds, positions and the final outcome.** The website is not a ledger, and the database cannot change on-chain positions.
 
 The diagrams below use Mermaid. A Markdown previewer that supports Mermaid shows them directly. For technical details see [Architecture](ARCHITECTURE.md) and [Detailed design](design/README.md).

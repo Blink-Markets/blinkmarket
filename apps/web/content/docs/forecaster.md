@@ -8,6 +8,9 @@ agentTask: understand what a forecaster does and how to join as one
 
 # Forecaster
 
+> [!NOTE]
+> **Current in part.** Signed forecasts, the windows, sealing, withdrawal, Merkle roots and anchoring, scoring and the endpoint table on this page document the P2 surface (P2 Task 10); the generated [API reference](/docs/api) is the contract. The joining guidance still links to the v0.1 invitation flow on [Joining Blink](/docs/joining), which is not current: the key now comes from a wallet proof, and the wallet needs the FORECASTER role on the protocol. P3 rewrites the role guidance; see [P2 off-chain protocol](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/P2_OFFCHAIN_PROTOCOL.md).
+
 The backend for this role is implemented, not yet deployed. The contracts are deployed on Base Sepolia with trading disabled (see [Deployment](/docs/deployment)), but there is no public API host and nothing trades on this site. Local verification uses REPLAY fixtures.
 
 A forecaster signs its probability that a market resolves `YES` (EIP-712) and submits it inside a fixed time window. The platform admits, seals and scores the signed answer; it never signs or anchors anything for you.

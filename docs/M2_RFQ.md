@@ -1,5 +1,7 @@
 # M2 RFQ, quotes and collateral reservations
 
+> Historical (v0.1): ensemble pricing, maker collateral reservations and signer-signed quotes were removed in P2 Task 1. The RFQ is now a multi-maker relay of maker-signed quotes. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This slice turns on `trading` mode: `POST /v1/rfqs` prices a quote deterministically from the platform ensemble, refuses to quote on stale or gated state, reserves the maker's collateral under a row lock, has the restricted signer sign the EIP-712 quote, and answers idempotently. `GET /v1/quotes/:quoteId` reports a quote's state from canonical chain state. A worker reconciles every reservation against the indexer's cursor, including after a reorg. Nothing here sends a transaction: the taker approves and fills with their own wallet, and the maker key never leaves the signer process.
 
 ## What was added

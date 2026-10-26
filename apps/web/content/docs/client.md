@@ -8,6 +8,9 @@ agentTask: understand the shape and behaviour of the @blink/client TypeScript cl
 
 # TypeScript client
 
+> [!NOTE]
+> **Partly v0.1.** The method tables below describe the v0.1 client. P2 removed `requestQuote`, `getQuote`, `claimFaucet`, `getResolution`, `getEvidence` and the resolution-report method, and added methods for the P2 API (reads, content, suggestions, the RFQ relay, signed forecasts) and an async `verifySignedQuote` for the "Blink RFQ" 0.2 domain. The client is a private workspace package; read its source for the current surface. P3 rewrites this page.
+
 `@blink/client` is a small typed wrapper around the Blink HTTP API. It lives in `packages/client` and validates every request and response against the shared schemas in `@blink/schemas`.
 
 > [!NOTE]
@@ -125,7 +128,7 @@ If `requestQuote` is answered with a retryable 503 while the quote is still bein
 | `claimFaucet(input, key?)` | `POST /v1/faucet/claims` | `{ deploymentId }`, idempotency key | `claimId`, `intentId`, `state` (`QUEUED`); HTTP 202 |
 | `getMetrics(mode)` | `GET /v1/metrics?mode=...` | `"LIVE"` or `"REPLAY"` | event, missing and invalid counts, `brier`, and research spend: spent, reserved and unknown |
 
-The client has no method for `/v1/content` or `/v1/suggestions`, or for the admin resolution-report operations in the [API reference](/docs/api).
+The client has no method for the admin operations in the [API reference](/docs/api).
 
 ## How is a signed quote checked?
 

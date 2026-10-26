@@ -1,5 +1,7 @@
 # Acceptance evidence — spec §17
 
+> Historical (v0.1): this matrix maps spec §17 of the v0.1 MVP specification to the v0.1 tests. P2 removed much of what it cites (the v0.1 contract, signer, RFQ pricing, trader and the three REPLAY scenarios). The current evidence for the autonomous design is in [P1](P1_PROTOCOL_CONTRACTS.md) and [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md#verification); a new matrix for the design's §2.1 success criteria belongs to P3.
+
 Commands run from the repository root. Node suites use the installed Node 22 and
 `tsx`; contract suites use the pinned Foundry wrapper. Real PostgreSQL commands
 require `TEST_POSTGRES_ADMIN_URL` pointing to the dedicated local/CI administrator

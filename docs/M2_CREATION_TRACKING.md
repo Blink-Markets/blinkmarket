@@ -1,5 +1,7 @@
 # M2.3a — MarketCreated receipt reconciliation
 
+> Historical (v0.1): creation-intent tracking was removed in P2 Task 2. Market creation is observed through the protocol index. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This slice connects an approved creation intent to a **real RPC-observed transaction, MarketCreated event and chain-assigned market ID**. It is an operator-invoked, read-only chain observer, not a continuously running indexer. The implementation is tested with mock RPC fixtures and actual receipts from isolated local Anvil contracts; no remote transaction was sent and no public deployment was created.
 
 ## Flow and states

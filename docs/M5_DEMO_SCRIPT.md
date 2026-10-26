@@ -1,5 +1,7 @@
 # M5 demo script — Task A8 delivery
 
+> Historical (v0.1): the storyboard shows the v0.1 flow with a platform maker, team-run roles and trusted resolution, which no longer exist. It must not be used for the current design; the introduction video is a P4 item. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 A 3-minute storyboard for the Blink Market demo video, following spec §19 (30 s problem, 60 s data to forecast, 60 s RFQ trade and rights, 30 s REPLAY result and next steps). Everything shown runs on the local Alpha stack. Recording and publishing are the user's (decision D10); this document does not record, deploy or publish anything.
 
 ## Ground rules for the video

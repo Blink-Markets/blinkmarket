@@ -8,6 +8,9 @@ agentTask: understand what a resolution reporter does and how to join as one
 
 # Resolution reporter
 
+> [!NOTE]
+> **v0.1 role guidance.** Resolution reports, the report endpoint and human role drafts on this page were removed in P2. In the current design a Proposer submits the result on chain with an evidence hash and a bond, and disputes go to jurors; see [P1 protocol contracts](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/P1_PROTOCOL_CONTRACTS.md). P3 rewrites this page.
+
 The backend for this role is implemented, not yet deployed. The contracts are deployed on Base Sepolia with trading disabled (see [Deployment](/docs/deployment)), but there is no public API host and nothing trades on this site. Local verification uses REPLAY fixtures; no paid model provider is connected. LIVE approval remains rejected.
 
 A resolution reporter sends evidence about how a market should resolve. A report never changes the result directly: it goes into the work queue of the Blink team's auditor, and the team's result proposer, challenger and arbiter settle the market on-chain under fixed time limits. Once a challenge period ends unchallenged, or a market times out, anyone may call the permissionless finalize functions.

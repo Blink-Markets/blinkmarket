@@ -1,5 +1,7 @@
 # M3 internal trader under a mandate
 
+> Historical (v0.1): the internal trader and its mandate were removed in P2 Task 1. The platform plays no market role. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 Task 14 delivers the internal trader slice of M3 (spec 9.3, 12.3). It does not mark the full milestone complete.
 
 The trader is deterministic: no model output reaches it. It reads the platform forecasters' answers of a closed window, prices both sides with the same `askPriceBps` the RFQ uses, and buys only when its own forecaster's probability beats the ask by more than the mandate's threshold. It asks for the quote through `POST /v1/rfqs` with its own API key, verifies the signed envelope itself, and has the restricted signer sign an exact-amount approve and the fill. The worker holds no key; every transaction is an intent the signer checks and signs.

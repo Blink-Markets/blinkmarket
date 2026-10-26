@@ -1,5 +1,7 @@
 # M2.3b — Continuous creation receipt polling
 
+> Historical (v0.1): the creation poller was removed in P2 Task 2. Market creation is observed through the protocol index. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This opt-in indexer process repeatedly checks creation transactions that M2.3a already validated and pinned. It does not discover transactions, scan block ranges, accept replacement hashes, sign, broadcast, or release an approval slot. The operator continues to register the first hash with `pnpm creation:reconcile <intent-id> <tx-hash>`; once that validated observation commits, migration 0006's durable schedule makes it eligible for polling.
 
 ## Scheduling and recovery

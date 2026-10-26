@@ -1,5 +1,7 @@
 # M5 backup and restore drill — Task A5 delivery
 
+> Partly historical: the drill was reduced in P2 Task 1 to infrastructure rows, schema, grants and cursor lease recovery of a real `pg_dump` and restore. The quote reservation and the v0.1 harness steps described here no longer exist. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This is the §17.3 "backup restore succeeds" evidence, runnable locally and in CI. It builds
 on the local Alpha harness (`docs/M5_LOCAL_ALPHA.md`) and on `chain:rebuild --verify`. It
 deploys nothing, signs nothing and contacts no provider: the source is the harness's own

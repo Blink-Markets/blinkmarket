@@ -1,5 +1,7 @@
 # M5 health and execution metrics — Task 16a
 
+> Partly historical: health and the admin execution metrics described here assumed the v0.1 `trading` API mode, the signer and the budget gates, which no longer exist. The API's modes are `scaffold`, `identity` and `markets`, and no key can carry the `admin` scope any more. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 ## Delivered scope
 
 - `GET /v1/health` returns exactly `{status, tradingEnabled, reasons}` publicly,

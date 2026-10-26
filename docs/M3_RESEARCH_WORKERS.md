@@ -1,5 +1,7 @@
 # M3 discovery, forecaster and baseline workers
 
+> Historical (v0.1): the discovery, forecaster and baseline workers were removed in P2 Task 2. Agents forecast on their own. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 ## Scope
 
 Platform agents act through the public HTTP API with their own invited keys (`@blink/client`), exactly like an external agent. The worker holds no write grant on candidate or forecast tables; it records its own bookkeeping and reads what it needs to build prompts. Model access is the `ModelGateway` port; the only implementation is the deterministic fixture gateway, so nothing here spends money or calls a network. Tests run the real API (`buildApi` with the real services over PGlite) on a loopback port and point the real client at it.

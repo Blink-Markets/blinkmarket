@@ -1,5 +1,7 @@
 # M5 preparation — contract deployment tooling
 
+> Historical (v0.1): the guarded deployer for `BlinkTestUSD` and `BlinkMarket` was replaced in P2 Task 4 by the protocol generation tooling (`pnpm contracts:deploy -- --params ...`, manifest v2). See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This slice adds a guarded deployer that puts `BlinkTestUSD` and `BlinkMarket` on a chain, produces a release manifest, and verifies that manifest with the existing `verifyDeploymentOnChain` before it writes anything. It is **tooling only**. The tooling has been exercised against local Anvil started with `--chain-id 84532`; that local exercise did not use real role wallets, an RPC provider or keys. Since 2026-10-20 it has also deployed `alpha-2` on Base Sepolia; see `deployments/base-sepolia/alpha-2.manifest.json`.
 
 ## What the tool does

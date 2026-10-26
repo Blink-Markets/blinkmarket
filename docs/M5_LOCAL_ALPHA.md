@@ -1,5 +1,7 @@
 # M5 local Alpha harness — Task 16b delivery
 
+> Historical (v0.1): the harness and the three REPLAY scenarios described here were removed in P2 Task 1. `pnpm alpha:local` now runs the infrastructure-only local alpha (P2 Task 11). See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This slice implements Task 16 Rules 1–3. The external-agent step runs Task 15's
 `examples/agent/run.ts` with one added bound on receipt waits (see below), and the normal
 and timeout scenarios are finalized by the worker's real `keeper.finalize` job, not

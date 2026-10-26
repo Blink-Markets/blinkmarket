@@ -1,82 +1,60 @@
 # Data Model Design
 
-Latest increment: `0005_creation_tracking` implements `chain.creation_projections` and `chain.creation_observations`. `0006_creation_tracking_schedule` adds a durable retry/lease schedule for market-creation tracking that is verified and pins the txHash. The remaining blocks/events/global cursor and position tables are still to be implemented. See [M2.3a](M2_CREATION_TRACKING.md) and [M2.3b](M2_CREATION_POLLER.md).
+This is the data model after P2, derived from migrations 0001–0034 (there is no 0021). P2 added migrations 0025–0034 and dropped the v0.1 tables for approval, candidates, budgets, signing, trading reservations, the trader, keeper, faucet and resolution reports; the dropped tables are listed at the end for history. Migrations are forward-only, and no applied file was edited. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md) for the migration list.
 
-This is the full logical model for M2. 0001 is the operations base. 0002 is identity. 0003 is evidence/discovery. 0004 has added markets.deployments/deployment_checks/specs/approvals/creation_intents/active_slots. For the latest transaction boundary see [approval delivery](M2_APPROVAL_DELIVERY.md). On-chain events, slot release and the remaining business tables are still to be implemented. The other names in the table below are a logical blueprint and do not mean the SQL tables already exist.
+## Schemas and tables
 
-## Modules and tables
-
-| Owner | Tables | Main columns and constraints |
+| Schema | Tables | Main columns and constraints |
 | --- | --- | --- |
-| identity | operators, agents, api_keys | agent.operator_id FK; key_hash unique, scopes, revoked_at, expires_at; no plaintext key |
-| identity | wallet_challenges, wallet_bindings | nonce hash unique, domain/chain/expires_at/consumed_at; binding verified by signature |
-| evidence | source_allowlists, evidence | URL, published/observed_at, content_hash, object_uri, access_policy; the original snapshot cannot be overwritten |
-| discovery | candidates, candidate_revisions | candidate + revision unique, creator, state, canonical_key; append-only revision |
-| markets | market_specs | spec_hash unique, raw_bytes_uri, schema_version, approval actor/time, canonical_key |
-| markets | markets | UNIQUE(deployment_id, chain_market_id), mode, spec FK, times, state projection |
-| forecasts | forecast_windows | UNIQUE(market_id, horizon_type, scheduled_at), open_at, deadline |
-| forecasts | forecasts | UNIQUE(window_id, agent_id), not deleted even when withdrawn; NUMERIC probability CHECK 0..1, received_at |
-| forecasts | model_runs | model/prompt hash, sampling/tool version, input hash, cutoff, baseline/platform/external |
-| budgets | question_budgets, daily_budgets | USD micros caps, reserved/spent/unknown; daily date fixed to UTC |
-| budgets | cost_entries | reserve/reconcile events, provider request ID, estimated / actual / unknown cost; append-only |
-| trading | rfqs, quotes | rfq taker/market/max_cost, digest unique, payload, signature, expiry, epoch |
-| trading | collateral_reservations | quote/draft intent FK, maker_cost, state, reconciled block hash |
-| trading | mandates, risk_reservations | agent, daily/open notional, gas cap, economic intent, pending holds |
-| chain | deployments | deployment_id, 84532, addresses, deployment block, ABI/bytecode hashes, roles, version |
-| chain | chain_transactions | action_id, sender, nonce, hash, replacement_of, status; one nonce may have several hashes, so do not set it unique by mistake |
-| chain | chain_blocks, chain_cursors | block hash, parent hash, number, canonical, finalized capability, deployment cursor |
-| chain | chain_events | UNIQUE(deployment_id, block_hash, tx_hash, log_index), canonical flag/tombstone |
-| chain | positions_projection | UNIQUE(deployment_id, market_id, address), yes/no, as_of_block_hash |
-| resolution | resolution_reports, resolution_actions | author, evidence, suggested outcome, operator, intent, canonical chain ref |
-| faucet | faucet_claims | verified address, claimed_at, amount, economic intent, pending status |
-| analytics | evaluation_runs, score_entries | mode, event/horizon, input versions, missing/invalid/contaminated flags |
-| operations | idempotency_records | UNIQUE(operator_id, endpoint, key), payload_hash, response/intent ref |
-| operations | audit_log | actor, action, resource, reason, request_id, before/after hash, UTC |
-| operations | jobs, outbox | dedupe_key, type, attempt, next_run_at, lease_until, lease_owner, last_error |
+| identity | operators, agents, api_keys | agent.operator_id FK; key_hash unique, the self-serve function issues only `forecast:write`, `rfq:write`, `content:write` and `suggestion:claim` (the check still allows the legacy scopes so already-issued rows stay valid; 0028 revoked every invite key); expires_at, revoked_at; no plaintext key. Created on first self-serve issue |
+| identity | wallet_challenges, wallet_bindings | challenge: address, `action` (issue or revoke), `target_key_id`, `client_ip`, `attempts`, expires_at, consumed_at; binding verified by signature. `blink_api` may not INSERT bindings or update `consumed_at`; the `SECURITY DEFINER` functions `identity.issue_self_serve_key` and `identity.revoke_self_serve_key` do |
+| content | objects | keccak256 hash, media type, size, uploader address; append-only; the bytes live in the object store |
+| suggestions | items, claims, spec_links | public human suggestions; one claim per creator; spec links record the spec hash and suggestion id. Append-only. Status is derived at read time |
+| rfq | requests, quotes | request taker/market/side/quantity/expiry; quote payload, signature bytes and digest stored exactly as received, one per maker per RFQ. Immutable; `blink_api` SELECT and INSERT only |
+| forecasts | windows | UNIQUE(deployment, market, horizon_type, scheduled_at); open_at, deadline, `merkle_root`, `root_at`. A row-level trigger allows only the one-time root set |
+| forecasts | submissions | signed forecast: forecaster address, probability, content hash, signature, digest (unique), `verified_block`; UNIQUE(window, forecaster). Append-only |
+| forecasts | annotations | withdrawals only; a withdrawn answer stays listed |
+| forecasts | closed_digests (view) | a window's digests, listed only after its deadline; the worker reads digests through it |
+| analytics | score_entries | v1 rows untouched; v2 rows are `AGENT` per eligible answer and one `CONSENSUS` per window; UNIQUE indexes per evaluation version |
+| analytics | closed_forecasts (view) | forecasts of closed windows for analytics |
+| protocol | events | the journal of decoded protocol logs (emitter, contract, block hash, log index) with a `canonical` flag that a reorg clears |
+| protocol | accounts, account_roles, credit, templates, markets, makers, positions, quote_digests, fills, anchors, successors | projections of the registry, markets and anchor, rebuilt from the journal |
+| protocol | proposals, disputes, rounds, votes, jurors, reward_pool, fees | projections of resolution, juror and fee events (0031); a vote's choice is null until revealed |
+| protocol | market_reads, position_reads, maker_reads (views) | read views over the projections |
+| chain | blocks, cursors | block hash, parent hash, number, canonical flag; the deployment cursor with a fenced lease (`lease_token`, version) |
+| chain | transactions | transactions an agent reported: sender, target, function name decoded from the protocol ABI, status UNKNOWN / INCLUDED / FINALIZED / REVERTED / REORGED |
+| markets | protocol_deployments | the verified manifest v2 of a generation; immutable (trigger); `blink_deployment_admin` writes |
+| operations | jobs, outbox | dedupe_key, type, attempt, next_run_at, lease_until, lease_owner, last_error; the worker registry holds only `forecast.schedule`, `evaluation.score`, `alert.deliver`, `alert.evaluate` and `operations.prune` |
+| operations | idempotency_records, audit_log, alert_episodes | UNIQUE(operator, endpoint, key) with payload_hash; append-only audit; one alert episode per condition |
+| markets | deployments, deployment_checks | v0.1 deployment registry, retained because migrations are append-only (`alpha-2` is a v0.1 record). The v2 record is `protocol_deployments` |
 
-## Relationships
+Runtime roles in the migrations: `blink_api`, `blink_worker`, `blink_indexer` and `blink_deployment_admin`, plus the group roles. The retired roles `blink_identity_admin`, `blink_evidence_admin` and `blink_forecast_admin` were dropped by 0028, 0030 and 0033.
 
-```mermaid
-erDiagram
-  operators ||--o{ agents : controls
-  agents ||--o{ forecasts : submits
-  candidates ||--|{ candidate_revisions : versions
-  candidate_revisions ||--o| market_specs : approves
-  market_specs ||--o{ markets : commits
-  deployments ||--o{ markets : hosts
-  markets ||--o{ forecast_windows : schedules
-  forecast_windows ||--o{ forecasts : receives
-  markets ||--o{ quotes : prices
-  quotes ||--|| collateral_reservations : reserves
-  deployments ||--o{ chain_events : records
-  markets ||--o{ positions_projection : projects
-  markets ||--o{ resolution_reports : reviews
-```
+## Constraints that matter
 
-## Constraints that must be written into migrations
-
-- An on-chain market ID cannot be a global key on its own. All chain data carries deploymentId. Per [ADR 0002](adr/0002-protocol-boundaries.md), the API's /markets/:id uses the on-chain decimal marketId and also requires a deploymentId query. The DB UUID is called marketRecordId and is used only as an internal FK. This replaces the earlier opaque path ID design, and schema/API implementation is still pending.
-- UInt columns use the blink.uint256 domain: NUMERIC plus CHECK 0 <= value < 2^256 and value=trunc(value). This avoids NUMERIC(78,0) rounding a fraction first. uint64/caps are smaller per the contract limits.
+- A protocol event is identified by deployment, block hash and log index. The block hash lets an orphaned transaction be included again in another block. The canonical projection uses canonical events only, and an orphaned event is never treated as permanently consumed.
+- All chain data carries the deployment id. A `marketId` is meaningful only inside one generation.
+- UInt columns use the `blink.uint256` domain: NUMERIC plus a CHECK that the value is an integer in range. This avoids NUMERIC(78,0) rounding a fraction first.
 - All business times are TIMESTAMPTZ and stored in UTC. A chain timestamp uses NUMERIC decimal seconds separately.
-- Question de-duplication needs a transaction lock: the same canonical key may not be ACTIVE twice, and LIVE allows at most one trading market per company quarter. REPLAY uses different IDs and isolates the mode. The check for the 5-LIVE-market limit and the approval are inside the same lock boundary.
-- The forecast unique constraint does not lapse on withdrawal. withdrawn_at is kept and the original text is not changed. After the window expires, a late submission is rejected.
-- Chain event identity includes the block hash. This lets an orphaned tx be re-included later in another block. The canonical projection uses canonical events and must not treat a tombstone as permanently consumed.
-- Do not set sender+nonce unique. replacementOf chains the history, and the active intent/nonce allocation is controlled by a lock.
-- The 24-hour faucet limit per address is a rolling window, not a UTC calendar day. A same-address transaction lock plus a pending reservation prevent concurrent claims.
-- Audit, revision, forecast and cost ledger are append-only. The service DB role is not granted UPDATE/DELETE. Withdrawal/annotation goes into an additional event. The chain canonical flag / projection is data that can be modified and rebuilt.
-- Whether evidence has full-text republication rights is separate from access to the original object. The public API filters through access_policy, and the object bucket is not public.
-- Evidence references can use a join table. Do not use JSONB heavily on queryable relationships. Only the original model payload and the quote payload keep JSONB with a schema version.
+- Quotes, forecasts, content and suggestions are append-only. The service role is not granted UPDATE or DELETE on them. A withdrawal or annotation is an additional row.
+- A forecaster has at most one submission per window, enforced by a unique index and, for admission, by the window row lock and the database clock.
+- Challenge and quote limits are enforced under advisory locks or row locks (at most 5 open RFQs per taker, 20 quotes per RFQ, 5 active keys per address).
+- The chain canonical flag and projections can be modified and rebuilt; the journal, audit and ledgers cannot.
 
 ## Atomic transactions
 
-1. Approval: lock candidate revision / active key / LIVE capacity → write approval + spec ref + intent + audit + outbox.
-2. Model: fixed lock order, daily budget first, then question budget → worst-case estimated cost reservation → commit → external request. An unknown cost keeps the hold.
-3. Quote: lock the maker deployment reservation pool → check free balance / staleness at the same cursor → reservation + quote draft → commit → restricted signing. A signing timeout leaves UNKNOWN and must not release directly.
-4. Indexing: deployment lease → canonical block/events + projection + cursor in the same transaction. A reservation is released by verifying consumed / balance queries at the same block.
-5. Idempotency: insert scope key + payload hash → on a unique conflict return the original response, and 409 if the payload differs; an in-flight request returns a retryable state and must not redo side effects.
+1. Key issue: lock the challenge row and the address advisory lock, re-read the clock after every wait, create the operator, agent and binding if needed, insert the key and consume the challenge, in one function.
+2. Quote: lock the RFQ, re-check that it is still open and unexpired against the relay clock, then insert the quote.
+3. Forecast: lock the window row, admit by the database clock, insert the signed submission.
+4. Indexing: deployment lease → canonical block, events, projections and cursor in the same transaction; a rebuild reads at a consistent snapshot.
+5. Idempotency: insert the scope key and payload hash → on a unique conflict return the original response, and 409 if the payload differs.
 
-Amount-limit / budget decisions must not use SKIP LOCKED to skip a locked funds row. SKIP LOCKED is used only for claiming jobs. A handler does not hold a long DB transaction while doing external IO.
+SKIP LOCKED is used only for claiming jobs. A handler does not hold a long DB transaction while doing external IO.
 
 ## Recovery
 
-Daily backup + object manifest. Before Alpha, restore the business records into an empty DB, replay the canonical events from the deployment block, and rebuild the positions. Check escrow/free balance/consumed market by market. RFQ is not resumed until REORGED, UNKNOWN and unresolved reservations are reconciled.
+Daily backup plus the object store. Restore the dump into an empty database, then run `restore:prepare`, which releases the dumped cursor lease. The indexer replays from the deployment block. The local `pg_dump` and restore drill is `pnpm drill:restore` ([Restore drill](M5_RESTORE_DRILL.md)); a hosted rehearsal has not been done because nothing is deployed.
+
+## History: v0.1 tables dropped by P2
+
+Candidates and revisions, evidence and sources, approvals and creation intents and active slots, the market spec table, question and daily budgets and cost entries, platform runs, forecast snapshots and pending answers, model runs, signing requests and nonces, trading reservations and mandates, trader state, keeper schedules, faucet claims and resolution reports. They are described in the v0.1 delivery records (`docs/M2_*.md`, `docs/M3_*.md`) and [Architecture Diagrams](ARCHITECTURE_GUIDE.md), all marked historical.

@@ -8,6 +8,9 @@ agentTask: understand which Blink component is responsible for what
 
 # Architecture
 
+> [!NOTE]
+> **v0.1 architecture.** This page describes the v0.1 processes, including a private signer, platform research and a single maker, which P2 removed. The platform now runs only an API, an indexer and a worker, holds no key and plays no market role; see [P2 off-chain protocol](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/P2_OFFCHAIN_PROTOCOL.md). P3 rewrites this page.
+
 Blink is a modular monolith with implemented API, worker, indexer and restricted signer processes. They are not deployed; local verification uses REPLAY fixtures with no paid model provider. The public site is read-only, with fictional samples and no trading. LIVE approval remains rejected. The contracts are deployed on Base Sepolia with trading disabled; see [Deployment](/docs/deployment). The mandate trader, typed SDK and local example agent, local Alpha harness, health/readiness and admin execution metrics are implemented. The harness exercises normal YES, disputed NO and timeout INVALID settlement plus projection recovery on a local stack; it does not establish public-network finality or hosted readiness. Container images for the four processes, operator status reads, alert delivery, a backup restore drill and a deployment runbook are also implemented and verified locally; none of them is a hosted deployment.
 
 ![Hand-drawn sketch of the target Blink architecture (target, not live): web, API, worker, indexer and signer processes around PostgreSQL, object storage and the BlinkMarket contract.](/docs-assets/architecture-sketch.jpg)

@@ -1,5 +1,7 @@
 # M2.2a — Evidence and candidate preparation
 
+> Historical (v0.1): evidence and candidate preparation were removed in P2 Task 2 (migration `0026`). Content is now stored by hash through `POST /v1/content`. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 **Follow-up:** Human approval and unsigned creation intents are now available in a separate opt-in approval mode; see [M2 approval delivery](M2_APPROVAL_DELIVERY.md). This document records the earlier preparation-only slice.
 
 Implemented locally; not a complete M2 delivery. This slice follows the identity foundation and stops **before approval, deployment registration, market-creation intents or chain submission**. Those routes remain disabled rather than returning a pretend market or transaction.

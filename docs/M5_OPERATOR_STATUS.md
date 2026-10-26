@@ -1,5 +1,7 @@
 # M5 operator status surface (A3)
 
+> Partly historical: the admin read-only status routes remain, but no key can carry the `admin` scope any more (P2 Task 6), so `pnpm ops:status` cannot authenticate. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This delivery covers the A3 operator-status slice of public Alpha readiness. It does not complete M5 or authorize a deployment.
 
 The API registers these reads in trading mode:

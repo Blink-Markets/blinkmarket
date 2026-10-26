@@ -1,5 +1,7 @@
 # M2 restricted signer, nonce manager and transaction dispatcher
 
+> Historical (v0.1): `apps/signer`, the dispatcher and nonce management were removed in P2 Task 1. The platform holds no key and signs nothing. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This slice adds the private signer process that alone holds keys, the persisted sign-request protocol it serves, per-sender nonce allocation that never re-nonces an unknown transaction, gas caps, and a dispatcher that broadcasts only persisted artifacts and tracks receipts, replacements and reorgs. Nothing is wired into the API or the worker yet: the quote reservation check (Task 9) and the keeper, faucet and trader callers (Tasks 13 and 14) build on these seams, and the `tx.dispatch` handler is exported but not registered with `apps/worker`.
 
 ## What was added

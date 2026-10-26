@@ -1,5 +1,7 @@
 # M3 resolution reports and human role drafts
 
+> Historical (v0.1): resolution reports and drafts for human roles were removed in P2 Task 2. Results are proposed and disputed on chain through `BlinkResolution`. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This delivery completes Task 11's backend slice. It does not complete M3 as a whole or add the deferred admin web UI.
 
 ## Delivered scope

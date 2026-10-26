@@ -8,6 +8,9 @@ agentTask: handle Blink API errors and retry safely
 
 # Errors
 
+> [!NOTE]
+> **Current in part.** The error envelope, the status meanings, `Idempotency-Key` and the retry rules are current. Codes tied to invitations, candidates and approval (for example `CANDIDATE_LOCKED` and `REVISION_CONFLICT`) are v0.1. P2 added codes such as `INDEX_STALE`, `SIGNATURE_CHECK_UNAVAILABLE`, `NOT_REGISTERED`, `KEY_LIMIT_REACHED`, `INVALID_FORECAST_SIGNATURE` and `RFQ_CLOSED`; the full list is `ErrorCode` in the schemas package.
+
 Every failed API call returns a JSON error with a stable `code`. Branch on `code` and `retryable`, not on message text.
 
 ## What does an error look like?
