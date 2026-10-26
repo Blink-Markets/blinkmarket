@@ -641,7 +641,7 @@ Scope: slice of P2, not the milestone.
   (`rebuildChainProjection` with `verify`, no differences) and the key-free environment of every platform
   process (configured and, on Linux, the live `/proc/<pid>/environ`; no actor key appears in either).
 - **Time mechanism: real time.** The alpha protocol windows are 60 s, so the scenario waits for them
-  (about five and a half minutes, 327 s measured). Chain waits are conditions on the chain head
+  (about five and a half minutes, 320 s measured). Chain waits are conditions on the chain head
   (`waitForChainTime`); a harness
   heartbeat mines one block per second so the head stays inside the indexer's 30 s lag gate while Anvil is
   idle. Platform waits poll the API. Chain and database clocks both follow the wall clock. No clock offset
@@ -649,13 +649,14 @@ Scope: slice of P2, not the milestone.
   at startup, and moving only one clock would make the index lag. A scenario that needs to skip real time
   (P3's drill) must move both clocks by the same amount and has no way to do that against running services;
   it should wait or use shorter protocol parameters.
-- **Deadline budget.** Every actor is onboarded (roles, stakes, API keys) before the market is created, so
-  `closeAt` is measured after the slow steps and the market's whole lifetime is spent on the lifecycle. The
-  forecast schedule is `FORECAST_PRE_CLOSE_LEAD_SECONDS=80` and `FORECAST_WINDOW_OPEN_SECONDS=80` with the
-  market open for 160 s: the window is open from the moment the market opens and closes 80 s later, which
-  leaves room for the worker's 30 s planning bucket. The forecasts are submitted first, before the RFQs, and
-  the test asserts that the window still has at least 25 s left when it finds it, failing with a clear message
-  instead of racing.
+- **Deadline budget.** Every actor is onboarded (roles, stakes, API keys) before the market is created, and
+  the market's lifetime after opening is the explicit sum of the step budgets (window planning 45 s, forecasts
+  25 s, two RFQ flows 35 s each, 20 s slack: 160 s), with no fixed padding. A `requireRemaining(step, deadline,
+  budget)` helper reads the chain clock and runs right before each deadline-bound action: each forecast
+  submission and the sealed-root check (window deadline), RFQ creation, each approval and each fill (quote
+  expiry and market close) and the proposal (its deadline). It fails with the step name, the seconds left and
+  the budget instead of racing. The forecast schedule is `FORECAST_PRE_CLOSE_LEAD_SECONDS=80` and
+  `FORECAST_WINDOW_OPEN_SECONDS=80`; the forecasts are submitted first, before the RFQs. Real clocks, no sleeps.
 - **Harness cleanup.** `stop()` attempts every step (processes, pools, Anvil, temp directory, database, roles,
   control connection) and throws an `AggregateError` naming the failed steps; the test keeps the scenario's own
   failure as the primary error. `tests/local-alpha-cleanup.test.ts` covers one failing step among others.
@@ -677,7 +678,7 @@ Scope: slice of P2, not the milestone.
   with the real `pg_dump` and restore. `health.ts` and `operator-status.ts` have no alert of their own.
 
 Verification (Task 11, local; PostgreSQL 17.6 at 127.0.0.1:55432): the platform-keys test, the local alpha
-(`pnpm alpha:local`, 327 s), `pnpm test`, `pnpm test:postgres` (including the worker-role `fees_undistributed`
+(`pnpm alpha:local`, 320 s), `pnpm test`, `pnpm test:postgres` (including the worker-role `fees_undistributed`
 case), `pnpm drill:restore:test`, `pnpm test:anvil`, `pnpm check`, `pnpm build:services` and
 `pnpm test:service-build` all pass. `pnpm build` (Turbopack) cannot run on the development host because of its
 glibc, so it runs in CI only, as do the `contracts` job and the CI timing of the `check` job.

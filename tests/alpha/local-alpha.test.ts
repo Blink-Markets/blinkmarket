@@ -57,14 +57,37 @@ if (skip) console.error("local-alpha test skipped: " + skip);
 
 const MAKER_DEPOSIT = 100_000_000n;
 /**
- * Market lifetime after it opens. The PRE_CLOSE window closes FORECAST_LEAD seconds before the market
- * does and opens as far ahead, so with this lifetime it is open from the moment the market opens and
- * closes 80 s later; the rest is room for two RFQs and their fills after the forecasts.
+ * The deadline budget, in seconds. Every deadline-bound step is guarded by `requireRemaining` right
+ * before it runs, and the market's lifetime after opening is the explicit sum of these budgets, so a
+ * runner too slow for the scenario fails with the step name instead of racing a deadline.
  */
 const FORECAST_LEAD = BigInt(ALPHA_FORECAST_SCHEDULE.preCloseLeadSeconds);
-const OPEN_FOR_SECONDS = 2n * FORECAST_LEAD;
-/** What the two forecast submissions need before the window closes; the test refuses to race it. */
-const SUBMIT_BUDGET_SECONDS = 25n;
+/** The worker plans windows per 30 s bucket and the index follows the chain: a window shows up within this. */
+const WINDOW_PLAN_SECONDS = 45n;
+const FORECAST_SUBMIT_SECONDS = 10n; // one signed forecast, request included
+const ROOT_CHECK_SECONDS = 5n; // the sealed-root read must happen before the window closes
+const FORECAST_BUDGET_SECONDS = 2n * FORECAST_SUBMIT_SECONDS + ROOT_CHECK_SECONDS;
+const RFQ_FLOW_SECONDS = 35n; // create an RFQ, two quotes, verify, approve and fill
+const RFQ_APPROVE_SECONDS = 15n; // approval and fill must still fit in the quote's life and the market's
+const RFQ_FILL_SECONDS = 8n; // the fill transaction alone
+const QUOTE_TTL_SECONDS = 50n;
+const FLOW_SLACK_SECONDS = 20n; // fill tracking and read-model waits between the two RFQs
+const PROPOSE_SECONDS = 30n;
+const MIN_OPEN_SECONDS = WINDOW_PLAN_SECONDS + FORECAST_BUDGET_SECONDS + 2n * RFQ_FLOW_SECONDS;
+/** Market lifetime after it opens. */
+const OPEN_FOR_SECONDS = MIN_OPEN_SECONDS + FLOW_SLACK_SECONDS;
+// The forecasts must fit between the market's opening and the window's deadline.
+assert.ok(OPEN_FOR_SECONDS - FORECAST_LEAD >= WINDOW_PLAN_SECONDS + FORECAST_BUDGET_SECONDS);
+assert.ok(QUOTE_TTL_SECONDS > RFQ_FLOW_SECONDS);
+
+/** Fails with the step, the seconds left and the budget when `deadline` is too close on the chain clock. */
+async function requireRemaining(alpha: LocalAlpha, step: string, deadline: bigint, budget: bigint) {
+  const remaining = deadline - (await alpha.chainNow());
+  assert.ok(
+    remaining >= budget,
+    `${step}: ${remaining} s left before its deadline, the step needs ${budget} s (the runner is too slow for this scenario)`,
+  );
+}
 const POLL_MS = 1500; // the public read limit refills one request per second
 const wait = <T>(what: string, read: () => Promise<T | null | undefined | false>, timeoutMs = 120_000) =>
   waitFor(what, read, timeoutMs, POLL_MS);
@@ -214,7 +237,8 @@ async function scenario(alpha: LocalAlpha) {
   const createdAt = (await anvil.publicClient.getBlock()).timestamp;
   // openAt = creation + the class window (60 s) + the first-use extra window (30 s). Every actor is
   // onboarded already, so the market's whole lifetime is spent on the steps that need it.
-  const closeAt = createdAt + 90n + OPEN_FOR_SECONDS + 5n;
+  const closeAt = createdAt + 90n + OPEN_FOR_SECONDS;
+  const proposalDeadline = closeAt + 120n;
   const created = await write(creator, markets, protocolAbi.markets, "createMarket", [
     {
       templateId,
@@ -222,8 +246,8 @@ async function scenario(alpha: LocalAlpha) {
       specURI: alpha.apiUrl + "/v1/content/" + specHash,
       replay: false,
       closeAt,
-      proposalDeadline: closeAt + 120n,
-      hardDeadline: closeAt + 120n + 400n,
+      proposalDeadline,
+      hardDeadline: proposalDeadline + 400n,
       maxPairs: 100n,
     },
   ]);
@@ -232,6 +256,11 @@ async function scenario(alpha: LocalAlpha) {
   const onChain = await mread("getMarket", [marketId]);
   const openAt = BigInt(onChain.openAt);
   assert.equal(BigInt(onChain.closeAt), closeAt);
+  // The creation transaction lands a little after the block read above; the slack covers that delay.
+  assert.ok(
+    closeAt - openAt >= MIN_OPEN_SECONDS,
+    `the market is open for ${closeAt - openAt} s, the scenario needs ${MIN_OPEN_SECONDS} s`,
+  );
 
   // The suggestion shows MARKET_CREATED as soon as the index has the linked market.
   const linked = await wait("suggestion MARKET_CREATED", async () => {
@@ -253,16 +282,19 @@ async function scenario(alpha: LocalAlpha) {
     return page.items.find((w) => w.horizonType === "PRE_CLOSE" && w.status === "OPEN") ?? null;
   }, 60_000);
   assert.equal(BigInt(window.deadline), closeAt - FORECAST_LEAD);
-  const remaining = BigInt(window.deadline) - (await alpha.chainNow());
-  assert.ok(
-    remaining >= SUBMIT_BUDGET_SECONDS,
-    `the forecast window has ${remaining} s left, the submissions need ${SUBMIT_BUDGET_SECONDS} s: the runner is too slow for this scenario`,
-  );
+  const windowDeadline = BigInt(window.deadline);
+  await requireRemaining(alpha, "forecast window found", windowDeadline, FORECAST_BUDGET_SECONDS);
   const answers: { digest: Hex; leaf: Hex }[] = [];
   for (const [signer, apiKey, probabilityBps] of [
     [forecasterA, key.forecasterA, 7200],
     [forecasterB, key.taker, 6400],
   ] as const) {
+    await requireRemaining(
+      alpha,
+      `forecast submission by ${signer.address}`,
+      windowDeadline,
+      FORECAST_SUBMIT_SECONDS + ROOT_CHECK_SECONDS,
+    );
     const message = {
       forecaster: signer.address.toLowerCase(),
       markets,
@@ -285,6 +317,7 @@ async function scenario(alpha: LocalAlpha) {
     answers.push(receipt as { digest: Hex; leaf: Hex });
   }
   // Sealed until the deadline: an outsider sees no root and no leaves.
+  await requireRemaining(alpha, "sealed-root check", windowDeadline, ROOT_CHECK_SECONDS);
   assert.equal((await anonymous.getForecastWindow({ windowId: window.windowId })).root, null);
 
   // --- RFQ with two makers: one EOA and one contract wallet, the taker fills the best --------------
@@ -300,7 +333,7 @@ async function scenario(alpha: LocalAlpha) {
       quantity,
       priceBps,
       validAfter: String(now),
-      expiresAt: String(now + 50n),
+      expiresAt: String(now + QUOTE_TTL_SECONDS),
       nonce: String(nonce++),
       epoch: String(await mread("makerEpoch", [maker])),
     };
@@ -315,7 +348,8 @@ async function scenario(alpha: LocalAlpha) {
   const takerApi = as(key.taker);
   const trusted = (await takerApi.getDeployment()).deployment;
   /** The taker's side of a fill: check the quote itself, approve what it can cost, fill on chain. */
-  const fill = async (rfqId: string, quantity: string, best: { quote: QuoteFields; signature: string }) => {
+  const fill = async (label: string, quantity: string, best: { quote: QuoteFields; signature: string }) => {
+    const expiresAt = BigInt(best.quote.expiresAt);
     const verified = await verifySignedQuote(best.quote, best.signature as Hex, {
       publicClient: anvil.publicClient,
       deployment: trusted,
@@ -324,7 +358,11 @@ async function scenario(alpha: LocalAlpha) {
       now: await alpha.chainNow(),
       feeBps: trusted.params.feeBps,
     });
+    await requireRemaining(alpha, `${label} approval: quote expiry`, expiresAt, RFQ_APPROVE_SECONDS);
+    await requireRemaining(alpha, `${label} approval: market close`, closeAt, RFQ_APPROVE_SECONDS);
     await write(taker, d.shared.busd, erc20Abi as Abi, "approve", [markets, verified.maxCost]);
+    await requireRemaining(alpha, `${label} fill: quote expiry`, expiresAt, RFQ_FILL_SECONDS);
+    await requireRemaining(alpha, `${label} fill: market close`, closeAt, RFQ_FILL_SECONDS);
     const receipt = await write(taker, markets, protocolAbi.markets, "fillQuote", [
       quoteStruct(best.quote),
       best.signature,
@@ -334,6 +372,7 @@ async function scenario(alpha: LocalAlpha) {
     return { receipt, verified };
   };
 
+  await requireRemaining(alpha, "first RFQ creation", closeAt, RFQ_FLOW_SECONDS);
   const rfq = await takerApi.createRfq({ marketId: ref.marketId, side: "YES", quantity: "10" });
   const eoaQuote = await quoteFrom(makerEoa.address, "10", "4500");
   const walletQuote = await quoteFrom(walletMaker, "10", "4000");
@@ -345,7 +384,7 @@ async function scenario(alpha: LocalAlpha) {
   assert.deepEqual((await as(key.maker).listRfqs()).items.map((r) => r.rfqId), [rfq.rfqId]);
   const quotes = (await takerApi.listQuotes(rfq.rfqId)).items;
   assert.deepEqual(quotes.map((q) => q.quote.priceBps), ["4000", "4500"]);
-  const first = await fill(rfq.rfqId, "10", quotes[0]!);
+  const first = await fill("first fill", "10", quotes[0]!);
   assert.equal(first.verified.digest, walletPosted.digest);
   assert.notEqual(first.verified.digest, eoaPosted.digest);
   // The platform follows the fill through the transaction hash the taker registered.
@@ -357,10 +396,11 @@ async function scenario(alpha: LocalAlpha) {
   assert.ok(tracked.trackingId);
   assert.equal(tracking.rejectReason, null);
   // A second RFQ filled from the EOA maker, so both signature paths settle on chain.
+  await requireRemaining(alpha, "second RFQ creation", closeAt, RFQ_FLOW_SECONDS);
   const rfq2 = await takerApi.createRfq({ marketId: ref.marketId, side: "YES", quantity: "5" });
   const eoaQuote2 = await quoteFrom(makerEoa.address, "5", "5000");
   await as(key.maker).postQuote(rfq2.rfqId, { quote: eoaQuote2, signature: await sign(makerEoa, eoaQuote2) });
-  await fill(rfq2.rfqId, "5", (await takerApi.listQuotes(rfq2.rfqId)).items[0]!);
+  await fill("second fill", "5", (await takerApi.listQuotes(rfq2.rfqId)).items[0]!);
   await wait("maker stats show both fills", async () => {
     const wallet = await anonymous.getMakerStats(walletMaker);
     const eoa = await anonymous.getMakerStats(makerEoa.address);
@@ -399,6 +439,7 @@ async function scenario(alpha: LocalAlpha) {
 
   // --- Propose, finalize unchallenged, distribute fees, redeem -------------------------------------
   await alpha.waitForChainTime(closeAt);
+  await requireRemaining(alpha, "proposal", proposalDeadline, PROPOSE_SECONDS);
   const proposed = await write(proposer, d.generation.resolution, protocolAbi.resolution, "propose", [
     marketId,
     0, // YES
