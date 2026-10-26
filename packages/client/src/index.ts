@@ -145,7 +145,8 @@ export function createBlinkClient(
         await send(url, {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
+            // Fastify refuses an empty body that claims to be JSON (suggestion claims, withdrawals).
+            ...(body === undefined ? {} : { "Content-Type": "application/json" }),
             ...(keyed ? { "Idempotency-Key": key } : {}),
           },
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),

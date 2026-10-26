@@ -294,3 +294,87 @@ test(
     });
   },
 );
+
+test(
+  "fees_undistributed runs under the worker role: informational, opens after a day, clears on distribution",
+  { timeout: 60_000 },
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blink-fees-alert-"));
+    try {
+      await withDatabase(async ({ owner, pool }) => {
+        // Only the blink_worker grants apply; business time is fixed so the one-day rule is exact.
+        const worker = pool("blink_worker", 3);
+        await owner.query(`CREATE OR REPLACE FUNCTION blink.now() RETURNS timestamptz LANGUAGE sql VOLATILE AS $$ SELECT to_timestamp(${NOW}) $$;
+          INSERT INTO chain.cursors(deployment_id,block_number,block_hash,block_timestamp,head_number,synced_at)
+          VALUES('fees',10,decode(repeat('55',32),'hex'),${NOW},10,to_timestamp(${NOW}));`);
+        await seedReadMarket(owner, "fees", 1, {
+          specHash: "0x" + "22".repeat(32),
+          specUri: "fixture",
+          closeAt: 900000,
+          proposalDeadline: 950000,
+          hardDeadline: 960000,
+          maxPairs: "100",
+          maxTakerShares: "100",
+        });
+        // Finalized ten minutes short of a day ago.
+        await owner.query(`
+          INSERT INTO chain.blocks(deployment_id,number,hash,parent_hash,timestamp,canonical)
+            VALUES('fees',5,decode(repeat('56',32),'hex'),decode(repeat('44',32),'hex'),${NOW - 86_400 + 600},true);
+          INSERT INTO protocol.events(deployment_id,block_hash,block_number,tx_hash,tx_index,log_index,emitter,contract,name,args,canonical)
+            VALUES('fees',decode(repeat('56',32),'hex'),5,decode(repeat('66',32),'hex'),0,0,
+              decode(repeat('77',20),'hex'),'MARKETS','MarketFinalized','{"marketId":"1","outcome":"YES"}',true);
+          UPDATE protocol.markets SET data=data||jsonb_build_object('state','FINAL','feePoolMicros','4000')
+            WHERE deployment_id='fees' AND key::numeric=1;`);
+        const queue = postgresJobQueue(worker);
+        const path = join(directory, "alerts.jsonl");
+        const deliver = createAlertDeliveryHandler(fileAlertSink(path));
+        const evaluate = createAlertEvaluateHandler({
+          store: postgresAlertEvaluateStore(worker),
+          rpc: null,
+          policy: { reAlertMs: 60 * 60_000, rpcFailures: 3 },
+          deploymentIds: ["fees"],
+        });
+        const signal = new AbortController().signal;
+        const tick = async () => {
+          await evaluate({ job: {} as never, signal });
+          await dispatchOutbox(worker, {});
+          for (;;) {
+            const job = await queue.lease("fees", ["alert.deliver"], 60_000);
+            if (!job) break;
+            await deliver({ job, signal });
+            assert.equal(await queue.complete(job), true);
+          }
+        };
+        const delivered = async () =>
+          (await readFile(path, "utf8").catch(() => ""))
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => JSON.parse(line) as Record<string, unknown>)
+            .filter((alert) => alert.family === "fees_undistributed");
+
+        await tick();
+        assert.deepEqual(await delivered(), [], "not yet a day old");
+        await owner.query(`UPDATE chain.blocks SET timestamp=${NOW - 86_400 - 60} WHERE deployment_id='fees'`);
+        await tick();
+        await tick();
+        const opened = await delivered();
+        assert.deepEqual(opened.map(sign), ["alert.fees_undistributed|OPEN|market:1"]);
+        assert.equal(opened[0]!.severity, "info");
+        assert.equal(opened[0]!.reason, "FEES_UNDISTRIBUTED");
+        // Anyone distributes the fees: the episode clears, once.
+        await owner.query(
+          `UPDATE protocol.markets SET data=data||jsonb_build_object('feesDistributed',true,'feePoolMicros','0') WHERE deployment_id='fees'`,
+        );
+        await tick();
+        await tick();
+        assert.deepEqual((await delivered()).map(sign), [
+          "alert.fees_undistributed|OPEN|market:1",
+          "alert.fees_undistributed|CLEARED|market:1",
+        ]);
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);

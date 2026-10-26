@@ -1,4 +1,5 @@
 import { isAllowedAlertWebhookUrl } from "@blink/adapters";
+import { assertNoRoleKeys } from "@blink/runtime";
 import {
   DEFAULT_WINDOW_SCHEDULE,
   assertWindowSchedule,
@@ -12,6 +13,7 @@ export interface WorkerConfig {
 
 /** The worker is off unless WORKER_ENABLED=true, and then it needs its own database login. */
 export function workerConfig(env: NodeJS.ProcessEnv): WorkerConfig {
+  assertNoRoleKeys(env);
   const flag = env.WORKER_ENABLED;
   if (flag !== undefined && flag !== "true" && flag !== "false")
     throw new Error("INVALID_WORKER_ENABLED");

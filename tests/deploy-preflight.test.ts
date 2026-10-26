@@ -466,6 +466,30 @@ test("deployer private key is rejected from a service env file", async () => {
   }
 });
 
+test("role keys are rejected from a service env file by name or by value, without echoing the value", async () => {
+  const bare = "0x" + "cd".repeat(32);
+  for (const [name, overrides] of [
+    ["MAKER_PRIVATE_KEY", { MAKER_PRIVATE_KEY: bare }],
+    ["KEEPER_KEY_FILE", { KEEPER_KEY_FILE: "/run/secrets/keeper" }],
+    ["JUROR_MNEMONIC", { JUROR_MNEMONIC: "twelve words stand in here" }],
+    ["SOME_ORDINARY_NAME", { SOME_ORDINARY_NAME: bare }],
+  ] as const) {
+    const dir = await mkdtemp(path.join(tmpdir(), "blink-role-key-"));
+    const f = await fixture(baseProfile(dir, overrides));
+    try {
+      const out = run(f.envFile);
+      const text = out.stdout + out.stderr;
+      assert.notEqual(out.status, 0, name);
+      assertCode(text, "PREFLIGHT_PLATFORM_ROLE_KEY_FORBIDDEN");
+      assert.ok(text.includes(name), name + " is named");
+      assert.doesNotMatch(text, /cdcdcdcd|run\/secrets|twelve words/);
+    } finally {
+      await rm(f.dir, { recursive: true, force: true });
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+});
+
 test("production profile requires an explicit non-stdout alert sink", async () => {
   for (const values of [{}, { ALERT_SINK: "stdout" }]) {
     const f = await fixture({ BLINK_CHAIN_ID: "84532", ...values });

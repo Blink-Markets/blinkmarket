@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { assertNoRoleKeys } from "@blink/runtime";
 
 // Each mode serves, and needs, everything the previous one does.
 const modes = ["scaffold", "identity", "markets"] as const;
@@ -47,6 +48,8 @@ export function parseSpecPublicOrigin(raw: string): string {
 }
 
 export function apiConfig(env: NodeJS.ProcessEnv) {
+  // The platform holds no role key: a key in the environment stops the process.
+  assertNoRoleKeys(env);
   const mode = (env.BLINK_API_MODE ?? "scaffold") as ApiMode;
   if (!modes.includes(mode)) throw new Error("INVALID_API_MODE");
   const atLeast = (minimum: ApiMode) => modeAtLeast(mode, minimum);

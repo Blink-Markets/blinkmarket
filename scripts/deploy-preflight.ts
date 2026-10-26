@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { isIP } from "node:net";
+import { assertNoRoleKeys } from "../packages/runtime/src/index.js";
 import { apiConfig } from "../apps/api/src/config.js";
 import {
   alertConfig,
@@ -125,6 +126,15 @@ async function main() {
         /(?:^|_)(?:API_?)?KEY|TOKEN|SECRET|PASSWORD|PRIVATE(?:_|$)/i.test(name))
     )
       fail("PREFLIGHT_PUBLIC_SECRET", name);
+  // The same file configures the API, the worker and the indexer, and none of them holds a role key.
+  try {
+    assertNoRoleKeys(Object.fromEntries(env));
+  } catch (error) {
+    fail(
+      "PREFLIGHT_PLATFORM_ROLE_KEY_FORBIDDEN",
+      (error as { variable?: string }).variable,
+    );
+  }
 
   const sink = env.get("ALERT_SINK");
   if (!sink || sink === "stdout") fail("PREFLIGHT_ALERT_SINK", "ALERT_SINK");

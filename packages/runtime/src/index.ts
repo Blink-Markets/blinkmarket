@@ -1,5 +1,25 @@
 import Fastify from "fastify";
 
+const ROLE_KEY_NAME = /PRIVATE_KEY|MNEMONIC|KEY_FILE|SEED/i;
+const BARE_KEY_VALUE = /^0x[0-9a-fA-F]{64}$/;
+
+/**
+ * The platform (API, indexer, worker) holds no role key. A process refuses to start when its
+ * environment names one (a PRIVATE_KEY, MNEMONIC, KEY_FILE or SEED variable) or holds a bare 32-byte
+ * hex value under any name. The error names the variable, never its value.
+ */
+export function assertNoRoleKeys(
+  env: Record<string, string | undefined>,
+): void {
+  for (const [name, value] of Object.entries(env)) {
+    if (value === undefined) continue;
+    if (ROLE_KEY_NAME.test(name) || BARE_KEY_VALUE.test(value))
+      throw Object.assign(new Error("PLATFORM_ROLE_KEY_FORBIDDEN"), {
+        variable: name,
+      });
+  }
+}
+
 export function createService(
   name: string,
   stage = "architecture",
