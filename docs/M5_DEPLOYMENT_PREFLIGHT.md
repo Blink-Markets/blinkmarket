@@ -1,5 +1,7 @@
 # Base Sepolia deployment runbook and preflight (A6)
 
+> Partly historical: the preflight, signer-key-file and signer-host checks described here belong to the v0.1 deployment. The signer is gone, and the preflight now also refuses any key-like variable (`PREFLIGHT_PLATFORM_ROLE_KEY_FORBIDDEN`, P2 Task 11). See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This delivery adds [the deployment runbook](DEPLOYMENT_RUNBOOK.md), a marker-only [Base Sepolia environment template](../deployments/base-sepolia/env.example), and `pnpm deploy:preflight <env-file>`. The preflight uses the API, Worker, Indexer and Signer config parsers offline and validates the required production profile. The mechanical test derives environment reads from every TypeScript file under the four service `src` trees and the TypeScript tool scripts called by runbook package commands.
 
 ## Rejection codes

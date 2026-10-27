@@ -12,8 +12,8 @@
 
 - [x] P0: Approve the design (2026-10-23); tidy the existing planning documents and this page to match the new goal
 - [x] P1: New contracts: registration and role stakes, question classes and market-creation challenges, multi-maker fills and fees, layered settlement and arbitration, credit, platform token (juror stake and governance), generations, self-service faucet; unit, invariant and adversarial tests
-- [ ] P2: Off-chain rework: remove the provisional design; self-service identity; RFQ forwarding; indexer for the new events; signed forecasts; human-suggested questions
-- [ ] P3: Reference agents for each role, documentation for agents, and the `pnpm alpha:autonomous` autonomous drill (five scenarios: normal, settlement dispute, market-creation challenge, timeout, human suggestion)
+- [x] P2: Off-chain rework: remove the provisional design; self-service identity; RFQ forwarding; indexer for the new events; signed forecasts; human-suggested questions. Tasks 1–11 and 13 are merged and CI is green on main (see [P2 delivery](P2_OFFCHAIN_PROTOCOL.md) and [P2 progress](P2_OFFCHAIN_PROGRESS.md)). The final whole-branch review is still pending. Nothing was deployed
+- [ ] P3 (next): Reference agents for each role, documentation for agents, and the `pnpm alpha:autonomous` autonomous drill (five scenarios: normal, settlement dispute, market-creation challenge, timeout, human suggestion)
 - [ ] P4: Website advantages page (separating implemented from under construction); update the README and this page
 - [ ] P4: Produce an introduction video (production method to be decided; made after the autonomous drill passes)
 - [ ] Re-evaluate deployment once the vision is complete (D3, D6, Track B)

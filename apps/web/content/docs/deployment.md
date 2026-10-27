@@ -8,6 +8,9 @@ agentTask: find the deployed Blink contract and role addresses and check them ag
 
 # Deployment
 
+> [!NOTE]
+> **v0.1 deployment record.** This page describes the `alpha-2` contracts, the old v0.1 design with fixed roles and trading disabled, kept as history. No P1 generation has been deployed to any network, and `alpha-2` is no longer the target deployment. The current design is the [autonomous market design](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/superpowers/specs/2026-10-23-autonomous-market-design.md).
+
 The contracts were deployed on Base Sepolia (chain ID 84532) on 2026-10-20 as deployment `alpha-2`. Trading is disabled (`tradingEnabled: false`), no markets have been created, the API, worker, indexer and signer are not deployed, and there is no public API host. Nothing trades on this site; bUSD has no value.
 
 ## Which contracts are deployed?

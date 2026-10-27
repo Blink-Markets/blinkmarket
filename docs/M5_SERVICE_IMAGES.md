@@ -1,5 +1,7 @@
 # M5 service images — Task A1 delivery
 
+> Partly historical: the signer image described here was removed in P2 Task 1; the images are now API, worker and indexer. Task 11 added a check that no started container holds a key. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This slice makes the four backend services container images that build reproducibly from the existing esbuild bundles and run locally. Nothing is deployed, published to a registry, signed or paid for; all keys are the public Anvil test keys.
 
 ## Images

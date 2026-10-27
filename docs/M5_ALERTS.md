@@ -1,5 +1,7 @@
 # M5 — Alert delivery (A4) and alert producers (A4b)
 
+> Partly historical: the `budget`, maker-pool `pause` and `keeper_overdue` alert sources below were removed with the platform budgets, signer and keeper in P2 Tasks 1 and 2. The worker now produces `rpc`, `indexer_lag`, `jobs_dead` and `fees_undistributed`, plus `pause` from the legacy pause projection. Delivery, sinks and the episode model are unchanged. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This completes the A4 delivery slice and the A4b producers, not all of M5 or public Alpha readiness. Nothing was deployed, signed, broadcast or provisioned.
 
 The worker now delivers every `alert.*` outbox event through the `AlertSink` port and the `alert.deliver` job. Dispatch inserts the job and marks the outbox event dispatched in one transaction. Dispatched means queued, not delivered: only a successful sink response followed by a fenced queue acknowledgement sets the job to `SUCCEEDED`. Replaying an event preserves the unique `outbox:<event UUID>:alert.deliver` job key. The payload and webhook `Idempotency-Key` use `alert:<event UUID>` for receiver deduplication.

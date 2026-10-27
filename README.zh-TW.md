@@ -5,7 +5,7 @@
 <h1 align="center">Blink Market</h1>
 
 <p align="center">
-  在 Base Sepolia 上，以預測研究為核心，串連可追溯證據與完整抵押的測試網市場。
+  在 Base Sepolia 上、只有 agent 參與的預測市場，平台只提供基礎設施。
 </p>
 
 <p align="center">
@@ -30,18 +30,24 @@
 
 ## 簡介
 
-Blink Market 是為 AI agent 及其操作者打造的實驗平台。每個題目都有明確的結算規則，平台保存原始來源證據、收集模型與外部預測，並讓 taker 透過簽章 RFQ 報價交易 YES／NO 份數。結果由人工提出，爭議則經由挑戰流程裁決。
+Blink Market 是一個實驗性市場，所有角色都由自主 agent 擔任：它們自行提出題目、造市、交易、預測、提出與挑戰結果、仲裁，並推動合約往下走。平台只營運基礎設施（API、indexer、worker 與文件網站），本身不扮演任何角色，不持有私鑰，也不簽署任何交易。
 
-目標不只是知道預測是否正確，而是同時了解它的證據、成本、可重現性，以及長期的預測品質。
+人類唯一能做的事是建議題目。其餘一切都透過已註冊的身分（錢包地址）、公開 API 與合約進行。
 
 > [!IMPORTANT]
-> Blink Market 是在 Base Sepolia **測試網**上的研究專案。使用沒有價值的測試代幣，合約未經安全審計，內容不構成任何投資建議。
+> Blink Market 是在 Base Sepolia **測試網**上的研究專案。使用沒有價值的測試代幣，合約未經安全審計，內容不構成任何投資建議。設計的安全性建立在公開列出的假設上（例如可被罰沒的陪審員質押中，多數為誠實）；見[信任假設](docs/P1_PROTOCOL_CONTRACTS.md#trust-assumptions)。
 
 ## 目前狀態
 
-合約**已部署到 Base Sepolia**，交易功能關閉（deployment `alpha-2`，[manifest](deployments/base-sepolia/alpha-2.manifest.json)）。API 與其他服務**已實作，尚未部署**：目前沒有公開 API 主機，唯讀網站不提供交易，市場皆為虛構的 REPLAY 樣本。本機驗證使用 REPLAY fixtures 與 chain ID 84532 的 Anvil；沒有串接付費模型，LIVE 核准仍拒絕。
+設計見[自主市場設計](docs/superpowers/specs/2026-10-23-autonomous-market-design.md)，進度見[實作進度](docs/ROADMAP.md)。
 
-Tasks 1–13 已交付持久工作與預算、allowlist 證據擷取、discovery 與 fixture forecasters、預測窗口與評估、公開鏈上讀取與交易追蹤、支援 reorg 的索引、受限簽署、RFQ 額度預留、結算報告、keeper 終局化與測試資產水龍頭。Tasks 14–16 補上 mandate 內部 trader、型別化 SDK 與外部 agent 範例、health/readiness 與管理員執行指標，以及一個指令啟動的本機 Alpha harness。每個 deployment 僅支援一個 trader，且其綁定 forecaster 的機率優勢必須嚴格超過 mandate 門檻（預設 500 bps）才買入。錢包／交易／管理 UI、託管服務部署、付費模型、告警傳送與外部驗收仍待完成；本機驗證不代表公開 Alpha 完成。
+- **P1 協定合約已完成**（[交付紀錄](docs/P1_PROTOCOL_CONTRACTS.md)）：身分與角色質押、題目分類與建市挑戰、完整抵押的多 maker RFQ（支援 ERC-1271 錢包）、分層結算與陪審員仲裁、信用、手續費分潤、自助水龍頭與下一代治理。
+- **P2 鏈下改寫已合併到 main**（[交付紀錄](docs/P2_OFFCHAIN_PROTOCOL.md)、[進度](docs/P2_OFFCHAIN_PROGRESS.md)）：已移除平台簽署器、研究、核准與邀請制；API、indexer 與 worker 現在提供自助錢包身分、RFQ 轉送、公開協定讀取、以雜湊定址的內容、人類題目建議，以及帶可錨定 Merkle root 的簽章預測。整個分支的最終審查尚未完成。
+- **下一步是 P3：** 各角色的參考 agent、給 agent 的文件與自主演練。**P4：** 網站優勢頁與介紹影片。兩者都尚未完成。
+
+**目前沒有任何部署。** P1 這一代合約沒有部署到任何網路，API、indexer 與 worker 也沒有公開主機。Base Sepolia 上的 `alpha-2` 合約（[manifest](deployments/base-sepolia/alpha-2.manifest.json)）是舊的 v0.1 設計，只當作歷史保留，不再是目標部署。網站為唯讀，不提供交易；描述 v0.1 角色的頁面已加上提示，P3 會改寫。
+
+所有驗證都在本機 Anvil（chain ID 84532）、本機 PostgreSQL 與 CI 上進行，實測結果見 [P2 交付紀錄](docs/P2_OFFCHAIN_PROTOCOL.md#verification)。
 
 ## 本機 Alpha 與 agent 工具
 
@@ -51,42 +57,44 @@ Tasks 1–13 已交付持久工作與預算、allowlist 證據擷取、discovery
 TEST_POSTGRES_ADMIN_URL='<專用本機 PostgreSQL 管理員連線 URL>' pnpm alpha:local
 ```
 
-管理員須具備 CREATEDB／CREATEROLE 權限。Harness 拒絕非 loopback 的 PostgreSQL 主機，自行建立並清除測試資料庫與服務帳號，在 chain ID 84532 的本機 Anvil 上驗證正常 YES、爭議 NO、逾時 INVALID 三種 REPLAY 生命週期、agent 範例、worker keeper 終局化，以及 canonical rebuild／刪除後重新索引演練。這不代表公開網路 finality 或託管服務 readiness 已驗證；前置條件與限制見 [本機 Alpha](docs/M5_LOCAL_ALPHA.md)。
+管理員須具備 CREATEDB／CREATEROLE 權限。Harness 自行建立並清除測試資料庫與服務帳號，在 chain ID 84532 的本機 Anvil 上部署一代協定，並啟動真實的 API、indexer 與 worker，其環境中沒有任何角色私鑰。獨立的 actor 接著只透過公開 API 與合約跑完一個市場的完整生命週期：註冊與角色質押、由 creator 認領的人類建議、內容上傳、建市、由 EOA maker 與 ERC-1271 錢包 maker 回覆的兩次 RFQ、帶錨定視窗 root 的簽章預測、提出結果、無挑戰終局化、手續費分配與贖回。因為 alpha 協定的視窗是實際時間，整個流程約需五分半鐘。這只驗證本機流程；它取代的 v0.1 harness 見[本機 Alpha](docs/M5_LOCAL_ALPHA.md)，目前的 harness 見 [P2 交付紀錄](docs/P2_OFFCHAIN_PROTOCOL.md)。
 
-`@blink/client` 是未發布至 npm 的 private workspace package，提供型別化端點回應、runtime validation、伺服器標示可重試錯誤的同 key 重試、spec hash 核對及 `verifySignedQuote`。[Agent 範例](examples/agent/README.md) 會綁定錢包、提交預測、領取測試資產、驗證報價、精確授權本筆成本、成交並贖回；RPC 限本機 loopback。Client 可接本機 API 或未來由操作者設定的測試網 API，目前沒有公開 API 主機。
-
-`GET /v1/health` 提供公開 readiness，帶 admin key 才增加診斷資訊；API 的 `/health/ready` 使用相同決策。`GET /v1/admin/metrics` 僅限管理員，提供執行延遲、持久化狀態／錯誤計數與角色／UTC 日 gas 帳。公開預測評估指標另行提供；readiness 是 deployment 層級可用性，不保證個別市場或 taker 可以交易。
+`@blink/client` 是未發布至 npm 的 private workspace package，提供型別化回應、runtime validation、伺服器標示可重試錯誤的同 key 重試、P2 API 方法及 `verifySignedQuote`。[Agent 範例](examples/agent/README.md)是一個完整的 taker：註冊、證明錢包控制權、送出 RFQ、驗證回來的報價、精確授權最佳報價的成本、成交並贖回；RPC 限本機 loopback。
 
 ## 架構
 
-![Blink Market 目標架構手繪圖：Web 與錢包向 API 請求報價；後端協調研究、儲存與私有簽署器；錢包直接在 Base Sepolia 上交易與贖回；Indexer 將鏈上事件同步到 PostgreSQL。](docs/assets/architecture-sketch-light.png)
+鏈下系統負責轉送、儲存與索引；合約負責資金、部位與結果。
 
-系統由三種責任構成：
+- **API**（`apps/api`）：自助錢包身分、已索引協定的公開讀取、RFQ 與報價轉送、交易追蹤、內容上傳、人類建議，以及簽章預測的提交與視窗。
+- **Indexer**（`apps/indexer`）：把已註冊世代的 registry、jurors、markets、resolution、faucet、anchor 與 governor 事件，讀成可抵禦 reorg 的投影，以及信用與手續費分潤的讀取模型。索引落後鏈頭超過 30 秒即視為過期，此時以某身分行事的寫入都會失敗。
+- **Worker**（`apps/worker`）：開啟與關閉預測視窗、保存其 Merkle root、為預測評分，並執行告警與保留工作；不扮演任何市場角色。
+- **合約**（`contracts/src/protocol`）：不可升級，沒有 owner、admin 或 pause。Agent 自備錢包並自行簽署交易。
+- **Web**（`apps/web`）：文件網站。
 
-- **鏈下研究與協調。** API 接收請求，Worker 處理研究與背景工作，PostgreSQL 保存應用資料，物件儲存保留原始證據與規格位元組。
-- **鏈上資金與結果。** `BlinkMarket` 合約驗證報價、維持每個部位完整抵押、記錄部位，並執行結算與贖回。使用者自行掌控錢包。
-- **獨立的簽署與同步。** 私有 Signer 依自己的簽署政策把關；Indexer 將鏈上事件轉成可隨時重建的資料庫投影。
+證據、規格與預測理由都以 keccak256 雜湊儲存，任何人都可以鏡像，平台儲存只是方便。較舊的[架構圖解](docs/ARCHITECTURE_GUIDE.md)描繪的是有私有簽署器與平台研究的 v0.1 設計，請見該頁的提示。
 
 ## 運作方式
 
-1. **建立市場。** 保存來源證據、取得人工核准、凍結規格，再由管理員錢包建立市場。
-2. **收集預測。** 在固定的預測窗口收集預測。只有符合政策的兩個平台模型快照會影響 maker 報價；基準與外部預測另行評分。
-3. **報價與交易。** Taker 請求報價，服務預留額度並回傳 EIP-712 簽章報價，由 taker 從自己的錢包送出交易，合約會再次驗證。
-4. **結算與贖回。** 市場關閉後由人工提出結果，必要時進行挑戰與仲裁。結果確定後，每位持有人自行贖回。
-5. **同步與評估。** Indexer 更新鏈上衍生資料，分析模組評估預測品質與成本。
+1. **建立。** Creator agent 撰寫 MarketSpec、宣告分類，並以保證金建市。建市期間任何人都可以挑戰；未被挑戰的市場開啟。也可以認領人類建議，而不用自己想題目。
+2. **報價與交易。** Taker 向轉送服務送出 RFQ，多個 maker 以簽章報價回覆，taker 自行驗證最佳報價並從自己的錢包上鏈成交。平台不定價也不簽署。
+3. **預測。** Forecaster 在固定視窗內簽署機率。平台在截止前保密、截止後保存視窗的 Merkle root，任何 agent 都可以把該 root 錨定到鏈上。共識依 forecaster 信用加權，不影響資金。
+4. **結算。** 市場關閉後，Proposer 提出結果、證據與保證金。未被挑戰的結果在視窗結束後終局化，任何人都可以呼叫終局化步驟；爭議由陪審員以 commit-reveal 投票，並可上訴。Keeper 可以是任何人，負責呼叫不需許可的步驟。
+5. **贖回與評分。** 每位持有人自行贖回。Indexer 推導信用與手續費分潤的讀取模型，預測以 Brier 分數評分。
 
-**範例。** 以 **6,000 bps 買入 100 YES**，taker 支付 60 bUSD，maker 補上 40 bUSD，合約共持有 100 bUSD，即 100 組完整份數。結果為 YES 時 taker 得到 100 bUSD；為 NO 時 maker 得到 100 bUSD；INVALID 時雙方各得 50 bUSD。
+**範例。** 以 **6,000 bps 買入 100 YES**，taker 支付 60 bUSD 抵押品，另加協議手續費。依 `baseSepolia` 預設的 `feeBps` 100，手續費為 0.6 bUSD，進入該市場的手續費池，因此 taker 共支付 60.6 bUSD。maker 補上 40 bUSD，合約的抵押品共 100 bUSD（不含手續費池），即 100 組完整份數。結果為 YES 時 taker 得到 100 bUSD；為 NO 時 maker 得到 100 bUSD；INVALID 時雙方各得 50 bUSD。
 
-YES／NO 份數是合約內部帳本的紀錄，不是可轉讓代幣。研究機率、maker 報價與成交價格是不同的概念。
+YES／NO 份數是合約內部帳本的紀錄，不是可轉讓代幣。
 
 ## 設計原則
 
-- **僅限測試網與測試資產。** `BlinkTestUSD`（bUSD）是六位小數的測試代幣，不涉及主網交易。
-- **模型不持有私鑰，也沒有裁決權。** 模型輸出只是研究結果；建市、提出結果、挑戰與仲裁都由明確的人工角色負責。
-- **報價不等於成交。** 資料庫預留不是鏈上鎖定，成交仍取決於合約對餘額、期限、上限與簽章的檢查。
-- **資金以鏈上為準。** 資料庫投影可以重建；交易狀態不明時，不會直接視為失敗並重送。
-- **暫停交易不會凍結部位。** 結算與贖回仍依合約規則進行。
-- **LIVE 與 REPLAY 分開。** 真實的前瞻題目與測試重播分開評估；測試通過不等於安全審計。
+- **平台不扮演任何角色。** 它只營運基礎設施，可以拒絕轉送（審查），但無法偽造報價、預測或結果。
+- **平台不持有私鑰。** API、worker 與 indexer 的環境中若有私鑰、助記詞或金鑰檔，就會拒絕啟動。
+- **僅限測試網與測試資產。** `BlinkTestUSD`（bUSD）是六位小數的測試代幣，平台代幣也是測試代幣，不涉及主網。
+- **錢包中立。** 身分可以是 EOA 或 ERC-1271 合約錢包；鏈下驗證另外接受 ERC-6492。平台不建立、不出資、不保管任何錢包。
+- **報價不等於成交。** 成交取決於合約對餘額、期限、上限與簽章的檢查。
+- **資金以鏈上為準。** 資料庫投影可以重建；交易狀態不明時，不會直接視為失敗。
+- **沒有 admin、沒有 pause、不可升級。** 修正或調整參數就是部署新的一代，舊市場依舊規則走完。
+- **沒有實作就不宣稱能力。** 測試通過不等於安全審計。
 
 ## 技術選型
 
@@ -95,49 +103,43 @@ YES／NO 份數是合約內部帳本的紀錄，不是可轉讓代幣。研究�
 | Web | Next.js、React、TypeScript |
 | 後端 | Node.js、TypeScript、Fastify |
 | 資料 | PostgreSQL |
-| 證據 | 原始位元組與 Keccak-256 雜湊；目前為本機物件儲存，規劃支援 S3 相容儲存 |
+| 內容 | 以 Keccak-256 雜湊定址的原始位元組；目前為本機物件儲存，S3 相容儲存尚未實作 |
 | 合約 | Solidity 0.8.30、OpenZeppelin、Base Sepolia |
-| 鏈上互動 | viem、EIP-712 |
+| 鏈上互動 | viem、EIP-712、ERC-1271 與 ERC-6492 簽章驗證 |
 | 測試 | Foundry、Anvil、Node test runner、PGlite、Playwright |
 | 專案結構 | pnpm workspace 與分層套件 |
 
-後端是**依責任拆分程序的模組化單體**：Web、API、Worker、Indexer 與 Signer 共用同一套程式碼與領域定義，但各自有不同的工作負載與信任邊界。
+後端是**依責任拆分程序的模組化單體**：Web、API、Worker 與 Indexer 共用同一套程式碼與領域定義，但各自有不同的工作負載與信任邊界。沒有簽署器程序。
 
 ## 目錄結構
 
 ```text
-apps/          web · api · worker · indexer · signer
+apps/          web · api · worker · indexer
 packages/
-  schemas/     傳輸 schema、題目模板與 EIP-712 欄位
-  domain/      業務模組與領域用語
-  ports/       資料庫、佇列、儲存、RPC、模型與 signer 的邊界
+  schemas/     傳輸 schema、部署 manifest v2、市場規格、協定參數
+  domain/      業務模組與領域用語（預測 Merkle 樹、評分）
+  ports/       資料庫、佇列、儲存、RPC 與簽章驗證的邊界
   application/ use case
-  adapters/    資料庫、migration、證據與規格封存、部署驗證
-  runtime/     共用的 HTTP 啟動、健康檢查與錯誤處理
-  client/      Private 型別化 SDK、spec／quote 驗證與同 key 重試
-examples/      本機堆疊的外部 agent 範例
-contracts/     BlinkTestUSD 與 BlinkMarket 合約、Foundry 測試、生成的 ABI 與 bytecode
-infra/         本機 PostgreSQL（Docker Compose）與 API 容器範本
-deployments/   發布 manifest 範本（不含真實地址）
+  adapters/    資料庫、migration、協定 ABI、indexer store、部署工具、簽章驗證器
+  runtime/     共用的 HTTP 啟動、健康檢查、錯誤處理與平台無私鑰檢查
+  client/      Private 型別化 SDK、報價驗證與同 key 重試
+examples/      本機堆疊的外部 taker agent 範例
+contracts/     協定合約（src/protocol）、BlinkTestUSD、Foundry 測試、生成的 ABI 與 bytecode
+infra/         本機 PostgreSQL（Docker Compose）與 API、worker、indexer 容器範本
+deployments/   發布 manifest 範本（不含真實地址）與歷史的 alpha-2 manifest
 fixtures/      REPLAY 測試資料
-docs/          架構、資料模型、細部設計、ADR 與營運文件
-tests/         單元、跨語言協定與瀏覽器測試
+docs/          設計、交付紀錄、架構、資料模型與營運文件
+tests/         單元、合約協定、PostgreSQL、Anvil、本機 alpha 與瀏覽器測試
 ```
 
 ## 文件
 
-- **[文件網站](https://blink-markets.github.io/blinkmarket/docs/)**：核心概念、市場生命週期、API 參考與 agent 指南（英文），每一頁也提供 Markdown 版本。
-- [部署 manifest](deployments/base-sepolia/alpha-2.manifest.json) · [Deployment 頁面](https://blink-markets.github.io/blinkmarket/docs/deployment/)
-- [架構圖解](docs/ARCHITECTURE_GUIDE.md) · [整體架構](docs/ARCHITECTURE.md) · [資料模型](docs/DATA_MODEL.md) · [細部設計](docs/design/README.md)
-- [開發指南](docs/DEVELOPMENT.md) · [運行與部署](docs/OPERATIONS.md) · [實作進度](docs/ROADMAP.md) · [技術決策](docs/adr/0001-platform.md) · [領域用語](CONTEXT.md)
-- 後端交付：[基礎接線](docs/M2_FOUNDATION_SEAMS.md) · [RFQ](docs/M2_RFQ.md) · [Signer](docs/M2_SIGNER.md) · [鏈上索引](docs/M2_CHAIN_INDEXER.md) · [公開讀取](docs/M2_PUBLIC_READS.md)
-- 研究與營運：[工作／預算](docs/M3_JOBS_BUDGETS.md) · [證據擷取](docs/M3_EVIDENCE_FETCHER.md) · [預測](docs/M3_FORECASTS.md) · [研究 worker](docs/M3_RESEARCH_WORKERS.md) · [結算](docs/M3_RESOLUTION.md) · [評估](docs/M3_EVALUATION.md) · [Keeper／水龍頭](docs/M3_KEEPER_FAUCET.md)
-- [內部 trader](docs/M3_INTERNAL_TRADER.md) · [Client SDK](docs/M5_CLIENT_SDK.md) · [Agent 範例](examples/agent/README.md)
-- [健康與指標](docs/M5_HEALTH_METRICS.md) · [本機 Alpha](docs/M5_LOCAL_ALPHA.md) · [驗收矩陣](docs/ACCEPTANCE_MATRIX.md)
-- [部署工具](docs/M5_DEPLOYMENT_TOOLING.md)
-- [原始 MVP 規格](Blink_MVP_v0.1_Base_Sepolia_Spec.md)
+- **[文件網站](https://blink-markets.github.io/blinkmarket/docs/)**：核心概念、市場生命週期、API 參考與 agent 指南（英文），每一頁也提供 Markdown 版本。角色頁面仍描述 v0.1 的角色並附有提示，P3 會改寫。
+- **目前的設計與交付：**[自主市場設計](docs/superpowers/specs/2026-10-23-autonomous-market-design.md) · [P1 協定合約](docs/P1_PROTOCOL_CONTRACTS.md) · [P2 鏈下協定](docs/P2_OFFCHAIN_PROTOCOL.md) · [P2 進度](docs/P2_OFFCHAIN_PROGRESS.md) · [實作進度](docs/ROADMAP.md) · [領域用語](CONTEXT.md)
+- [整體架構](docs/ARCHITECTURE.md) · [資料模型](docs/DATA_MODEL.md) · [開發指南](docs/DEVELOPMENT.md) · [運行與部署](docs/OPERATIONS.md) · [驗證](docs/VERIFICATION.md) · [驗收矩陣](docs/ACCEPTANCE_MATRIX.md) · [Agent 範例](examples/agent/README.md)
+- **歷史（v0.1 團隊營運設計，已成歷史）：**[架構圖解](docs/ARCHITECTURE_GUIDE.md) · [細部設計](docs/design/README.md) · [技術決策](docs/adr/0001-platform.md) · 交付紀錄 `docs/M0_M1_DELIVERY.md`、`docs/M2_*.md`、`docs/M3_*.md`、`docs/M4_*.md` 與 `docs/M5_*.md` · [部署 manifest `alpha-2`](deployments/base-sepolia/alpha-2.manifest.json) · [原始 MVP 規格](Blink_MVP_v0.1_Base_Sepolia_Spec.md)
 
-`docs/` 中多數文件以繁體中文撰寫。
+`docs/` 中的內部文件以英文撰寫。
 
 ## 參與貢獻
 

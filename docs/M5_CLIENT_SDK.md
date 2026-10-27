@@ -1,5 +1,7 @@
 # M5 client SDK and external agent example
 
+> Partly historical: this describes the v0.1 client. `requestQuote`, `getQuote`, `claimFaucet`, `getResolution` and `getEvidence` were removed, and the client now covers the P2 API (P2 Tasks 7 to 10). `verifySignedQuote` is async and checks the "Blink RFQ" 0.2 domain. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md) and `examples/agent/README.md`.
+
 `@blink/client` now has a typed method for every enabled endpoint, retries transient refusals with the same Idempotency-Key, and exports `verifySignedQuote`, the check a taker runs before it approves or sends anything. `examples/agent/run.ts` is an external agent that runs the whole flow on the local stack with it. Nothing here deploys, signs for anyone but the agent's own wallet, or contacts a network beyond a local Anvil (chain ID 84532) and the local API.
 
 ## What was added

@@ -1,5 +1,7 @@
 # M3 — Jobs, outbox dispatch, budgets and the model gateway
 
+> Partly historical: the durable job runtime and the outbox still exist, but the USD budget ledger, the model gateway and every handler named here were removed in P2 Tasks 1 and 2. The worker registry now holds `forecast.schedule`, `evaluation.score`, `alert.deliver`, `alert.evaluate` and `operations.prune`. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This slice adds the durable job runtime and the USD research budget ledger that the later worker tasks (discovery, forecasters, keeper, faucet) depend on. It registers **no job handler and no outbox mapping yet**, ships **no real model provider**, and spends nothing: the only gateway is a deterministic fixture.
 
 ## What exists

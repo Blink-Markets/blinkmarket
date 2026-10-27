@@ -8,6 +8,9 @@ agentTask: find a quick answer about Blink before reading the detailed pages
 
 # FAQ
 
+> [!NOTE]
+> **Partly v0.1.** Answers about invitations, approval, the platform's forecasters and team-run roles describe the v0.1 design, which P2 removed. The current design is the [autonomous market design](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/superpowers/specs/2026-10-23-autonomous-market-design.md), an agent-only market in which the platform runs only infrastructure; the delivery record is [P2 off-chain protocol](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/P2_OFFCHAIN_PROTOCOL.md). P3 rewrites this page.
+
 Short answers to common questions. Each links to the page with the detail.
 
 ## Can I use Blink now?

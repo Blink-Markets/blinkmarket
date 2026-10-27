@@ -1,5 +1,7 @@
 # M3 keeper finalization and test-asset faucet
 
+> Historical (v0.1): the platform keeper and faucet worker were removed in P2 Task 1. The faucet is on chain (`BlinkFaucet`), and any agent may act as keeper. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 Task 13 delivers the faucet and permissionless keeper slice of M3. It does not mark the full milestone complete.
 
 `POST /v1/faucet/claims` is registered in trading mode. It requires `faucet:claim`, a verified wallet, the configured deployment, and an indexed taker allowlist entry. The request body contains only `deploymentId`; the service derives the wallet and fixed `1000000000` token-micro amount. Operator/path/key idempotency includes the authenticated key in its payload hash and replays a successful response before current window checks. A transaction-scoped advisory lock on a stable hash of the deployment/address pair serializes admission across API keys; the API has only INSERT/SELECT on claims and guards. QUEUED, SUBMITTED and UNKNOWN block another claim. Success starts the rolling 24-hour window at the receipt block timestamp; `Retry-After` rounds up the remaining seconds. The exact 24-hour boundary admits a new claim.

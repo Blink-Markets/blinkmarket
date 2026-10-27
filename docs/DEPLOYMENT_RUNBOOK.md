@@ -1,5 +1,7 @@
 # Public Alpha deployment runbook
 
+> Historical (v0.1): this runbook is the procedure for the v0.1 stack (API, worker, indexer and a separate signer with an ADMIN wallet, `trading` mode and `pnpm contracts:deploy` with role flags). That stack no longer exists: there is no signer, no `trading` mode and no ADMIN pause, and the deploy tool takes `--params` and `--treasury`. No P2 deployment runbook is written, because no deployment is planned in this stage. What exists is the local tooling in [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md#deploy-tooling-local-only-nothing-deployed). Do not follow the steps below.
+
 This runbook describes a provider-neutral deployment on Base Sepolia. It supports one small `linux/arm64` app VM for API, Worker and Indexer, plus a separate signer VM. PostgreSQL and private object storage may be self-hosted or selected later. It does not select providers, publish endpoints, or supply credentials. Start with [`deployments/base-sepolia/env.example`](../deployments/base-sepolia/env.example); every `<TO BE PROVIDED: …>` marker must be replaced in a protected, untracked runtime file.
 
 ## Guardrails and inputs

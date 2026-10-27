@@ -1,5 +1,7 @@
 # M3 evaluation scores and public metrics
 
+> Partly historical: this describes the v1 scoring over platform agents, the ensemble and the baseline. P2 Task 2 scores every submission as `AGENT`, and Task 10 added the `v2` entries and the credit-weighted consensus; `ENSEMBLE` and `BASELINE` rows stay in the table and are ignored by public metrics. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 Task 12 implements the evaluation slice only; it does not complete the whole M3 milestone.
 
 ## Delivered scope

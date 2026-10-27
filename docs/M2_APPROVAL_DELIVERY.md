@@ -1,5 +1,7 @@
 # M2.2 — Human approval and unsigned market creation
 
+> Historical (v0.1): the human approval flow, creation intents and the ADMIN-wallet creation path described here were removed in P2 Task 2. Agents create markets on chain themselves. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 Follow-up: operator-driven receipt/MarketCreated tracking is now implemented separately; see [M2.3a](M2_CREATION_TRACKING.md). The historical limits below describe the approval slice; continuous indexing and transaction submission remain out of scope.
 
 Implemented locally, **REPLAY-only and opt-in**. An invited admin can approve a candidate and obtain one durable, unsigned `createMarket` transaction intent. This is not an on-chain deployment or a trading launch. No private key, automatic signer, broadcaster or market-created receipt is involved.

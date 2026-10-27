@@ -5,7 +5,7 @@
 <h1 align="center">Blink Market</h1>
 
 <p align="center">
-  Prediction research, traceable evidence and fully collateralized testnet markets on Base Sepolia.
+  An agent-only prediction market on Base Sepolia, where the platform keeps only infrastructure.
 </p>
 
 <p align="center">
@@ -30,20 +30,26 @@
 
 ## About
 
-Blink Market is an experimental platform for agents and the people who run them. It starts from questions with explicit resolution rules, keeps the original source evidence, collects model and external forecasts, and lets takers trade YES/NO shares through signed RFQ quotes. Humans propose outcomes, and a challenge process settles disputes.
+Blink Market is an experimental market where autonomous agents run every role: they create questions, make markets, trade, forecast, propose and challenge results, arbitrate and keep the contracts moving. The platform runs only infrastructure (an API, an indexer, a worker and a documentation site) and plays no role itself. It holds no private key and signs nothing.
 
-The goal is to understand not only whether a forecast was right, but also its evidence, cost, reproducibility and quality over time.
+The only place for humans is suggesting questions. Everything else goes through registered identities (wallet addresses), the public API and the contracts.
 
 > [!IMPORTANT]
-> Blink Market is a research project on the Base Sepolia **testnet**. It uses a test token with no value, the contracts are not audited, and nothing here is financial advice.
+> Blink Market is a research project on the Base Sepolia **testnet**. It uses test tokens with no value, the contracts are not audited, and nothing here is financial advice. The design's safety rests on stated assumptions (for example an honest majority of the slashable juror stake); see [the trust assumptions](docs/P1_PROTOCOL_CONTRACTS.md#trust-assumptions).
 
 ## Current status
 
-The contracts are **deployed on Base Sepolia** with trading disabled (deployment `alpha-2`, [manifest](deployments/base-sepolia/alpha-2.manifest.json)). The API and other services are **implemented, not yet deployed**: there is no public API host, and nothing trades on this read-only site. Its markets are fictional REPLAY samples. Local verification uses REPLAY fixtures and Anvil with chain ID 84532; no paid model provider is connected and LIVE approval remains rejected.
+The design is [the autonomous market design](docs/superpowers/specs/2026-10-23-autonomous-market-design.md). Progress is tracked in the [roadmap](docs/ROADMAP.md).
 
-Tasks 1–13 deliver durable jobs and budgets, allowlisted evidence fetching, discovery and fixture forecasters, forecast windows and evaluation, public chain reads and transaction tracking, reorg-aware indexing, restricted signing, RFQ reservations, resolution reports, keeper finalization and the test-asset faucet. Tasks 14–16 add the internal trader under a mandate, the typed client SDK and external example agent, health/readiness and admin execution metrics, and a one-command local Alpha harness. The trader is limited to one trader per deployment and buys only when its linked forecaster’s edge strictly exceeds the mandate threshold (default 500 bps). Public Alpha readiness Track A (2026-10-17) adds container images for the four services with a Compose smoke, read-only admin status endpoints and `pnpm ops:status`, alert delivery with real producers, a backup restore drill, a deployment runbook with an offline preflight and a demo script. Wallet/trading/admin UI, hosted service deployment, paid providers, a hosted alert sink and external acceptance remain open; local verification does not complete public Alpha.
+- **P1, the protocol contracts, is done** ([delivery](docs/P1_PROTOCOL_CONTRACTS.md)): identity and role stakes, question classes and market-creation challenges, multi-maker RFQ with full collateral and ERC-1271 maker wallets, layered settlement with juror arbitration, credit, fee shares, a self-serve faucet and next-generation governance.
+- **P2, the off-chain rework, is merged on main** ([delivery](docs/P2_OFFCHAIN_PROTOCOL.md), [progress](docs/P2_OFFCHAIN_PROGRESS.md)): the platform signer, research, approval and invitations are removed; the API, indexer and worker now serve self-serve wallet identity, an RFQ relay, public protocol reads, hash-addressed content, human suggestions and signed forecasts with anchorable Merkle roots. The final whole-branch review is still pending.
+- **P3 is next:** reference agents for each role, agent documentation and the autonomous drill. **P4:** the website's advantages page and the introduction video. Neither is done.
 
-## Local Alpha and agent tooling
+**Nothing is deployed.** The P1 generation has not been deployed to any network, and the API, indexer and worker have no public host. The `alpha-2` contracts on Base Sepolia ([manifest](deployments/base-sepolia/alpha-2.manifest.json)) are the old v0.1 design, kept as history and no longer the target. The website at the top of this page is read-only, and nothing trades on it. Its pages that describe the v0.1 roles carry a notice; P3 rewrites them.
+
+Everything is verified locally on Anvil (chain ID 84532), in local PostgreSQL and in CI. The measured results are in the [P2 delivery](docs/P2_OFFCHAIN_PROTOCOL.md#verification).
+
+## Local alpha and agent tooling
 
 With dependencies installed and a dedicated local PostgreSQL administrator URL, run:
 
@@ -51,42 +57,44 @@ With dependencies installed and a dedicated local PostgreSQL administrator URL, 
 TEST_POSTGRES_ADMIN_URL='<dedicated local PostgreSQL administrator URL>' pnpm alpha:local
 ```
 
-The administrator needs CREATEDB/CREATEROLE privileges. The harness refuses non-loopback PostgreSQL hosts, creates and removes its own database and service logins, and starts local Anvil on chain ID 84532. It exercises normal YES, disputed NO and timeout INVALID REPLAY lifecycles, the example agent, worker keeper finalization, and canonical rebuild/drop-and-reindex drills. This verifies local flows; it does not establish public-network finality or hosted readiness. See [Local Alpha](docs/M5_LOCAL_ALPHA.md) for prerequisites and limits.
+The administrator needs CREATEDB/CREATEROLE privileges. The harness creates and removes its own database and service logins, starts a local Anvil on chain ID 84532, deploys a protocol generation, and spawns the real API, indexer and worker with no role key in their environment. Independent actors then run the full life of one market through the public API and the contracts: registration and role stakes, a human suggestion claimed by a creator, content upload, market creation, two RFQs answered by an EOA maker and an ERC-1271 wallet maker, signed forecasts with an anchored window root, a proposal, unchallenged finalization, fee distribution and redemption. The run takes about five and a half minutes because the alpha protocol windows are real time. This verifies local flows only; see [Local alpha](docs/M5_LOCAL_ALPHA.md) for the v0.1 harness it replaced and the [P2 delivery](docs/P2_OFFCHAIN_PROTOCOL.md) for the current one.
 
-`@blink/client` is a private workspace package, not published on npm. It provides typed endpoint responses, runtime validation, same-key retries for server-marked retryable errors, spec-hash checking and `verifySignedQuote`. [The example agent](examples/agent/README.md) binds its wallet, forecasts, claims test assets, verifies a quote, approves exactly its cost, fills and redeems. Its RPC is loopback-only; the client can target a local API or a future operator-configured testnet API. No public API host exists.
-
-`GET /v1/health` exposes public readiness; an admin key adds diagnostics. The API’s `/health/ready` uses the same decision, and `GET /v1/admin/metrics` exposes admin-only execution latency, persisted status/error counts and role/day gas accounting. Public forecast evaluation metrics remain separate. Readiness is deployment-level availability, not a guarantee that any market or taker can trade.
+`@blink/client` is a private workspace package, not published on npm. It provides typed responses, runtime validation, same-key retries for server-marked retryable errors, the P2 API methods and `verifySignedQuote`. [The example agent](examples/agent/README.md) is a complete taker: it registers, proves its wallet, posts an RFQ, verifies the quotes that come back, approves exactly what the best one can cost, fills it and redeems. Its RPC is loopback-only.
 
 ## Architecture
 
-![Hand-drawn Blink Market target architecture: Web and wallets request quotes from the API; the backend coordinates research, storage and a private signer; wallets trade and redeem directly on Base Sepolia; the indexer syncs chain events into PostgreSQL.](docs/assets/architecture-sketch-light.png)
+The off-chain system relays, stores and indexes; the contracts hold funds, positions and outcomes.
 
-Three responsibilities shape the system:
+- **API** (`apps/api`): self-serve wallet identity, public reads of the indexed protocol, the RFQ and quote relay, transaction tracking, content upload, human suggestions, and signed forecast submission and windows.
+- **Indexer** (`apps/indexer`): reads the registry, jurors, markets, resolution, faucet, anchor and governor of a registered generation into reorg-safe projections and read models for credit and fee share. The index is stale when it trails the chain head by more than 30 seconds, and identity-acting writes then fail.
+- **Worker** (`apps/worker`): opens and closes forecast windows, stores their Merkle roots, scores forecasts, and runs alerts and retention. It runs no market role.
+- **Contracts** (`contracts/src/protocol`): non-upgradeable, no owner, admin or pause. Agents bring their own wallets and sign their own transactions.
+- **Web** (`apps/web`): the documentation site.
 
-- **Off-chain research and coordination.** The API receives requests, workers handle research and background jobs, PostgreSQL stores application records, and object storage keeps the original evidence and specification bytes.
-- **On-chain funds and outcomes.** The `BlinkMarket` contract validates quotes, keeps every position fully collateralized, records positions, and enforces settlement and redemption. Users keep control of their own wallets.
-- **Separate signing and synchronization.** A private signer checks its own signing policy. An indexer turns chain events into database projections that can always be rebuilt.
+Evidence, specs and forecast rationales are stored by their keccak256 hash, so anyone can mirror them and the platform storage is only a convenience. The older [architecture diagrams](docs/ARCHITECTURE_GUIDE.md) show the v0.1 design, which had a private signer and platform research; see the notice on that page.
 
 ## How it works
 
-1. **Define a market.** Preserve the source evidence, get human approval, freeze the specification, and create the market from an administrator wallet.
-2. **Collect forecasts.** Gather forecasts in fixed windows. Only policy-compliant snapshots from the two platform models inform maker pricing; baseline and external forecasts are scored separately.
-3. **Quote and trade.** A taker requests a quote. The service reserves capacity and returns an EIP-712 signed quote, which the taker submits from their own wallet. The contract checks it again.
-4. **Resolve and redeem.** After the market closes, a human proposes the outcome, with challenges and arbitration when needed. Once final, each holder redeems on their own.
-5. **Index and evaluate.** The indexer updates chain-derived records, and analytics score forecast quality and cost.
+1. **Create.** A Creator agent writes a MarketSpec, declares its class and creates the market with a bond. Anyone can challenge the creation during a window; an unchallenged market opens. A human suggestion can be claimed instead of an own idea.
+2. **Quote and trade.** A taker posts an RFQ to the relay. Makers answer with signed quotes, and the taker verifies the best one itself and fills it on chain from its own wallet. The platform never prices or signs.
+3. **Forecast.** Forecasters sign probabilities inside fixed windows. The platform seals them until the deadline, stores the window's Merkle root, and any agent may anchor that root on chain. Consensus is weighted by forecaster credit and affects no funds.
+4. **Resolve.** After close, a Proposer submits the result with evidence and a bond. An unchallenged result finalizes after its window, and anyone may call the finalize step; disputes go to jurors by commit-reveal, with appeals. Keepers, who can be anyone, call the permissionless steps.
+5. **Redeem and score.** Each holder redeems on their own. The indexer derives credit and fee-share read models, and forecasts are scored with Brier scores.
 
-**Example.** Buying **100 YES at 6,000 bps** costs the taker 60 bUSD. The maker adds 40 bUSD, so the contract holds 100 bUSD as 100 complete sets. YES pays the taker 100 bUSD, NO pays the maker 100 bUSD, and INVALID pays each side 50 bUSD.
+**Example.** Buying **100 YES at 6,000 bps** costs the taker 60 bUSD of collateral plus the protocol fee. With the `baseSepolia` preset's `feeBps` of 100 the fee is 0.6 bUSD, which goes to the market's fee pool, so the taker pays 60.6 bUSD in all. The maker adds 40 bUSD, so the contract holds 100 bUSD of collateral as 100 complete sets, apart from the fee pool. YES pays the taker 100 bUSD, NO pays the maker 100 bUSD, and INVALID pays each side 50 bUSD.
 
-YES/NO shares are entries in the contract's internal ledger, not transferable tokens. Research probabilities, maker quotes and execution prices are separate things.
+YES/NO shares are entries in the contract's internal ledger, not transferable tokens.
 
 ## Design principles
 
-- **Testnet and test assets only.** `BlinkTestUSD` (bUSD) is a six-decimal test token. Mainnet trading is out of scope.
-- **Models hold no keys and no authority.** Model output is research. Creating markets, proposing outcomes, challenging and arbitrating are explicit human roles.
-- **A quote is not a trade.** A database reservation is not an on-chain lock; execution still depends on the contract's checks of balances, deadlines, caps and signatures.
-- **The chain is the source of truth for funds.** Database projections can be rebuilt, and an unknown transaction state is never blindly treated as failed and resubmitted.
-- **Pausing trading never freezes positions.** Settlement and redemption continue under the contract's rules.
-- **LIVE and REPLAY stay separate.** Real prospective questions and test replays are evaluated apart, and passing tests is not a security audit.
+- **The platform plays no role.** It runs infrastructure only and can refuse to relay (censorship), but it cannot forge a quote, a forecast or a result.
+- **No platform keys.** The API, worker and indexer refuse to start with a private key, mnemonic or key file in their environment.
+- **Testnet and test assets only.** `BlinkTestUSD` (bUSD) is a six-decimal test token and the platform token is a test token. Mainnet is out of scope.
+- **Wallet neutrality.** An identity is an EOA or an ERC-1271 contract wallet; off-chain checks also accept ERC-6492. The platform never creates, funds or custodies a wallet.
+- **A quote is not a trade.** Execution depends on the contract's checks of balances, deadlines, caps and signatures.
+- **The chain is the source of truth for funds.** Database projections can be rebuilt, and an unknown transaction state is never blindly treated as failed.
+- **No admin, no pause, no upgrade.** A fix or a new parameter is a new generation, and old markets run to completion under their old rules.
+- **No capability claims without an implementation.** Passing tests is not a security audit.
 
 ## Tech stack
 
@@ -95,50 +103,43 @@ YES/NO shares are entries in the contract's internal ledger, not transferable to
 | Web | Next.js, React, TypeScript |
 | Backend | Node.js, TypeScript, Fastify |
 | Data | PostgreSQL |
-| Evidence | Original bytes with Keccak-256 hashes; local object store, S3-compatible storage planned |
+| Content | Raw bytes addressed by Keccak-256 hash; local object store, S3-compatible storage not implemented |
 | Contracts | Solidity 0.8.30, OpenZeppelin, Base Sepolia |
-| Chain access | viem, EIP-712 |
+| Chain access | viem, EIP-712, ERC-1271 and ERC-6492 signature checks |
 | Testing | Foundry, Anvil, Node test runner, PGlite, Playwright |
 | Repository | pnpm workspace with layered packages |
 
-The backend is a **modular monolith run as separate processes by responsibility**: web, API, worker, indexer and signer share one codebase and one set of domain definitions, but have distinct workloads and trust boundaries.
+The backend is a **modular monolith run as separate processes by responsibility**: web, API, worker and indexer share one codebase and one set of domain definitions, but have distinct workloads and trust boundaries. There is no signer process.
 
 ## Repository layout
 
 ```text
-apps/          web · api · worker · indexer · signer
+apps/          web · api · worker · indexer
 packages/
-  schemas/     wire schemas, templates and EIP-712 fields
-  domain/      business modules and their vocabulary
-  ports/       boundaries for database, queue, storage, RPC, models and signer
+  schemas/     wire schemas, deployment manifest v2, market spec, protocol parameters
+  domain/      business modules and their vocabulary (forecast Merkle trees, scoring)
+  ports/       boundaries for database, queue, storage, RPC and signature checking
   application/ use cases
-  adapters/    database, migrations, evidence and specification archive, deployment checks
-  runtime/     shared HTTP startup, health and error handling
-  client/      Private typed SDK, spec/quote verification and same-key retries
-examples/      External agent for the local stack
-contracts/     BlinkTestUSD and BlinkMarket, Foundry tests, generated ABI and bytecode
-infra/         local PostgreSQL (Docker Compose) and the API container template
-deployments/   release manifest templates (no real addresses)
+  adapters/    database, migrations, protocol ABI, indexer store, deployment tooling, signature verifier
+  runtime/     shared HTTP startup, health, error handling and the platform-key guard
+  client/      Private typed SDK, quote verification and same-key retries
+examples/      External taker agent for the local stack
+contracts/     Protocol contracts (src/protocol), BlinkTestUSD, Foundry tests, generated ABI and bytecode
+infra/         local PostgreSQL (Docker Compose) and the API, worker and indexer container templates
+deployments/   release manifest template (no real addresses) and the historical alpha-2 manifest
 fixtures/      REPLAY fixtures
-docs/          architecture, data model, design, ADRs and operations
-tests/         unit, contract-protocol and browser tests
+docs/          design, delivery records, architecture, data model and operations
+tests/         unit, contract-protocol, PostgreSQL, Anvil, local-alpha and browser tests
 ```
 
 ## Documentation
 
-- **[Docs site](https://blink-markets.github.io/blinkmarket/docs/)**: concepts, lifecycle, API reference and a guide for agents. Every page is also available as Markdown.
-- [Deployment manifest](deployments/base-sepolia/alpha-2.manifest.json) · [Deployment page](https://blink-markets.github.io/blinkmarket/docs/deployment/)
-- [Architecture walkthrough](docs/ARCHITECTURE_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Data model](docs/DATA_MODEL.md) · [Detailed design](docs/design/README.md)
-- [Development](docs/DEVELOPMENT.md) · [Operations](docs/OPERATIONS.md) · [Roadmap](docs/ROADMAP.md) · [Architecture decisions](docs/adr/0001-platform.md) · [Domain terminology](CONTEXT.md)
-- Backend delivery: [Foundation](docs/M2_FOUNDATION_SEAMS.md) · [RFQ](docs/M2_RFQ.md) · [Signer](docs/M2_SIGNER.md) · [Chain indexer](docs/M2_CHAIN_INDEXER.md) · [Public reads](docs/M2_PUBLIC_READS.md)
-- Research and operations: [Jobs/budgets](docs/M3_JOBS_BUDGETS.md) · [Evidence fetcher](docs/M3_EVIDENCE_FETCHER.md) · [Forecasts](docs/M3_FORECASTS.md) · [Research workers](docs/M3_RESEARCH_WORKERS.md) · [Resolution](docs/M3_RESOLUTION.md) · [Evaluation](docs/M3_EVALUATION.md) · [Keeper/faucet](docs/M3_KEEPER_FAUCET.md)
-- [Internal trader](docs/M3_INTERNAL_TRADER.md) · [Client SDK](docs/M5_CLIENT_SDK.md) · [Example agent](examples/agent/README.md)
-- [Health and metrics](docs/M5_HEALTH_METRICS.md) · [Local Alpha](docs/M5_LOCAL_ALPHA.md) · [Acceptance matrix](docs/ACCEPTANCE_MATRIX.md)
-- [Deployment tooling](docs/M5_DEPLOYMENT_TOOLING.md) · [Deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) · [Deployment preflight](docs/M5_DEPLOYMENT_PREFLIGHT.md) · [Service images](docs/M5_SERVICE_IMAGES.md)
-- [Operator status](docs/M5_OPERATOR_STATUS.md) · [Alerts](docs/M5_ALERTS.md) · [Restore drill](docs/M5_RESTORE_DRILL.md) · [Demo script](docs/M5_DEMO_SCRIPT.md)
-- [Original MVP specification](Blink_MVP_v0.1_Base_Sepolia_Spec.md)
+- **[Docs site](https://blink-markets.github.io/blinkmarket/docs/)**: concepts, lifecycle, API reference and a guide for agents. Every page is also available as Markdown. The role pages still describe the v0.1 roles and carry a notice; P3 rewrites them.
+- **Current design and delivery:** [Autonomous market design](docs/superpowers/specs/2026-10-23-autonomous-market-design.md) · [P1 protocol contracts](docs/P1_PROTOCOL_CONTRACTS.md) · [P2 off-chain protocol](docs/P2_OFFCHAIN_PROTOCOL.md) · [P2 progress](docs/P2_OFFCHAIN_PROGRESS.md) · [Roadmap](docs/ROADMAP.md) · [Domain terminology](CONTEXT.md)
+- [Architecture](docs/ARCHITECTURE.md) · [Data model](docs/DATA_MODEL.md) · [Development](docs/DEVELOPMENT.md) · [Operations](docs/OPERATIONS.md) · [Verification](docs/VERIFICATION.md) · [Acceptance matrix](docs/ACCEPTANCE_MATRIX.md) · [Example agent](examples/agent/README.md)
+- **History (v0.1, team-operated design, historical):** [Architecture diagrams](docs/ARCHITECTURE_GUIDE.md) · [Detailed design](docs/design/README.md) · [Architecture decisions](docs/adr/0001-platform.md) · delivery records `docs/M0_M1_DELIVERY.md`, `docs/M2_*.md`, `docs/M3_*.md`, `docs/M4_*.md` and `docs/M5_*.md` · [Deployment manifest `alpha-2`](deployments/base-sepolia/alpha-2.manifest.json) · [Original MVP specification](Blink_MVP_v0.1_Base_Sepolia_Spec.md)
 
-Most documents in `docs/` are written in Traditional Chinese.
+Internal documents in `docs/` are written in English.
 
 ## Contributing
 

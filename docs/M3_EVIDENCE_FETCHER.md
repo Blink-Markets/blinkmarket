@@ -1,5 +1,7 @@
 # M3 — Allowlisted evidence fetcher
 
+> Partly historical: the research worker that used this fetcher was removed in P2 Task 2. The allowlist fetcher and network policy stay in the code for P3; nothing in the platform calls them now. Evidence is stored by hash through `POST /v1/content`. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This slice lets the research worker fetch an **approved official source URL** under a strict network policy, archive the original bytes with a content hash and record evidence. It covers spec §12.1 and the fetching half of §17.2 S06. It is the `evidence.fetch` job handler plus its adapters and the `enable-fetch` admin command; it does not decide what to fetch (Task 10's discovery worker enqueues jobs) and it never reads, parses or acts on document content. Tests use a fake resolver and a fake transport only; nothing in the suite touches the network.
 
 ## Flow

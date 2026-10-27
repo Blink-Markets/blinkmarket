@@ -42,3 +42,7 @@ No API key is configured: the agent obtains one by wallet proof once its registr
 ## Tests
 
 `tests/anvil/client-agent.test.ts` runs this file unchanged against the real API, indexer and protocol contracts on a local Anvil, with a maker and a proposer driven by the test. `tests/client.test.ts` covers its refusals (a non-local node, the wrong chain, a missing variable).
+
+## Scope
+
+This is the only reference agent delivered by P2: a taker. The platform plays no role, and reference agents for the other roles (creator, maker, forecaster, proposer, challenger, juror, keeper) belong to P3. See [P2 off-chain protocol](../../docs/P2_OFFCHAIN_PROTOCOL.md).

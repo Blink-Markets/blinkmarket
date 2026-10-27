@@ -1,5 +1,7 @@
 # M2.4 — Canonical chain indexer
 
+> Historical (v0.1): this indexer folded the `BlinkMarket` v0.1 events. P2 Task 5 replaced it with the multi-contract protocol index (registry, jurors, markets, resolution, faucet, anchor and governor), and Tasks 5 and 7 added the read models. The lease, fencing, reorg and rebuild ideas carried over; the 3-block and 10-second RFQ gate became the 30-second timestamp-lag gate. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This slice adds the per-deployment indexer that scans the BlinkMarket contract's logs into `chain.events`, folds them into the rebuildable projections of migration 0007, survives reorgs and duplicate delivery, cross-checks the projections against contract reads, and publishes the freshness the RFQ gate needs (spec 14.2, design 04 "Indexer"). It is a second, independently enabled loop in `apps/indexer`; the opt-in creation receipt poller is unchanged. Nothing here signs, sends or reads private keys, and no migration was added (0007 and the existing grants were enough).
 
 ## What it does

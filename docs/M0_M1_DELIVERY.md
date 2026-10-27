@@ -1,5 +1,7 @@
 # M0 / M1 delivery and verification
 
+> Historical (v0.1): the `BlinkMarket` contract and fixed-role ledger described here were replaced by the P1 protocol contracts and removed from the repository in P2 Task 5. The M0 foundation pieces (schemas, hashing, the object store) are only partly current. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md) and [P1](P1_PROTOCOL_CONTRACTS.md).
+
 The M0 contract wrap-up and the M1 ledger are implemented locally. No external chain was deployed, and no API business handler is enabled. The original product spec is unchanged. The backend business wiring of the detailed design belongs to M2/M3.
 
 ## M0 work packages

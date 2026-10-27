@@ -1,5 +1,7 @@
 # M2.2b — Approval preflight foundation
 
+> Historical (v0.1): the approval preflight was removed with the approval flow in P2 Task 2. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 **Update:** The transactional approval and unsigned creation-intent integration is now implemented in opt-in approval mode; see [current delivery](M2_APPROVAL_DELIVERY.md). The text below describes the original preflight boundary and the internal helper, which still does not approve by itself.
 
 This is an internal, locally tested prerequisite for approval, **not an enabled approval endpoint**. The previous identity/evidence/candidate slice was pushed as `a878b5d`. No deployment, approval record, capacity reservation, creation intent or outbox event is produced by this preflight.

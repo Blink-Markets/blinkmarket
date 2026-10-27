@@ -1,5 +1,7 @@
 # Architecture baseline verification
 
+> This is a historical record of the 2026-09-22 architecture skeleton. The current verification commands and their measured results are in [Development](DEVELOPMENT.md) and [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md#verification).
+
 This document keeps the historical results of the initial architecture skeleton. For the initial delivery, see the [M0/M1 delivery record](M0_M1_DELIVERY.md). For later integration and acceptance evidence, see [Local Alpha](M5_LOCAL_ALPHA.md) and the [acceptance matrix](ACCEPTANCE_MATRIX.md).
 
 Date: 2026-09-22; local Node.js 22.23.1 / pnpm 11.20.0.

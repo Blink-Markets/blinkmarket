@@ -26,6 +26,7 @@ async function scenario(
     quotes: QuoteFields[];
     sent: () => boolean;
     mine: (timestamp: bigint) => Promise<void>;
+    sync: () => Promise<void>;
   }) => Promise<void>,
 ) {
   const stack = await startRfqStack();
@@ -88,7 +89,7 @@ async function scenario(
       }
     })();
 
-    await between({ quotes, sent: () => faultSent, mine });
+    await between({ quotes, sent: () => faultSent, mine, sync: stack.sync });
     // The agent has one filled quote; settle the market so it can redeem.
     const fills = () =>
       stack.anvil.publicClient.getContractEvents({
@@ -141,12 +142,18 @@ test(
         markSent();
         return "swallow" as const;
       },
-      async ({ quotes, sent, mine }) => {
+      async ({ quotes, sent, mine, sync }) => {
         while (!sent()) await new Promise((r) => setTimeout(r, POLL_MS));
         // Before expiry the agent must wait: no second RFQ may appear.
         await new Promise((r) => setTimeout(r, 2000));
         assert.equal(quotes.length, 1);
-        await mine(BigInt(quotes[0]!.expiresAt));
+        // The relay's clock is chain time as of the last index sync. Stop one second short and
+        // sync, so the replacement RFQ does not open on a clock a minute stale and close at the
+        // next sync, before the maker can quote (RFQ_CLOSED).
+        const expiresAt = BigInt(quotes[0]!.expiresAt);
+        await mine(expiresAt - 1n);
+        await sync();
+        await mine(expiresAt);
       },
     );
     assert.equal(run.fills, 1);

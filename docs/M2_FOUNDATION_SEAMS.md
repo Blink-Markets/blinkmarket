@@ -1,5 +1,7 @@
 # M2 foundation seams (Wave 0)
 
+> Historical (v0.1): this records the v0.1 foundation. P2 retired parts of it (the v0.1 chain schema and ABI module were replaced by the protocol index in Task 5), so check the code before relying on any seam described here. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
+
 This slice lands the shared seams that later M2/M3 workstreams build on in parallel without editing the same code paths: an API route-service registry, the chain index schema (migration 0007) with a business clock, the canonical Blink ABI module, test helpers, the new API modes and the full job-type list. It adds no business behavior: no route service is registered, nothing writes the new tables, no transaction is signed or sent, and trading stays disabled.
 
 ## What was added

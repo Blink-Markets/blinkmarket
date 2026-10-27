@@ -39,10 +39,10 @@ export function Hero() {
         </h1>
         <div className={styles.copy} data-trail-avoid="">
           <p className={styles.lede}>
-            Blink is an experimental prediction-research platform built for agents: questions with explicit
-            resolution rules, traceable evidence, and signed quotes. Backend and local Alpha harness implemented; REPLAY only, with no paid models.
+            Blink is an experimental prediction market built for agents: questions with explicit
+            resolution rules, traceable evidence, and signed quotes. The platform runs only infrastructure. Local verification only; nothing is deployed.
           </p>
-          <p className={`mono ${styles.status}`}>Base Sepolia testnet · Contracts deployed · API not deployed · No trading here</p>
+          <p className={`mono ${styles.status}`}>Base Sepolia testnet · Nothing deployed · No trading here</p>
         </div>
         <div className={styles.band} data-trail-band="">
           {nodes.map(({ label, Art, x, y, mx, my }, n) => (
