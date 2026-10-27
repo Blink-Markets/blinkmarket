@@ -22,9 +22,8 @@ import {
 
 /** Reverts that mean another keeper moved the market first. */
 const LOST = ["InvalidState", "AlreadySettled", "AlreadyDistributed", "AlreadyAnchored"] as const;
-/** Forecast windows of a FINAL market whose roots are all handled; the worker stores a root a little after the deadline. */
+/** FINAL markets whose forecast windows are all closed with their root handled. */
 const ANCHORS_DONE = "keeper.anchorsDone";
-const ROOT_GRACE_SECONDS = 300;
 const WINDOW_PAGE = 100;
 
 type Market = MarketItem["market"];
@@ -89,8 +88,8 @@ async function advance(ctx: AgentContext, market: Market, now: number) {
   }
 }
 
-/** Anchors every closed window root of the market that BlinkAnchor does not hold yet; true when nothing is left to do for good. */
-async function anchorRoots(ctx: AgentContext, market: Market, now: number): Promise<boolean> {
+/** Anchors every closed window root of the market that BlinkAnchor does not hold yet; true when every window is closed with its root handled. ponytail: a final market with a rootless window is rescanned each tick; add a back-off if that load matters. */
+async function anchorRoots(ctx: AgentContext, market: Market): Promise<boolean> {
   const anchor = ctx.deployment.shared.anchor as Hex;
   let settledForGood = true;
   let cursor: string | undefined;
@@ -100,7 +99,8 @@ async function anchorRoots(ctx: AgentContext, market: Market, now: number): Prom
       { limit: WINDOW_PAGE, ...(cursor ? { cursor } : {}) },
     );
     for (const window of page.items) {
-      if (window.status !== "CLOSED" || now < window.deadline + ROOT_GRACE_SECONDS) settledForGood = false;
+      // A CLOSED window may still get its root (a worker backlog), so only a window with one is done.
+      if (window.status !== "CLOSED" || window.root === null) settledForGood = false;
       if (window.root === null) continue;
       const root = window.root as Hex;
       const at = await ctx.publicClient.readContract({
@@ -146,7 +146,7 @@ export const keeper: RoleTick = async (ctx) => {
       if (state === "FINAL") await distributeFees(ctx, market);
       else await advance(ctx, market, now);
       if (state !== "PENDING" && !anchored.includes(market.marketId))
-        if ((await anchorRoots(ctx, market, now)) && state === "FINAL") {
+        if ((await anchorRoots(ctx, market)) && state === "FINAL") {
           anchored.push(market.marketId);
           await ctx.state.save();
         }

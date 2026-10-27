@@ -20,8 +20,12 @@ import {
   viewOf,
 } from "../lib/resolution.ts";
 
-/** Market ids this challenger has acted on (`state.acted`). */
-const CHALLENGED = "challenger.challenged";
+/**
+ * Market ids this challenger has acted on, per kind of challenge (`state.acted`). A creation
+ * challenge that fails leaves the market to open, and a result challenge may follow it.
+ */
+const CREATION_DONE = "challenger.creation";
+const RESULT_DONE = "challenger.result";
 /** Another challenger got there first, or the window closed between the read and the send. */
 const LOST = ["InvalidState", "DeadlineViolation"];
 
@@ -43,13 +47,13 @@ async function challenge(
     LOST,
     fields,
   );
-  actedOn(ctx, CHALLENGED).push(marketId);
+  actedOn(ctx, functionName === "challengeCreation" ? CREATION_DONE : RESULT_DONE).push(marketId);
   await ctx.state.save();
   if (done) ctx.log("challenged", { ...fields, kind: functionName === "challengeCreation" ? "CREATION" : "RESULT" });
 }
 
 async function objectToCreations(ctx: AgentContext, now: number) {
-  const done = actedOn(ctx, CHALLENGED);
+  const done = actedOn(ctx, CREATION_DONE);
   for (const item of await listAll(ctx, "PENDING")) {
     const { market } = item;
     if (market.creationChallenged || now >= market.openAt || done.includes(market.marketId)) continue;
@@ -67,7 +71,7 @@ async function objectToCreations(ctx: AgentContext, now: number) {
 }
 
 async function challengeResults(ctx: AgentContext, now: number) {
-  const done = actedOn(ctx, CHALLENGED);
+  const done = actedOn(ctx, RESULT_DONE);
   for (const item of await listAll(ctx, "PROPOSED")) {
     const { market } = item;
     if (done.includes(market.marketId)) continue;

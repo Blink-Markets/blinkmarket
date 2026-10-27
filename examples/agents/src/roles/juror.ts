@@ -165,10 +165,11 @@ async function commitOpenRounds(ctx: AgentContext, now: number) {
           await markSkipped(ctx, voteKey, decision.skip);
           continue;
         }
-        // Saved before the transaction is sent.
         ctx.state.data.salts[saltAt] = `${decision.choice}:${bytesToHex(randomBytes(32))}`;
-        await ctx.state.save();
       }
+      // Saved before the transaction is sent, on every try: a save that failed on an earlier tick
+      // left the salt in memory only, and no commitment is sent until the file holds it.
+      await ctx.state.save();
       await sendCommit(ctx, voteKey);
     }
 }
@@ -215,7 +216,6 @@ async function settleVote(ctx: AgentContext, disputeId: bigint, round: bigint, j
  */
 async function settleFinished(ctx: AgentContext) {
   const settled = actedOn(ctx, SETTLED);
-  const claimed = actedOn(ctx, CLAIMED);
   const open = actedOn(ctx, COMMITTED).filter((k) => !settled.includes(k));
   for (const disputeId of new Set(open.map((k) => parseKey(k).disputeId))) {
     if (!(await readDispute(ctx, disputeId)).dispute.settled) continue;
@@ -243,17 +243,30 @@ async function settleFinished(ctx: AgentContext) {
         }
       }
     await ctx.state.save();
-    const allMine = open.filter((k) => parseKey(k).disputeId === disputeId);
-    if (allMine.every((k) => settled.includes(k)) && !claimed.includes(disputeId.toString())) {
-      await send(ctx, "CLAIM_REWARDS", {
-        address: ctx.deployment.generation.jurors as Hex,
-        abi: agentAbi.jurors,
-        functionName: "claimRewards",
-      });
-      claimed.push(disputeId.toString());
-      await ctx.state.save();
-      ctx.log("claimed_rewards", { disputeId: disputeId.toString() });
-    }
+  }
+}
+
+/**
+ * Claims the rewards of every dispute whose votes of this juror are all settled, until the claim
+ * succeeds: it is selected from the saved state alone, so a claim that failed (or a crash after the
+ * votes were recorded) is tried again on the next tick. A repeated claim is harmless on chain.
+ */
+async function claimSettled(ctx: AgentContext) {
+  const settled = actedOn(ctx, SETTLED);
+  const claimed = actedOn(ctx, CLAIMED);
+  const committed = actedOn(ctx, COMMITTED);
+  for (const disputeId of new Set(committed.map((k) => parseKey(k).disputeId))) {
+    const id = disputeId.toString();
+    const votes = committed.filter((k) => parseKey(k).disputeId === disputeId);
+    if (claimed.includes(id) || !votes.every((k) => settled.includes(k))) continue;
+    await send(ctx, "CLAIM_REWARDS", {
+      address: ctx.deployment.generation.jurors as Hex,
+      abi: agentAbi.jurors,
+      functionName: "claimRewards",
+    });
+    claimed.push(id);
+    await ctx.state.save();
+    ctx.log("claimed_rewards", { disputeId: id });
   }
 }
 
@@ -263,5 +276,6 @@ export const juror: RoleTick = async (ctx) => {
   await reconcileCommits(ctx);
   await revealCommitted(ctx, now);
   await settleFinished(ctx);
+  await claimSettled(ctx);
   await commitOpenRounds(ctx, now);
 };

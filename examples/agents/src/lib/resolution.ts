@@ -48,18 +48,19 @@ export function viewOf(item: Pick<MarketItem, "market" | "spec">): MarketView | 
 /**
  * True when the bytes of `hash` can be fetched from `/v1/content` and match it. The archived-bytes
  * rule: a proposal whose evidence cannot be fetched is unsupported. Only a refusal that means
- * "no such bytes" counts; a rate limit or a stale index propagates, so the loop backs off.
+ * "no such bytes" counts (404, `CONTENT_UNAVAILABLE`, a hash mismatch); a rate limit, a stale index
+ * or an unreadable answer propagates, so the loop backs off.
  */
 export async function evidenceAvailable(ctx: AgentContext, hash: string): Promise<boolean> {
   try {
     await ctx.client.getContent(hash);
     return true;
   } catch (error) {
-    if (error instanceof BlinkApiError && error.status === 404) return false;
+    // Typed refusals that mean "no such intact bytes": not found, and stored bytes that cannot be served.
+    if (error instanceof BlinkApiError && (error.status === 404 || error.body.code === "CONTENT_UNAVAILABLE"))
+      return false;
     if (error instanceof Error && error.message === "HASH_MISMATCH") return false;
-    // The API answers damaged bytes with a code the client's schema does not list; the client then
-    // fails to parse the refusal. Bytes that cannot be served are as good as missing.
-    if (error instanceof Error && error.name === "ZodError") return false;
+    // Anything else, a schema error included, says nothing about the bytes and propagates.
     throw error;
   }
 }

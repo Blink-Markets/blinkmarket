@@ -21,6 +21,7 @@ import { fixtureModel } from "../../examples/agents/src/lib/model.ts";
 import { onboard } from "../../examples/agents/src/lib/session.ts";
 import { parseWorld, type World } from "../../examples/agents/src/lib/world.ts";
 import { challenger } from "../../examples/agents/src/roles/challenger.ts";
+import { loadState } from "../../examples/agents/src/lib/state.ts";
 import { juror } from "../../examples/agents/src/roles/juror.ts";
 import { keeper } from "../../examples/agents/src/roles/keeper.ts";
 import { proposer } from "../../examples/agents/src/roles/proposer.ts";
@@ -44,6 +45,8 @@ const TITLES = {
   restart: "Juror restart",
   conflict: "Juror with a position",
   race: "Two keepers",
+  durable: "Juror persistence",
+  rejected: "Rejected creation challenge",
 } as const;
 type Key = keyof typeof TITLES;
 
@@ -86,6 +89,8 @@ const worldJson = () => ({
         restart: { outcome: "YES" },
         conflict: { outcome: "YES" },
         race: { outcome: "YES" },
+        durable: { outcome: "YES" },
+        rejected: { outcome: "YES" },
       },
     },
     challenger: {
@@ -94,6 +99,9 @@ const worldJson = () => ({
         disputed: { outcome: "NO" },
         restart: { outcome: "NO" },
         conflict: { outcome: "NO" },
+        durable: { outcome: "NO" },
+        // Objects to the spec first and, once that fails, disputes the result.
+        rejected: { objection: OBJECTION, outcome: "NO" },
         ambiguous: { objection: OBJECTION },
       },
     },
@@ -106,6 +114,8 @@ const worldJson = () => ({
             disputed: { outcome: "NO" },
             restart: { outcome: "NO" },
             conflict: { outcome: "NO" },
+            durable: { outcome: "NO" },
+            rejected: { outcome: "NO" },
             // The model finds the proposal right; the missing bytes still make it unsupported.
             missing: { outcome: "YES" },
             ambiguous: { objection: OBJECTION },
@@ -353,6 +363,20 @@ async function finalizeDispute(disputeId: bigint) {
   assert.equal((await chainDispute(disputeId)).dispute.settled, true);
 }
 
+/**
+ * Makes `target[name]` fail `times` times, when `match` accepts the arguments, and pass through
+ * after that; returns the undo. Stands in for a failing disk or a dead RPC at one call.
+ */
+function failing(target: any, name: string, message: string, times = 1, match: (args: any[]) => boolean = () => true) {
+  const real = target[name];
+  let left = times;
+  target[name] = (...args: any[]) =>
+    left > 0 && match(args) ? (left--, Promise.reject(new Error(message))) : real.apply(target, args);
+  return () => {
+    target[name] = real;
+  };
+}
+
 const lines = (agent: Agent, event: string) => agent.lines.filter((l) => l.event === event);
 
 before(async () => {
@@ -515,6 +539,116 @@ test("upheld creation challenge cancels the market and pays the creator bond to 
   await indexed();
   for (const j of [agents.jurorA, agents.jurorB]) await run(j, juror);
 });
+
+test(
+  "challenger disputes the result after its creation challenge was rejected",
+  { timeout: 900_000 },
+  async () => {
+    const m = await createMarket("rejected");
+    await indexed();
+    await run(agents.challenger, challenger);
+    const creationDispute = await disputeOf(m.marketId);
+    // The jurors' models see nothing wrong with the spec: the objection is rejected.
+    await playRound(creationDispute, [agents.jurorA, agents.jurorB]);
+    await finalizeDispute(creationDispute);
+    assert.equal((await resolutionEvents("DisputeFinalized", { disputeId: creationDispute }))[0]!.args.choice, 0);
+    // Losing slashed the challenger below the role minimum (accepted: the agents do not top up).
+    await restoreRole(agents.challenger.account, ROLE.CHALLENGER);
+
+    await openMarket(m);
+    await propose(m);
+    await run(agents.challenger, challenger);
+    const opened = await resolutionEvents("DisputeOpened", { marketId: m.marketId });
+    assert.deepEqual(opened.map((e) => e.args.kind), [0, 1], "a creation dispute, then a result dispute");
+    assert.deepEqual(lines(agents.challenger, "challenged").slice(-2).map((l) => l.kind), ["CREATION", "RESULT"]);
+
+    const resultDispute = opened[1]!.args.disputeId as bigint;
+    await playRound(resultDispute, [agents.jurorA, agents.jurorB]);
+    await finalizeDispute(resultDispute);
+    assert.equal((await chainMarket(m.marketId)).finalOutcome, OUTCOME_CODE.NO);
+    await restoreRole(agents.proposer.account, ROLE.PROPOSER);
+    await indexed();
+    for (const j of [agents.jurorA, agents.jurorB]) await run(j, juror);
+  },
+);
+
+test(
+  "juror sends no commitment before its salt is on disk, recovers from crashes and retries a failed claim",
+  { timeout: 900_000 },
+  async () => {
+    const m = await createMarket("durable");
+    await openMarket(m);
+    await propose(m);
+    await run(agents.challenger, challenger);
+    const disputeId = await disputeOf(m.marketId);
+    await indexed();
+    await Promise.all([agents.jurorA, agents.jurorC].map((j) => run(j, juror)));
+
+    // The disk fails on two ticks in a row: the second must not send what the first could not save.
+    const b = agents.jurorB;
+    const saltAt = `juror:${disputeId}:0`;
+    const onDisk = async () => (await loadState(b.env.stateDir)).salts[saltAt];
+    const repairDisk = failing(b.ctx.state, "save", "SAVE_FAILED", 2);
+    await assert.rejects(juror(b.ctx), /SAVE_FAILED/);
+    await assert.rejects(juror(b.ctx), /SAVE_FAILED/);
+    repairDisk();
+    assert.equal((await votesBy(b, "VoteCommitted", disputeId)).length, 0, "nothing was sent without a saved salt");
+    assert.equal(await onDisk(), undefined);
+
+    // The salt is saved and the process dies before the transaction goes out.
+    const repairSend = failing(b.ctx.walletClient, "writeContract", "CRASH_BEFORE_SEND");
+    await assert.rejects(juror(b.ctx), /CRASH_BEFORE_SEND/);
+    repairSend();
+    const salt = await onDisk();
+    assert.match(salt!, /^1:0x[0-9a-f]{64}$/);
+    assert.equal((await votesBy(b, "VoteCommitted", disputeId)).length, 0);
+
+    // The new process commits the saved salt, once.
+    const second = await startAgent("juror-b", ["juror"], b.account, { stateDir: b.env.stateDir, join: false });
+    agents.jurorB = second;
+    assert.equal(second.ctx.state.data.salts[saltAt], salt);
+    await run(second, juror);
+    assert.equal((await votesBy(second, "VoteCommitted", disputeId)).length, 1);
+    assert.equal(await onDisk(), salt, "the committed salt is the saved one");
+
+    // Reveal: the receipt came, and the process died before it wrote that down.
+    const { round } = await chainDispute(disputeId);
+    await warpTo(round.commitEnd);
+    await indexed();
+    await Promise.all([agents.jurorA, agents.jurorC, second].map((j) => run(j, juror)));
+    assert.equal((await votesBy(second, "VoteRevealed", disputeId)).length, 1);
+    second.ctx.state.data.acted["juror.revealed"] = second.ctx.state.data.acted["juror.revealed"]!.filter(
+      (k) => k !== `${disputeId}:0`,
+    );
+    await second.ctx.state.save();
+    const third = await startAgent("juror-b", ["juror"], b.account, { stateDir: b.env.stateDir, join: false });
+    agents.jurorB = third;
+    await run(third, juror);
+    assert.equal((await votesBy(third, "VoteRevealed", disputeId)).length, 1, "never a second reveal");
+    assert.ok(third.ctx.state.data.acted["juror.revealed"]!.includes(`${disputeId}:0`), "the reveal is known again");
+    assert.equal(lines(third, "tick_error").length, 0);
+
+    await warpTo(round.revealEnd);
+    await indexed();
+    await run(agents.keeper1, keeper);
+    await finalizeDispute(disputeId);
+    await indexed();
+
+    // The votes are settled, the claim fails once: the next tick claims, and a later one does not claim again.
+    const repairClaim = failing(third.ctx.walletClient, "writeContract", "RPC_DOWN", 1, ([r]) => r.functionName === "claimRewards");
+    await assert.rejects(juror(third.ctx), /RPC_DOWN/);
+    repairClaim();
+    assert.ok(third.ctx.state.data.acted["juror.settled"]!.includes(`${disputeId}:0`));
+    assert.ok(!(third.ctx.state.data.acted["juror.claimed"] ?? []).includes(String(disputeId)));
+    await run(third, juror);
+    assert.equal(lines(third, "claimed_rewards").length, 1);
+    assert.ok(third.ctx.state.data.acted["juror.claimed"]!.includes(String(disputeId)));
+    await run(third, juror);
+    assert.equal(lines(third, "claimed_rewards").length, 1);
+    await restoreRole(agents.proposer.account, ROLE.PROPOSER);
+    for (const j of [agents.jurorA, agents.jurorC]) await run(j, juror);
+  },
+);
 
 test("no proposer means finalizeTimeout and INVALID", { timeout: 600_000 }, async () => {
   const m = await createMarket("silent");
@@ -692,7 +826,7 @@ test("conflicted juror never commits", { timeout: 900_000 }, async () => {
   assert.equal((await votesBy(agents.jurorC, "VoteCommitted", disputeId)).length, 0);
   assert.equal(lines(agents.jurorC, "skipped_vote").length, 1);
   assert.equal(lines(agents.jurorC, "skipped_vote")[0]!.reason, "CONFLICTED");
-  assert.deepEqual(agents.jurorC.ctx.state.data.salts, {}, "no salt is made for a vote that is never cast");
+  assert.equal(agents.jurorC.ctx.state.data.salts[`juror:${disputeId}:0`], undefined, "no salt is made for a vote that is never cast");
 
   // The conflicted juror also stays out of the later phases of this round.
   const { round } = await chainDispute(disputeId);
@@ -772,4 +906,35 @@ test("keeper anchors a closed window root once and leaves a root that is anchore
   // The market is handled for good: a second tick reads nothing and sends nothing.
   await keeper(watcher.ctx);
   assert.equal(lines(watcher, "anchor").length, 1);
+});
+
+test("keeper keeps a closed window without a root pending until the root appears", { timeout: 300_000 }, async () => {
+  const late = keccak256(toBytes("window root published long after the deadline"));
+  const anchor = platform.deployment.shared.anchor as Hex;
+  // The deadline is far in the past, yet the root is not there: a worker backlog, not a lost window.
+  let root: Hex | null = null;
+  const standIn = {
+    listMarkets: async ({ state }: { state: string }) => ({
+      items: state === "FINAL" ? [{ market: { marketId: "9998", state: "FINAL", feesDistributed: true } }] : [],
+      next: null,
+    }),
+    listForecastWindows: async () => ({
+      items: [{ windowId: "w-late", status: "CLOSED", deadline: 1, root }],
+      nextCursor: null,
+    }),
+  };
+  const watcher = await startAgent("keeper-late", ["keeper"], platform.accounts.taker2, { join: false });
+  watcher.ctx.client = standIn as never;
+  const anchors = async () =>
+    (await eventsOf(anchor, agentAbi.anchor as Abi, "Anchored")).filter((e) => e.args.root === late).length;
+
+  await keeper(watcher.ctx);
+  assert.equal(await anchors(), 0);
+  assert.deepEqual(watcher.ctx.state.data.acted["keeper.anchorsDone"] ?? [], [], "the market is not done");
+  root = late;
+  await keeper(watcher.ctx);
+  assert.equal(await anchors(), 1, "the late root is anchored on the next tick");
+  assert.deepEqual(watcher.ctx.state.data.acted["keeper.anchorsDone"], ["9998"]);
+  await keeper(watcher.ctx);
+  assert.equal(await anchors(), 1);
 });
