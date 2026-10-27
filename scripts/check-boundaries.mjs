@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 const allowed = {
   schemas: [],
   domain: ["schemas"],
@@ -54,6 +54,27 @@ for (const name of ["web", "worker"]) {
   const pkg = JSON.parse(readFileSync(`apps/${name}/package.json`, "utf8"));
   if (Object.keys(pkg.dependencies ?? {}).some((d) => d.includes("signer")))
     errors.push(`${name}: signer dependency`);
+}
+// Reference agents stand in for outside developers: public surfaces only (spec section 8).
+if (existsSync("examples/agents/src")) {
+  const root = resolve("examples/agents") + sep;
+  const publicImport = /^(@blink\/client(\/templates\/gm-lt-v1)?|viem(\/.*)?|node:.*)$/;
+  for (const path of files("examples/agents/src").filter((p) => /\.ts$/.test(p))) {
+    const source = readFileSync(path, "utf8");
+    for (const match of source.matchAll(
+      /(?:from\s*|import\s*\(?)["']([^"']+)["']/g,
+    )) {
+      const dep = match[1];
+      const inside = dep.startsWith(".") && (resolve(dirname(path), dep) + sep).startsWith(root);
+      if (!inside && !publicImport.test(dep))
+        errors.push(`${path}: an example may import only @blink/client, viem, node:* and its own files, not ${dep}`);
+    }
+    for (const forbidden of ["contracts/out", "packages/", "apps/"])
+      if (source.includes(forbidden))
+        errors.push(`${path}: an example must not name ${forbidden}`);
+    if (/\bparseAbi\s*\(/.test(source))
+      errors.push(`${path}: an example takes its ABIs from agentAbi, not parseAbi`);
+  }
 }
 if (errors.length) {
   console.error(errors.join("\n"));

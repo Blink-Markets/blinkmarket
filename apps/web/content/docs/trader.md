@@ -17,7 +17,7 @@ A trader, or taker, buys YES or NO shares in a market. It asks Blink's maker for
 
 ## What is implemented for agents?
 
-The private workspace [TypeScript client](/docs/client) provides typed responses, same-key retries for server-marked retryable errors, spec-hash checking and `verifySignedQuote`. It is not published on npm. The repository's `examples/agent` demonstrates wallet binding, forecasting, faucet claims, verified quotes, exact-cost approval, fill tracking and redemption against local RPC. A one-command local Alpha harness exercises this agent across YES, NO and INVALID settlements. The client can target a local API or a future operator-configured testnet API; no public API host exists.
+The private workspace [TypeScript client](/docs/client) provides typed responses, same-key retries for server-marked retryable errors, spec-hash checking and `verifySignedQuote`. It is not published on npm. The repository's `examples/agents` demonstrates wallet binding, forecasting, faucet claims, verified quotes, exact-cost approval, fill tracking and redemption against local RPC. A one-command local Alpha harness exercises this agent across YES, NO and INVALID settlements. The client can target a local API or a future operator-configured testnet API; no public API host exists.
 
 ## How does the internal trader work?
 

@@ -11,7 +11,7 @@ import {
   forecastLeaf,
   forecastTypedData,
 } from "../packages/client/src/index.js";
-import { configFromEnv, runAgent } from "../examples/agent/run.js";
+import { loadAgentEnv } from "../examples/agents/src/lib/env.ts";
 import { testAccounts } from "./helpers/protocol-fixture.js";
 import { protocolManifest } from "./helpers/protocol-index.js";
 
@@ -1087,42 +1087,44 @@ test("the example agent refuses a node that is not local or not chain 84532 befo
     }));
   const mainnet = await nodeOn("0x2105"); // chain ID 8453
   const other = await nodeOn("0x1"); // chain ID 1
+  const right = await nodeOn("0x14a34"); // chain ID 84532
   try {
-    const agent = (rpcUrl: string) =>
-      runAgent({
-        apiUrl: api.origin,
-        privateKey: dummyKey,
-        rpcUrl,
-        log: () => undefined,
-      });
+    const environment = (rpcUrl: string) => ({
+      BLINK_AGENT_NAME: "taker",
+      BLINK_AGENT_ROLES: "trader",
+      BLINK_API_URL: api.origin,
+      BLINK_RPC_URL: rpcUrl,
+      BLINK_AGENT_KEY: dummyKey,
+      BLINK_WORLD: "world.json",
+      BLINK_AGENT_STATE_DIR: "state",
+    });
     await assert.rejects(
-      agent("https://rpc.blink.invalid"),
+      loadAgentEnv(environment("https://rpc.blink.invalid")),
       /RPC_NOT_LOOPBACK/,
     );
-    // Base mainnet has its own refusal (the global MAINNET_REFUSED); any other chain is a mismatch.
-    await assert.rejects(agent(mainnet.origin), /MAINNET_REFUSED/);
-    await assert.rejects(agent(other.origin), /RPC_CHAIN_MISMATCH/);
+    // Base mainnet and any other chain are the same refusal: only chain ID 84532 is accepted.
+    await assert.rejects(loadAgentEnv(environment(mainnet.origin)), /WRONG_CHAIN/);
+    await assert.rejects(loadAgentEnv(environment(other.origin)), /WRONG_CHAIN/);
     assert.equal(mainnet.seen.length, 1);
     assert.equal(other.seen.length, 1);
+    assert.equal(api.seen.length, 0);
+    assert.deepEqual(await loadAgentEnv(environment(right.origin)), {
+      name: "taker",
+      roles: ["trader"],
+      apiUrl: api.origin,
+      rpcUrl: right.origin,
+      key: dummyKey,
+      worldPath: "world.json",
+      stateDir: "state",
+    });
     assert.equal(api.seen.length, 0);
   } finally {
     await api.close();
     await mainnet.close();
     await other.close();
+    await right.close();
   }
-  assert.throws(() => configFromEnv({}), /BLINK_API_URL/);
-  assert.deepEqual(
-    configFromEnv({
-      BLINK_API_URL: "http://127.0.0.1:3001",
-      AGENT_PRIVATE_KEY: dummyKey,
-      RPC_URL: "http://127.0.0.1:8545",
-    }),
-    {
-      apiUrl: "http://127.0.0.1:3001",
-      privateKey: dummyKey,
-      rpcUrl: "http://127.0.0.1:8545",
-    },
-  );
+  await assert.rejects(loadAgentEnv({}), /MISSING_ENV:BLINK_AGENT_NAME/);
 });
 
 test("SDK refuses mainnet config and embedded domains before response parsing", async () => {

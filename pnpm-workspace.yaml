@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - examples/*
 allowBuilds:
   '@foundry-rs/forge': true
   '@foundry-rs/anvil': true

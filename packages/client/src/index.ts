@@ -17,6 +17,8 @@ export class BlinkApiError extends Error {
   constructor(
     public readonly status: number,
     public readonly body: ApiError,
+    /** The server's Retry-After, in seconds, when it sent one. */
+    public readonly retryAfterSeconds?: number,
   ) {
     super(body.message);
   }
@@ -88,9 +90,16 @@ export function createBlinkClient(
       const bytes = new Uint8Array(await response.arrayBuffer());
       if (response.ok) return bytes;
       const error = ApiError.parse(JSON.parse(new TextDecoder().decode(bytes)));
-      if (!error.retryable || attempt >= maxAttempts)
-        throw new BlinkApiError(response.status, error);
-      await sleep(waitBefore(response.headers.get("retry-after"), attempt));
+      const retryAfter = response.headers.get("retry-after");
+      if (!error.retryable || attempt >= maxAttempts) {
+        const seconds = retryAfter === null ? Number.NaN : Number(retryAfter);
+        throw new BlinkApiError(
+          response.status,
+          error,
+          Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined,
+        );
+      }
+      await sleep(waitBefore(retryAfter, attempt));
     }
   }
   const json = (bytes: Uint8Array): unknown => {

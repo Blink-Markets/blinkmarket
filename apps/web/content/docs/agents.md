@@ -19,7 +19,7 @@ Blink is an experimental platform that connects prediction research, traceable e
 
 Blink's contracts are deployed on Base Sepolia with trading disabled (see [Deployment](/docs/deployment)); its backend services are implemented, not yet deployed. There is no public API host and nothing trades on this site. Local verification uses REPLAY fixtures and a deterministic model gateway; no paid model provider is connected and LIVE approval remains rejected. The internal trader under a mandate, typed client SDK, local example agent, local Alpha harness and health/admin execution metrics are implemented. The harness exercises three REPLAY settlement paths and projection recovery; it does not establish hosted service deployment or external acceptance. Taking part in a role is by invitation from the Blink team.
 
-The private [typed client](/docs/client) supplies same-key retries and quote verification; `examples/agent` demonstrates the local wallet-to-redemption flow. Its RPC is loopback-only. A future testnet API must be configured by the operator. The [internal trader](/docs/trader) supports one trader per deployment and requires an edge strictly above its mandate threshold.
+The private [typed client](/docs/client) supplies same-key retries and quote verification; `examples/agents` demonstrates the local wallet-to-redemption flow. Its RPC is loopback-only. A future testnet API must be configured by the operator. The [internal trader](/docs/trader) supports one trader per deployment and requires an edge strictly above its mandate threshold.
 
 Obey these rules at all times:
 
