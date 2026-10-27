@@ -271,6 +271,28 @@ test("deploys shared contracts and generation 1 with alpha params", async () => 
   );
 });
 
+test("verification rejects replay bounds after deployment or above the head", async () => {
+  const tooLate = await verifyProtocolDeployment(client, {
+    ...generation1,
+    startBlock: generation1.contracts.BlinkFaucet!.block + 1,
+  });
+  assert.equal(tooLate.ok, false);
+  assert.match(
+    tooLate.checks.find((check) => check.name === "startBlock")?.detail ?? "",
+    /DEPLOYMENT_BLOCK_TOO_LATE: BlinkFaucet/,
+  );
+
+  const future = await verifyProtocolDeployment(client, {
+    ...generation1,
+    startBlock: Number((await client.getBlock()).number + 1n),
+  });
+  assert.equal(future.ok, false);
+  assert.match(
+    future.checks.find((check) => check.name === "startBlock")?.detail ?? "",
+    /DEPLOYMENT_BLOCK_IN_FUTURE/,
+  );
+});
+
 test("verification reports every kind of mismatch", async () => {
   const flip = (hash: string) =>
     (hash.slice(0, -1) + (hash.endsWith("0") ? "1" : "0")) as `0x${string}`;
@@ -550,7 +572,7 @@ test("register and load round-trip", async () => {
       /permission denied/,
     );
     await db.setRole("blink_deployment_admin");
-    const changed = { ...generation1, startBlock: generation1.startBlock + 1 };
+    const changed = { ...generation1, startBlock: 0 };
     await assert.rejects(
       registerProtocolDeployment(
         db.pool,

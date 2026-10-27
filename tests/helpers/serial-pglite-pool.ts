@@ -1,4 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
+import { readFile } from "node:fs/promises";
 import type { Pool } from "pg";
 import { migrate } from "../../packages/adapters/src/migrations.js";
 
@@ -19,6 +20,12 @@ export async function migratedPglite() {
       };
     },
   });
+  await db.exec(
+    await readFile(
+      new URL("./test-clock-overlay.sql", import.meta.url),
+      "utf8",
+    ),
+  );
   let previous = Promise.resolve();
   const connect = async () => {
     const ready = previous;

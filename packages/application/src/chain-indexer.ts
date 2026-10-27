@@ -164,17 +164,25 @@ export function createChainIndexer(deps: {
       return result(reason);
     };
     let ancestor: ChainBlock | null = null;
-    for (let probe = cursor.blockNumber; ancestor === null;) {
+    let finalizedMismatch = false;
+    for (let probe = cursor.blockNumber; ;) {
       const stored = await store.canonicalBlockAtOrBelow(deploymentId, probe);
       if (!stored) break;
       const live = await reader.block(stored.number);
-      if (live && sameHash(live.hash, stored.hash)) ancestor = stored;
-      else if (stored.number === 0n) break;
-      else probe = stored.number - 1n;
+      if (live && sameHash(live.hash, stored.hash)) ancestor ??= stored;
+      else if (
+        live &&
+        finalized !== null &&
+        stored.number <= finalized
+      )
+        finalizedMismatch = true;
+      if (stored.number === 0n) break;
+      probe = stored.number - 1n;
     }
-    // History at or below finality never changes; no automatic recovery from a conflict.
-    if (!ancestor || (finalized !== null && ancestor.number < finalized))
+    // Finalized history conflicts only when a stored finalized header proves it changed.
+    if (finalizedMismatch)
       return stop("FINALIZED_CONFLICT");
+    if (!ancestor) return stop("PROJECTION_MISMATCH");
     const projection = tryFold(
       (await store.loadCanonicalEvents(deploymentId)).filter(
         (e) => e.blockNumber <= ancestor!.number,
@@ -283,6 +291,16 @@ export function createChainIndexer(deps: {
       checkpoint();
 
       const headers = new Map<bigint, ChainBlock>([[to, end]]);
+      if (
+        finalized !== null &&
+        finalized > baselineNumber &&
+        finalized <= to
+      ) {
+        const finalizedBlock =
+          headers.get(finalized) ?? (await reader.block(finalized));
+        if (!finalizedBlock) return result(cursor.gateReason);
+        headers.set(finalized, finalizedBlock);
+      }
       for (const event of events) {
         if (headers.has(event.blockNumber)) continue;
         const header = await reader.block(event.blockNumber);

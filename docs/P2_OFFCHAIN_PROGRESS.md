@@ -692,3 +692,51 @@ Scope: documentation, plus web copy: the first commit (`15163ba`) changed docume
 - **Historical notices** (one blockquote under the title, saying what replaced the content): `ARCHITECTURE_GUIDE`, `VERIFICATION`, `ACCEPTANCE_MATRIX`, `DEPLOYMENT_RUNBOOK`, `M2_CHAIN_INDEXER`, `M2_PUBLIC_READS` and every v0.1 delivery doc that did not have one (`M0_M1`, `M2_*`, `M3_*`, `M4`, `M5_*`). `M2_IDENTITY_DELIVERY` and `M3_FORECASTS` already had one.
 - **Web docs:** every page under `apps/web/content/docs/` carries a notice naming what is v0.1 and what is current (`forecaster` is current in part: signed forecasts; `errors` in part: the envelope and retry rules; `api` is generated from the schemas), and `apps/web/app/how-it-works/page.tsx` says it describes v0.1. A new test in `tests/web-docs-content.test.ts` requires the notice. A follow-up commit removed the claims about the removed signer, the old local Alpha harness and the deployed contracts from the home page, the hero, the footer, the markets page, the how-it-works lede and caption, and the architecture illustration (the signer box and its arrows are gone); it redesigns nothing, and the how-it-works chapters stay under their v0.1 notice until P4. Fix round 1 then made the markets page describe its sample forecast without attributing it to platform forecasters, took the diagram out of the how-it-works v0.1 notice (it is captioned as the current, not yet deployed, architecture) and added the design link to every web notice.
 - Verification is in `docs/P2_OFFCHAIN_PROTOCOL.md#verification`. `pnpm build` and `pnpm build:pages` cannot run on this host (Turbopack needs a newer glibc); CI runs them. The real-PostgreSQL suites run locally in a Docker `postgres:17.6` container.
+
+## Parked items
+
+| Item | Decision |
+| --- | --- |
+| T1 noisy HTTP test logs | Known non-blocking test-output limitation; present in this run. Silence routine request logs in fixtures when convenient. |
+| T2 two unused env keys | Non-blocking fixture cleanup. Inspected the preflight fixture; legacy `EVIDENCE_OBJECT_DIRECTORY` remains. Do not assume the original line numbers or count still identify both keys at this head. Remove keys no current parser consumes. |
+| T3 nonstandard revert codes, e.g. -32015 | Known fail-closed compatibility limitation. Preserve unavailable rather than treating an unknown provider failure as a valid signature; extend classification with provider-specific tests if needed. |
+| T4 naming minors | Non-blocking; no rename-only work is needed for merge. Deployment replay-bound validation is a separate substantive finding. |
+| T5 full journal refold cost | Accepted, documented operational limitation, not benchmarked here. It can exceed a batch's lease/freshness budget at scale; measure before a production-sized deployment. |
+| T5 legacy `markets.deployments` readers | Known compatibility/dead-tooling limitation. Old verifier/registration exports remain beside v2 and cannot substitute for the new generation service wiring. No active platform signing path was found through them. |
+| T6 lock test / possible unhandled rejection | The real PostgreSQL test observes an actual lock wait and uses the DB clock; that is meaningful. Expected IdentityError outcomes are converted to values, but unexpected failures can make the assertion inside `verify` reject while `tryBehindLock` waits before awaiting `pending` (`tests/postgres/identity.test.ts:262`). Record as non-blocking failure-path test robustness debt; immediately attach a rejection handler and rethrow after cleanup. No such failure was reproduced in the review. |
+| T7 N+1 spec reads | Known bounded-page performance limitation; list pages cap at 100, but still perform one content fetch per market. No load benchmark performed. |
+| T7 silent juror self-claim discrepancy | Accepted ruling, not a finding. The model documents the sub-micro rounding accumulation and resets at RewardsClaimed; actual payments follow the contract. |
+| T8 limiter counts / 429 headers | Source inspection confirms sliding windows, IP-first charging and Retry-After calculation. Relevant content/suggestion tests passed. No new count/header defect established. |
+| T8 `/v1/content/a/b` headers | Known minor coverage/wording limitation: header hook keys off the matched route, so unmatched descendant URLs need not receive the content sandbox headers. Such 404s serve no uploaded bytes. No stored-content XSS finding established. |
+| T8 LRU eviction / in-process limits | Known limitation. A key evicted after 10,000 tracked keys gets a fresh allowance, and separate API processes have separate limits. The single-instance ruling is respected; document eviction as well before internet exposure. |
+| T9 RFQ retention | Known operational limitation. Immutable relay tables have no retention job and will grow; add a deliberate retention policy before sustained operation, without casually weakening append-only protection. |
+| T9 Anvil default DB role | Known test coverage limitation, explicit in `tests/helpers/rfq-stack.ts`; separate role tests and the ordinary-login local-alpha harness address different concerns. Do not cite this fixture as proof of least privilege. |
+| T9 example tsconfig alias | Accepted repository example wiring; external consumers' package-resolution behaviour was not revalidated in the review. |
+| T10 clock GUC | Fixed in final review fix 1: production `blink.now()` ignores the session offset; tests use a SQL overlay outside migrations. This cannot be accepted as an operator-confidentiality exception. |
+| T11 uncertain-fill flake | Inspected the scenario, agent and serialized RFQ-stack sync. `fa75f5c` addresses the identifiable stale relay-clock race by syncing one second before expiry, before allowing a replacement RFQ. No further root cause of NO_USABLE_QUOTE was established; the Anvil scenario was not rerun in the review. The maker bot's promise also lacks an immediate failure handler and is not awaited on every exceptional exit: record as non-blocking test-cleanup debt. |
+| T12 admin routes / `ops:status` | `/v1/admin/*` and `ops:status` remain as retained, unusable legacy compatibility tooling. No key can carry admin privileges; pause-drafting symbols remain in the CLI. This is not an active administrative permission. Deleting this dead surface later is preferable to reintroducing admin issuance. |
+| T12 parked items absent from progress | This ledger carries the review dispositions forward, including clock security, retention, N+1 reads and LRU semantics. |
+| T12 historical acceptance matrix/runbook | Accept the explicit historical notices for this no-deployment stage. The documents direct readers to P1/P2 evidence and explicitly say not to follow the obsolete runbook. A current deployment procedure is still required before deployment. |
+
+## Final review fixes
+
+The final whole-branch review findings are addressed in this branch. Regression cases cover each fix; the full verification matrix passed as recorded below.
+
+- **Clock boundary:** production `blink.now()` uses `clock_timestamp()` only; test helpers apply the offset overlay after migrations. Added PGlite and PostgreSQL tests for worker access to open-window forecasts and digests.
+- **Sparse reorg recovery:** batches retain the finalized header and recovery treats a finality conflict as a stored hash mismatch at or below finality. Added shallow-reorg and finalized-mismatch regressions.
+- **Canonical forecast scoring:** score reads count entries only when their outcome matches the market's current FINAL outcome; corrected results are appended while superseded rows remain. For historical deadline weights, a correction may replace the original score only when that original score existed by the requested deadline; no evidence first created later is admitted. See the scoring query comment and its regression tests.
+- **Image smoke:** unauthenticated RFQ creation must return 401; the retired faucet route remains 404. Docker smoke is not available on this host.
+- **Replay start verification:** v2 verification rejects future replay bounds and requires no code at the preceding block for every indexed shared and generation contract. Added Anvil cases; existing valid generation manifests remain checked.
+- **Verifier wording:** documented named immutable substitution followed by byte-for-byte runtime comparison.
+
+**Verification:**
+
+- `pnpm check` — exit 0; root and web typechecks, contract compilation and boundary check passed; 567 tests passed, 0 failed or skipped (1017.644 s).
+- `pnpm test:postgres` — 37 passed, 0 failed or skipped (205.707 s).
+- `pnpm test:anvil` — 41 passed, 0 failed or skipped (256.803 s).
+- `pnpm build:services` — 8 bundles built (4 service and 4 tool bundles); `pnpm test:service-build` — 4 passed.
+- `pnpm exec tsc --noEmit` — passed after the final fixture edits.
+- Not run: Docker `images:smoke` (unavailable on this host, as anticipated by the dispatch), `pnpm build` and `pnpm build:pages` (host glibc limitation; CI runs the web builds).
+- Independent review and follow-up found no actionable findings.
+
+This section records the P2 review fixes only; it does not mark later milestones complete.

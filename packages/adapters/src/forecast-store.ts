@@ -38,9 +38,10 @@ const hex = (value: string) => value.slice(2).toLowerCase();
 const CREDIT_WINDOW = 50;
 
 /**
- * Credit stats from the latest 50 scored LIVE AGENT submissions per forecaster: not withdrawn, not
- * contaminated, with a Brier score. With `at`, only scores recorded by then count. Shared by the API
- * (forecaster reads) and the worker (frozen consensus weights).
+ * Credit stats from the latest 50 canonical scored LIVE AGENT submissions per forecaster: not
+ * withdrawn, not contaminated, with a Brier score. Historical weights require the first score for
+ * that window to have been recorded by the deadline; its later canonical correction replaces it.
+ * Shared by the API (forecaster reads) and the worker (frozen consensus weights).
  */
 export async function queryCreditStats(
   db: Pick<PoolClient, "query">,
@@ -52,14 +53,22 @@ export async function queryCreditStats(
        SELECT DISTINCT forecaster_address AS f FROM forecasts.submissions
        WHERE forecaster_address IS NOT NULL
          AND ($1::text[] IS NULL OR encode(forecaster_address,'hex')=ANY($1::text[]))
+     ), available AS (
+       SELECT window_id,scorer,forecaster,evaluation_version,min(created_at) AS first_scored_at
+       FROM analytics.score_entries WHERE evaluation_version='v2' AND scorer='AGENT'
+       GROUP BY window_id,scorer,forecaster,evaluation_version
      ), scored AS (
        SELECT e.forecaster AS f,e.brier,
          row_number() OVER (PARTITION BY e.forecaster ORDER BY w.deadline DESC,e.window_id DESC) AS rn
        FROM analytics.score_entries e JOIN forecasts.windows w ON w.id=e.window_id
+       JOIN available a ON a.window_id=e.window_id AND a.scorer=e.scorer
+         AND a.forecaster=e.forecaster AND a.evaluation_version=e.evaluation_version
+       JOIN protocol.market_reads m ON m.deployment_id=e.deployment_id AND m.market_id=e.market_id
        WHERE e.scorer='AGENT' AND e.evaluation_version='v2' AND e.mode='LIVE'
+         AND m.state='FINAL' AND m.mode='LIVE' AND e.outcome=m.final_outcome
          AND NOT e.missing AND NOT e.contaminated AND e.brier IS NOT NULL
          AND e.forecaster IN (SELECT f FROM who)
-         AND ($2::timestamptz IS NULL OR e.created_at<=$2)
+         AND ($2::timestamptz IS NULL OR a.first_scored_at<=$2)
      ), credit AS (
        SELECT f,count(*)::int AS n,sum(brier)::text AS brier_sum FROM scored WHERE rn<=$3 GROUP BY f
      )

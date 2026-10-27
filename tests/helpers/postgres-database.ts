@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import pg from "pg";
 import { migrate } from "../../packages/adapters/src/migrations.js";
 import { attemptAll, settle } from "./lifecycle.js";
@@ -18,6 +19,7 @@ const CONTROL_STATEMENT_TIMEOUT_MS = 30_000;
 export interface DatabaseLimits {
   connectTimeoutMs?: number;
   statementTimeoutMs?: number;
+  testClockOverlay?: boolean;
 }
 
 // Optional bounds so a stalled server fails fast instead of hanging a run; unset keeps the
@@ -96,6 +98,13 @@ export async function withDatabase(
     const client = await owner.connect();
     try {
       await migrate(client);
+      if (limits.testClockOverlay !== false)
+        await client.query(
+          await readFile(
+            new URL("./test-clock-overlay.sql", import.meta.url),
+            "utf8",
+          ),
+        );
     } finally {
       client.release();
     }

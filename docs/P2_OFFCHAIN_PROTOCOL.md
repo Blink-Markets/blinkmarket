@@ -201,7 +201,7 @@ Local alpha and tooling
 - The live-environment key check reads `/proc/<pid>/environ` and therefore runs on Linux only. Progress, Task 11.
 - `assertNoRoleKeys` is a name and shape rule. No legitimate configuration value is a bare 32-byte hex string today, and none can be passed through the environment. Progress, Task 11.
 - A deployment on chain 31337 fails, because every constructor reverts `WrongChain` off 84532, so local nodes must use chain ID 84532. Task 4 report (`.superpowers/sdd/2026-10-24-p2-offchain-protocol/task-4-report.md`).
-- Verification compares code to the artifact template with differences allowed only inside 32-byte zero runs (immutables), backed by the runtime hash and cross-link reads. Task 4 report.
+- Verification substitutes each named immutable reference in the artifact template with its expected value, then compares every runtime byte. It also checks the runtime hash and on-chain cross-links. Task 4 report.
 - The restore drill checks infrastructure rows, schema, grants and cursor lease recovery of a real `pg_dump` and restore against a quiescent database. The old trading and contract round trip was retired with the v0.1 alpha harness and has no replacement. Progress, Task 1.
 - `pnpm build` and `pnpm build:pages` (Turbopack) cannot run on the development host, because they need a newer glibc than RHEL 8's 2.28. They run in CI only. The real-PostgreSQL suites do run locally, in a Docker `postgres:17.6` container, the same image as CI.
 

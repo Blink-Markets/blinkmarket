@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import type { Pool } from "pg";
 import { migrate } from "../../packages/adapters/src/migrations.js";
@@ -25,6 +26,12 @@ export async function createTestDatabase() {
       };
     },
   });
+  await db.exec(
+    await readFile(
+      new URL("./test-clock-overlay.sql", import.meta.url),
+      "utf8",
+    ),
+  );
   // One PGlite session: serialize checkout. This is NOT a multi-connection lock test.
   let previous = Promise.resolve();
   const connect = async () => {

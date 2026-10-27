@@ -259,14 +259,18 @@ async function main() {
       await fetch(apiUrl() + "/v1/config")
     ).json()) as { tradingEnabled: boolean };
     assert.equal(publicConfig.tradingEnabled, false);
-    for (const path of ["/v1/rfqs", "/v1/faucet/claims"]) {
-      const response = await fetch(apiUrl() + path, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{}",
-      });
-      assert.equal(response.status, 404);
-    }
+    const rfqResponse = await fetch(apiUrl() + "/v1/rfqs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(rfqResponse.status, 401);
+    const faucetResponse = await fetch(apiUrl() + "/v1/faucet/claims", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(faucetResponse.status, 404);
 
     // No container log may carry a credential or a key.
     const logs = compose("logs", "--no-color").stdout;

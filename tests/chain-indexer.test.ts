@@ -27,18 +27,21 @@ export async function setup(
     reader?: FakeReaderOptions;
     rangeSize?: number;
     leaseMs?: number;
+    empty?: boolean;
   } = {},
 ) {
   const t = await createTestDatabase();
   await seedProtocolDeployment(t.pool, "d1");
   await t.setRole("blink_indexer");
   const chain = new FakeChain(9n);
-  chain.mine([
-    marketCreated(1),
-    { name: "MarketOpened", args: { marketId: "1", openAt: "1020" } },
-    makerDeposited(100000000n),
-  ]);
-  chain.mine([quoteFilled(1)]);
+  if (!options.empty) {
+    chain.mine([
+      marketCreated(1),
+      { name: "MarketOpened", args: { marketId: "1", openAt: "1020" } },
+      makerDeposited(100000000n),
+    ]);
+    chain.mine([quoteFilled(1)]);
+  }
   chain.mineTo(14n);
   const store = postgresProtocolIndexStore(t.pool),
     readerOptions: FakeReaderOptions = { ...options.reader };
@@ -328,6 +331,59 @@ test("finalized conflicts stay gated", async () => {
     s.chain.rewind(10n);
     s.chain.mineTo(14n);
     assert.equal((await s.indexer.syncOnce()).gateReason, "FINALIZED_CONFLICT");
+    assert.equal((await s.indexer.syncOnce()).gateReason, "FINALIZED_CONFLICT");
+  } finally {
+    await s.close();
+  }
+});
+test("a shallow reorg recovers to the stored finalized boundary", async () => {
+  const s = await setup({ reader: { finalized: 12n }, empty: true });
+  try {
+    assert.equal((await s.indexer.syncOnce()).advancedTo, 14n);
+    s.chain.rewind(13n);
+    s.chain.mine();
+    assert.equal((await s.indexer.syncOnce()).reorgedTo, 12n);
+    assert.equal((await s.cursor())?.gateReason, "REORG_IN_PROGRESS");
+    assert.equal((await s.indexer.syncOnce()).advancedTo, 14n);
+    assert.equal((await s.cursor())?.gateReason, null);
+    assert.equal((await s.cursor())?.blockHash, s.chain.at(14n)?.hash);
+  } finally {
+    await s.close();
+  }
+});
+test("a sparse reorg can recover below finality when no boundary header was stored", async () => {
+  const s = await setup({ reader: { finalized: null }, empty: true });
+  try {
+    assert.equal((await s.indexer.syncOnce()).advancedTo, 14n);
+    assert.equal(
+      (
+        await s.t.pool.query(
+          "SELECT count(*)::int AS n FROM chain.blocks WHERE deployment_id='d1' AND canonical AND number=12",
+        )
+      ).rows[0].n,
+      0,
+    );
+    s.readerOptions.finalized = 12n;
+    s.chain.rewind(13n);
+    s.chain.mine();
+    assert.equal((await s.indexer.syncOnce()).reorgedTo, 9n);
+    assert.equal((await s.cursor())?.gateReason, "REORG_IN_PROGRESS");
+    assert.equal((await s.indexer.syncOnce()).advancedTo, 14n);
+    assert.equal((await s.cursor())?.gateReason, null);
+    assert.equal((await s.cursor())?.blockHash, s.chain.at(14n)?.hash);
+  } finally {
+    await s.close();
+  }
+});
+test("a mismatching stored header at finality still gates", async () => {
+  const s = await setup({ reader: { finalized: 12n } });
+  try {
+    s.chain.rewind(11n);
+    s.chain.mineAt(12n, [makerDeposited(1n)]);
+    s.chain.mineTo(14n);
+    await s.indexer.syncOnce();
+    s.chain.rewind(11n);
+    s.chain.mineTo(14n);
     assert.equal((await s.indexer.syncOnce()).gateReason, "FINALIZED_CONFLICT");
   } finally {
     await s.close();
