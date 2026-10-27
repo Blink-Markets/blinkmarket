@@ -21,7 +21,11 @@ const RECEIPT_TIMEOUT_MS = 180_000;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/** A transaction of this agent's wallet, waited for; a revert is an error. */
+/**
+ * A transaction of this agent's wallet, waited for. Only a receipt that says `reverted` is a revert
+ * (`<WHAT>_REVERTED`, a final refusal by the chain); any other status that is not `success` is an
+ * answer this code does not understand (`<WHAT>_RECEIPT_UNKNOWN`), which a caller may retry.
+ */
 export async function send(
   ctx: AgentContext,
   what: string,
@@ -32,7 +36,8 @@ export async function send(
     hash,
     timeout: RECEIPT_TIMEOUT_MS,
   });
-  if (receipt.status !== "success") throw new Error(`${what}_REVERTED`);
+  if (receipt.status === "reverted") throw new Error(`${what}_REVERTED`);
+  if (receipt.status !== "success") throw new Error(`${what}_RECEIPT_UNKNOWN`);
   return receipt;
 }
 

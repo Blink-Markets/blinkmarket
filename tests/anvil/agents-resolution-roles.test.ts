@@ -732,6 +732,48 @@ test(
   },
 );
 
+test("a claim receipt that says reverted is blocked, one with an unknown status is retried", { timeout: 300_000 }, async () => {
+  // The claim goes through the real `send`; only the node's answers are replaced.
+  const a = agents.jurorA;
+  const id = a.ctx.state.data.acted["juror.claimed"]!.at(-1)!;
+  const claimed = () => a.ctx.state.data.acted["juror.claimed"]!;
+  const blocked = () => a.ctx.state.data.acted["juror.claimBlocked"] ?? [];
+  a.ctx.state.data.acted["juror.claimed"] = claimed().filter((x) => x !== id);
+  assert.ok(!blocked().includes(id));
+
+  let sent = 0;
+  let status: string | undefined;
+  const real = { write: (a.ctx.walletClient as any).writeContract, wait: (a.ctx.publicClient as any).waitForTransactionReceipt };
+  (a.ctx.walletClient as any).writeContract = async (r: { functionName: string }) =>
+    r.functionName === "claimRewards" ? (sent++, ("0x" + "ab".repeat(32)) as Hex) : real.write(r);
+  (a.ctx.publicClient as any).waitForTransactionReceipt = async (r: unknown) =>
+    sent > 0 ? { status, logs: [] } : real.wait(r);
+
+  try {
+    // An unknown status: refused by neither side, so the claim is sent again on the next tick.
+    status = undefined;
+    await assert.rejects(juror(a.ctx), /CLAIM_REWARDS_RECEIPT_UNKNOWN/);
+    await assert.rejects(juror(a.ctx), /CLAIM_REWARDS_RECEIPT_UNKNOWN/);
+    assert.equal(sent, 2);
+    assert.ok(!blocked().includes(id));
+    assert.equal(lines(a, "claim_blocked").length, 0);
+
+    // A reverted receipt: blocked and logged once, never sent again.
+    status = "reverted";
+    await juror(a.ctx);
+    assert.equal(sent, 3);
+    assert.ok(blocked().includes(id));
+    assert.ok(!claimed().includes(id), "a refusal is not a claim");
+    assert.equal(lines(a, "claim_blocked").length, 1);
+    await juror(a.ctx);
+    assert.equal(sent, 3);
+    assert.equal(lines(a, "claim_blocked").length, 1);
+  } finally {
+    (a.ctx.walletClient as any).writeContract = real.write;
+    (a.ctx.publicClient as any).waitForTransactionReceipt = real.wait;
+  }
+});
+
 test("no proposer means finalizeTimeout and INVALID", { timeout: 600_000 }, async () => {
   const m = await createMarket("silent");
   await openMarket(m);
