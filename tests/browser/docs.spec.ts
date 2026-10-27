@@ -53,6 +53,8 @@ test("docs sketches: inline svg, png image and static svg route", async ({ page,
 
   await page.goto("./docs/architecture");
   const img = page.locator("figure.docs-sketch img").first();
+  // The image is loading="lazy"; Firefox loads it only near the viewport, and the page notice pushes it below the fold.
+  await img.scrollIntoViewIfNeeded();
   await expect(img).toBeVisible();
   await expect.poll(() => img.evaluate((i) => (i as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
 
