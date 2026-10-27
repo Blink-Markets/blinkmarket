@@ -35,6 +35,7 @@ export const agentAbi = {
     "event TemplateRegistered(bytes32 indexed templateId, uint8 cls, bytes32 parserHash, string uri)",
     "event MarketCreated(uint256 indexed marketId, address indexed creator, bytes32 indexed specHash, string specURI, bytes32 templateId, uint8 cls, bool replay, uint64 openAt, uint64 closeAt, uint64 proposalDeadline, uint64 hardDeadline, uint64 maxPairs, uint256 creationBond)",
     "event MarketOpened(uint256 indexed marketId, uint64 openAt)",
+    "event MakerDeposited(address indexed maker, uint256 amount)",
     "event QuoteFilled(uint256 indexed marketId, bytes32 indexed digest, address maker, address indexed taker, uint8 side, uint64 quantity, uint16 priceBps, uint256 takerCost, uint256 makerCost, uint256 fee)",
     "event MarketFinalized(uint256 indexed marketId, uint8 outcome)",
     "event PositionRedeemed(uint256 indexed marketId, address indexed account, uint256 yes, uint256 no, uint256 payout)",

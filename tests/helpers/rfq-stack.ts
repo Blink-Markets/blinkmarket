@@ -139,10 +139,11 @@ export async function startRfqStack() {
     });
     // The real read routes (Task 7): deployment, markets, spec, positions and the rest.
     const specDirectory = await mkdtemp(join(tmpdir(), "blink-rfq-stack-"));
+    const contentStore = postgresContentStore(t.pool, fileObjectStore(specDirectory));
     const reads = createMarketReadService({
       store: postgresMarketReadStore(t.pool),
       reader: publicReader,
-      content: postgresContentStore(t.pool, fileObjectStore(specDirectory)),
+      content: contentStore,
       deployment: () => loadProtocolDeployment(t.pool, d.deploymentId),
     });
     const api = buildApi({ identity, services: [rfq, reads] });
@@ -165,6 +166,7 @@ export async function startRfqStack() {
       }
     })();
 
+    let templateId: Hex | undefined;
     const write = async (
       who: LocalAccount,
       address: string,
@@ -269,20 +271,43 @@ export async function startRfqStack() {
         await write(arbiter, d.shared.token, erc20Abi as Abi, "approve", [d.generation.jurors, stake]);
         await write(arbiter, d.generation.jurors, protocolAbi.jurors, "stake", [stake]);
       },
-      /** A class-B market, open now, closing `closeIn` seconds from now. */
-      async createOpenMarket(closeIn = 600n) {
+      /** A class-B market, open now, closing `closeIn` seconds from now; its spec is stored unless `readableSpec` is false; `maxPairs` counts against the jurors' security room. */
+      async createOpenMarket(closeIn = 600n, readableSpec = true, maxPairs = 100n) {
         const parserHash = keccak256(toBytes("rfq-stack-parser"));
-        const specHash = keccak256(toBytes("rfq-stack-spec-" + Math.random()));
-        const templateReceipt = await write(
-          anvil.accounts.admin,
-          markets,
-          protocolAbi.markets,
-          "registerTemplate",
-          [0, parserHash, "ipfs://template"],
+        // A spec the API can read, so that an agent's model can be asked about the market.
+        const title = "rfq-stack-spec-" + Math.random();
+        const specBytes = toBytes(
+          JSON.stringify({
+            schema: "blink.market-spec/0.2",
+            title,
+            question: title + "?",
+            class: "B",
+            resolution: { yes: "Yes.", no: "No." },
+            sources: ["https://example.com/" + title.slice(15)],
+          }),
         );
-        const templateEvent = (
-          await logs.logs("", templateReceipt.blockNumber, templateReceipt.blockNumber)
-        ).find((e) => e.name === "TemplateRegistered")!;
+        const specHash = keccak256(specBytes);
+        if (readableSpec)
+          await contentStore.put({
+            hash: specHash,
+            bytes: specBytes,
+            mediaType: "application/json",
+            uploader: anvil.accounts.admin.address,
+            suggestionId: null,
+          });
+        // Registering a template again emits nothing: the first market of a stack registers it.
+        if (templateId === undefined) {
+          const templateReceipt = await write(
+            anvil.accounts.admin,
+            markets,
+            protocolAbi.markets,
+            "registerTemplate",
+            [0, parserHash, "ipfs://template"],
+          );
+          templateId = (
+            await logs.logs("", templateReceipt.blockNumber, templateReceipt.blockNumber)
+          ).find((e) => e.name === "TemplateRegistered")!.args.templateId as Hex;
+        }
         const now = (await anvil.publicClient.getBlock()).timestamp;
         const created = await write(
           anvil.accounts.admin,
@@ -291,14 +316,14 @@ export async function startRfqStack() {
           "createMarket",
           [
             {
-              templateId: templateEvent.args.templateId as Hex,
+              templateId,
               specHash,
               specURI: "ipfs://spec",
               replay: true,
               closeAt: now + closeIn,
               proposalDeadline: now + closeIn + 100n,
               hardDeadline: now + closeIn + 600n,
-              maxPairs: 100n,
+              maxPairs,
             },
           ],
         );

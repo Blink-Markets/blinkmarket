@@ -4,6 +4,11 @@
 // accept right now (the juror security bound and the creator's own exposure limit); with no room
 // the creator logs `cap_exhausted`, sends nothing and tries again on a later tick.
 //
+// What is to be created is written to the saved state, with its exact spec bytes and hash, before
+// anything is sent. A later tick (or a restarted process) reuses those bytes, looks for a market of
+// this creator with that hash on the chain, and only then marks the item done: the model is not asked
+// again for an item that is pending, so a changed answer cannot make a second market.
+//
 // A suggestion is claimed through the API first. Claims are not exclusive (each creator claims once),
 // so a 409 only means "this identity already claimed it", for example from a duplicated process.
 import { readFile } from "node:fs/promises";
@@ -22,6 +27,7 @@ import type { AgentContext } from "../lib/env.ts";
 import type { RoleTick } from "../lib/loop.ts";
 import type { QuestionDraft } from "../lib/model.ts";
 import { send } from "../lib/session.ts";
+import type { CreateIntent } from "../lib/state.ts";
 
 /** The template of every class B and C market: no parser, one per class, shared by every creator. */
 export const GENERIC_TEMPLATE_URI = "blink:generic-v1";
@@ -39,9 +45,13 @@ const DONE = "creator.suggestions";
 const SKIPPED = "creator.skipped";
 const TEMPLATES = "creator.templates";
 
+/** The room last reported as exhausted, by intent: `cap_exhausted` is said again only when it changes. */
+const reportedRoom = new WeakMap<AgentContext, Map<string, bigint>>();
+
 type Template = { cls: number; parserHash: Hex; uri: string; templateId: Hex };
 type Outcome = "created" | "exists" | "exhausted";
 
+const intentsOf = (ctx: AgentContext) => (ctx.state.data.intents ??= {});
 const actedOn = (ctx: AgentContext, action: string) => (ctx.state.data.acted[action] ??= []);
 const minOf = (values: bigint[]) => values.reduce((a, b) => (b < a ? b : a));
 const lower = (value: string) => value.toLowerCase();
@@ -99,7 +109,7 @@ async function ensureTemplate(ctx: AgentContext, template: Template) {
  * security bound (open payout stays within the jurors' attack cost over the security multiple) and the
  * creator's exposure limit. These are the checks of the contract, read from the chain.
  */
-async function pairsAvailable(ctx: AgentContext, wanted: number): Promise<bigint> {
+async function pairsAvailable(ctx: AgentContext, wanted: number): Promise<{ pairs: bigint; roomMicros: bigint }> {
   const { params, generation } = ctx.deployment;
   const markets = generation.markets;
   const me = ctx.account.address;
@@ -113,15 +123,17 @@ async function pairsAvailable(ctx: AgentContext, wanted: number): Promise<bigint
   const securityRoom = (attackCost * 10_000n) / BigInt(params.securityMultipleBps) - openTotal;
   const exposureRoom = (stake * multiplier * BigInt(params.creatorExposureMultiple)) / 10_000n - openByMe;
   const pairs = minOf([BigInt(wanted), BigInt(params.maxMarketPairs), securityRoom / UNIT, exposureRoom / UNIT]);
-  return pairs > 0n ? pairs : 0n;
+  return { pairs: pairs > 0n ? pairs : 0n, roomMicros: minOf([securityRoom, exposureRoom]) };
 }
 
-/** Creates the market for `spec` unless this creator already has one with these exact bytes. */
-async function createFor(ctx: AgentContext, draft: QuestionDraft, spec: MarketSpecV02): Promise<Outcome> {
+/** Creates the market of a saved intent unless this creator already has one with its hash. */
+async function createFor(ctx: AgentContext, intent: CreateIntent): Promise<Outcome> {
   const { params, generation } = ctx.deployment;
   const markets = generation.markets as Hex;
-  const bytes = new TextEncoder().encode(JSON.stringify(spec));
-  const specHash = keccak256(bytes);
+  const bytes = new TextEncoder().encode(intent.spec);
+  const specHash = intent.specHash;
+  if (keccak256(bytes) !== specHash) throw new Error("STATE_CORRUPT");
+  const spec = JSON.parse(intent.spec) as MarketSpecV02;
   // A creation that landed but was never recorded (a crash, a lost answer) must not be paid for twice.
   const earlier = await ctx.publicClient.getContractEvents({
     address: markets,
@@ -131,12 +143,18 @@ async function createFor(ctx: AgentContext, draft: QuestionDraft, spec: MarketSp
     fromBlock: BigInt(ctx.deployment.startBlock),
   } as never);
   if (earlier.length > 0) {
-    ctx.log("market_exists", { key: draft.key, specHash });
+    ctx.log("market_exists", { key: intent.key, specHash });
     return "exists";
   }
-  const pairs = await pairsAvailable(ctx, draft.maxPairs);
+  const { pairs, roomMicros } = await pairsAvailable(ctx, intent.maxPairs);
   if (pairs < 1n) {
-    ctx.log("cap_exhausted", { key: draft.key, wantedPairs: draft.maxPairs });
+    const reported = reportedRoom.get(ctx) ?? new Map<string, bigint>();
+    reportedRoom.set(ctx, reported);
+    const id = intent.suggestionId ?? intent.key;
+    if (reported.get(id) !== roomMicros) {
+      reported.set(id, roomMicros);
+      ctx.log("cap_exhausted", { key: intent.key, wantedPairs: intent.maxPairs });
+    }
     return "exhausted";
   }
   const template = templateFor(spec);
@@ -147,7 +165,7 @@ async function createFor(ctx: AgentContext, draft: QuestionDraft, spec: MarketSp
   // it only makes the market open for a little longer once the template is reviewed.
   const now = (await ctx.publicClient.getBlock({ blockTag: "latest" })).timestamp;
   const closeAt =
-    now + BigInt(params.creationWindow[template.cls]! + params.firstUseExtraWindow + draft.closeInSeconds);
+    now + BigInt(params.creationWindow[template.cls]! + params.firstUseExtraWindow + intent.closeInSeconds);
   const proposalDeadline = closeAt + BigInt(PROPOSAL_WINDOW_SECONDS);
   const hardDeadline =
     proposalDeadline +
@@ -194,22 +212,66 @@ async function createFor(ctx: AgentContext, draft: QuestionDraft, spec: MarketSp
     }
   }
   ctx.log("market_created", {
-    key: draft.key,
+    key: intent.key,
     marketId,
     specHash,
     maxPairs: pairs.toString(),
-    ...(spec.suggestionId === undefined ? {} : { suggestionId: spec.suggestionId }),
+    ...(intent.suggestionId === undefined ? {} : { suggestionId: intent.suggestionId }),
   });
   return "created";
 }
 
+/**
+ * Saves what is to be created, once, and returns the saved copy: a pending item keeps the bytes it
+ * was first given, whatever the model says on a later tick. Null when the model has nothing for it.
+ */
+async function intentFor(
+  ctx: AgentContext,
+  id: string,
+  make: () => Promise<CreateIntent | null>,
+): Promise<CreateIntent | null> {
+  const saved = intentsOf(ctx)[id];
+  if (saved) return saved;
+  const made = await make();
+  if (made === null) return null;
+  intentsOf(ctx)[id] = made;
+  await ctx.state.save();
+  return made;
+}
+
+const intentOf = (draft: QuestionDraft, spec: MarketSpecV02, suggestionId?: string): CreateIntent => {
+  const text = JSON.stringify(spec);
+  return {
+    key: draft.key,
+    specHash: keccak256(new TextEncoder().encode(text)),
+    spec: text,
+    closeInSeconds: draft.closeInSeconds,
+    maxPairs: draft.maxPairs,
+    ...(suggestionId === undefined ? {} : { suggestionId }),
+  };
+};
+
+/** Creates the item and, only after the chain says the market exists, marks it done and drops its intent. */
+async function finish(ctx: AgentContext, id: string, intent: CreateIntent, done: string[], mark: string) {
+  if ((await createFor(ctx, intent)) === "exhausted") return;
+  done.push(mark);
+  delete intentsOf(ctx)[id];
+  await ctx.state.save();
+}
+
 async function createDrafts(ctx: AgentContext) {
   const created = actedOn(ctx, DRAFTS);
-  for (const draft of await ctx.model.questions()) {
-    if (created.includes(draft.key)) continue;
-    if ((await createFor(ctx, draft, draft.spec)) === "exhausted") continue;
-    created.push(draft.key);
-    await ctx.state.save();
+  const listed = new Map((await ctx.model.questions()).map((draft) => [draft.key, draft]));
+  // Drafts still pending from an earlier tick come first, listed by the model now or not.
+  const pending = Object.keys(intentsOf(ctx))
+    .filter((id) => id.startsWith("draft:"))
+    .map((id) => id.slice("draft:".length));
+  for (const key of new Set([...pending, ...listed.keys()])) {
+    if (created.includes(key)) continue;
+    const id = `draft:${key}`;
+    const draft = listed.get(key);
+    const intent = await intentFor(ctx, id, async () => (draft ? intentOf(draft, draft.spec) : null));
+    if (intent) await finish(ctx, id, intent, created, key);
   }
 }
 
@@ -244,12 +306,13 @@ async function claimSuggestions(ctx: AgentContext) {
 /** Writes up every claimed suggestion that has no market yet; a claim from an earlier run is resumed here. */
 async function createClaimed(ctx: AgentContext) {
   const done = actedOn(ctx, DONE);
-  for (const id of actedOn(ctx, CLAIMED).filter((claimed) => !done.includes(claimed))) {
-    const draft = await ctx.model.fromSuggestion((await ctx.client.getSuggestion(id)).text);
-    if (draft === null) continue;
-    if ((await createFor(ctx, draft, { ...draft.spec, suggestionId: id })) === "exhausted") continue;
-    done.push(id);
-    await ctx.state.save();
+  for (const suggestionId of actedOn(ctx, CLAIMED).filter((claimed) => !done.includes(claimed))) {
+    const id = `suggestion:${suggestionId}`;
+    const intent = await intentFor(ctx, id, async () => {
+      const draft = await ctx.model.fromSuggestion((await ctx.client.getSuggestion(suggestionId)).text);
+      return draft === null ? null : intentOf(draft, { ...draft.spec, suggestionId }, suggestionId);
+    });
+    if (intent) await finish(ctx, id, intent, done, suggestionId);
   }
 }
 

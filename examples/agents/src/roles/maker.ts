@@ -15,15 +15,43 @@ const QUOTE_LIFETIME_SECONDS = 30n;
 /** A quote with less than this left before the market closes is not worth posting. */
 const MIN_LIFETIME_SECONDS = 10n;
 const DEPOSITED = "maker.deposited";
+/** Deposits sent or about to be sent, saved before the send (`state.acted`). */
+const DEPOSIT_ATTEMPTS = "maker.deposit-attempts";
 /** The RFQs this process has dealt with: the relay holds one quote per maker per RFQ. */
 const answered = new WeakMap<AgentContext, Set<string>>();
 
 const actedOn = (ctx: AgentContext, action: string) => (ctx.state.data.acted[action] ??= []);
 const markets = (ctx: AgentContext) => ctx.deployment.generation.markets as Hex;
 
+/** True when the chain holds a deposit of this maker: the one working balance is deposited once, ever. */
+async function depositOnChain(ctx: AgentContext): Promise<boolean> {
+  const events = await ctx.publicClient.getContractEvents({
+    address: markets(ctx),
+    abi: agentAbi.markets,
+    eventName: "MakerDeposited",
+    args: { maker: ctx.account.address },
+    fromBlock: BigInt(ctx.deployment.startBlock),
+  } as never);
+  return events.length > 0;
+}
+
+/**
+ * Deposits the working balance once. The attempt is saved before anything is sent, and every tick
+ * asks the chain first: a deposit that landed whose answer was lost (or whose process died) is found
+ * there and recorded, never repeated.
+ */
 async function ensureDeposit(ctx: AgentContext) {
   const deposited = actedOn(ctx, DEPOSITED);
   if (deposited.length > 0) return;
+  const attempts = actedOn(ctx, DEPOSIT_ATTEMPTS);
+  if (await depositOnChain(ctx)) {
+    deposited.push(WORKING_BALANCE_MICROS.toString());
+    await ctx.state.save();
+    ctx.log("deposit_reconciled", { attempted: attempts.length > 0 });
+    return;
+  }
+  attempts.push(WORKING_BALANCE_MICROS.toString());
+  await ctx.state.save();
   await send(ctx, "APPROVE_DEPOSIT", {
     address: ctx.deployment.shared.busd as Hex,
     abi: agentAbi.usd,

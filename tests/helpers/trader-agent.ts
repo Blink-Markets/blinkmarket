@@ -19,11 +19,13 @@ export type TraderRun = {
   payoutMicros: string;
 };
 
-/** The trader asks its model nothing; this one answers null to everything. */
+/** What the model thinks of every market it is asked about: well above the 4000 bps the makers quote. */
+const VIEW_BPS = 7000;
+/** The trader asks its model for a view of a market and nothing else; the rest answer null. */
 const silentModel: Model = {
   questions: async () => [],
   fromSuggestion: async () => null,
-  probabilityBps: async () => null,
+  probabilityBps: async () => VIEW_BPS,
   outcome: async () => null,
   creationObjection: async () => null,
   appeal: async () => false,

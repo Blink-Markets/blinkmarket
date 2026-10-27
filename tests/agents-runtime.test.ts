@@ -212,6 +212,8 @@ function traderContext(overrides: {
     },
     state: overrides.state ?? { data: emptyState(), save: async () => undefined },
     client: overrides.client,
+    // A trader needs a view of a market to trade it.
+    model: { probabilityBps: async () => 7000 },
     publicClient: {
       getBlock: async () => ({ timestamp: 1000n }),
       readContract: async ({ functionName }: { functionName: string }) =>
@@ -227,7 +229,7 @@ test("a 429 from the quote poll reaches the loop's backoff and posts no second R
   let rfqs = 0;
   const { ctx, lines } = traderContext({
     client: {
-      listMarkets: async () => ({ items: [{ market: { marketId: "7", closeAt: 5000 }, spec: { ok: false, error: "NO_CONTENT" } }] }),
+      listMarkets: async () => ({ items: [{ market: { marketId: "7", closeAt: 5000 }, spec: { ok: true, spec: { title: "t" } } }] }),
       getMarket: async () => ({ market: { marketId: "7", state: "OPEN" } }),
       createRfq: async () => ({ rfqId: "rfq-" + ++rfqs }),
       listQuotes: async () => {

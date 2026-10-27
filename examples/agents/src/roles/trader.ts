@@ -2,9 +2,9 @@
 // bought into that are FINAL, and otherwise takes one OPEN market it has not traded yet and has a
 // view on: post an RFQ for the side its model favours, verify the quotes makers send back, and, if
 // the best one leaves the model an edge of at least MIN_EDGE_BPS, approve exactly what it can cost
-// and fill it on chain. (A market whose spec cannot be read has no view to ask for and is traded as
-// it was before models: YES, no edge check.) The wallet, registration and API key are the runtime's (`onboard`); the TAKER role is
-// joined here, before the first trade.
+// and fill it on chain. A market whose spec cannot be read, or that the model has no view on, is
+// never traded: there is no valuation to hold a price against. The wallet, registration and API key
+// are the runtime's (`onboard`); the TAKER role is joined here, before the first trade.
 //
 // The platform only relays RFQs and quotes. It never quotes, signs or fills: this agent verifies a
 // quote itself and sends the fill itself. An agent outside this repository imports the same names
@@ -308,15 +308,18 @@ async function tradeOne(ctx: AgentContext, s: Settings) {
   const now = Number(await chainSeconds(ctx));
   const passed = actedOn(ctx, PASSED);
   const page = await client.listMarkets({ state: "OPEN", limit: 100 });
-  // The first open market that is not done with and that the model has a view on. A market whose
-  // spec cannot be read cannot be judged: it is traded as it was before models (no view, no edge check).
-  let chosen: { marketId: string; probabilityBps: number | null } | undefined;
+  // The first open market that is not done with, whose spec can be read and that the model has a
+  // view on. Without a view there is no price to hold a quote against, so it is not traded.
+  let chosen: { marketId: string; probabilityBps: number } | undefined;
   for (const { market: m, spec } of page.items) {
     if (m.closeAt <= now || filled.includes(m.marketId) || passed.includes(m.marketId)) continue;
-    const probabilityBps = spec.ok
-      ? await ctx.model.probabilityBps({ marketId: BigInt(m.marketId), specHash: m.specHash as Hex, spec: spec.spec })
-      : null;
-    if (spec.ok && probabilityBps === null) continue;
+    if (!spec.ok) continue;
+    const probabilityBps = await ctx.model.probabilityBps({
+      marketId: BigInt(m.marketId),
+      specHash: m.specHash as Hex,
+      spec: spec.spec,
+    });
+    if (probabilityBps === null) continue;
     chosen = { marketId: m.marketId, probabilityBps };
     break;
   }
@@ -326,9 +329,9 @@ async function tradeOne(ctx: AgentContext, s: Settings) {
   const { market } = await client.getMarket({ marketId: chosen.marketId });
   const marketId = market.marketId;
   const view = chosen.probabilityBps;
-  const side = s.side ?? (view === null || view >= 5000 ? "YES" : "NO");
-  // What the model thinks the shares it buys are worth, if it has a view.
-  const worthBps = view === null ? null : side === "YES" ? view : 10_000 - view;
+  const side = s.side ?? (view >= 5000 ? "YES" : "NO");
+  // What the model thinks the shares it buys are worth.
+  const worthBps = side === "YES" ? view : 10_000 - view;
   ctx.log("trading", { marketId, side });
 
   for (let attempt = 1; ; attempt++) {
@@ -380,7 +383,7 @@ async function tradeOne(ctx: AgentContext, s: Settings) {
     // Give the other makers a moment to undercut the first quote, then take the cheapest still good.
     await sleep(s.waits.grace);
     best = (await verifyAll())[0] ?? best;
-    if (worthBps !== null && worthBps - Number(best.quote.priceBps) < MIN_EDGE_BPS) {
+    if (worthBps - Number(best.quote.priceBps) < MIN_EDGE_BPS) {
       // ponytail: a market passed on is not looked at again; re-quote later if prices should be revisited.
       passed.push(marketId);
       await ctx.state.save();

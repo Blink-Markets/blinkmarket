@@ -19,7 +19,7 @@ import { createLogger } from "../../examples/agents/src/lib/log.ts";
 import { runAgent } from "../../examples/agents/src/lib/loop.ts";
 import { fixtureModel } from "../../examples/agents/src/lib/model.ts";
 import { onboard } from "../../examples/agents/src/lib/session.ts";
-import { loadState } from "../../examples/agents/src/lib/state.ts";
+import { loadState, saveState } from "../../examples/agents/src/lib/state.ts";
 import { parseWorld } from "../../examples/agents/src/lib/world.ts";
 import { creator } from "../../examples/agents/src/roles/creator.ts";
 import { forecaster } from "../../examples/agents/src/roles/forecaster.ts";
@@ -54,9 +54,9 @@ const classA = (title: string, thresholdBps: number) => ({
     extraction: JSON.stringify({ thresholdBps }),
   },
 });
-const world = parseWorld(
-  {
+const worldJson = (crashTitle: string) => ({
     questions: {
+      crash: { spec: classB(crashTitle), closeInSeconds: 240, maxPairs: 2 },
       clamp: { spec: classB("Clamp market"), closeInSeconds: 600, maxPairs: 100 },
       gm: { spec: classA("Gross margin below 40", 4000), closeInSeconds: 240, maxPairs: 100 },
       gm2: { spec: classA("Gross margin below 45", 4500), closeInSeconds: 240, maxPairs: 50 },
@@ -65,15 +65,17 @@ const world = parseWorld(
     suggestions: { [TEXT_S1]: "sugg", [TEXT_S2]: "sugg" },
     agents: {
       clamper: { roles: ["creator"], creates: ["clamp"], claimsSuggestions: true, beliefs: {} },
+      // The same identity as the clamper after a restart, with a model whose answers have changed.
+      crasher: { roles: ["creator"], creates: ["crash"], claimsSuggestions: true, beliefs: {} },
       creatorA: { roles: ["creator"], creates: ["gm", "gm2"], claimsSuggestions: true, beliefs: {} },
       makerA: { roles: ["maker"], beliefs: { gm: { probabilityBps: 7000 } } },
       makerB: { roles: ["maker"], beliefs: { gm: { probabilityBps: 6000 } } },
       trader: { roles: ["trader"], beliefs: { gm: { probabilityBps: 8000 } } },
       forecaster: { roles: ["forecaster"], beliefs: { gm: { probabilityBps: 6500 } } },
     },
-  },
-  tmpdir(),
-);
+});
+const world = parseWorld(worldJson("Crash market"), tmpdir());
+const changedWorld = parseWorld(worldJson("Crash market, reworded"), tmpdir());
 
 type Line = { event: string; [field: string]: unknown };
 type Agent = { ctx: AgentContext; lines: Line[]; stateDir: string; writes: string[] };
@@ -177,6 +179,31 @@ async function stakeJurors(tokens: bigint) {
 }
 
 const eventsOf = (agent: Agent, name: string) => agent.lines.filter((l) => l.event === name);
+/** What a restarted process does: the state is read back from its directory. */
+async function restart(agent: Agent) {
+  const data = await loadState(agent.stateDir);
+  agent.ctx.state = { data, save: () => saveState(agent.stateDir, data) };
+}
+/** Makes the next transaction of `functionName` land and then fail with a lost answer, once. */
+function loseAnswerOnce(agent: Agent, functionName: string) {
+  const send = agent.ctx.walletClient.writeContract.bind(agent.ctx.walletClient) as (r: { functionName: string }) => Promise<Hex>;
+  let lost = false;
+  (agent.ctx.walletClient as { writeContract: unknown }).writeContract = async (request: { functionName: string }) => {
+    const hash = await send(request);
+    if (request.functionName !== functionName || lost) return hash;
+    lost = true;
+    await platform.anvil.publicClient.waitForTransactionReceipt({ hash });
+    throw new Error("socket hang up");
+  };
+}
+const depositsOf = async (address: string) =>
+  ((await platform.anvil.publicClient.getContractEvents({
+    address: markets(),
+    abi: agentAbi.markets,
+    eventName: "MakerDeposited",
+    args: { maker: address },
+    fromBlock: 0n,
+  } as never)) as unknown[]).length;
 const createdBy = (address: string) =>
   platform.anvil.publicClient.getContractEvents({
     address: markets(),
@@ -203,6 +230,8 @@ test("creator clamps maxPairs to the security bound", { timeout: 300_000 }, asyn
 
   // No juror stake, so no room under the security bound: nothing is sent.
   const sent = await nonce();
+  await tick(creator, clamper.ctx);
+  // Said once, not on every tick, while the room stays as it is.
   await tick(creator, clamper.ctx);
   assert.equal(await nonce(), sent, "no transaction");
   assert.equal(eventsOf(clamper, "cap_exhausted").length, 1);
@@ -276,31 +305,106 @@ test("two creators race one suggestion", { timeout: 300_000 }, async () => {
   assert.ok(stale.items.some((i) => i.id === id));
   duplicate.ctx.client = { ...duplicate.ctx.client, listSuggestions: async () => stale };
 
-  await tick(creator, creatorA.ctx);
-  await tick(creator, duplicate.ctx);
-  await tick(creator, duplicate.ctx);
+  // The first creator is held right after its claim is saved, before it has written the market.
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const realGet = creatorA.ctx.client.getSuggestion.bind(creatorA.ctx.client);
+  creatorA.ctx.client = {
+    ...creatorA.ctx.client,
+    getSuggestion: async (suggestionId) => {
+      await held;
+      return realGet(suggestionId);
+    },
+  };
+  const first = tick(creator, creatorA.ctx);
+  try {
+    await waitFor("the claim to be saved", async () =>
+      (await loadState(creatorA.stateDir)).acted["creator.claimed"]?.includes(id) === true,
+    );
+    assert.equal((await anonymous.getSuggestion(id)).status, "CLAIMED");
+    assert.equal((await createdBy(accounts.admin.address)).length, 3, "no market yet for the suggestion");
+
+    // The duplicate of the same identity gets the 409, once, and creates nothing.
+    await tick(creator, duplicate.ctx);
+    await tick(creator, duplicate.ctx);
+    assert.equal(eventsOf(duplicate, "suggestion_already_claimed").filter((l) => l.suggestionId === id).length, 1);
+    assert.equal(eventsOf(duplicate, "suggestion_claimed").length, 0);
+    // Another creator identity sees the claimed suggestion as taken: it neither claims nor creates.
+    const before = clamper.lines.length;
+    await tick(creator, clamper.ctx);
+    assert.deepEqual(
+      clamper.lines.slice(before).filter((l) => ["suggestion_claimed", "market_created", "cap_exhausted"].includes(l.event)),
+      [],
+    );
+    assert.equal((await anonymous.getSuggestion(id)).status, "CLAIMED");
+  } finally {
+    release();
+  }
+  await first;
+
   assert.equal(eventsOf(creatorA, "suggestion_claimed").filter((l) => l.suggestionId === id).length, 1);
-  assert.equal(eventsOf(duplicate, "suggestion_already_claimed").filter((l) => l.suggestionId === id).length, 1);
-  assert.equal(eventsOf(duplicate, "suggestion_claimed").length, 0);
   assert.equal(duplicate.writes.filter((w) => w === "createMarket").length, 0);
   assert.equal(eventsOf(duplicate, "market_created").length, 0);
   // gm, gm2 and the two suggestions: nothing was created twice.
   assert.equal((await createdBy(accounts.admin.address)).length, 4);
   await waitFor("exactly one market for the suggestion", async () => (await marketsWithSuggestion(id)).length === 1);
+  await waitFor("the suggestion to show its market", async () => (await anonymous.getSuggestion(id)).status === "MARKET_CREATED");
+  assert.equal((await anonymous.getSuggestion(id)).claimCount, 1);
+});
 
-  // Another creator identity sees the suggestion as taken and neither claims nor creates.
-  const before = clamper.lines.length;
+test("a create that landed unacknowledged is found again after a restart, even if the model now answers differently", { timeout: 300_000 }, async () => {
+  const minter = accounts.minter.address;
+  const before = (await createdBy(minter)).length;
+  clamper.ctx.model = fixtureModel(world, "crasher");
+  loseAnswerOnce(clamper, "createMarket");
+  await assert.rejects(() => creator(clamper.ctx), /socket hang up/);
+  assert.equal((await createdBy(minter)).length, before + 1, "the market landed");
+
+  // What is on disk: the chosen draft with its bytes and hash, not yet done.
+  const saved = await loadState(clamper.stateDir);
+  const intent = saved.intents?.["draft:crash"];
+  assert.ok(intent, "the intent was saved before the send");
+  assert.equal(intent.specHash, keccak256(new TextEncoder().encode(intent.spec)));
+  assert.ok(!saved.acted["creator.drafts"]?.includes("crash"));
+
+  // The process restarts and the model now words the question differently: the saved bytes win.
+  await restart(clamper);
+  clamper.ctx.model = fixtureModel(changedWorld, "crasher");
+  const writes = clamper.writes.length;
   await tick(creator, clamper.ctx);
-  const after = clamper.lines.slice(before);
-  assert.deepEqual(after.filter((l) => ["suggestion_claimed", "market_created", "cap_exhausted"].includes(l.event)), []);
-  const view = await anonymous.getSuggestion(id);
-  assert.ok(["CLAIMED", "MARKET_CREATED"].includes(view.status), view.status);
-  assert.equal(view.claimCount, 1);
-  assert.equal((await marketsWithSuggestion(id)).length, 1);
+  assert.equal(clamper.writes.slice(writes).filter((w) => w === "createMarket").length, 0);
+  assert.deepEqual(eventsOf(clamper, "market_exists").map((l) => l.specHash), [intent.specHash]);
+  assert.equal((await createdBy(minter)).length, before + 1, "exactly one market for the draft");
+  const done = await loadState(clamper.stateDir);
+  assert.ok(done.acted["creator.drafts"]!.includes("crash"));
+  assert.equal(done.intents?.["draft:crash"], undefined);
+  const titles = await waitFor("the draft's market in the index", async () => {
+    const listed = (await anonymous.listMarkets({ limit: 100 })).items.map((i) => (i.spec.ok ? i.spec.spec.title : ""));
+    return listed.some((t) => t.startsWith("Crash market")) ? listed : null;
+  });
+  assert.equal(titles.filter((t) => t.startsWith("Crash market")).length, 1);
+  assert.ok(!titles.includes("Crash market, reworded"));
+});
+
+test("a maker whose deposit landed unacknowledged does not deposit twice after a restart", { timeout: 120_000 }, async () => {
+  makerA = await startAgent("makerA", "makerA", accounts.maker, ["maker"]);
+  loseAnswerOnce(makerA, "depositMaker");
+  await assert.rejects(() => maker(makerA.ctx), /socket hang up/);
+  assert.equal(await depositsOf(accounts.maker.address), 1);
+  const saved = await loadState(makerA.stateDir);
+  assert.equal(saved.acted["maker.deposit-attempts"]?.length, 1, "the attempt was saved before the send");
+  assert.deepEqual(saved.acted["maker.deposited"] ?? [], []);
+
+  await restart(makerA);
+  await tick(maker, makerA.ctx);
+  await tick(maker, makerA.ctx);
+  assert.deepEqual(eventsOf(makerA, "deposit_reconciled").map((l) => l.attempted), [true]);
+  assert.equal(makerA.writes.filter((w) => w === "depositMaker").length, 1);
+  assert.equal(await depositsOf(accounts.maker.address), 1, "exactly one deposit");
+  assert.deepEqual((await loadState(makerA.stateDir)).acted["maker.deposited"], ["100000000"]);
 });
 
 test("maker quotes only where its model has a view, and trader fills the better of two quotes", { timeout: 600_000 }, async () => {
-  makerA = await startAgent("makerA", "makerA", accounts.maker, ["maker"]);
   makerB = await startAgent("makerB", "makerB", accounts.challenger, ["maker"]);
   trader = await startAgent("trader", "trader", accounts.taker, ["trader"]);
   await openMarket(ids.gm!);
@@ -340,10 +444,9 @@ test("maker quotes only where its model has a view, and trader fills the better 
         agent.lines.some((l) => l.event === "quote_skipped" && l.rfqId === unwanted.rfqId && l.reason === "NO_VIEW"),
       );
     assert.deepEqual((await trader.ctx.client.listQuotes(unwanted.rfqId)).items, []);
-    for (const agent of [makerA, makerB]) {
+    for (const agent of [makerA, makerB])
       assert.deepEqual(eventsOf(agent, "quote_posted").map((l) => l.marketId), [ids.gm]);
-      assert.equal(eventsOf(agent, "deposited").length, 1);
-    }
+    for (const who of [accounts.maker, accounts.challenger]) assert.equal(await depositsOf(who.address), 1);
   } finally {
     stop.abort();
     await Promise.all(loops);
