@@ -13,12 +13,16 @@ import { runAgent, type RoleTick } from "./lib/loop.ts";
 import { fixtureModel } from "./lib/model.ts";
 import { onboard } from "./lib/session.ts";
 import { loadWorld } from "./lib/world.ts";
+import { challenger } from "./roles/challenger.ts";
+import { juror } from "./roles/juror.ts";
+import { keeper } from "./roles/keeper.ts";
+import { proposer } from "./roles/proposer.ts";
 import { trader } from "./roles/trader.ts";
 
 const TICK_MS = 2000;
 
 /** The tick of each role. A role without one here has no reference agent yet and is only onboarded. */
-export const ROLE_TICKS: Partial<Record<RoleName, RoleTick>> = { trader };
+export const ROLE_TICKS: Partial<Record<RoleName, RoleTick>> = { trader, proposer, challenger, juror, keeper };
 
 async function main() {
   const env = await loadAgentEnv(process.env);

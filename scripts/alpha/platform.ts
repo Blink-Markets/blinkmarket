@@ -460,7 +460,13 @@ async function deployAlphaGeneration(anvil: Anvil) {
  * (the same stores, services and job handlers); the processes' own startup checks that need
  * database roles and a production clock are not applicable here.
  */
-async function startPglitePlatform(options: { forecastSchedule?: typeof ALPHA_FORECAST_SCHEDULE } = {}) {
+async function startPglitePlatform(
+  options: {
+    forecastSchedule?: typeof ALPHA_FORECAST_SCHEDULE;
+    /** The API's public read bucket per client IP; every agent of a test shares one loopback IP. */
+    publicReadLimit?: { capacity: number; refillPerSecond: number };
+  } = {},
+) {
   const schedule = options.forecastSchedule ?? ALPHA_FORECAST_SCHEDULE;
   const cleanups: (readonly [string, () => Promise<unknown>])[] = [];
   let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -572,7 +578,7 @@ async function startPglitePlatform(options: { forecastSchedule?: typeof ALPHA_FO
     const api = buildApi({
       identity,
       stage: "m2-markets",
-      publicReadLimit: { capacity: 60, refillPerSecond: 1 },
+      publicReadLimit: options.publicReadLimit ?? { capacity: 60, refillPerSecond: 1 },
       services: [
         createMetricsService({ store: postgresEvaluationStore(pool, DEPLOYMENT_ID) }),
         createContentService({ store: content, identity, reader, publicOrigin: apiUrl }),
@@ -647,6 +653,7 @@ export function startAlphaPlatform(options: {
 export function startAlphaPlatform(options: {
   backend: "pglite";
   forecastSchedule?: typeof ALPHA_FORECAST_SCHEDULE;
+  publicReadLimit?: { capacity: number; refillPerSecond: number };
 }): Promise<AlphaPlatform>;
 /**
  * Starts the platform (see the top of this file). The postgres backend answers with the processes,
@@ -655,7 +662,11 @@ export function startAlphaPlatform(options: {
 export function startAlphaPlatform(
   options:
     | { backend: "postgres"; adminUrl?: string; forecastSchedule?: typeof ALPHA_FORECAST_SCHEDULE }
-    | { backend: "pglite"; forecastSchedule?: typeof ALPHA_FORECAST_SCHEDULE },
+    | {
+        backend: "pglite";
+        forecastSchedule?: typeof ALPHA_FORECAST_SCHEDULE;
+        publicReadLimit?: { capacity: number; refillPerSecond: number };
+      },
 ): Promise<AlphaPlatform> {
   return options.backend === "postgres" ? startPostgresPlatform(options) : startPglitePlatform(options);
 }
