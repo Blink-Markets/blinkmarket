@@ -10,7 +10,7 @@ This stage involves no deployment, no signing with a real key and no broadcast t
 
 The design is [the approved autonomous market design](superpowers/specs/2026-10-23-autonomous-market-design.md). The per-task record, with rulings, deviations and review fixes, is [P2 progress](P2_OFFCHAIN_PROGRESS.md). The contracts are in [P1](P1_PROTOCOL_CONTRACTS.md).
 
-This is a slice of the roadmap, not the whole vision. P3 (reference agents, agent docs, the autonomous drill) and P4 (website, video) are not done. The final whole-branch review of P2 is still pending.
+This is a slice of the roadmap, not the whole vision. P3 (reference agents, agent docs, the autonomous drill) and P4 (website, video) are not done. The final whole-branch review of P2 is done, and its six findings are fixed and merged.
 
 ## What the platform runs now
 
@@ -230,7 +230,7 @@ The forge count differs from the 255 recorded for Task 13 in [P1](P1_PROTOCOL_CO
 
 The local alpha asserts against the API and the chain: FINAL with fees equal to the `FeesDistributed` event and to their breakdown, the redeemed payout equal to `PositionRedeemed`, the anchor visible, the suggestion `MARKET_CREATED`, an index rebuild with no differences, and a key-free environment for every platform process.
 
-Tasks 1 to 11 and 13 were each independently reviewed before merging (review records in `.superpowers/sdd/2026-10-24-p2-offchain-protocol/`). The final whole-branch review of P2 is still pending.
+Tasks 1 to 11 and 13 were each independently reviewed before merging (review records in `.superpowers/sdd/2026-10-24-p2-offchain-protocol/`). The final whole-branch review of P2 is done, and its six findings are fixed and merged.
 
 
 ## Implementation rulings
