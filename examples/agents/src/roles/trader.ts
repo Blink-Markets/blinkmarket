@@ -1,7 +1,9 @@
 // The trader, the RFQ taker. Each tick it settles any fill still in flight, redeems the markets it
-// bought into that are FINAL, and otherwise takes one OPEN market it has not traded yet: post an
-// RFQ, verify the quotes makers send back, approve exactly what the best one can cost, fill it on
-// chain. The wallet, registration and API key are the runtime's (`onboard`); the TAKER role is
+// bought into that are FINAL, and otherwise takes one OPEN market it has not traded yet and has a
+// view on: post an RFQ for the side its model favours, verify the quotes makers send back, and, if
+// the best one leaves the model an edge of at least MIN_EDGE_BPS, approve exactly what it can cost
+// and fill it on chain. (A market whose spec cannot be read has no view to ask for and is traded as
+// it was before models: YES, no edge check.) The wallet, registration and API key are the runtime's (`onboard`); the TAKER role is
 // joined here, before the first trade.
 //
 // The platform only relays RFQs and quotes. It never quotes, signs or fills: this agent verifies a
@@ -26,25 +28,30 @@ import { send } from "../lib/session.ts";
 import type { PendingFill } from "../lib/state.ts";
 
 const QUANTITY = "10";
+/** The model's probability of the side it buys must beat the best quote's price by this much. */
+const MIN_EDGE_BPS = 500;
 const MAX_RFQ_ATTEMPTS = 3;
 const UNIT = 1_000_000n;
-/** Market ids this trader has filled, and those it has redeemed (`state.acted`). */
+/** Market ids this trader has filled, redeemed, and passed on for lack of an edge (`state.acted`). */
 const FILLED = "trader.filled";
 const REDEEMED = "trader.redeemed";
+const PASSED = "trader.passed";
 
 export type TraderOptions = {
+  /** Fixes the side; otherwise the model's probability decides (YES from 50%). */
   side?: "YES" | "NO";
   quantity?: string;
   /** Delay between polls of the API and the chain. */
   pollMs?: number;
   /** How long to wait for quotes, for a receipt and for an uncertain fill to settle (it is never resent). */
-  waitMs?: { quotes?: number; receipt?: number; settle?: number };
+  waitMs?: { quotes?: number; receipt?: number; settle?: number; grace?: number };
 };
 type Settings = {
-  side: "YES" | "NO";
+  side: "YES" | "NO" | undefined;
   quantity: string;
   pollMs: number;
-  waits: { quotes: number; receipt: number; settle: number };
+  /** `grace`: how long to keep collecting after the first quote, so that a second maker can undercut it. */
+  waits: { quotes: number; receipt: number; settle: number; grace: number };
 };
 type FillResult = { landed: true; txHash: string } | { landed: false; reason: string };
 
@@ -299,20 +306,36 @@ async function tradeOne(ctx: AgentContext, s: Settings) {
   const address = ctx.account.address.toLowerCase();
   const filled = actedOn(ctx, FILLED);
   const now = Number(await chainSeconds(ctx));
+  const passed = actedOn(ctx, PASSED);
   const page = await client.listMarkets({ state: "OPEN", limit: 100 });
-  const open = page.items.find((i) => i.market.closeAt > now && !filled.includes(i.market.marketId));
-  if (!open) return;
+  // The first open market that is not done with and that the model has a view on. A market whose
+  // spec cannot be read cannot be judged: it is traded as it was before models (no view, no edge check).
+  let chosen: { marketId: string; probabilityBps: number | null } | undefined;
+  for (const { market: m, spec } of page.items) {
+    if (m.closeAt <= now || filled.includes(m.marketId) || passed.includes(m.marketId)) continue;
+    const probabilityBps = spec.ok
+      ? await ctx.model.probabilityBps({ marketId: BigInt(m.marketId), specHash: m.specHash as Hex, spec: spec.spec })
+      : null;
+    if (spec.ok && probabilityBps === null) continue;
+    chosen = { marketId: m.marketId, probabilityBps };
+    break;
+  }
+  if (!chosen) return;
   await ensureTakerRole(ctx);
   await ensureFunds(ctx, s.quantity);
-  const { market } = await client.getMarket({ marketId: open.market.marketId });
+  const { market } = await client.getMarket({ marketId: chosen.marketId });
   const marketId = market.marketId;
-  ctx.log("trading", { marketId });
+  const view = chosen.probabilityBps;
+  const side = s.side ?? (view === null || view >= 5000 ? "YES" : "NO");
+  // What the model thinks the shares it buys are worth, if it has a view.
+  const worthBps = view === null ? null : side === "YES" ? view : 10_000 - view;
+  ctx.log("trading", { marketId, side });
 
   for (let attempt = 1; ; attempt++) {
     if (attempt > MAX_RFQ_ATTEMPTS) throw new Error("NO_USABLE_QUOTE");
     let rfq: Awaited<ReturnType<typeof client.createRfq>>;
     try {
-      rfq = await client.createRfq({ marketId, side: s.side, quantity: s.quantity });
+      rfq = await client.createRfq({ marketId, side, quantity: s.quantity });
     } catch (error) {
       // The TAKER role may not be indexed yet: the next tick tries again.
       if (isRefusal(error, "ROLE_REQUIRED")) return;
@@ -331,7 +354,7 @@ async function tradeOne(ctx: AgentContext, s: Settings) {
               publicClient,
               deployment: ctx.deployment,
               market,
-              rfq: { marketId, side: s.side, quantity: s.quantity, taker: address },
+              rfq: { marketId, side, quantity: s.quantity, taker: address },
               now: blockTime,
               feeBps: params.feeBps,
               minValiditySeconds,
@@ -347,13 +370,23 @@ async function tradeOne(ctx: AgentContext, s: Settings) {
     // Quotes arrive while the RFQ is open (30 seconds); the API lists them cheapest first.
     // Only running out of time means "no quote": a refusal of the API (429, INDEX_STALE) or a node
     // error goes to the loop, which backs off instead of posting more RFQs.
-    const best = await until(s, "a verified quote", s.waits.quotes, async () => (await verifyAll())[0]).catch(
+    let best = await until(s, "a verified quote", s.waits.quotes, async () => (await verifyAll())[0]).catch(
       (error: unknown) => {
         if (error instanceof PollTimeout) return undefined;
         throw error;
       },
     );
     if (!best) continue;
+    // Give the other makers a moment to undercut the first quote, then take the cheapest still good.
+    await sleep(s.waits.grace);
+    best = (await verifyAll())[0] ?? best;
+    if (worthBps !== null && worthBps - Number(best.quote.priceBps) < MIN_EDGE_BPS) {
+      // ponytail: a market passed on is not looked at again; re-quote later if prices should be revisited.
+      passed.push(marketId);
+      await ctx.state.save();
+      ctx.log("no_edge", { marketId, priceBps: best.quote.priceBps, worthBps });
+      return;
+    }
     // The approval covers the cost and the fee, never more.
     await send(ctx, "APPROVE_FILL", {
       address: ctx.deployment.shared.busd as Hex,
@@ -365,7 +398,7 @@ async function tradeOne(ctx: AgentContext, s: Settings) {
     const stillGood = (await verifyAll(1n)).find((v) => v.digest === best.digest);
     if (!stillGood || (await consumedNow(ctx, best.digest))) continue;
     const q = best.quote;
-    ctx.log("fill_sent", { marketId, side: s.side, quantity: s.quantity, priceBps: q.priceBps });
+    ctx.log("fill_sent", { marketId, side, quantity: s.quantity, priceBps: q.priceBps });
     const fill = await sendFill(
       ctx,
       s,
@@ -394,13 +427,14 @@ async function tradeOne(ctx: AgentContext, s: Settings) {
 /** A trader with its own waits and sides, for tests; `trader` below is the default one. */
 export function createTrader(options: TraderOptions = {}): RoleTick {
   const s: Settings = {
-    side: options.side ?? "YES",
+    side: options.side,
     quantity: options.quantity ?? QUANTITY,
     pollMs: options.pollMs ?? 1000,
     waits: {
       quotes: options.waitMs?.quotes ?? 20_000,
       receipt: options.waitMs?.receipt ?? 180_000,
       settle: options.waitMs?.settle ?? 180_000,
+      grace: options.waitMs?.grace ?? 2 * (options.pollMs ?? 1000),
     },
   };
   return async (ctx) => {

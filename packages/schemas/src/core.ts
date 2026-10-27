@@ -231,6 +231,7 @@ export const ErrorCode = z.enum([
   "CHAIN_UNAVAILABLE",
   "SERVICE_NOT_READY",
   "NOT_FOUND",
+  "ALREADY_CLAIMED",
   "NOT_IMPLEMENTED",
   "INTERNAL_ERROR",
 ]);

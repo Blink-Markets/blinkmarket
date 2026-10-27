@@ -7,7 +7,7 @@
 //
 // SIGTERM (or SIGINT) stops it after the tick that is running.
 import { pathToFileURL } from "node:url";
-import { createContext, loadAgentEnv, type RoleName } from "./lib/env.ts";
+import { createContext, loadAgentEnv, type AgentContext, type RoleName } from "./lib/env.ts";
 import { createLogger } from "./lib/log.ts";
 import { runAgent, type RoleTick } from "./lib/loop.ts";
 import { fixtureModel } from "./lib/model.ts";
@@ -17,12 +17,27 @@ import { challenger } from "./roles/challenger.ts";
 import { juror } from "./roles/juror.ts";
 import { keeper } from "./roles/keeper.ts";
 import { proposer } from "./roles/proposer.ts";
+import { creator } from "./roles/creator.ts";
+import { forecaster } from "./roles/forecaster.ts";
+import { maker, makerStop } from "./roles/maker.ts";
 import { trader } from "./roles/trader.ts";
 
 const TICK_MS = 2000;
 
 /** The tick of each role. A role without one here has no reference agent yet and is only onboarded. */
-export const ROLE_TICKS: Partial<Record<RoleName, RoleTick>> = { trader, proposer, challenger, juror, keeper };
+export const ROLE_TICKS: Partial<Record<RoleName, RoleTick>> = {
+  creator,
+  maker,
+  trader,
+  forecaster,
+  proposer,
+  challenger,
+  juror,
+  keeper,
+};
+
+/** What a role does once after the last tick, when the process is stopped. */
+export const ROLE_STOPS: Partial<Record<RoleName, (ctx: AgentContext) => Promise<void>>> = { maker: makerStop };
 
 async function main() {
   const env = await loadAgentEnv(process.env);
@@ -37,6 +52,7 @@ async function main() {
   for (const signal of ["SIGTERM", "SIGINT"] as const) process.once(signal, () => stop.abort());
   log("started", { roles: ctx.roles, ticks: ticks.length });
   await runAgent(ctx, ticks, { tickMs: TICK_MS, signal: stop.signal });
+  for (const role of ctx.roles) await ROLE_STOPS[role]?.(ctx);
   log("stopped");
 }
 

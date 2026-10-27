@@ -18,6 +18,7 @@ export const agentAbi = {
     "function hasRole(address account, uint8 role) view returns (bool)",
     "function creditOf(address account, uint8 role) view returns (uint256)",
     "function roleStake(address account, uint8 role) view returns (uint256)",
+    "function limitMultiplierBps(address account, uint8 role) view returns (uint256)",
     "function bondFor(address account, uint8 role, uint256 baseBond) view returns (uint256)",
   ]),
   jurors: parseAbi([
@@ -28,6 +29,7 @@ export const agentAbi = {
     "function withdrawUnstaked()",
     "function claimRewards()",
     "function slashableStake(address juror) view returns (uint256)",
+    "function attackCostMicros() view returns (uint256)",
   ]),
   markets: parseAbi([
     "event TemplateRegistered(bytes32 indexed templateId, uint8 cls, bytes32 parserHash, string uri)",
@@ -56,6 +58,8 @@ export const agentAbi = {
     "error AlreadyDistributed()",
     "error CreationWindowActive()",
     "error CreationChallengePending()",
+    "function openPayoutTotal() view returns (uint256)",
+    "function openPayoutByCreator(address) view returns (uint256)",
   ]),
   resolution: parseAbi([
     "event Proposed(uint256 indexed id, address indexed proposer, uint8 outcome, uint256 bond, uint256 challengeEnd, bytes32 evidenceHash, string evidenceURI)",

@@ -86,3 +86,25 @@ Scope: the four roles that settle a market, as ticks of the Task 2 runtime. The 
 ### Verification
 
 See `.superpowers/sdd/2026-10-25-p3-reference-agents-drill/task-4-report.md` for the commands and counts. `pnpm build` and `pnpm build:pages` cannot run on this host; CI runs them.
+## Task 3 — market-side reference agents: creator, maker, trader, forecaster (2026-10-27)
+
+Scope: the four market-side roles of `examples/agents`, each a `RoleTick`, wired into the role table of `main.ts`. The resolution-side roles are Task 4.
+
+### What was built
+
+- **Creator** (`src/roles/creator.ts`). For each draft of `model.questions()` not yet created: clamp `maxPairs` to what `createMarket` accepts now (market cap, the juror security bound `attackCost * 10000 / securityMultipleBps - openPayoutTotal`, and the creator's exposure limit), register the template if neither its state nor `GET /v1/templates` has it (`GM_LT_V1` after uploading the parser bytes read through `import.meta.resolve("@blink/client/templates/gm-lt-v1")`; class B and C use `registerTemplate(cls, 0x0, "blink:generic-v1")`), upload the exact spec bytes, approve the creation bond, call `createMarket` with `specURI = /v1/content/<specHash>`. With no room it logs `cap_exhausted`, sends nothing and tries again on a later tick. Before creating it looks for its own `MarketCreated` with the same spec hash, so a creation that landed but was not recorded is not paid for twice.
+- **Suggestions.** The creator claims only suggestions whose status is `OPEN` and for which `model.fromSuggestion(text)` has a draft. The claimed id is saved before the spec is built (`spec.suggestionId` is set); a claim from an earlier run is resumed. A `409 ALREADY_CLAIMED` is logged once as `suggestion_already_claimed` and nothing is created for it.
+- **Maker** (`src/roles/maker.ts`). Deposits 100 bUSD once, then quotes each open RFQ in a market where `model.probabilityBps` is non-null: the model's probability for the RFQ's side plus 300 bps (clamped to 1..9999), signed with `quoteTypedData`, living 30 s (or until close). `makerStop` sends `incrementMakerEpoch`; `main` calls it after the loop ends on SIGTERM/SIGINT (`ROLE_STOPS`).
+- **Forecaster** (`src/roles/forecaster.ts`). Signs the `Forecast` struct for every OPEN window of an OPEN market where the model has a view and submits it, once per window (window ids in the state).
+- **Trader** (`src/roles/trader.ts`). Takes only markets where the model has a view; the side is the one the model favours (YES from 50%). After the first verified quote it waits a grace period (twice the poll interval by default) so that a second maker can undercut it, then takes the cheapest still good quote. If the model's probability for that side beats the price by less than 500 bps it logs `no_edge` and records the market as passed. The rest (pending-fill journal, exactly-once fill, redemption, backoff) is unchanged.
+- **Shared schema.** `ApiErrorCode` gained `ALREADY_CLAIMED`: the suggestion claim route answers `409 ALREADY_CLAIMED` but the code was not in the enum, so the client threw a `ZodError` instead of `BlinkApiError` (the same gap M5 fixed for the faucet codes). One line in `packages/schemas/src/core.ts`; no route changed.
+- **agentAbi** gained `registry.limitMultiplierBps`, `registry.bondFor`, `jurors.attackCostMicros`, `markets.openPayoutTotal` and `markets.openPayoutByCreator`.
+
+### Decisions and limitations
+
+- **Claims are not exclusive (P2).** Each creator claims a suggestion once; two different creators can both claim it and both create a market, each posting its own bond, because `DuplicateSpec` is per creator. The creator therefore reads the queue for `OPEN` suggestions only. What is tested is a duplicated process with one key. Distinct creators that read `OPEN` at the same instant can both create: a known limit.
+- **The edge is measured against quotes.** There are no quotes before an RFQ, so the trader posts an RFQ where it has a view and gates the fill on the 500 bps edge. A market passed on is not looked at again.
+- **Unreadable specs.** A market whose spec bytes cannot be read has nothing to ask the model about; the trader trades it as in P2 (YES, no edge check). The three P2 trader scenarios create such markets and run with unchanged assertions.
+- **Class B and C template.** One generic template per class (`registerTemplate(cls, 0x0, "blink:generic-v1")`), registered by whichever creator needs it first; its first use gets the longer creation window. The URI is a constant in `creator.ts`.
+- **Schedule.** `closeInSeconds` counts from the end of the creation window including the extra first-use window, which is always added (a reviewed template just gives a market that is open slightly longer). The proposal deadline is close plus 120 s; the hard deadline adds the result challenge window, `maxRounds` rounds and 60 s of slack.
+- **Log noise.** `cap_exhausted` is logged on every tick that finds no room.
