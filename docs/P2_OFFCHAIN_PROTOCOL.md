@@ -125,7 +125,7 @@ Forecaster credit, consensus and maker stats are read models. They affect no rul
 
 ## Public read model
 
-The protocol read routes (deployment, templates, markets, resolution, accounts) need no key, are paged by `after`/`limit` (at most 100) and carry the index health in the body; the spec route is raw bytes, so it carries the health in `Blink-Index-*` headers, and the content route carries none. Votes show `choice: null` until revealed. The forecast, window-list and consensus routes and `/v1/forecasters` are paged differently: `cursor`/`limit` (at most 100), answering `{ items, nextCursor }` with no index field. The relay routes (`/v1/rfqs`) page with `after` and answer `{ items, next }`.
+The protocol read routes (deployment, templates, markets, resolution, accounts) need no key and every JSON answer carries the index health in the body. Only the lists page, by `after`/`limit` (at most 100): `/v1/markets`, `/v1/templates`, `/v1/markets/:id/disputes`, the votes of `/v1/disputes/:id` and `/v1/accounts/:address/positions`. Deployment, market detail, fees and account detail take no query. The spec route is raw bytes, so it carries the health in `Blink-Index-*` headers, and the content route carries none. Votes show `choice: null` until revealed. The forecast, window-list and consensus routes and `/v1/forecasters` are paged differently: `cursor`/`limit` (at most 100), answering `{ items, nextCursor }` with no index field. The relay routes (`/v1/rfqs`) page with `after` and answer `{ items, next }`.
 
 | Area | Routes |
 | --- | --- |
@@ -212,7 +212,7 @@ Documentation
 
 ## Verification
 
-Measured on 2026-10-26 on the Task 12 branch, which is main `4b52d12` (the merge of Task 11) plus the documentation commit `15163ba`. That commit changed documents, the web notices (Markdown and one page's text) and one docs test, and no source, contract or migration, so every suite below ran on the code of `4b52d12`. Two later commits changed only web copy, the architecture illustration and tests (`d7ea6fd` and fix round 1); after each, `pnpm check` was run again, and no other suite was repeated because none of them reads that code. Host: Linux (RHEL 8), Node 22, PostgreSQL 17.6 in the Docker container `blink-test-pg` (the CI image), Foundry 1.7.1 through `scripts/foundry.mjs`. Counts are what each runner printed.
+Measured on 2026-10-26 on the Task 12 branch, which is main `4b52d12` (the merge of Task 11) plus the documentation commit `15163ba`. That commit changed documents, the web notices (Markdown and one page's text) and one docs test, and no contract, migration, API or service code, so the contract, database and service suites below ran on the same code as `4b52d12`. Two later commits changed only web copy, the architecture illustration and tests (`d7ea6fd` and fix round 1); after each, `pnpm check` was run again, and no other suite was repeated because none of them reads that code. Host: Linux (RHEL 8), Node 22, PostgreSQL 17.6 in the Docker container `blink-test-pg` (the CI image), Foundry 1.7.1 through `scripts/foundry.mjs`. Counts are what each runner printed.
 
 | Command | Result |
 | --- | --- |
