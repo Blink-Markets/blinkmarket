@@ -86,6 +86,7 @@ Scope: the four roles that settle a market, as ticks of the Task 2 runtime. The 
 ### Verification
 
 See `.superpowers/sdd/2026-10-25-p3-reference-agents-drill/task-4-report.md` for the commands and counts. `pnpm build` and `pnpm build:pages` cannot run on this host; CI runs them.
+
 ## Task 3 — market-side reference agents: creator, maker, trader, forecaster (2026-10-27)
 
 Scope: the four market-side roles of `examples/agents`, each a `RoleTick`, wired into the role table of `main.ts`. The resolution-side roles are Task 4.
