@@ -13,7 +13,6 @@ export type RunOptions = {
 };
 
 const DEFAULT_RETRY_AFTER_SECONDS = 5;
-const MAX_RETRY_AFTER_SECONDS = 120;
 
 const abortableSleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve) => {
@@ -49,10 +48,8 @@ export async function runAgent(
         await tick(ctx);
       } catch (error) {
         if (isBackoff(error)) {
-          const seconds = Math.min(
-            error.retryAfterSeconds ?? DEFAULT_RETRY_AFTER_SECONDS,
-            MAX_RETRY_AFTER_SECONDS,
-          );
+          // The server's own figure, however long: asking sooner would only be refused again.
+          const seconds = error.retryAfterSeconds ?? DEFAULT_RETRY_AFTER_SECONDS;
           ctx.log("backoff", { status: error.status, code: error.body.code, retryAfterSeconds: seconds });
           waitMs = seconds * 1000;
           break;

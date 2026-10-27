@@ -13,8 +13,9 @@ import type { AgentContext } from "../examples/agents/src/lib/env.ts";
 import { createLogger } from "../examples/agents/src/lib/log.ts";
 import { runAgent } from "../examples/agents/src/lib/loop.ts";
 import { fixtureModel, type MarketView } from "../examples/agents/src/lib/model.ts";
-import { emptyState, loadState, saveState } from "../examples/agents/src/lib/state.ts";
+import { emptyState, loadState, saveState, type AgentState } from "../examples/agents/src/lib/state.ts";
 import { parseWorld } from "../examples/agents/src/lib/world.ts";
+import { createTrader } from "../examples/agents/src/roles/trader.ts";
 
 const KEY = "0x" + "11".repeat(32);
 const API_SECRET = "blk_live_" + "d4".repeat(16);
@@ -98,6 +99,9 @@ const apiError = (code: string) => ({
   retryable: true,
   details: {},
 });
+const refuse = (error: Error): never => {
+  throw error;
+};
 /** The part of a context the loop touches: its log. */
 function stubContext() {
   const lines: Record<string, unknown>[] = [];
@@ -155,6 +159,156 @@ test("the loop ends after the running tick when it is stopped", async () => {
   };
   await runAgent(ctx, [slow, later], { tickMs: 10_000, signal: stop.signal });
   assert.equal(finished, true);
+});
+
+test("a Retry-After above two minutes is honoured as given, and a stop cuts a long backoff short", async () => {
+  const { ctx, lines } = stubContext();
+  const stop = new AbortController();
+  const slept: number[] = [];
+  await runAgent(
+    ctx,
+    [async () => refuse(new BlinkApiError(429, apiError("RATE_LIMITED"), 300))],
+    {
+      tickMs: 10,
+      signal: stop.signal,
+      sleep: async (ms) => {
+        slept.push(ms);
+        stop.abort();
+      },
+    },
+  );
+  assert.deepEqual(slept, [300_000]);
+  assert.equal(lines.find((l) => l.event === "backoff")?.retryAfterSeconds, 300);
+
+  // With the real sleep, a stop during a five minute backoff returns at once.
+  const { ctx: second } = stubContext();
+  const interrupt = new AbortController();
+  const started = Date.now();
+  setTimeout(() => interrupt.abort(), 50);
+  await runAgent(
+    second,
+    [async () => refuse(new BlinkApiError(503, apiError("INDEX_STALE"), 300))],
+    { tickMs: 10, signal: interrupt.signal },
+  );
+  assert.ok(Date.now() - started < 5000);
+});
+
+/** A context whose chain and API are in memory: just enough for the trader's tick. */
+function traderContext(overrides: {
+  client: Record<string, unknown>;
+  publicClient?: Record<string, unknown>;
+  walletClient?: Record<string, unknown>;
+  state?: AgentContext["state"];
+}) {
+  const { ctx: base, lines } = stubContext();
+  const address = "0x" + "aa".repeat(20);
+  const ctx = {
+    ...base,
+    account: { address },
+    deployment: {
+      generation: { markets: "0x" + "bb".repeat(20), registry: "0x" + "cc".repeat(20) },
+      shared: { busd: "0x" + "dd".repeat(20), faucet: "0x" + "ee".repeat(20) },
+      params: { feeBps: "100", minRoleStake: "1000000", registrationFee: "1000000" },
+    },
+    state: overrides.state ?? { data: emptyState(), save: async () => undefined },
+    client: overrides.client,
+    publicClient: {
+      getBlock: async () => ({ timestamp: 1000n }),
+      readContract: async ({ functionName }: { functionName: string }) =>
+        functionName === "hasRole" ? true : 10n ** 30n,
+      ...overrides.publicClient,
+    },
+    walletClient: overrides.walletClient ?? {},
+  } as unknown as AgentContext;
+  return { ctx, lines };
+}
+
+test("a 429 from the quote poll reaches the loop's backoff and posts no second RFQ", async () => {
+  let rfqs = 0;
+  const { ctx, lines } = traderContext({
+    client: {
+      listMarkets: async () => ({ items: [{ market: { marketId: "7", closeAt: 5000 } }] }),
+      getMarket: async () => ({ market: { marketId: "7", state: "OPEN" } }),
+      createRfq: async () => ({ rfqId: "rfq-" + ++rfqs }),
+      listQuotes: async () => {
+        throw new BlinkApiError(429, apiError("RATE_LIMITED"), 30);
+      },
+    },
+  });
+  const stop = new AbortController();
+  const slept: number[] = [];
+  await runAgent(ctx, [createTrader({ pollMs: 1, waitMs: { quotes: 5_000 } })], {
+    tickMs: 10,
+    signal: stop.signal,
+    sleep: async (ms) => {
+      slept.push(ms);
+      stop.abort();
+    },
+  });
+  assert.equal(rfqs, 1);
+  assert.deepEqual(slept, [30_000]);
+  assert.deepEqual(
+    lines.filter((l) => l.event === "backoff").map((l) => [l.status, l.retryAfterSeconds]),
+    [[429, 30]],
+  );
+  assert.ok(!lines.some((l) => l.event === "tick_error"));
+});
+
+test("a redemption that landed but was never recorded does not block the next market after a restart", async () => {
+  await withTemp(async (dir) => {
+    const redeemSent: bigint[] = [];
+    const positions = new Map([["1", 10n], ["2", 10n]]);
+    const chain = (state: AgentContext["state"]) =>
+      traderContext({
+        state,
+        client: {
+          listMarkets: async () => ({ items: [] }),
+          getMarket: async ({ marketId }: { marketId: string }) => ({
+            market: { marketId, state: "FINAL", finalOutcome: "YES" },
+          }),
+        },
+        publicClient: {
+          readContract: async ({ functionName, args }: { functionName: string; args: unknown[] }) =>
+            functionName === "getPosition" ? [positions.get(String(args[0])) ?? 0n, 0n] : true,
+          waitForTransactionReceipt: async () => ({ status: "success", logs: [], transactionHash: "0x" + "12".repeat(32) }),
+        },
+        walletClient: {
+          writeContract: async ({ args }: { args: [bigint] }) => {
+            redeemSent.push(args[0]);
+            positions.set(String(args[0]), 0n);
+            // The transaction lands; the answer is lost on the way back.
+            if (args[0] === 1n && redeemSent.length === 1) throw new Error("socket hang up");
+            return "0x" + "34".repeat(32);
+          },
+        },
+      });
+    const filled: AgentState = { ...emptyState(), acted: { "trader.filled": ["1", "2"] } };
+    await saveState(dir, filled);
+
+    // First process: the answer to the first redemption is lost, and the process dies before the
+    // completion marker is written (the save fails).
+    const dying: AgentContext["state"] = {
+      data: filled,
+      save: async () => {
+        throw new Error("CRASH_BEFORE_SAVE");
+      },
+    };
+    await assert.rejects(createTrader()(chain(dying).ctx), /CRASH_BEFORE_SAVE/);
+    assert.deepEqual(redeemSent, [1n]);
+    assert.equal((await loadState(dir)).acted["trader.redeemed"], undefined);
+
+    // Restart: the state is read back from the directory, as a new process would.
+    const reloaded = await loadState(dir);
+    const { ctx, lines } = chain({ data: reloaded, save: () => saveState(dir, reloaded) });
+    await createTrader()(ctx);
+    // Market 1 is not sent again; market 2 is redeemed; both are recorded on disk.
+    assert.deepEqual(redeemSent, [1n, 2n]);
+    assert.deepEqual((await loadState(dir)).acted["trader.redeemed"], ["1", "2"]);
+    assert.deepEqual(
+      lines.filter((l) => l.event === "redeemed").map((l) => [l.marketId, l.alreadyRedeemed ?? false]),
+      [["1", true], ["2", false]],
+    );
+  });
 });
 
 test("state survives a rename-write and a reload", async () => {
@@ -366,6 +520,7 @@ test("boundary check rejects an examples import of @blink/schemas, an adapters p
       'import { privateKeyToAccount } from "viem/accounts";',
       'import { readFile } from "node:fs/promises";',
       'import { helper } from "./lib/helper.ts";',
+      'export const later = () => import( "viem/accounts" );',
       "export {};",
     ].join("\n"),
     "examples/agents/src/lib/helper.ts": 'import { main } from "../main.ts";\nexport const helper = 1;\n',
@@ -377,6 +532,12 @@ test("boundary check rejects an examples import of @blink/schemas, an adapters p
     "examples/agents/src/abi.ts": 'import { parseAbi } from "viem";\nexport const abi = parseAbi(["function x()"]);\n',
     "examples/agents/src/paths.ts": 'export const out = "contracts/out/Blink.json";\nexport const app = "apps/web";\n',
     "examples/agents/src/dynamic.ts": 'export const load = () => import("pg");\n',
+    // Ordinary spellings of the same imports, in every source extension.
+    "examples/agents/src/spaced.ts": 'export const load = () => import( "@blink/schemas");\n',
+    "examples/agents/src/commented.ts": 'import /* why */ { z } from /* not allowed */ "zod";\n',
+    "examples/agents/src/module.mts": 'import { a } from "@blink/domain";\nexport { a };\n',
+    "examples/agents/src/commonjs.cjs": 'const pg = require( "pg" );\nmodule.exports = pg;\n',
+    "examples/agents/src/script.js": 'export { q } from "@blink/ports";\n',
   });
   try {
     const ok = runBoundaries(clean);
@@ -391,6 +552,11 @@ test("boundary check rejects an examples import of @blink/schemas, an adapters p
     assert.match(bad.output, /paths\.ts: an example must not name contracts\/out/);
     assert.match(bad.output, /paths\.ts: an example must not name apps\//);
     assert.match(bad.output, /dynamic\.ts: .*not pg/);
+    assert.match(bad.output, /spaced\.ts: .*not @blink\/schemas/);
+    assert.match(bad.output, /commented\.ts: .*not zod/);
+    assert.match(bad.output, /module\.mts: .*not @blink\/domain/);
+    assert.match(bad.output, /commonjs\.cjs: .*not pg/);
+    assert.match(bad.output, /script\.js: .*not @blink\/ports/);
   } finally {
     await rm(clean, { recursive: true, force: true });
     await rm(dirty, { recursive: true, force: true });

@@ -48,6 +48,12 @@ type Settings = {
 };
 type FillResult = { landed: true; txHash: string } | { landed: false; reason: string };
 
+/** `until` ran out of time; the only failure of a poll that means "nothing yet". */
+class PollTimeout extends Error {
+  constructor(what: string) {
+    super(`TIMEOUT waiting for ${what}`);
+  }
+}
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const isRefusal = (error: unknown, ...codes: string[]) =>
   error instanceof BlinkApiError && codes.includes(error.body.code);
@@ -63,7 +69,7 @@ async function until<T>(
   for (;;) {
     const value = await probe();
     if (value !== undefined) return value;
-    if (Date.now() >= deadline) throw new Error(`TIMEOUT waiting for ${what}`);
+    if (Date.now() >= deadline) throw new PollTimeout(what);
     await sleep(s.pollMs);
   }
 }
@@ -180,7 +186,20 @@ async function sendFill(
       functionName: "fillQuote",
       args: [quote, signature],
     } as never);
-    await ctx.state.save();
+  } catch (error) {
+    // The node refused it before broadcasting (the call would revert): nothing is pending.
+    if (
+      error instanceof BaseError &&
+      error.walk((e) => e instanceof ContractFunctionRevertedError)
+    )
+      return { landed: false, reason: "FILL_REJECTED_BEFORE_SEND" };
+    ctx.log("fill_outcome_unknown", { marketId });
+    return awaitFill(ctx, s, pending);
+  }
+  // Outside the try on purpose: a failed save is a failed tick, not an unknown send, and the next
+  // tick settles the record from the chain.
+  await ctx.state.save();
+  try {
     const receipt = await ctx.publicClient.waitForTransactionReceipt({
       hash: pending.txHash,
       timeout: s.waits.receipt,
@@ -188,14 +207,7 @@ async function sendFill(
     return receipt.status === "success"
       ? { landed: true, txHash: pending.txHash }
       : { landed: false, reason: "FILL_REVERTED" };
-  } catch (error) {
-    // The node refused it before broadcasting (the call would revert): nothing is pending.
-    if (
-      pending.txHash === undefined &&
-      error instanceof BaseError &&
-      error.walk((e) => e instanceof ContractFunctionRevertedError)
-    )
-      return { landed: false, reason: "FILL_REJECTED_BEFORE_SEND" };
+  } catch {
     ctx.log("fill_outcome_unknown", { marketId });
   }
   return awaitFill(ctx, s, pending);
@@ -217,18 +229,51 @@ async function settlePending(ctx: AgentContext, s: Settings) {
     await closeFill(ctx, marketId, pending, await awaitFill(ctx, s, pending));
 }
 
-/** Redeems the markets this trader filled that have become FINAL. */
+/** True when the chain holds no position of this account in the market: nothing is left to redeem. */
+async function positionIsEmpty(ctx: AgentContext, marketId: string): Promise<boolean> {
+  const [yesShares, noShares] = await ctx.publicClient.readContract({
+    address: ctx.deployment.generation.markets as Hex,
+    abi: agentAbi.markets,
+    functionName: "getPosition",
+    args: [BigInt(marketId), ctx.account.address],
+  });
+  return yesShares === 0n && noShares === 0n;
+}
+
+/**
+ * Redeems the markets this trader filled that have become FINAL. A redemption deletes the position,
+ * so one that landed but was not recorded (a lost answer, a crash before the save) would revert
+ * `NoPosition` if sent again and block every later market. The chain is therefore asked first, and
+ * asked again when a send fails: an empty position is a completed redemption, recorded and skipped.
+ */
 async function redeemFinal(ctx: AgentContext) {
   const redeemed = actedOn(ctx, REDEEMED);
+  const record = async (marketId: string, fields: Record<string, unknown>) => {
+    redeemed.push(marketId);
+    await ctx.state.save();
+    ctx.log("redeemed", { marketId, ...fields });
+  };
   for (const marketId of actedOn(ctx, FILLED).filter((id) => !redeemed.includes(id))) {
     const { market } = await ctx.client.getMarket({ marketId });
     if (market.state !== "FINAL") continue;
-    const receipt = await send(ctx, "REDEEM", {
-      address: ctx.deployment.generation.markets as Hex,
-      abi: agentAbi.markets,
-      functionName: "redeem",
-      args: [BigInt(marketId)],
-    });
+    if (await positionIsEmpty(ctx, marketId)) {
+      await record(marketId, { alreadyRedeemed: true });
+      continue;
+    }
+    let receipt: Awaited<ReturnType<typeof send>>;
+    try {
+      receipt = await send(ctx, "REDEEM", {
+        address: ctx.deployment.generation.markets as Hex,
+        abi: agentAbi.markets,
+        functionName: "redeem",
+        args: [BigInt(marketId)],
+      });
+    } catch (error) {
+      // The redemption may have landed although this process never learned it.
+      if (!(await positionIsEmpty(ctx, marketId).catch(() => false))) throw error;
+      await record(marketId, { alreadyRedeemed: true });
+      continue;
+    }
     let payoutMicros = "0";
     for (const entry of receipt.logs) {
       try {
@@ -238,10 +283,7 @@ async function redeemFinal(ctx: AgentContext) {
         // Not an event of the markets ABI.
       }
     }
-    redeemed.push(marketId);
-    await ctx.state.save();
-    ctx.log("redeemed", {
-      marketId,
+    await record(marketId, {
       txHash: receipt.transactionHash,
       finalOutcome: market.finalOutcome ?? "INVALID",
       payoutMicros,
@@ -303,8 +345,13 @@ async function tradeOne(ctx: AgentContext, s: Settings) {
       return verified;
     };
     // Quotes arrive while the RFQ is open (30 seconds); the API lists them cheapest first.
+    // Only running out of time means "no quote": a refusal of the API (429, INDEX_STALE) or a node
+    // error goes to the loop, which backs off instead of posting more RFQs.
     const best = await until(s, "a verified quote", s.waits.quotes, async () => (await verifyAll())[0]).catch(
-      () => undefined,
+      (error: unknown) => {
+        if (error instanceof PollTimeout) return undefined;
+        throw error;
+      },
     );
     if (!best) continue;
     // The approval covers the cost and the fee, never more.

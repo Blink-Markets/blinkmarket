@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Hex } from "viem";
-import { createContext, type AgentEnv } from "../../examples/agents/src/lib/env.ts";
+import { createContext, type AgentContext, type AgentEnv } from "../../examples/agents/src/lib/env.ts";
 import { createLogger } from "../../examples/agents/src/lib/log.ts";
 import { runAgent } from "../../examples/agents/src/lib/loop.ts";
 import type { Model } from "../../examples/agents/src/lib/model.ts";
@@ -42,8 +42,15 @@ export async function runTrader(config: {
   trader?: TraderOptions;
   /** Receives every JSON log line. */
   log?: (line: string) => void;
+  /**
+   * An existing state directory, as a restarted process would be given; it is kept. Without one
+   * the run uses a fresh directory and removes it.
+   */
+  stateDir?: string;
+  /** Called with the onboarded context before the first tick, for a test to wrap parts of it. */
+  prepare?: (ctx: AgentContext) => void;
 }): Promise<TraderRun> {
-  const stateDir = await mkdtemp(join(tmpdir(), "blink-trader-"));
+  const stateDir = config.stateDir ?? (await mkdtemp(join(tmpdir(), "blink-trader-")));
   const stop = new AbortController();
   let loop: Promise<void> = Promise.resolve();
   try {
@@ -81,6 +88,7 @@ export async function runTrader(config: {
           pollingIntervalMs: config.pollMs,
         });
         await onboard(ctx);
+        config.prepare?.(ctx);
         await runAgent(ctx, [createTrader({ pollMs: config.pollMs, ...config.trader })], {
           tickMs: config.pollMs,
           signal: stop.signal,
@@ -90,6 +98,6 @@ export async function runTrader(config: {
   } finally {
     stop.abort();
     await loop.catch(() => undefined);
-    await rm(stateDir, { recursive: true, force: true });
+    if (config.stateDir === undefined) await rm(stateDir, { recursive: true, force: true });
   }
 }

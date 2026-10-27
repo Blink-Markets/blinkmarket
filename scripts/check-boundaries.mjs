@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
+import ts from "typescript";
 const allowed = {
   schemas: [],
   domain: ["schemas"],
@@ -59,12 +60,11 @@ for (const name of ["web", "worker"]) {
 if (existsSync("examples/agents/src")) {
   const root = resolve("examples/agents") + sep;
   const publicImport = /^(@blink\/client(\/templates\/gm-lt-v1)?|viem(\/.*)?|node:.*)$/;
-  for (const path of files("examples/agents/src").filter((p) => /\.ts$/.test(p))) {
+  for (const path of files("examples/agents/src").filter((p) => /\.[cm]?[jt]sx?$/.test(p))) {
     const source = readFileSync(path, "utf8");
-    for (const match of source.matchAll(
-      /(?:from\s*|import\s*\(?)["']([^"']+)["']/g,
-    )) {
-      const dep = match[1];
+    // The TypeScript scanner finds every static import and export, `import()` and `require()` the
+    // way the compiler does, whatever the spacing, comments or file extension.
+    for (const { fileName: dep } of ts.preProcessFile(source, true, true).importedFiles) {
       const inside = dep.startsWith(".") && (resolve(dirname(path), dep) + sep).startsWith(root);
       if (!inside && !publicImport.test(dep))
         errors.push(`${path}: an example may import only @blink/client, viem, node:* and its own files, not ${dep}`);
