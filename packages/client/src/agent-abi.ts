@@ -1,9 +1,10 @@
 import { parseAbi } from "viem";
 
 // The slice of the protocol ABI the reference agents and the documentation use: the writes of the
-// role steps in the spec and the views an agent reads before it acts. Each line is a signature of
-// the compiled contracts; tests/client-agent-kit.test.ts compares every entry with the artifacts,
-// so an edit here must follow contracts/src. An agent that needs another function adds it here.
+// role steps in the spec, the views an agent reads before it acts and the custom errors a role
+// tells apart. Each line is a signature of the compiled contracts; tests/client-agent-kit.test.ts
+// compares every entry with the artifacts, so an edit here must follow contracts/src. An agent
+// that needs another function, event or error adds it here.
 export const agentAbi = {
   registry: parseAbi([
     "event Registered(address indexed account, uint256 feePaid)",
@@ -17,6 +18,7 @@ export const agentAbi = {
     "function hasRole(address account, uint8 role) view returns (bool)",
     "function creditOf(address account, uint8 role) view returns (uint256)",
     "function roleStake(address account, uint8 role) view returns (uint256)",
+    "function bondFor(address account, uint8 role, uint256 baseBond) view returns (uint256)",
   ]),
   jurors: parseAbi([
     "event Staked(address indexed juror, uint256 amount)",
@@ -49,6 +51,11 @@ export const agentAbi = {
     "function distributeFees(uint256 id)",
     "function getMarket(uint256 id) view returns ((address creator, uint8 cls, uint8 state, uint8 finalOutcome, bool replay, bool creationChallenged, bool feesDistributed, bytes32 templateId, bytes32 specHash, uint64 openAt, uint64 closeAt, uint64 proposalDeadline, uint64 hardDeadline, uint64 maxPairs, uint256 totalMintedPairs, uint256 escrowMicros, uint256 creationBond))",
     "function getPosition(uint256 id, address account) view returns (uint256 yesShares, uint256 noShares)",
+    // Custom errors, so that a reverted call decodes to a name (`ContractFunctionRevertedError.data.errorName`).
+    "error InvalidState()",
+    "error AlreadyDistributed()",
+    "error CreationWindowActive()",
+    "error CreationChallengePending()",
   ]),
   resolution: parseAbi([
     "event Proposed(uint256 indexed id, address indexed proposer, uint8 outcome, uint256 bond, uint256 challengeEnd, bytes32 evidenceHash, string evidenceURI)",
@@ -72,6 +79,16 @@ export const agentAbi = {
     "function finalizeUnchallenged(uint256 id)",
     "function finalizeTimeout(uint256 id)",
     "function getDispute(uint256 disputeId) view returns ((uint256 marketId, address challenger, uint256 bond, uint8 kind, uint8 ground, bytes32 evidenceHash, bool settled, bool timedOut, uint256 currentRound, uint8 appealRound, uint256 lastBond) dispute, (uint64 snapshotAt, uint256 commitEnd, uint256 revealEnd, uint256 appealEnd, uint256 committedWeight, uint256[3] revealedWeight, uint256 committers, uint256 revealers, uint256[3] revealersByChoice, uint8 leadingChoice, uint8 level, uint32 creditThreshold, bool settled, bool restarted) round)",
+    "error MissingRole()",
+    "error InvalidState()",
+    "error DeadlineViolation()",
+    "error AlreadySettled()",
+    "error LosersPending()",
+    "error NoMoreAppeals()",
+    "error ConflictedJuror()",
+    "error InsufficientCredit()",
+    "error NoWeight()",
+    "error InvalidVote()",
   ]),
   faucet: parseAbi([
     "event Claimed(address indexed account, uint256 busdMicros, uint256 tokenUnits)",
@@ -92,5 +109,6 @@ export const agentAbi = {
     "event Anchored(bytes32 indexed root, address indexed by, uint64 at)",
     "function anchor(bytes32 root)",
     "function anchoredAt(bytes32) view returns (uint64)",
+    "error AlreadyAnchored()",
   ]),
 } as const;

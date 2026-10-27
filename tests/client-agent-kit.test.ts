@@ -52,7 +52,7 @@ const shape = (item: Abi[number]) =>
         inputs: item.inputs.map(parameter),
         outputs: item.outputs.map(parameter),
       }
-    : item.type === "event"
+    : item.type === "event" || item.type === "error"
       ? {
           type: item.type,
           name: item.name,
