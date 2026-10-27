@@ -115,6 +115,15 @@ const nameOf = (error: unknown): string | undefined => {
 };
 
 /**
+ * True when the chain refused the call for certain: the node rejected it with a contract revert, or
+ * the transaction was mined and reverted (`<WHAT>_REVERTED`). A dropped connection, a timeout or an
+ * API refusal says nothing about the chain's answer and is not a revert.
+ */
+export const isRevert = (error: unknown): boolean =>
+  (error instanceof Error && error.message.endsWith("_REVERTED")) ||
+  (error instanceof BaseError && error.walk((e) => e instanceof ContractFunctionRevertedError) !== null);
+
+/**
  * The custom error a failed call reverted with, by name. A call the node refuses before it is sent
  * carries the error; a transaction that was mined and reverted (`<WHAT>_REVERTED`) is replayed
  * against the current state, which has since moved on but gives the same refusal for a lost race.

@@ -48,3 +48,12 @@ test("a rate limit, a stale index and an unrelated schema failure propagate", as
   // A code the client does not know is a parse failure, not proof that the bytes are missing.
   await assert.rejects(available(refusal(400, "SOMETHING_NEW")), (e) => (e as Error).name === "ZodError");
 });
+
+test("a network failure propagates unchanged", async () => {
+  const failure = new TypeError("fetch failed");
+  globalThis.fetch = (async () => {
+    throw failure;
+  }) as typeof fetch;
+  const client = createBlinkClient("http://127.0.0.1:9", undefined, { maxAttempts: 1, sleep: async () => {} });
+  await assert.rejects(evidenceAvailable({ client } as unknown as AgentContext, HASH), (e) => e === failure);
+});

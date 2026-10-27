@@ -23,6 +23,7 @@ import {
   evidenceAvailable,
   listAll,
   readDispute,
+  isRevert,
   resolutionAddress,
   revertName,
   viewOf,
@@ -36,6 +37,8 @@ const REVEALED = "juror.revealed";
 const SETTLED = "juror.settled";
 const SKIPPED = "juror.skipped";
 const CLAIMED = "juror.claimed";
+/** Dispute ids whose claim the chain refused for certain; never tried again. */
+const CLAIM_BLOCKED = "juror.claimBlocked";
 /** Reverts of `commitVote` that say this juror may not vote in this round. */
 const NOT_ELIGIBLE = ["ConflictedJuror", "InsufficientCredit", "NoWeight", "DeadlineViolation"];
 
@@ -249,21 +252,33 @@ async function settleFinished(ctx: AgentContext) {
 /**
  * Claims the rewards of every dispute whose votes of this juror are all settled, until the claim
  * succeeds: it is selected from the saved state alone, so a claim that failed (or a crash after the
- * votes were recorded) is tried again on the next tick. A repeated claim is harmless on chain.
+ * votes were recorded) is tried again on the next tick. A repeated claim is harmless on chain. A
+ * claim the chain refuses (a revert) is recorded as blocked, logged once and not tried again.
  */
 async function claimSettled(ctx: AgentContext) {
   const settled = actedOn(ctx, SETTLED);
   const claimed = actedOn(ctx, CLAIMED);
+  const blocked = actedOn(ctx, CLAIM_BLOCKED);
   const committed = actedOn(ctx, COMMITTED);
   for (const disputeId of new Set(committed.map((k) => parseKey(k).disputeId))) {
     const id = disputeId.toString();
     const votes = committed.filter((k) => parseKey(k).disputeId === disputeId);
-    if (claimed.includes(id) || !votes.every((k) => settled.includes(k))) continue;
-    await send(ctx, "CLAIM_REWARDS", {
+    if (claimed.includes(id) || blocked.includes(id) || !votes.every((k) => settled.includes(k))) continue;
+    const request = {
       address: ctx.deployment.generation.jurors as Hex,
       abi: agentAbi.jurors,
       functionName: "claimRewards",
-    });
+    } as const;
+    try {
+      await send(ctx, "CLAIM_REWARDS", request);
+    } catch (error) {
+      // Only a refusal by the chain is final; anything else (RPC, timeout, 429, a stale index) is tried again.
+      if (!isRevert(error)) throw error;
+      blocked.push(id);
+      await ctx.state.save();
+      ctx.log("claim_blocked", { disputeId: id, error: (await revertName(ctx, error, request)) ?? "REVERTED" });
+      continue;
+    }
     claimed.push(id);
     await ctx.state.save();
     ctx.log("claimed_rewards", { disputeId: id });
@@ -275,7 +290,8 @@ export const juror: RoleTick = async (ctx) => {
   // The time-critical steps first: a reveal has a window of its own.
   await reconcileCommits(ctx);
   await revealCommitted(ctx, now);
+  await commitOpenRounds(ctx, now);
+  // Settling and claiming have no deadline of their own, so they come after anything with one.
   await settleFinished(ctx);
   await claimSettled(ctx);
-  await commitOpenRounds(ctx, now);
 };

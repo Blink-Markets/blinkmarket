@@ -17,7 +17,7 @@ import {
 import { createContext, type AgentContext, type AgentEnv, type RoleName } from "../../examples/agents/src/lib/env.ts";
 import { createLogger } from "../../examples/agents/src/lib/log.ts";
 import type { RoleTick } from "../../examples/agents/src/lib/loop.ts";
-import { fixtureModel } from "../../examples/agents/src/lib/model.ts";
+import { fixtureModel, type Model } from "../../examples/agents/src/lib/model.ts";
 import { onboard } from "../../examples/agents/src/lib/session.ts";
 import { parseWorld, type World } from "../../examples/agents/src/lib/world.ts";
 import { challenger } from "../../examples/agents/src/roles/challenger.ts";
@@ -46,6 +46,8 @@ const TITLES = {
   conflict: "Juror with a position",
   race: "Two keepers",
   durable: "Juror persistence",
+  blocked: "Refused claim",
+  blocked2: "Vote during a refused claim",
   rejected: "Rejected creation challenge",
 } as const;
 type Key = keyof typeof TITLES;
@@ -91,6 +93,8 @@ const worldJson = () => ({
         race: { outcome: "YES" },
         durable: { outcome: "YES" },
         rejected: { outcome: "YES" },
+        blocked: { outcome: "YES" },
+        blocked2: { outcome: "YES" },
       },
     },
     challenger: {
@@ -100,6 +104,8 @@ const worldJson = () => ({
         restart: { outcome: "NO" },
         conflict: { outcome: "NO" },
         durable: { outcome: "NO" },
+        blocked: { outcome: "NO" },
+        blocked2: { outcome: "NO" },
         // Objects to the spec first and, once that fails, disputes the result.
         rejected: { objection: OBJECTION, outcome: "NO" },
         ambiguous: { objection: OBJECTION },
@@ -116,6 +122,8 @@ const worldJson = () => ({
             conflict: { outcome: "NO" },
             durable: { outcome: "NO" },
             rejected: { outcome: "NO" },
+            blocked: { outcome: "NO" },
+            blocked2: { outcome: "NO" },
             // The model finds the proposal right; the missing bytes still make it unsupported.
             missing: { outcome: "YES" },
             ambiguous: { objection: OBJECTION },
@@ -151,7 +159,7 @@ async function startAgent(
   name: string,
   roles: RoleName[],
   account: LocalAccount,
-  options: { stateDir?: string; join?: boolean } = {},
+  options: { stateDir?: string; join?: boolean; model?: Model } = {},
 ): Promise<Agent> {
   const key = bytesToHex((account as unknown as { getHdKey(): { privateKey: Uint8Array } }).getHdKey().privateKey);
   const stateDir = options.stateDir ?? join(directory, name);
@@ -167,7 +175,7 @@ async function startAgent(
   };
   const lines: Line[] = [];
   const log = createLogger(name, [key], (line) => lines.push(JSON.parse(line) as Line));
-  const ctx = await createContext(env, { model: fixtureModel(world, name), log, pollingIntervalMs: 100 });
+  const ctx = await createContext(env, { model: options.model ?? fixtureModel(world, name), log, pollingIntervalMs: 100 });
   if (options.join !== false) await onboard(ctx);
   return { name, ctx, lines, env, account };
 }
@@ -362,6 +370,12 @@ async function finalizeDispute(disputeId: bigint) {
   await run(agents.keeper1, keeper);
   assert.equal((await chainDispute(disputeId)).dispute.settled, true);
 }
+
+/** The same agent's model after a change of mind: it now answers YES, the opposite of what the world file says. */
+const changedMind = (name: string): Model => ({
+  ...fixtureModel(world, name),
+  outcome: async () => ({ outcome: "YES", evidence: new Uint8Array() }),
+});
 
 /**
  * Makes `target[name]` fail `times` times, when `match` accepts the arguments, and pass through
@@ -604,7 +618,11 @@ test(
     assert.equal((await votesBy(b, "VoteCommitted", disputeId)).length, 0);
 
     // The new process commits the saved salt, once.
-    const second = await startAgent("juror-b", ["juror"], b.account, { stateDir: b.env.stateDir, join: false });
+    const second = await startAgent("juror-b", ["juror"], b.account, {
+      stateDir: b.env.stateDir,
+      join: false,
+      model: changedMind("juror-b"),
+    });
     agents.jurorB = second;
     assert.equal(second.ctx.state.data.salts[saltAt], salt);
     await run(second, juror);
@@ -616,12 +634,17 @@ test(
     await warpTo(round.commitEnd);
     await indexed();
     await Promise.all([agents.jurorA, agents.jurorC, second].map((j) => run(j, juror)));
-    assert.equal((await votesBy(second, "VoteRevealed", disputeId)).length, 1);
+    const [revealedFirst] = await votesBy(second, "VoteRevealed", disputeId);
+    assert.equal(revealedFirst!.args.choice, OUTCOME_CODE.NO, "the reveal is the committed choice, not the new model's");
     second.ctx.state.data.acted["juror.revealed"] = second.ctx.state.data.acted["juror.revealed"]!.filter(
       (k) => k !== `${disputeId}:0`,
     );
     await second.ctx.state.save();
-    const third = await startAgent("juror-b", ["juror"], b.account, { stateDir: b.env.stateDir, join: false });
+    const third = await startAgent("juror-b", ["juror"], b.account, {
+      stateDir: b.env.stateDir,
+      join: false,
+      model: changedMind("juror-b"),
+    });
     agents.jurorB = third;
     await run(third, juror);
     assert.equal((await votesBy(third, "VoteRevealed", disputeId)).length, 1, "never a second reveal");
@@ -647,6 +670,65 @@ test(
     assert.equal(lines(third, "claimed_rewards").length, 1);
     await restoreRole(agents.proposer.account, ROLE.PROPOSER);
     for (const j of [agents.jurorA, agents.jurorC]) await run(j, juror);
+    // Later scenarios want juror B with the world file's model again.
+    agents.jurorB = await startAgent("juror-b", ["juror"], b.account, { stateDir: b.env.stateDir, join: false });
+  },
+);
+
+test(
+  "a claim the chain refuses is blocked once and does not hold back a vote",
+  { timeout: 900_000 },
+  async () => {
+    const b = agents.jurorB;
+    // First dispute: played to the end, so that juror B has a settled vote and a claim to make.
+    const m1 = await createMarket("blocked");
+    await openMarket(m1);
+    await propose(m1);
+    await run(agents.challenger, challenger);
+    const first = await disputeOf(m1.marketId);
+    await playRound(first, [agents.jurorA, b]);
+    await finalizeDispute(first);
+    await restoreRole(agents.proposer.account, ROLE.PROPOSER);
+
+    // Second dispute: open for commitments while the first claim is pending.
+    const m2 = await createMarket("blocked2");
+    await openMarket(m2);
+    await propose(m2);
+    await run(agents.challenger, challenger);
+    const second = await disputeOf(m2.marketId);
+    await indexed();
+
+    // The chain refuses the claim every time (a mined revert).
+    let claims = 0;
+    const accept = failing(b.ctx.walletClient, "writeContract", "CLAIM_REWARDS_REVERTED", 100, ([r]) => {
+      if (r.functionName !== "claimRewards") return false;
+      claims++;
+      return true;
+    });
+    const blocked = () => b.ctx.state.data.acted["juror.claimBlocked"] ?? [];
+    await run(b, juror);
+    assert.equal((await votesBy(b, "VoteCommitted", second)).length, 1, "the vote of the open round was cast");
+    // Every claim juror B had pending (an earlier scenario's included) was refused once and is blocked.
+    assert.ok(blocked().includes(String(first)));
+    assert.ok(!(b.ctx.state.data.acted["juror.claimed"] ?? []).includes(String(first)), "a refusal is not a claim");
+    const refused = claims;
+    assert.equal(refused, blocked().length);
+    assert.equal(lines(b, "claim_blocked").length, refused);
+    await run(b, juror);
+    await run(b, juror);
+    assert.equal(claims, refused, "a refused claim is not sent again");
+    assert.equal(lines(b, "claim_blocked").length, refused);
+
+    // The second dispute runs on and its claim, once the chain accepts it, goes through.
+    await playRound(second, [agents.jurorA, b]);
+    await finalizeDispute(second);
+    accept();
+    await restoreRole(agents.proposer.account, ROLE.PROPOSER);
+    await indexed();
+    await run(b, juror);
+    assert.equal(lines(b, "claimed_rewards").filter((l) => l.disputeId === String(second)).length, 1);
+    assert.equal(lines(b, "claim_blocked").length, refused);
+    await run(agents.jurorA, juror);
   },
 );
 
@@ -731,7 +813,11 @@ test("juror restarted after commit still reveals", { timeout: 600_000 }, async (
   await first.ctx.state.save();
 
   // A new process is built from the state directory alone (it onboards again, as `main` does).
-  const second = await startAgent("juror-b", ["juror"], first.account, { stateDir: first.env.stateDir });
+  // Its model has changed its mind meanwhile; the vote is still the one that was committed.
+  const second = await startAgent("juror-b", ["juror"], first.account, {
+    stateDir: first.env.stateDir,
+    model: changedMind("juror-b"),
+  });
   agents.jurorB = second;
   assert.equal(second.ctx.state.data.salts[saltAt], salt);
   await run(second, juror);
