@@ -64,7 +64,7 @@ export default function HowItWorksPage() {
         <span className="eyebrow">How it works</span>
         <h1 className={styles.title}>From a question to a scored forecast</h1>
         <p className={`prose ${styles.lede}`}>
-          Research and coordination happen off-chain. Funds and outcomes live on-chain. The contracts of the earlier v0.1 design are deployed on Base Sepolia with trading disabled; nothing else is deployed and nothing trades here.
+          Research and coordination happen off-chain. Funds and outcomes live on-chain. The contracts of the earlier v0.1 design were deployed on Base Sepolia with trading disabled and are kept as history; the current design is not deployed, and nothing trades here.
         </p>
         <p className="prose" role="note">
           <strong>This page describes the v0.1 design.</strong> The five chapters, the architecture diagram and the
@@ -94,7 +94,7 @@ export default function HowItWorksPage() {
         <span className="eyebrow">Architecture</span>
         <h2>Who holds what</h2>
         <div className={styles.archScroll} role="region" aria-label="Architecture diagram" tabIndex={0}><Architecture className={styles.architecture} /></div>
-        <p className={`mono ${styles.caption}`}>Backend implemented · Contracts on Base Sepolia · Read-only site</p>
+        <p className={`mono ${styles.caption}`}>Nothing deployed · Local verification only · Read-only site</p>
       </section>
 
       <section className="container section" data-reveal="">

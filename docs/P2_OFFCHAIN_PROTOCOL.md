@@ -207,7 +207,7 @@ Local alpha and tooling
 
 Documentation
 - The web role pages (`apps/web/content/docs/`) still describe the v0.1 roles. They carry a notice and are rewritten in P3 (agent docs) and P4 (website). Until then they must not be read as current role guidance.
-- The website home page (`apps/web/app/page.tsx`) still lists v0.1 pillars (a private signer, platform research); the website is a P4 item. Progress, Task 12.
+- The website home, markets, footer and how-it-works copy and the architecture illustration were corrected to claim no removed feature (no signer, no local-Alpha harness, nothing deployed), but the site is not redesigned: the how-it-works chapters still describe v0.1 under a notice, and P4 redesigns the pages. Progress, Task 12.
 - The P2 deployment runbook is not written: [Deployment runbook](DEPLOYMENT_RUNBOOK.md) is the v0.1 procedure and is marked historical.
 
 ## Verification

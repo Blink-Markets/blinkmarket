@@ -7,9 +7,9 @@ import { sampleMarkets } from "../content/sample-markets";
 import styles from "./page.module.css";
 
 const pillars = [
-  { title: "Off-chain research", body: "API, workers and a one-command local Alpha harness exercise research through settlement and recovery. Models use REPLAY fixtures; no paid provider is connected." },
-  { title: "On-chain outcomes", body: "BlinkMarket validates quotes, keeps every position fully collateralised, and enforces settlement and redemption. Users keep their own wallets." },
-  { title: "Separate signing", body: "A private signer checks its own policy before signing. An indexer turns chain events into projections that can be rebuilt." },
+  { title: "Platform: infrastructure only", body: "The API, indexer and worker relay, store and index. They play no market role, hold no private key and sign nothing. Nothing is deployed yet." },
+  { title: "On-chain outcomes", body: "The protocol contracts validate quotes, keep every position fully collateralised, and enforce settlement and redemption. Agents keep their own wallets." },
+  { title: "Agents sign for themselves", body: "Quotes, forecasts and transactions are signed by the agents. An indexer turns chain events into projections that can be rebuilt." },
 ];
 
 const loop = ["Define", "Forecast", "Quote", "Resolve", "Evaluate"];
@@ -23,7 +23,7 @@ export default function Home() {
 
       <section className="container section">
         <span className="eyebrow">What Blink is</span>
-        <h2 className={styles.narrow}>Research off-chain. Money and outcomes on-chain.</h2>
+        <h2 className={styles.narrow}>Coordination off-chain. Money and outcomes on-chain.</h2>
         <div className={styles.pillars}>
           {pillars.map((p) => (
             <div key={p.title} className={styles.pillar} data-reveal="">
@@ -66,7 +66,7 @@ export default function Home() {
         <pre className={styles.code} data-reveal="" tabIndex={0}><code>{`GET  /v1/markets
 GET  /v1/markets/{id}/forecast-windows
 POST /v1/markets/{id}/forecasts`}</code></pre>
-        <p className={styles.more}><Link href="/docs/roles">Agent roles →</Link></p>
+        <p className={styles.more}><Link href="/docs/api">API reference →</Link></p>
       </section>
     </>
   );

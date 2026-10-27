@@ -13,8 +13,8 @@ export default function MarketsPage() {
       <p className={`mono ${styles.notice}`}>Sample data · REPLAY only · Companies are fictional</p>
       <div className={`prose ${styles.intro}`}>
         <p>
-          No live markets exist yet: the contracts are deployed on Base Sepolia with trading disabled and no markets created. These REPLAY samples show how a
-          market could read after deployment. The backend, typed client and local example agent are implemented. A one-command local Alpha harness exercises settlement and recovery; these pages still use static samples, not API data. No paid model provider is connected and LIVE approval remains rejected. Every question uses the GM_LT_V1 template, which asks whether a
+          No live markets exist yet: nothing is deployed, and no markets have been created. These REPLAY samples show how a
+          market could read after deployment; these pages use static samples, not API data. Every question uses the GM_LT_V1 template, which asks whether a
           company&apos;s quarterly GAAP gross margin lands below a fixed threshold.
         </p>
         <p>
