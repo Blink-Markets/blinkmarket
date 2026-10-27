@@ -67,7 +67,10 @@ export function postgresEvaluationStore(
          FROM analytics.closed_forecasts f
          WHERE f.deployment_id=$1 AND f.market_id=$2
            AND NOT EXISTS(SELECT 1 FROM analytics.score_entries e
-                          WHERE e.window_id=f.window_id AND e.evaluation_version='v2')
+                          JOIN protocol.market_reads m USING(deployment_id,market_id)
+                          WHERE e.window_id=f.window_id AND e.evaluation_version='v2'
+                            AND m.state='FINAL' AND e.outcome=m.final_outcome
+                            AND e.mode=m.mode)
          ORDER BY f.deadline,f.window_id,f.forecaster`,
         [deploymentId, marketId],
       );

@@ -362,6 +362,19 @@ export async function verifyProtocolDeployment(
   const verifiedAt = new Date();
   const block = await client.getBlock();
   const blockNumber = block.number;
+  await check("startBlock", async () => {
+    if (BigInt(manifest.startBlock) > blockNumber)
+      return "DEPLOYMENT_BLOCK_IN_FUTURE";
+    if (manifest.startBlock > 0)
+      for (const [name, record] of Object.entries(manifest.contracts)) {
+        const code = await client.getCode({
+          address: record.address as Address,
+          blockNumber: BigInt(manifest.startBlock - 1),
+        });
+        if (code && code !== "0x")
+          return "DEPLOYMENT_BLOCK_TOO_LATE: " + name;
+      }
+  });
   const read = (
     address: string,
     abi: Abi,

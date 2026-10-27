@@ -1,6 +1,6 @@
 # SQL migrations
 
-Migrations 0001–0034 exist (there is no 0021; the runner does not require contiguous numbers). 0001–0024 are the v0.1 history. P2 added 0025–0034, and they are the current shape of the database:
+Migrations 0001–0036 exist (there is no 0021; the runner does not require contiguous numbers). 0001–0024 are the v0.1 history. P2 added 0025–0036, and they are the current shape of the database:
 
 | Migration | Change |
 | --- | --- |
@@ -14,6 +14,8 @@ Migrations 0001–0034 exist (there is no 0021; the runner does not require cont
 | 0032 rfq_relay | `rfq.requests` and `rfq.quotes`, immutable |
 | 0033 signed_forecasts | Signed submissions, window roots, `analytics.closed_forecasts`; drops `blink_forecast_admin` and the `evidence` schema |
 | 0034 fees_undistributed_alert | Widens the alert family list |
+| 0035 production_clock | Makes the production database clock ignore session overrides |
+| 0036 canonical_score_outcomes | Allows append-only score corrections for a changed canonical outcome |
 
 Every DROP names its objects, and nothing uses CASCADE. No production database exists, so retired tables were dropped, not archived. The table inventory is in [Data model](../../../docs/DATA_MODEL.md).
 

@@ -426,6 +426,7 @@ test("consensus weights come from scores recorded before the deadline", async ()
     const w = await f.addWindow(600);
     await f.insertAnswer(w.id, { agent: f.agents.a, address: a.address }, 2000);
     await f.insertAnswer(w.id, { agent: f.agents.b, address: b.address }, 8000);
+    await f.asOwner(() => seedReadMarket(f.t.db, DEPLOYMENT, 9, { state: "FINAL", finalOutcome: "YES", replay: false }));
     // Five earlier LIVE scores of mean Brier 0.1 give a weight 0.15; b has none.
     await f.asOwner(async () => {
       for (let i = 0; i < 5; i++) {
@@ -525,6 +526,8 @@ let scoreClock = 0;
 /** `count` more scored LIVE answers of `who`, each with this Brier; they become the latest. */
 async function addScores(f: ForecastFixture, who: { address: string }, count: number, brier: string) {
   await f.asOwner(async () => {
+    if (!(await f.t.db.query("SELECT 1 FROM protocol.markets WHERE deployment_id=$1 AND key='9'", [DEPLOYMENT])).rows.length)
+      await seedReadMarket(f.t.db, DEPLOYMENT, 9, { state: "FINAL", finalOutcome: "YES", replay: false });
     for (let i = 0; i < count; i++) {
       const id = randomUUID();
       const at = 1_900_000_000 + 3600 * scoreClock++;
