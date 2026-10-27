@@ -261,9 +261,41 @@ test("quoteTypedData is the typed data BlinkMarkets hashes", () => {
     chainId: 84532,
     verifyingContract: markets,
   });
-  assert.equal(typed.message.side, 1);
-  assert.equal(typed.message.expiresAt, 200n);
-  assert.match(hashTypedData(typed), /^0x[0-9a-f]{64}$/);
+  // The expected digest is built by hand from the contract's own typehash string, so a changed
+  // field, order or type on either side fails here.
+  const typeString = readFileSync("contracts/src/protocol/BlinkMarkets.sol", "utf8").match(
+    /QUOTE_TYPEHASH = keccak256\(\s*"([^"]+)"/,
+  )![1]!;
+  const fields = typeString.slice("Quote(".length, -1).split(",").map((f) => f.split(" "));
+  const text = (s: string) => keccak256(new TextEncoder().encode(s));
+  const domainSeparator = keccak256(
+    encodeAbiParameters(
+      [{ type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }, { type: "uint256" }, { type: "address" }],
+      [
+        text("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+        text("Blink RFQ"),
+        text("0.2"),
+        84532n,
+        markets,
+      ],
+    ),
+  );
+  const structHash = keccak256(
+    encodeAbiParameters(
+      [{ type: "bytes32" }, ...fields.map(([type]) => ({ type: type! }))],
+      [
+        text(typeString),
+        ...fields.map(([type, name]) => {
+          const value = quote[name as keyof typeof quote];
+          return type!.startsWith("uint") ? BigInt(value) : value;
+        }),
+      ],
+    ),
+  );
+  assert.equal(
+    hashTypedData(typed),
+    keccak256(`0x1901${domainSeparator.slice(2)}${structHash.slice(2)}`),
+  );
 });
 
 test("the client re-exports the spec parser so agents never import schemas", () => {
