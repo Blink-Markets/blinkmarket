@@ -18,13 +18,14 @@ import {
   decodeEventLog,
   defineChain,
   http,
-  parseAbi,
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
   BlinkApiError,
   QuoteVerificationError,
+  ROLE,
+  agentAbi,
   createBlinkClient,
   verifySignedQuote,
 } from "@blink/client";
@@ -32,30 +33,9 @@ import {
 const CHAIN_ID = 84532;
 const MAINNET_CHAIN_ID = 8453;
 const LOOPBACK = ["127.0.0.1", "localhost", "[::1]"];
-const TAKER_ROLE = 2;
 const QUANTITY = "10";
 const MAX_RFQ_ATTEMPTS = 3;
 const UNIT = 1_000_000n;
-
-// Just what a taker calls: the bUSD token, the faucet, the registry and the markets contract.
-const tokenAbi = parseAbi([
-  "function approve(address spender, uint256 amount) returns (bool)",
-  "function balanceOf(address owner) view returns (uint256)",
-]);
-const faucetAbi = parseAbi(["function claim()"]);
-const registryAbi = parseAbi([
-  "function register()",
-  "function isRegistered(address account) view returns (bool)",
-  "function hasRole(address account, uint8 role) view returns (bool)",
-  "function joinRole(uint8 role, uint256 amount)",
-]);
-const marketsAbi = parseAbi([
-  "struct Quote { uint256 marketId; bytes32 specHash; address maker; address taker; uint8 side; uint64 quantity; uint16 priceBps; uint64 validAfter; uint64 expiresAt; uint256 nonce; uint256 epoch; }",
-  "function fillQuote(Quote q, bytes signature)",
-  "function consumed(bytes32 digest) view returns (bool)",
-  "function redeem(uint256 id)",
-  "event PositionRedeemed(uint256 indexed marketId, address indexed account, uint256 yes, uint256 no, uint256 payout)",
-]);
 
 export type AgentConfig = {
   apiUrl: string;
@@ -195,7 +175,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
   const balance = () =>
     publicClient.readContract({
       address: busd,
-      abi: tokenAbi,
+      abi: agentAbi.usd,
       functionName: "balanceOf",
       args: [account.address],
     });
@@ -204,7 +184,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
   if ((await balance()) < fee + stake + worstFill) {
     await send("FAUCET_CLAIM", {
       address: shared.faucet as Hex,
-      abi: faucetAbi,
+      abi: agentAbi.faucet,
       functionName: "claim",
     });
     log("claimed test bUSD from the faucet");
@@ -212,36 +192,36 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
   const registryRead = (functionName: "isRegistered" | "hasRole", args: never) =>
     publicClient.readContract({
       address: registry,
-      abi: registryAbi,
+      abi: agentAbi.registry,
       functionName,
       args,
     } as never) as Promise<boolean>;
   if (!(await registryRead("isRegistered", [account.address] as never))) {
     await send("APPROVE_FEE", {
       address: busd,
-      abi: tokenAbi,
+      abi: agentAbi.usd,
       functionName: "approve",
       args: [registry, fee],
     });
     await send("REGISTER", {
       address: registry,
-      abi: registryAbi,
+      abi: agentAbi.registry,
       functionName: "register",
     });
     log("registered");
   }
-  if (!(await registryRead("hasRole", [account.address, TAKER_ROLE] as never))) {
+  if (!(await registryRead("hasRole", [account.address, ROLE.TAKER] as never))) {
     await send("APPROVE_STAKE", {
       address: busd,
-      abi: tokenAbi,
+      abi: agentAbi.usd,
       functionName: "approve",
       args: [registry, stake],
     });
     await send("JOIN_TAKER", {
       address: registry,
-      abi: registryAbi,
+      abi: agentAbi.registry,
       functionName: "joinRole",
-      args: [TAKER_ROLE, stake],
+      args: [ROLE.TAKER, stake],
     });
     log("joined the TAKER role");
   }
@@ -287,7 +267,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
   const consumedNow = (digest: Hex) =>
     publicClient.readContract({
       address: markets,
-      abi: marketsAbi,
+      abi: agentAbi.markets,
       functionName: "consumed",
       args: [digest],
     });
@@ -307,7 +287,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     try {
       txHash = await wallet.writeContract({
         address: markets,
-        abi: marketsAbi,
+        abi: agentAbi.markets,
         functionName: "fillQuote",
         args: [quote, signature],
       } as never);
@@ -398,7 +378,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     // The approval covers the cost and the fee, never more.
     await send("APPROVE_FILL", {
       address: busd,
-      abi: tokenAbi,
+      abi: agentAbi.usd,
       functionName: "approve",
       args: [markets, best.maxCost],
     });
@@ -439,14 +419,14 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
   });
   const redeemed = await send("REDEEM", {
     address: markets,
-    abi: marketsAbi,
+    abi: agentAbi.markets,
     functionName: "redeem",
     args: [BigInt(marketId)],
   });
   let payoutMicros = "0";
   for (const entry of redeemed.logs) {
     try {
-      const event = decodeEventLog({ abi: marketsAbi, ...entry });
+      const event = decodeEventLog({ abi: agentAbi.markets, ...entry });
       if (event.eventName === "PositionRedeemed")
         payoutMicros = event.args.payout.toString();
     } catch {

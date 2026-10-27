@@ -331,8 +331,27 @@ export {
   approvalFor,
   feeOf,
   takerCostOf,
+  quoteTypedData,
   verifySignedQuote,
   type QuoteVerificationCode,
   type QuoteVerificationContext,
   type VerifiedQuote,
 } from "./verify-quote.ts";
+export { agentAbi } from "./agent-abi.ts";
+export {
+  CREATION_GROUND,
+  MARKET_STATE,
+  OUTCOME,
+  QUESTION_CLASS,
+  ROLE,
+  templateIdFor,
+  voteCommitment,
+} from "./protocol-constants.ts";
+export {
+  GM_LT_V1,
+  gmLtV1Outcome,
+  parseGrossMargin,
+  type GrossMarginResult,
+} from "./templates/index.ts";
+/** Re-exported so that an agent reads a MarketSpec without importing the schemas package. */
+export { parseMarketSpec, type MarketSpecV02 } from "@blink/schemas";

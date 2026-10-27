@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseGrossMargin } from "../packages/domain/src/gm-parser.ts";
+import {
+  gmLtV1Outcome,
+  parseGrossMargin,
+} from "../packages/client/src/templates/gm-lt-v1.ts";
 for (const [text, expected] of [
   ["GAAP gross margin was 61%", 6100],
   ["GAAP gross margin 61.25%", 6125],
@@ -45,4 +48,38 @@ test("signed gross margins retain their value for outcome comparison", () => {
   const over100 = parseGrossMargin("GAAP gross margin was 101%");
   assert.ok("valueBps" in over100);
   assert.equal(over100.valueBps, 10100);
+});
+
+test("gmLtV1Outcome is YES below the threshold and NO at or above it", () => {
+  const source = "GAAP gross margin was 61.25%";
+  assert.equal(gmLtV1Outcome(source, '{"thresholdBps":6126}'), "YES");
+  assert.equal(gmLtV1Outcome(source, '{"thresholdBps":6125}'), "NO");
+  assert.equal(gmLtV1Outcome(source, '{"thresholdBps":6000}'), "NO");
+});
+
+test("gmLtV1Outcome is null when the source is ambiguous", () => {
+  for (const source of [
+    "GAAP gross margin 61% and GAAP gross margin 62%",
+    "non-GAAP gross margin 61%",
+    "revenue grew",
+  ])
+    assert.equal(gmLtV1Outcome(source, '{"thresholdBps":6500}'), null);
+});
+
+test("gmLtV1Outcome is null when the extraction is invalid", () => {
+  const source = "GAAP gross margin was 61%";
+  for (const extraction of [
+    '{"thresholdBps":0}',
+    '{"thresholdBps":10000}',
+    '{"thresholdBps":-1}',
+    '{"thresholdBps":6100.5}',
+    '{"thresholdBps":"6500"}',
+    '{"thresholdBps":6500,"extra":1}',
+    "{}",
+    "[]",
+    "null",
+    "not json",
+    "",
+  ])
+    assert.equal(gmLtV1Outcome(source, extraction), null, extraction);
 });

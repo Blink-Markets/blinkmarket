@@ -109,6 +109,39 @@ function isCanonicalEcdsa(signature: Hex): boolean {
 }
 
 /**
+ * The EIP-712 typed data of a quote: what a maker signs and what BlinkMarkets hashes. The domain
+ * is the deployment's BlinkMarkets on chain 84532; the one builder for both sides of a fill.
+ */
+export function quoteTypedData(
+  quote: QuoteFields,
+  deployment: Pick<ProtocolDeployment, "generation">,
+) {
+  return {
+    domain: {
+      name: "Blink RFQ",
+      version: "0.2",
+      chainId: CHAIN_ID,
+      verifyingContract: deployment.generation.markets as Hex,
+    },
+    types: quoteTypes,
+    primaryType: "Quote" as const,
+    message: {
+      marketId: BigInt(quote.marketId),
+      specHash: quote.specHash as Hex,
+      maker: quote.maker as Hex,
+      taker: quote.taker as Hex,
+      side: Number(quote.side),
+      quantity: BigInt(quote.quantity),
+      priceBps: Number(quote.priceBps),
+      validAfter: BigInt(quote.validAfter),
+      expiresAt: BigInt(quote.expiresAt),
+      nonce: BigInt(quote.nonce),
+      epoch: BigInt(quote.epoch),
+    },
+  };
+}
+
+/**
  * Throws `QuoteVerificationError` with the first failed check, else returns the digest and what
  * the taker will pay. The domain and types come from this code and the trusted deployment, never
  * from the relay, and the signature is checked against chain state with viem `verifyTypedData`, so a
@@ -152,31 +185,7 @@ export async function verifySignedQuote(
   if (left <= 0n || left < (ctx.minValiditySeconds ?? DEFAULT_MIN_VALIDITY_SECONDS))
     return fail("EXPIRED");
 
-  const domain = {
-    name: "Blink RFQ",
-    version: "0.2",
-    chainId: CHAIN_ID,
-    verifyingContract: deployment.generation.markets as Hex,
-  };
-  const message = {
-    marketId: BigInt(quote.marketId),
-    specHash: quote.specHash as Hex,
-    maker: quote.maker as Hex,
-    taker: quote.taker as Hex,
-    side: Number(quote.side),
-    quantity: BigInt(quote.quantity),
-    priceBps: Number(quote.priceBps),
-    validAfter,
-    expiresAt,
-    nonce: BigInt(quote.nonce),
-    epoch: BigInt(quote.epoch),
-  };
-  const typed = {
-    domain,
-    types: quoteTypes,
-    primaryType: "Quote" as const,
-    message,
-  };
+  const typed = quoteTypedData(quote, deployment);
   // BlinkMarkets takes ECDSA (no code) or ERC-1271 (code), never an ERC-6492 wrapper; viem's
   // validator would accept one, so the same rule is applied here, not a looser one.
   if (isErc6492Signature(signature)) return fail("SIGNATURE_INVALID");
