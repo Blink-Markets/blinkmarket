@@ -1,0 +1,13 @@
+{
+  "name": "@blink/examples",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node --import tsx src/main.ts"
+  },
+  "dependencies": {
+    "@blink/client": "workspace:*",
+    "viem": "2.56.8"
+  }
+}

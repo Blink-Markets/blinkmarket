@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { bytesToHex, getAbiItem, toFunctionSelector } from "viem";
-import { runAgent } from "../../examples/agent/run.ts";
 import { createBlinkClient } from "../../packages/client/src/index.ts";
 import type { QuoteFields } from "../../packages/schemas/src/index.ts";
 import { protocolAbi, startRfqStack } from "../helpers/rfq-stack.ts";
 import { rpcFaultProxy, type SendFault } from "../helpers/rpc-fault-proxy.ts";
+import { runTrader } from "../helpers/trader-agent.ts";
 
 const POLL_MS = 100;
 const FILL_SELECTOR = toFunctionSelector(
@@ -57,13 +57,12 @@ async function scenario(
       faulted = true;
       return fault(ctx)(tx);
     });
-    const agent = runAgent({
+    const agent = runTrader({
       apiUrl: stack.apiUrl,
       privateKey: bytesToHex(accounts.taker.getHdKey().privateKey!),
       rpcUrl: proxy.url,
       pollMs: POLL_MS,
-      waitMs: { indexing: 60_000, quotes: 30_000, final: 120_000, receipt: 30_000, settle: 60_000 },
-      log: () => undefined,
+      trader: { waitMs: { quotes: 30_000, receipt: 30_000, settle: 60_000 } },
     });
     const outcome = agent.then(
       (result) => ({ result }),

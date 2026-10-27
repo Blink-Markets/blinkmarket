@@ -59,7 +59,7 @@ TEST_POSTGRES_ADMIN_URL='<專用本機 PostgreSQL 管理員連線 URL>' pnpm alp
 
 管理員須具備 CREATEDB／CREATEROLE 權限。Harness 自行建立並清除測試資料庫與服務帳號，在 chain ID 84532 的本機 Anvil 上部署一代協定，並啟動真實的 API、indexer 與 worker，其環境中沒有任何角色私鑰。獨立的 actor 接著只透過公開 API 與合約跑完一個市場的完整生命週期：註冊與角色質押、由 creator 認領的人類建議、內容上傳、建市、由 EOA maker 與 ERC-1271 錢包 maker 回覆的兩次 RFQ、帶錨定視窗 root 的簽章預測、提出結果、無挑戰終局化、手續費分配與贖回。因為 alpha 協定的視窗是實際時間，整個流程約需五分半鐘。這只驗證本機流程；它取代的 v0.1 harness 見[本機 Alpha](docs/M5_LOCAL_ALPHA.md)，目前的 harness 見 [P2 交付紀錄](docs/P2_OFFCHAIN_PROTOCOL.md)。
 
-`@blink/client` 是未發布至 npm 的 private workspace package，提供型別化回應、runtime validation、伺服器標示可重試錯誤的同 key 重試、P2 API 方法及 `verifySignedQuote`。[Agent 範例](examples/agent/README.md)是一個完整的 taker：註冊、證明錢包控制權、送出 RFQ、驗證回來的報價、精確授權最佳報價的成本、成交並贖回；RPC 限本機 loopback。
+`@blink/client` 是未發布至 npm 的 private workspace package，提供型別化回應、runtime validation、伺服器標示可重試錯誤的同 key 重試、P2 API 方法及 `verifySignedQuote`。[Agent 範例](examples/agents/README.md)是一個完整的 taker：註冊、證明錢包控制權、送出 RFQ、驗證回來的報價、精確授權最佳報價的成本、成交並贖回；RPC 限本機 loopback。
 
 ## 架構
 
@@ -136,7 +136,7 @@ tests/         單元、合約協定、PostgreSQL、Anvil、本機 alpha 與瀏�
 
 - **[文件網站](https://blink-markets.github.io/blinkmarket/docs/)**：核心概念、市場生命週期、API 參考與 agent 指南（英文），每一頁也提供 Markdown 版本。角色頁面仍描述 v0.1 的角色並附有提示，P3 會改寫。
 - **目前的設計與交付：**[自主市場設計](docs/superpowers/specs/2026-10-23-autonomous-market-design.md) · [P1 協定合約](docs/P1_PROTOCOL_CONTRACTS.md) · [P2 鏈下協定](docs/P2_OFFCHAIN_PROTOCOL.md) · [P2 進度](docs/P2_OFFCHAIN_PROGRESS.md) · [實作進度](docs/ROADMAP.md) · [領域用語](CONTEXT.md)
-- [整體架構](docs/ARCHITECTURE.md) · [資料模型](docs/DATA_MODEL.md) · [開發指南](docs/DEVELOPMENT.md) · [運行與部署](docs/OPERATIONS.md) · [驗證](docs/VERIFICATION.md) · [驗收矩陣](docs/ACCEPTANCE_MATRIX.md) · [Agent 範例](examples/agent/README.md)
+- [整體架構](docs/ARCHITECTURE.md) · [資料模型](docs/DATA_MODEL.md) · [開發指南](docs/DEVELOPMENT.md) · [運行與部署](docs/OPERATIONS.md) · [驗證](docs/VERIFICATION.md) · [驗收矩陣](docs/ACCEPTANCE_MATRIX.md) · [Agent 範例](examples/agents/README.md)
 - **歷史（v0.1 團隊營運設計，已成歷史）：**[架構圖解](docs/ARCHITECTURE_GUIDE.md) · [細部設計](docs/design/README.md) · [技術決策](docs/adr/0001-platform.md) · 交付紀錄 `docs/M0_M1_DELIVERY.md`、`docs/M2_*.md`、`docs/M3_*.md`、`docs/M4_*.md` 與 `docs/M5_*.md` · [部署 manifest `alpha-2`](deployments/base-sepolia/alpha-2.manifest.json) · [原始 MVP 規格](Blink_MVP_v0.1_Base_Sepolia_Spec.md)
 
 `docs/` 中的內部文件以英文撰寫。

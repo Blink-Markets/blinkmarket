@@ -145,6 +145,15 @@ importers:
         specifier: 8.23.0
         version: 8.23.0
 
+  examples/agents:
+    dependencies:
+      '@blink/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      viem:
+        specifier: 2.56.8
+        version: 2.56.8(typescript@5.9.3)(zod@4.6.5)
+
   packages/adapters:
     dependencies:
       '@blink/ports':

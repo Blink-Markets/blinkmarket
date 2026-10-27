@@ -17,6 +17,8 @@ export class BlinkApiError extends Error {
   constructor(
     public readonly status: number,
     public readonly body: ApiError,
+    /** The server's Retry-After, in seconds, when it sent one. */
+    public readonly retryAfterSeconds?: number,
   ) {
     super(body.message);
   }
@@ -88,9 +90,16 @@ export function createBlinkClient(
       const bytes = new Uint8Array(await response.arrayBuffer());
       if (response.ok) return bytes;
       const error = ApiError.parse(JSON.parse(new TextDecoder().decode(bytes)));
-      if (!error.retryable || attempt >= maxAttempts)
-        throw new BlinkApiError(response.status, error);
-      await sleep(waitBefore(response.headers.get("retry-after"), attempt));
+      const retryAfter = response.headers.get("retry-after");
+      if (!error.retryable || attempt >= maxAttempts) {
+        const seconds = retryAfter === null ? Number.NaN : Number(retryAfter);
+        throw new BlinkApiError(
+          response.status,
+          error,
+          Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined,
+        );
+      }
+      await sleep(waitBefore(retryAfter, attempt));
     }
   }
   const json = (bytes: Uint8Array): unknown => {
@@ -331,8 +340,27 @@ export {
   approvalFor,
   feeOf,
   takerCostOf,
+  quoteTypedData,
   verifySignedQuote,
   type QuoteVerificationCode,
   type QuoteVerificationContext,
   type VerifiedQuote,
 } from "./verify-quote.ts";
+export { agentAbi } from "./agent-abi.ts";
+export {
+  CREATION_GROUND,
+  MARKET_STATE,
+  OUTCOME,
+  QUESTION_CLASS,
+  ROLE,
+  templateIdFor,
+  voteCommitment,
+} from "./protocol-constants.ts";
+export {
+  GM_LT_V1,
+  gmLtV1Outcome,
+  parseGrossMargin,
+  type GrossMarginResult,
+} from "./templates/index.ts";
+/** Re-exported so that an agent reads a MarketSpec without importing the schemas package. */
+export { parseMarketSpec, type MarketSpecV02 } from "@blink/schemas";

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { bytesToHex, hashTypedData } from "viem";
-import { runAgent } from "../../examples/agent/run.ts";
 import { createBlinkClient } from "../../packages/client/src/index.ts";
 import { quoteTypes, type QuoteFields } from "../../packages/schemas/src/index.ts";
 import { quoteStruct, startRfqStack } from "../helpers/rfq-stack.ts";
+import { runTrader } from "../helpers/trader-agent.ts";
 
 const QUANTITY = "10";
 const PRICE_BPS = "4000";
@@ -28,12 +28,12 @@ test(
       const makerClient = createBlinkClient(stack.apiUrl, await stack.keyFor(accounts.maker));
 
       const logLines: string[] = [];
-      const agent = runAgent({
+      const agent = runTrader({
         apiUrl: stack.apiUrl,
         privateKey: bytesToHex(accounts.taker.getHdKey().privateKey!),
         rpcUrl: stack.anvil.url,
         pollMs: POLL_MS,
-        waitMs: { indexing: 60_000, quotes: 30_000, final: 120_000, receipt: 30_000 },
+        trader: { waitMs: { quotes: 30_000, receipt: 30_000 } },
         log: (line) => logLines.push(line),
       });
       // Settle the agent's promise into a value so an early failure is reported, not left dangling.
@@ -101,7 +101,12 @@ test(
         quotesFilled: 1,
         quotesCancelledBeforeExpiry: 0,
       });
-      assert.ok(logLines.some((l) => l.startsWith("claimed test bUSD")), logLines.join("\n"));
+      assert.ok(
+        logLines.some((l) => (JSON.parse(l) as { event: string }).event === "faucet_claimed"),
+        logLines.join("\n"),
+      );
+      // The agent's key never reaches its log.
+      assert.ok(!logLines.join("\n").includes(bytesToHex(accounts.taker.getHdKey().privateKey!).slice(2)));
     } finally {
       await stack.close();
     }

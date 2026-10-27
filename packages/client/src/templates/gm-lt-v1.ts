@@ -68,3 +68,36 @@ export function parseGrossMargin(text: string): GrossMarginResult {
     }
   );
 }
+
+/**
+ * The GM_LT_V1 answer: YES iff the one GAAP gross margin in `sourceText` is below the threshold
+ * of `extraction`, which is exactly `{"thresholdBps":<integer 1..9999>}`. It returns null when the
+ * source is ambiguous or the extraction is anything else, so no one can read a favourable answer
+ * out of a source or an extraction the template does not define.
+ */
+export function gmLtV1Outcome(
+  sourceText: string,
+  extraction: string,
+): "YES" | "NO" | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(extraction);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    return null;
+  const keys = Object.keys(parsed);
+  const thresholdBps = (parsed as Record<string, unknown>).thresholdBps;
+  if (
+    keys.length !== 1 ||
+    typeof thresholdBps !== "number" ||
+    !Number.isInteger(thresholdBps) ||
+    thresholdBps < 1 ||
+    thresholdBps > 9999
+  )
+    return null;
+  const margin = parseGrossMargin(sourceText);
+  if (!("valueBps" in margin)) return null;
+  return margin.valueBps < thresholdBps ? "YES" : "NO";
+}
