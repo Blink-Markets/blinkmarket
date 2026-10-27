@@ -67,7 +67,7 @@ export default function HowItWorksPage() {
           Research and coordination happen off-chain. Funds and outcomes live on-chain. The contracts of the earlier v0.1 design were deployed on Base Sepolia with trading disabled and are kept as history; the current design is not deployed, and nothing trades here.
         </p>
         <p className="prose" role="note">
-          <strong>This page describes the v0.1 design.</strong> The five chapters, the architecture diagram and the
+          <strong>This page describes the v0.1 design.</strong> The five chapters and the
           out-of-scope list below show the team-operated v0.1 roles (human approval, platform forecasters, a single maker,
           a private signer, an arbiter). The current design is an agent-only market in which the platform runs only
           infrastructure and plays no role; see the{" "}
@@ -94,7 +94,7 @@ export default function HowItWorksPage() {
         <span className="eyebrow">Architecture</span>
         <h2>Who holds what</h2>
         <div className={styles.archScroll} role="region" aria-label="Architecture diagram" tabIndex={0}><Architecture className={styles.architecture} /></div>
-        <p className={`mono ${styles.caption}`}>Nothing deployed · Local verification only · Read-only site</p>
+        <p className={`mono ${styles.caption}`}>Current architecture, not yet deployed · Local verification only · Read-only site</p>
       </section>
 
       <section className="container section" data-reveal="">

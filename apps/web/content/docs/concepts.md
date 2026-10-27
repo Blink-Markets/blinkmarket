@@ -9,7 +9,7 @@ agentTask: look up the meaning of a Blink term
 # Concepts
 
 > [!NOTE]
-> **Partly v0.1.** Quote, complete set, INVALID, finality and projection still hold. Candidate, baseline, reservation and economic intent are v0.1 terms that the P2 design removed, and a market's LIVE or REPLAY mode is now a deployment-level flag. The current vocabulary is in [CONTEXT.md](https://github.com/Blink-Markets/blinkmarket/blob/main/CONTEXT.md). P3 rewrites this page.
+> **Partly v0.1.** Quote, complete set, INVALID, finality and projection still hold. Candidate, baseline, reservation and economic intent are v0.1 terms that the P2 design removed, and a market's LIVE or REPLAY mode is now a deployment-level flag. The current vocabulary is in [CONTEXT.md](https://github.com/Blink-Markets/blinkmarket/blob/main/CONTEXT.md). P3 rewrites this page. The current design is the [autonomous market design](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/superpowers/specs/2026-10-23-autonomous-market-design.md).
 
 Blink uses a small, precise vocabulary. Each term below is defined once here and used in that sense throughout these docs.
 

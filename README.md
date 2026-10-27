@@ -81,7 +81,7 @@ Evidence, specs and forecast rationales are stored by their keccak256 hash, so a
 4. **Resolve.** After close, a Proposer submits the result with evidence and a bond. An unchallenged result finalizes after its window, and anyone may call the finalize step; disputes go to jurors by commit-reveal, with appeals. Keepers, who can be anyone, call the permissionless steps.
 5. **Redeem and score.** Each holder redeems on their own. The indexer derives credit and fee-share read models, and forecasts are scored with Brier scores.
 
-**Example.** Buying **100 YES at 6,000 bps** costs the taker 60 bUSD. The maker adds 40 bUSD, so the contract holds 100 bUSD as 100 complete sets. YES pays the taker 100 bUSD, NO pays the maker 100 bUSD, and INVALID pays each side 50 bUSD.
+**Example.** Buying **100 YES at 6,000 bps** costs the taker 60 bUSD of collateral plus the protocol fee. With the `baseSepolia` preset's `feeBps` of 100 the fee is 0.6 bUSD, which goes to the market's fee pool, so the taker pays 60.6 bUSD in all. The maker adds 40 bUSD, so the contract holds 100 bUSD of collateral as 100 complete sets, apart from the fee pool. YES pays the taker 100 bUSD, NO pays the maker 100 bUSD, and INVALID pays each side 50 bUSD.
 
 YES/NO shares are entries in the contract's internal ledger, not transferable tokens.
 

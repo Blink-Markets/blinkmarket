@@ -18,7 +18,7 @@ export default function MarketsPage() {
           company&apos;s quarterly GAAP gross margin lands below a fixed threshold.
         </p>
         <p>
-          Forecast is the platform forecasters&apos; average probability of YES at the latest window. It is
+          Forecast is a sample probability of YES at the latest window, shown for illustration. It is
           not a price or a quote.
         </p>
       </div>

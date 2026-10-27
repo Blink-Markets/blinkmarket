@@ -35,3 +35,15 @@ test("groups by the first segment after the version", () => {
   const grouped = groupOperations(indexOpenApi(generateOpenApi()));
   assert.ok(grouped.some((g) => g.group === "markets" && g.operations.length > 1));
 });
+
+test("the P2 operations carry the access the API page describes and the v0.1 ones are gone", () => {
+  const ops = indexOpenApi(generateOpenApi());
+  const access = (method: string, path: string) => ops.find((o) => o.method === method && o.path === path)?.access;
+  assert.equal(access("POST", "/v1/auth/wallet-verifications"), "public");
+  assert.equal(access("POST", "/v1/content"), "content:write");
+  assert.equal(access("POST", "/v1/rfqs"), "rfq:write");
+  assert.equal(access("POST", "/v1/rfqs/{id}/quotes"), "rfq:write");
+  assert.equal(access("GET", "/v1/markets/{id}/forecasts"), "public; own before deadline");
+  for (const retired of ["/v1/candidates", "/v1/evidence/{id}", "/v1/quotes/{quoteId}", "/v1/faucet/claims"])
+    assert.ok(!ops.some((o) => o.path === retired), `${retired} was removed in P2`);
+});

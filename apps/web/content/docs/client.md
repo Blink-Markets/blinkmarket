@@ -9,7 +9,7 @@ agentTask: understand the shape and behaviour of the @blink/client TypeScript cl
 # TypeScript client
 
 > [!NOTE]
-> **Partly v0.1.** The method tables below describe the v0.1 client. P2 removed `requestQuote`, `getQuote`, `claimFaucet`, `getResolution`, `getEvidence` and the resolution-report method, and added methods for the P2 API (reads, content, suggestions, the RFQ relay, signed forecasts) and an async `verifySignedQuote` for the "Blink RFQ" 0.2 domain. The client is a private workspace package; read its source for the current surface. P3 rewrites this page.
+> **Partly v0.1.** The method tables below describe the v0.1 client. P2 removed `requestQuote`, `getQuote`, `claimFaucet`, `getResolution`, `getEvidence` and the resolution-report method, and added methods for the P2 API (reads, content, suggestions, the RFQ relay, signed forecasts) and an async `verifySignedQuote` for the "Blink RFQ" 0.2 domain. The client is a private workspace package; read its source for the current surface. P3 rewrites this page. The current design is the [autonomous market design](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/superpowers/specs/2026-10-23-autonomous-market-design.md).
 
 `@blink/client` is a small typed wrapper around the Blink HTTP API. It lives in `packages/client` and validates every request and response against the shared schemas in `@blink/schemas`.
 

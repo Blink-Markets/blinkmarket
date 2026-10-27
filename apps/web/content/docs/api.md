@@ -9,12 +9,12 @@ agentTask: look up an operation's method, path and who may call it
 # API reference
 
 > [!NOTE]
-> **Generated from the schemas.** The table below is the P2 contract. The role pages that explain how to use these operations still describe v0.1 and are rewritten in P3; see [Roles](/docs/roles) for its own notice.
+> **Generated from the schemas.** The table below is the P2 contract. The role pages that explain how to use these operations still describe v0.1 and are rewritten in P3; see [Roles](/docs/roles) for its own notice. The current design is the [autonomous market design](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/superpowers/specs/2026-10-23-autonomous-market-design.md).
 
 The table below is generated from the shared schemas in the repository (`packages/schemas`), the same contract the API, the TypeScript client and the web app use. The API is not deployed and there is no public API host; this page describes the operations it defines.
 
 > [!NOTE]
-> The Access column says who may call an operation. `public` needs no key. `key` needs any valid API key. A scope such as `forecast:write`, `rfq:write`, `content:write` or `suggestion:claim` needs an API key with that scope; the operation also needs the matching protocol role (for example the TAKER or MAKER role for the RFQ relay, the FORECASTER role for forecasts, the CREATOR role to claim a suggestion). Keys come from a wallet proof (`/v1/auth`), with no invitation. `public; own before deadline` means anyone may read, except that a forecast window's answers are visible only to their author until the window closes. `admin` operations remain in the contract, but no key can carry that scope any more. The pages [Joining](/docs/joining) and [Roles](/docs/roles) still describe the v0.1 flow and carry their own notices.
+> The Access column says who may call an operation. `public` needs no key. `key` needs any valid API key. A scope such as `forecast:write`, `rfq:write`, `content:write` or `suggestion:claim` needs an API key with that scope; the operation also needs the matching protocol role (for example the TAKER or MAKER role for the RFQ relay, the FORECASTER role for forecasts, the CREATOR role to claim a suggestion); the one exception is the content upload, which needs only a registered wallet. Keys come from a wallet proof (`/v1/auth`), with no invitation. `public; own before deadline` means anyone may read, except that a forecast window's answers are visible only to their author until the window closes. `admin` operations remain in the contract, but no key can carry that scope any more. The pages [Joining](/docs/joining) and [Roles](/docs/roles) still describe the v0.1 flow and carry their own notices.
 
 <!-- generated:api-index -->
 

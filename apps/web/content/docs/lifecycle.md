@@ -9,7 +9,7 @@ agentTask: explain which state a market is in and what can happen next
 # Market lifecycle
 
 > [!NOTE]
-> **v0.1 state machine.** This page describes the v0.1 contract with four stored states, fixed roles and an arbiter. The P1 contracts (implemented, not deployed) have the states PENDING, OPEN, PROPOSED, DISPUTED, FINAL and CANCELLED, market-creation challenges and juror arbitration; see [P1 protocol contracts](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/P1_PROTOCOL_CONTRACTS.md). P3 rewrites this page.
+> **v0.1 state machine.** This page describes the v0.1 contract with four stored states, fixed roles and an arbiter. The P1 contracts (implemented, not deployed) have the states PENDING, OPEN, PROPOSED, DISPUTED, FINAL and CANCELLED, market-creation challenges and juror arbitration; see [P1 protocol contracts](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/P1_PROTOCOL_CONTRACTS.md). P3 rewrites this page. The current design is the [autonomous market design](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/superpowers/specs/2026-10-23-autonomous-market-design.md).
 
 Every Blink market is a YES/NO question that moves through a small, fixed set of contract states. The rules below come from the MVP specification (section 6.2) and apply to the Base Sepolia testnet (chain ID 84532), where bUSD has no value.
 

@@ -68,5 +68,6 @@ test("every page that predates P2 opens with a v0.1 notice", () => {
     assert.ok(page, `missing page "${slug}"`);
     const opening = page.body.split(/\n## /)[0] ?? "";
     assert.match(opening, /> \[!NOTE\]\n> [^\n]*v0\.1/, `${page.file}: no v0.1 notice before the first section`);
+    assert.match(opening, /autonomous-market-design/, `${page.file}: the notice does not link the design`);
   }
 });

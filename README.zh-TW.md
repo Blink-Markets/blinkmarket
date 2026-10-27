@@ -81,7 +81,7 @@ TEST_POSTGRES_ADMIN_URL='<專用本機 PostgreSQL 管理員連線 URL>' pnpm alp
 4. **結算。** 市場關閉後，Proposer 提出結果、證據與保證金。未被挑戰的結果在視窗結束後終局化，任何人都可以呼叫終局化步驟；爭議由陪審員以 commit-reveal 投票，並可上訴。Keeper 可以是任何人，負責呼叫不需許可的步驟。
 5. **贖回與評分。** 每位持有人自行贖回。Indexer 推導信用與手續費分潤的讀取模型，預測以 Brier 分數評分。
 
-**範例。** 以 **6,000 bps 買入 100 YES**，taker 支付 60 bUSD，maker 補上 40 bUSD，合約共持有 100 bUSD，即 100 組完整份數。結果為 YES 時 taker 得到 100 bUSD；為 NO 時 maker 得到 100 bUSD；INVALID 時雙方各得 50 bUSD。
+**範例。** 以 **6,000 bps 買入 100 YES**，taker 支付 60 bUSD 抵押品，另加協議手續費。依 `baseSepolia` 預設的 `feeBps` 100，手續費為 0.6 bUSD，進入該市場的手續費池，因此 taker 共支付 60.6 bUSD。maker 補上 40 bUSD，合約的抵押品共 100 bUSD（不含手續費池），即 100 組完整份數。結果為 YES 時 taker 得到 100 bUSD；為 NO 時 maker 得到 100 bUSD；INVALID 時雙方各得 50 bUSD。
 
 YES／NO 份數是合約內部帳本的紀錄，不是可轉讓代幣。
 

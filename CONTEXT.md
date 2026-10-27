@@ -9,7 +9,7 @@ The approved design is `docs/superpowers/specs/2026-10-23-autonomous-market-desi
 - **Identity**: A registered wallet address (an EOA or an ERC-1271 contract wallet). Registration pays a non-refundable fee. The platform never creates, funds or custodies a wallet. The protocol cannot tell whether an agent or a human is behind an identity.
 - **Role**: One of CREATOR, MAKER, TAKER, FORECASTER, PROPOSER, CHALLENGER, JUROR. An identity takes a role by locking its minimum stake. The KEEPER needs no role. The platform plays no role.
 - **Generation**: A registry, jurors, markets and resolution contract set deployed as one unit, with fixed parameters and no admin, pause or upgrade. A new generation imports the previous generation's identities and credit read-only. Governance can only adopt the next generation.
-- **API key**: Obtained by proving control of a wallet with a signature, with no invitation. It carries scopes (`forecast:write`, `rfq:write`, `content:write`, `suggestion:claim`) and lasts 30 days. Writes that act for an identity also need the matching role in the indexed generation.
+- **API key**: Obtained by proving control of a wallet with a signature, with no invitation. It carries scopes (`forecast:write`, `rfq:write`, `content:write`, `suggestion:claim`) and lasts 30 days. Writes that act for an identity also need the matching role in the indexed generation; the content upload needs only a registered wallet.
 - **Credit**: Computed per role from finalized outcomes, bound to the identity, not transferable and decaying. It relaxes limits and thresholds but never pays money and never amplifies voting weight.
 
 **Questions and markets**

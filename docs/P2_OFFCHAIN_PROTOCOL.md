@@ -63,7 +63,7 @@ An identity is a wallet address. It proves control with a signature and receives
 
 A key lasts 30 days, an address holds at most 5 active keys (`409 KEY_LIMIT_REACHED`), and the scopes are exactly `forecast:write`, `rfq:write`, `content:write` and `suggestion:claim`. A challenge is single use. Challenge and verification attempts are bounded per client IP and per address (sliding windows, `429 RATE_LIMITED`). The `SECURITY DEFINER` functions lock the challenge row, so concurrent verifications issue one key, and they re-read the clock after every lock wait.
 
-Writes that act for an identity also need the matching role in the indexed current generation, checked at request time. Reads are public.
+Writes that act for an identity also need the matching role in the indexed current generation, checked at request time. The one exception is the content upload, which needs only the indexed registration of the key's wallet (`403 NOT_REGISTERED` otherwise), not a role. Most reads need no key, but the relay reads authenticate the caller (a maker lists open RFQs, only the RFQ's taker lists its quotes) and a forecast window's answers show only the caller's own before the deadline (sealing).
 
 ## RFQ relay rules
 
@@ -71,8 +71,8 @@ The relay stores and returns maker-signed quote fields and signature bytes uncha
 
 - `POST /v1/rfqs` needs `rfq:write` and the TAKER role. An RFQ stays open 30 seconds, a taker holds at most 5 open RFQs, and an RFQ holds at most 20 quotes, one per maker.
 - `GET /v1/rfqs` and `POST /v1/rfqs/:id/quotes` need `rfq:write` and the MAKER role.
-- A quote is accepted only if, in this order: the RFQ is open; taker, market, side and quantity equal the RFQ's; the spec hash equals the indexed market's; the quote names the caller as maker and is signed (ECDSA for a maker without code, ERC-1271 for a contract wallet, the same rule as `BlinkMarkets.fillQuote`); `0 < priceBps < 10000`; the lifetime is at most 60 seconds; expiry is after now and not after the market closes; the epoch is the maker's current one; the digest is UNUSED; the maker's free balance covers `quantity x 1_000_000 - takerCost`.
-- After the signature check the relay checks again (clock, RFQ openness, quote expiry, market tradability, index health, epoch, digest, balance), and the store re-checks under the per-RFQ lock that the RFQ is still open.
+- A quote is accepted only if: the RFQ is open; taker, market, side and quantity equal the RFQ's; the spec hash equals the indexed market's; the quote names the caller as maker and is signed (ECDSA for a maker without code, ERC-1271 for a contract wallet, the same rule as `BlinkMarkets.fillQuote`); `0 < priceBps < 10000`; the lifetime is at most 60 seconds; expiry is after now and not after the market closes; the epoch is the maker's current one; the digest is UNUSED; the maker's free balance covers `quantity x 1_000_000 - takerCost`.
+- The relay runs the checks above, except the signature, first; then it verifies the signature; then it runs them again (clock, RFQ openness, quote expiry, market tradability, index health, epoch, digest, balance), and the store re-checks under the per-RFQ lock that the RFQ is still open.
 - Every refusal happens before anything is stored. Writes answer `503 INDEX_STALE` while the index lags more than 30 seconds.
 - Quotes go only to the RFQ's taker, cheapest first. The relay may refuse to relay (censorship); it cannot forge or modify a quote.
 - ERC-6492 wrappers and high-s signatures are refused for quotes, because `BlinkMarkets.fillQuote` rejects them: a wrapped quote could never fill.
@@ -125,7 +125,7 @@ Forecaster credit, consensus and maker stats are read models. They affect no rul
 
 ## Public read model
 
-All reads are public, paged by `after`/`limit` (at most 100) and carry the index health, except raw-bytes routes (spec, content), which carry it in `Blink-Index-*` headers on the spec route. Votes show `choice: null` until revealed.
+The protocol read routes (deployment, templates, markets, resolution, accounts) need no key, are paged by `after`/`limit` (at most 100) and carry the index health in the body; the spec route is raw bytes, so it carries the health in `Blink-Index-*` headers, and the content route carries none. Votes show `choice: null` until revealed. The forecast, window-list and consensus routes and `/v1/forecasters` are paged differently: `cursor`/`limit` (at most 100), answering `{ items, nextCursor }` with no index field. The relay routes (`/v1/rfqs`) page with `after` and answer `{ items, next }`.
 
 | Area | Routes |
 | --- | --- |
@@ -212,11 +212,11 @@ Documentation
 
 ## Verification
 
-Measured on 2026-10-26 on the Task 12 branch, which is main `4b52d12` (the merge of Task 11) plus documentation only: the new and edited docs, the web notices (Markdown and one page's text) and one docs test. No source, contract or migration changed, so the code suites below ran on the same code as `4b52d12`. Host: Linux (RHEL 8), Node 22, PostgreSQL 17.6 in the Docker container `blink-test-pg` (the CI image), Foundry 1.7.1 through `scripts/foundry.mjs`. Counts are what each runner printed.
+Measured on 2026-10-26 on the Task 12 branch, which is main `4b52d12` (the merge of Task 11) plus the documentation commit `15163ba`. That commit changed documents, the web notices (Markdown and one page's text) and one docs test, and no source, contract or migration, so every suite below ran on the code of `4b52d12`. Two later commits changed only web copy, the architecture illustration and tests (`d7ea6fd` and fix round 1); after each, `pnpm check` was run again, and no other suite was repeated because none of them reads that code. Host: Linux (RHEL 8), Node 22, PostgreSQL 17.6 in the Docker container `blink-test-pg` (the CI image), Foundry 1.7.1 through `scripts/foundry.mjs`. Counts are what each runner printed.
 
 | Command | Result |
 | --- | --- |
-| `pnpm check` | 560 of 560 unit tests pass, 0 fail, 0 skipped, after the last edit (12 min 9 s); root and web typecheck, contract checks and the package-boundary check pass. A run before the new notice test was added printed 559 of 559 |
+| `pnpm check` | at `15163ba`: 560 of 560 unit tests pass, 0 fail, 0 skipped (12 min 9 s); root and web typecheck, contract checks and the package-boundary check pass (a run before the new notice test was added printed 559 of 559). Re-run after `d7ea6fd`: 560 of 560. Re-run after fix round 1, which added one OpenAPI-index test: 561 of 561 (12 min 59 s), with the same checks passing |
 | `pnpm test:postgres` | 36 of 36 tests pass, 0 fail, 0 skipped (79 s, run serially) |
 | `pnpm drill:restore:test` | 1 of 1 test pass (74 s): real `pg_dump` and restore |
 | `pnpm test:anvil` | 40 of 40 tests pass, 0 fail, 0 skipped (92 s) |

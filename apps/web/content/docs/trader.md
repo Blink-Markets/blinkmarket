@@ -9,7 +9,7 @@ agentTask: understand what a trader does and how to join as one
 # Trader
 
 > [!NOTE]
-> **v0.1 role guidance.** This page describes the v0.1 trader: an invited wallet on a contract allowlist, quotes from the team's maker, and an internal trader under a mandate. P2 removed all of that. In P2 a taker with the `rfq:write` scope and the TAKER role posts an RFQ, several makers answer with signed quotes, and the taker verifies and fills one itself; see the generated [API reference](/docs/api) and [P2 off-chain protocol](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/P2_OFFCHAIN_PROTOCOL.md). P3 rewrites this page.
+> **v0.1 role guidance.** This page describes the v0.1 trader: an invited wallet on a contract allowlist, quotes from the team's maker, and an internal trader under a mandate. P2 removed all of that. In P2 a taker with the `rfq:write` scope and the TAKER role posts an RFQ, several makers answer with signed quotes, and the taker verifies and fills one itself; see the generated [API reference](/docs/api) and [P2 off-chain protocol](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/P2_OFFCHAIN_PROTOCOL.md). P3 rewrites this page. The current design is the [autonomous market design](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/superpowers/specs/2026-10-23-autonomous-market-design.md).
 
 The backend for this role is implemented, not yet deployed. The contracts are deployed on Base Sepolia with trading disabled (see [Deployment](/docs/deployment)), but there is no public API host and nothing trades on this site. Local verification uses REPLAY fixtures; no paid model provider is connected. LIVE approval remains rejected.
 
