@@ -386,26 +386,54 @@ test("a create that landed unacknowledged is found again after a restart, even i
   assert.ok(!titles.includes("Crash market, reworded"));
 });
 
-test("a maker whose deposit landed unacknowledged does not deposit twice after a restart", { timeout: 120_000 }, async () => {
+test("a maker whose deposit is still unmined sends it again with the same nonce, and exactly one deposit lands", { timeout: 120_000 }, async () => {
   makerA = await startAgent("makerA", "makerA", accounts.maker, ["maker"]);
-  loseAnswerOnce(makerA, "depositMaker");
-  await assert.rejects(() => maker(makerA.ctx), /socket hang up/);
-  assert.equal(await depositsOf(accounts.maker.address), 1);
-  const saved = await loadState(makerA.stateDir);
-  assert.equal(saved.acted["maker.deposit-attempts"]?.length, 1, "the attempt was saved before the send");
-  assert.deepEqual(saved.acted["maker.deposited"] ?? [], []);
+  const rpc = (method: string, params: unknown[]) => platform.anvil.publicClient.request({ method, params } as never);
+  const send = makerA.ctx.walletClient.writeContract.bind(makerA.ctx.walletClient) as (r: { functionName: string }) => Promise<Hex>;
+  const nonces: unknown[] = [];
+  let lost = false;
+  (makerA.ctx.walletClient as { writeContract: unknown }).writeContract = async (request: { functionName: string; nonce?: number }) => {
+    if (request.functionName !== "depositMaker") return send(request);
+    nonces.push(request.nonce);
+    if (lost) return send(request);
+    // Mining stops, the deposit is broadcast and the answer never arrives.
+    lost = true;
+    await rpc("evm_setAutomine", [false]);
+    await send(request);
+    throw new Error("request timed out");
+  };
+  try {
+    await assert.rejects(() => maker(makerA.ctx), /request timed out/);
+    assert.equal(await depositsOf(accounts.maker.address), 0, "the deposit is not mined");
+    const saved = await loadState(makerA.stateDir);
+    const attempt = JSON.parse(saved.acted["maker.deposit-attempt"]![0]!) as { nonce: number; hash?: string };
+    assert.equal(attempt.nonce, nonces[0], "the attempt, with its nonce, was saved before the send");
+    assert.deepEqual(saved.acted["maker.deposited"] ?? [], []);
 
-  await restart(makerA);
-  await tick(maker, makerA.ctx);
-  await tick(maker, makerA.ctx);
-  assert.deepEqual(eventsOf(makerA, "deposit_reconciled").map((l) => l.attempted), [true]);
-  assert.equal(makerA.writes.filter((w) => w === "depositMaker").length, 1);
+    // The process restarts and ticks again while the first deposit is still in the pool.
+    await restart(makerA);
+    const second = tick(maker, makerA.ctx);
+    await new Promise((r) => setTimeout(r, 1500));
+    await rpc("evm_setAutomine", [true]);
+    await rpc("evm_mine", []);
+    await second;
+  } finally {
+    await rpc("evm_setAutomine", [true]);
+  }
+  assert.deepEqual(nonces, [nonces[0], nonces[0]], "the second send reuses the nonce");
   assert.equal(await depositsOf(accounts.maker.address), 1, "exactly one deposit");
-  assert.deepEqual((await loadState(makerA.stateDir)).acted["maker.deposited"], ["100000000"]);
+  assert.equal(await chainRead<bigint>(markets(), agentAbi.markets as Abi, "makerFree", [accounts.maker.address]), 100_000_000n);
+  await tick(maker, makerA.ctx);
+  assert.equal(await depositsOf(accounts.maker.address), 1);
+  const done = await loadState(makerA.stateDir);
+  assert.deepEqual(done.acted["maker.deposited"], ["100000000"]);
+  assert.deepEqual(done.acted["maker.deposit-attempt"], []);
 });
 
 test("maker quotes only where its model has a view, and trader fills the better of two quotes", { timeout: 600_000 }, async () => {
   makerB = await startAgent("makerB", "makerB", accounts.challenger, ["maker"]);
+  // A saved attempt whose nonce was used by another transaction (its onboarding): dropped, then a fresh nonce.
+  makerB.ctx.state.data.acted["maker.deposit-attempt"] = [JSON.stringify({ nonce: 0 })];
   trader = await startAgent("trader", "trader", accounts.taker, ["trader"]);
   await openMarket(ids.gm!);
   await openMarket(ids.gm2!);
@@ -447,6 +475,7 @@ test("maker quotes only where its model has a view, and trader fills the better 
     for (const agent of [makerA, makerB])
       assert.deepEqual(eventsOf(agent, "quote_posted").map((l) => l.marketId), [ids.gm]);
     for (const who of [accounts.maker, accounts.challenger]) assert.equal(await depositsOf(who.address), 1);
+    assert.equal(eventsOf(makerB, "deposit_attempt_dropped").length, 1);
   } finally {
     stop.abort();
     await Promise.all(loops);

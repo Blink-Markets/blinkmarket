@@ -50,7 +50,7 @@ A suggestion claim is saved before the spec is written, and the spec carries `su
 
 ## The maker
 
-The maker deposits a working balance (100 bUSD) once (it saves the attempt first and checks the chain for its own `MakerDeposited` before any second deposit), then answers each open RFQ in a market where its model has a view: the model's probability of the RFQ's side plus a 300 bps half-spread (clamped to 1..9999), signed with `quoteTypedData`, living 30 seconds (or until the market closes). It logs `quote_skipped` with a reason where it has no view. On SIGTERM, after the last tick, `main` calls `makerStop`, which sends `incrementMakerEpoch` so every quote still out is void.
+The maker deposits a working balance (100 bUSD) once (it reads its pending nonce after the approval is mined, saves it as the attempt, and sends the deposit with that nonce; an unresolved attempt is sent again with the same nonce, so it can land at most once, and a fresh nonce is used only when the saved one was mined by something that was not the deposit; it also checks the chain for its own `MakerDeposited` first), then answers each open RFQ in a market where its model has a view: the model's probability of the RFQ's side plus a 300 bps half-spread (clamped to 1..9999), signed with `quoteTypedData`, living 30 seconds (or until the market closes). It logs `quote_skipped` with a reason where it has no view. On SIGTERM, after the last tick, `main` calls `makerStop`, which sends `incrementMakerEpoch` so every quote still out is void.
 
 ## The forecaster
 
