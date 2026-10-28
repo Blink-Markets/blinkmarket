@@ -19,7 +19,7 @@ Jurors decide disputes. When a market's creation or a proposed result is challen
 - **Commit.** The commitment is `voteCommitment({ disputeId, round, juror, choice, salt })` from `@blink/client`: keccak256 of the ABI encoding, with a random 32-byte salt. Call `commitVote(disputeId, commitment)` before the commit phase ends. The reference juror saves `"<choice>:<salt>"` to its state file **before** the transaction is sent. If the answer is lost, the next tick reads its own `VoteCommitted` event before it sends again, so it never commits twice and can still reveal after a restart.
 - **Reveal.** Call `revealVote(disputeId, choice, salt)` after the commit phase and before the reveal phase ends. A commitment that is not revealed is slashed. The reference juror reveals before it does anything that calls the API.
 - **Skip what you must.** The contract refuses a vote from the market's creator, the proposer, the challenger, an appellant, or anyone with a position in the market (`ConflictedJuror`), and from an account below the round's credit threshold (`InsufficientCredit`) or with no weight (`NoWeight`). The reference juror checks the first group itself, creates no salt and logs `skipped_vote`, and skips on the others when the contract says so.
-- **Settle and claim.** Once the dispute is final, settle your votes with `settleVote` and claim rewards with `claimRewards`. Anyone can settle anyone's vote, so one absent juror cannot block the others; a winner's reward waits until every loser of its round is settled (`LosersPending`). The reference juror settles the losers first, then its own, and retries a claim until it succeeds.
+- **Settle and claim.** Once the dispute is final, settle your votes with `settleVote` and claim rewards with `claimRewards`. Anyone can settle anyone's vote, so one absent juror cannot block the others; a winner's reward waits until every loser of its round is settled (`LosersPending`). The reference juror settles the losers first, then its own. It retries a claim that failed for a transient reason (an RPC error, a timeout, a `429` or a stale index) on the next tick, but a claim the contract reverts is recorded as blocked, logged once as `claim_blocked` and not tried again: it needs the operator's attention.
 
 ## Stake or bond
 
@@ -48,11 +48,15 @@ Jurors decide disputes. When a market's creation or a proposed result is challen
 
 ## Steps
 
+The order below is one tick of the reference juror (`examples/agents/src/roles/juror.ts`). The time-critical reveal comes before a new commit, and settling and claiming (which have no deadline) come last.
+
 1. `GET /v1/deployment` (client `getDeployment()`): read the addresses and `params` (`commitSeconds`, `revealSeconds`, `appealSeconds`, `quorumBps`, `nonRevealSlashBps`, `incoherentSlashBps`, `jurorUnstakeCooldown`, `roundCreditThreshold`, `phaseInFinalizedMarkets`, `jurorShareBps`).
 2. Onboard as in [Onboarding](/docs/onboarding): claim test funds, register, and stake: `BlinkToken.approve(jurors, amount)` then `BlinkJurors.stake(amount)`. The juror reads only public routes, so an API key is optional.
-3. Find disputes: `GET /v1/markets` (client `listMarkets`) with state `DISPUTED`, and state `PENDING` for markets whose creation was challenged; then `GET /v1/markets/{id}/disputes` (client `listDisputes`) for each. For a result dispute, `GET /v1/markets/{id}` (client `getMarket`) returns the proposal, and `GET /v1/content/{hash}` (client `getContent`) checks its evidence.
-4. Read the round: `BlinkResolution.getDispute(disputeId)` returns the dispute and its current round (`commitEnd`, `revealEnd`, `appealEnd`, `settled`, `creditThreshold`), and `BlinkMarkets.getPosition(id, account)` tells whether you hold a position (a conflict).
-5. Commit: save the choice and salt, then `BlinkResolution.commitVote(disputeId, commitment)`. If the answer is lost, look for your `VoteCommitted` event before you send again.
-6. Reveal: `BlinkResolution.revealVote(disputeId, choice, salt)` between the end of the commit phase and the end of the reveal phase; the `VoteRevealed` event confirms it.
-7. When the dispute is final (`DisputeFinalized`): `BlinkResolution.settleVote(disputeId, round, juror)` for every `VoteCommitted` of the dispute, losers first, then `BlinkJurors.claimRewards()`.
-8. To leave: `BlinkJurors.requestUnstake(amount)`, and after the cooldown `BlinkJurors.withdrawUnstaked()`.
+3. Recover commits: for a saved salt with no recorded landing, read your `VoteCommitted` event from `BlinkResolution` (`startBlock` of the deployment) before sending anything.
+4. Reveal: for each recorded commit, `BlinkResolution.getDispute(disputeId)` for the current round; between the end of the commit phase and the end of the reveal phase, `BlinkResolution.revealVote(disputeId, choice, salt)`. The `VoteRevealed` event confirms it.
+5. Find open rounds: `GET /v1/markets` (client `listMarkets`) with state `DISPUTED`, and state `PENDING` for markets whose creation was challenged; then `GET /v1/markets/{id}/disputes` (client `listDisputes`) for each, and `BlinkResolution.getDispute(disputeId)` for the round's `commitEnd`.
+6. Decide the vote. First `BlinkMarkets.getPosition(id, account)` (a position is a conflict; so is being the market's creator or the challenger). For a result dispute, `GET /v1/markets/{id}` (client `getMarket`) returns the proposal, and `GET /v1/content/{hash}` (client `getContent`) checks its evidence.
+7. Commit: save the choice and a random salt, then `BlinkResolution.commitVote(disputeId, commitment)`. If the answer is lost, look for your `VoteCommitted` event before you send again.
+8. When the dispute is final (`getDispute` says settled): read the `VoteCommitted` events of the dispute and call `BlinkResolution.settleVote(disputeId, round, juror)` for every one, losers first, then yours.
+9. `BlinkJurors.claimRewards()` once all your votes of that dispute are settled.
+10. To leave: `BlinkJurors.requestUnstake(amount)`, and after the cooldown `BlinkJurors.withdrawUnstaked()`. The reference juror does not do this by itself; it is an operator action.

@@ -16,19 +16,19 @@ A market stores one of six states. `OPEN` is closed for trading once the clock p
 
 | State | Meaning |
 | --- | --- |
-| `PENDING` | Created, in its creation window. Anyone with the CHALLENGER role may challenge the creation until `openAt`. |
+| `PENDING` | Created, in its creation window. A challenger may challenge the creation until `openAt`. A challenge does not change the state: the market stays `PENDING` with `creationChallenged` set while jurors decide. |
 | `OPEN` | Quotes can be filled until `closeAt`. After `closeAt` the market is closed to trading and a result can be proposed. |
-| `PROPOSED` | A proposer has submitted an outcome (`YES`, `NO` or `INVALID`), its evidence hash and a bond. A challenge window runs. |
-| `DISPUTED` | The creation or the proposed result was challenged. Jurors decide by commit and reveal; the losing side may appeal. |
+| `PROPOSED` | A proposer has submitted an outcome (`YES` or `NO`; `INVALID` cannot be proposed), its evidence hash and a bond. A challenge window runs. |
+| `DISPUTED` | The proposed result was challenged. Jurors decide by commit and reveal; the losing side may appeal. (A creation challenge keeps the market `PENDING`.) |
 | `FINAL` | The outcome is fixed and cannot be changed. Holders can redeem. |
-| `CANCELLED` | A creation challenge was upheld. The market never opened and trades nothing. |
+| `CANCELLED` | A creation challenge was upheld. The market never opened and trades nothing. A rejected creation challenge opens the market (`OPEN`) instead. |
 
 ## How does a market move between states?
 
 | Call | Who | Condition | Result |
 | --- | --- | --- | --- |
 | `BlinkMarkets.createMarket` | A creator (role CREATOR) | Valid spec and times; within the security bound and the creator's exposure limit; creation bond posted | `PENDING` |
-| `BlinkResolution.challengeCreation` | A challenger | `PENDING`, before `openAt`, evidence hash set | A dispute opens; jurors decide |
+| `BlinkResolution.challengeCreation` | A challenger | `PENDING`, before `openAt`, evidence hash set | A creation dispute opens; the market stays `PENDING` with `creationChallenged` set while jurors decide |
 | `BlinkMarkets.open` | Anyone | `PENDING`, `openAt` passed, not creation-challenged | `OPEN` |
 | `BlinkMarkets.fillQuote` | The named taker, with a maker's signed quote | `OPEN`, before `closeAt`, balances and caps hold | A position; the market stays `OPEN` |
 | `BlinkResolution.propose` | A proposer | `OPEN`, from `closeAt` until `proposalDeadline`, once per market; bond posted | `PROPOSED` |
@@ -36,7 +36,7 @@ A market stores one of six states. `OPEN` is closed for trading once the clock p
 | `BlinkResolution.finalizeUnchallenged` | Anyone | `PROPOSED`, challenge window over | `FINAL` with the proposed outcome |
 | `BlinkResolution.settleRound` | Anyone | The round's reveal phase is over | The round's result, or a restart if it missed quorum or tied |
 | `BlinkResolution.appeal` | The losing side | The round's appeal phase; a doubled bond; below `maxRounds`; time left for a new round before `hardDeadline` | A new round |
-| `BlinkResolution.finalizeDispute` | Anyone | The settled round's appeal phase is over | `FINAL` with the jurors' outcome, or `CANCELLED` for an upheld creation challenge |
+| `BlinkResolution.finalizeDispute` | Anyone | The settled round's appeal phase is over | Result dispute: `FINAL` with the jurors' outcome. Creation dispute: `CANCELLED` if the challenge is upheld, `OPEN` if it is rejected |
 | `BlinkResolution.finalizeTimeout` | Anyone | Neither `FINAL` nor `CANCELLED`, and `hardDeadline` passed | `FINAL` with outcome `INVALID` |
 | `BlinkMarkets.redeem` | A share holder | `FINAL` | Shares burned, payout sent |
 | `BlinkMarkets.distributeFees` | Anyone (the caller earns a tip) | `FINAL`, once | The fee pool is split |

@@ -47,12 +47,15 @@ Not counted. A keeper has no on-chain credit and needs none.
 
 ## Steps
 
+The order below is one tick of the reference keeper (`examples/agents/src/roles/keeper.ts`): the states `PENDING`, `OPEN`, `PROPOSED`, `DISPUTED` and `FINAL`, in that order.
+
 1. `GET /v1/deployment` (client `getDeployment()`): read the addresses, the anchor address and `params` (`keeperTipBps`).
 2. Onboard as in [Onboarding](/docs/onboarding) if you want an API key; no role is needed.
-3. `GET /v1/markets` (client `listMarkets`) once for each state: `PENDING`, `OPEN`, `PROPOSED`, `DISPUTED` and `FINAL`.
-4. For any market whose `hardDeadline` has passed and that is not final: `BlinkResolution.finalizeTimeout(id)`.
-5. For a `PENDING` market with no challenge whose `openAt` has passed: `BlinkMarkets.open(id)`.
-6. For a `PROPOSED` market: `GET /v1/markets/{id}` (client `getMarket`) returns the proposal and its `challengeEnd`; after it, `BlinkResolution.finalizeUnchallenged(id)`.
-7. For a market with an open dispute: `GET /v1/markets/{id}/disputes` (client `listDisputes`), then `BlinkResolution.getDispute(disputeId)` for the current round. After `revealEnd`, `BlinkResolution.settleRound(disputeId)`. After `appealEnd` of a settled round that did not restart, `BlinkResolution.finalizeDispute(disputeId)`.
-8. For a `FINAL` market whose fees are not distributed: `BlinkMarkets.distributeFees(id)`.
-9. For forecast windows: `GET /v1/markets/{id}/forecast-windows` (client `listForecastWindows`) lists each window's `root`; if `BlinkAnchor.anchoredAt(root)` is zero, call `BlinkAnchor.anchor(root)`.
+3. For each state: `GET /v1/markets` (client `listMarkets`), and for each market in a state before `FINAL`:
+   - If its `hardDeadline` has passed: `BlinkResolution.finalizeTimeout(id)`, and go to the next market.
+   - `PENDING` with a creation challenge: drive its dispute (below). `PENDING` with no challenge and `openAt` passed: `BlinkMarkets.open(id)`.
+   - `PROPOSED`: `GET /v1/markets/{id}` (client `getMarket`) returns the proposal and its `challengeEnd`; after it, `BlinkResolution.finalizeUnchallenged(id)`.
+   - `DISPUTED`: drive its dispute.
+4. Drive a dispute: `GET /v1/markets/{id}/disputes` (client `listDisputes`), then `BlinkResolution.getDispute(disputeId)` for the current round. After `revealEnd`, `BlinkResolution.settleRound(disputeId)`. After `appealEnd` of a settled round that did not restart, `BlinkResolution.finalizeDispute(disputeId)`.
+5. For a `FINAL` market whose fees are not distributed: `BlinkMarkets.distributeFees(id)`.
+6. For every market that is not `PENDING`, and not yet recorded as done: `GET /v1/markets/{id}/forecast-windows` (client `listForecastWindows`) lists each window's `root`; if `BlinkAnchor.anchoredAt(root)` is zero, call `BlinkAnchor.anchor(root)`.

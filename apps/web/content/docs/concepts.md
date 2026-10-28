@@ -66,7 +66,7 @@ Blink uses a small, precise vocabulary. Each term below is defined once here and
 
 **Evidence.** Bytes addressed by their keccak256 in the content store (`/v1/content`, up to 1 MiB each). A result is judged on archived bytes, not on a live fetch. A proposal whose bytes cannot be fetched is unsupported.
 
-**Proposal.** A proposer's `YES`, `NO` or `INVALID` plus an evidence hash and a bond. If nobody challenges it within the window, it becomes final.
+**Proposal.** A proposer's `YES` or `NO` plus an evidence hash and a bond. `INVALID` cannot be proposed; it comes only through the timeout at `hardDeadline`. If nobody challenges it within the window, it becomes final.
 
 **Dispute.** A challenge to a creation or to a proposed result. Jurors decide it in rounds of commit, reveal and appeal.
 
@@ -74,7 +74,7 @@ Blink uses a small, precise vocabulary. Each term below is defined once here and
 
 **Appeal.** The losing side may start a new round with a doubled bond, up to `maxRounds` rounds.
 
-**Security bound.** Half the staked platform tokens, valued at the generation's price: `attackCostMicros`. A market is created only if the open maximum payout, times `securityMultipleBps`, stays within it. See [Trust](/docs/trust).
+**Security bound.** Half the staked platform tokens, valued at the generation's price: `attackCostMicros`. A market is created only if `(openPayoutTotal + payout) x securityMultipleBps <= attackCostMicros x 10000`, with `securityMultipleBps` in basis points. See [Trust](/docs/trust).
 
 **INVALID.** An outcome that pays 0.5 bUSD for each YES share and each NO share. It is not a refund of the purchase price. A market that no one settles by its `hardDeadline` becomes INVALID.
 

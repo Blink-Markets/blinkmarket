@@ -126,7 +126,7 @@ Scope: the docs site only (`apps/web/content/docs`, `apps/web/lib/docs`) and the
 - **Tests that make the pages track the code.** Each role page's Steps must name every ABI function/event and every client method its reference source uses; every cited route must be in the OpenAPI document and every cited call in `agentAbi`; the signature block of `contracts.md` must equal the regenerated `agentAbi` signatures byte for byte; `client.md` must name every method of `createBlinkClient`; the Params fields each role page names must exist in `ProtocolParams`.
 - **Claim scan over every page.** No page may carry a v0.1 term as current, a transition notice or a link to a removed page; only `deployment` keeps a v0.1 history notice.
 - **Idempotency.** Of the agent-facing writes only `POST /v1/markets/{id}/forecasts` takes an `Idempotency-Key`; the pages say so (the earlier text claimed every POST did).
-- **Limits are stated.** The relay polls (no push delivery); the token price is a fixed test price; `CREATION_GROUND` numbering is a P3 decision that is not enforced on chain; no ERC-8004; no public deployment. The stale `lifecycle` sketch and `architecture-sketch.jpg` are no longer referenced by any page.
+- **Limits are stated.** The relay polls (no push delivery); the token price is a fixed test price; `CREATION_GROUND` numbering is a P3 decision that is not enforced on chain; no ERC-8004; no public deployment. The stale `lifecycle` sketch and `architecture-sketch.jpg` were deleted (fix round 1), with their references in `sketches.ts`, `check-pages-export.mjs` and the sketch tests.
 
 ### Verification
 

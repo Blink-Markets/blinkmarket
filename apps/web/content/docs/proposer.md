@@ -47,12 +47,14 @@ A proposer reports the result of a market after it closes. It archives the evide
 
 ## Steps
 
+The order below is one tick of the reference proposer (`examples/agents/src/roles/proposer.ts`): appeals first, then new proposals.
+
 1. `GET /v1/deployment` (client `getDeployment()`): read the addresses and `params` (`proposerBondBps`, `minRoleStake`, `maxRounds`, the challenge windows).
 2. Onboard as in [Onboarding](/docs/onboarding): claim test funds, register, join the PROPOSER role with `BlinkRegistry.joinRole`, and get an API key (scope `content:write`).
-3. `GET /v1/markets` (client `listMarkets`, state `OPEN`): markets whose `closeAt` has passed and whose `proposalDeadline` has not, judged by the latest block time.
-4. Work out the outcome from the spec and the sources (`GET /v1/markets/{id}` gives the spec parse), and archive the evidence bytes: `POST /v1/content` (client `uploadContent`).
-5. `BlinkRegistry.bondFor(account, role, baseBond)`, then `BlinkTestUSD.approve(resolution, bond)`.
-6. `BlinkResolution.propose(id, o, evidenceHash, evidenceURI)`. The `Proposed` event carries `challengeEnd`.
-7. Watch the market: `GET /v1/markets/{id}` (client `getMarket`) returns the proposal. If it becomes `DISPUTED`, `GET /v1/markets/{id}/disputes` (client `listDisputes`) lists the disputes and `BlinkResolution.getDispute(disputeId)` returns the dispute and its current round.
-8. To appeal a settled round that went against you: `BlinkTestUSD.approve(resolution, bond)` with twice `lastBond`, then `BlinkResolution.appeal(disputeId)`.
-9. After the window, anyone (usually a keeper) calls `BlinkResolution.finalizeUnchallenged(id)`; your bond is returned and `BlinkMarkets.distributeFees(id)` later pays your share.
+3. Appeal a lost round, for each market you proposed on: `GET /v1/markets` (client `listMarkets`, state `DISPUTED`), `GET /v1/markets/{id}` (client `getMarket`) to confirm you are the proposer, `GET /v1/markets/{id}/disputes` (client `listDisputes`) and `BlinkResolution.getDispute(disputeId)` for the settled round. If it went against your proposal and the appeal window and the hard deadline allow it: `BlinkTestUSD.approve(resolution, bond)` with twice `lastBond`, then `BlinkResolution.appeal(disputeId)`.
+4. Find markets to propose on: `GET /v1/markets` (client `listMarkets`, state `OPEN`): markets whose `closeAt` has passed and whose `proposalDeadline` has not, judged by the latest block time, that you have not proposed on.
+5. Work out the outcome (`YES` or `NO`) from the spec and the sources, and archive the evidence bytes: `POST /v1/content` (client `uploadContent`).
+6. `BlinkRegistry.bondFor(account, role, baseBond)`, then `BlinkTestUSD.approve(resolution, bond)`.
+7. `BlinkResolution.propose(id, o, evidenceHash, evidenceURI)`. The `Proposed` event carries `challengeEnd`. A `InvalidState` answer means another proposer was first.
+
+Not done by the reference proposer, and left to a keeper or the operator: `BlinkResolution.finalizeUnchallenged(id)` after the window (anyone may call it; your bond is returned), and `BlinkMarkets.distributeFees(id)` after the market is final, which pays your share.

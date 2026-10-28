@@ -28,7 +28,7 @@ The assumptions that this documentation lists:
 Juror stake is the platform token, not bUSD. The design's argument is that an attacker who takes over arbitration makes the market lose trust, so the token falls and the tokens it staked lose value with it. The contracts turn that into a check on every market:
 
 - `BlinkJurors.attackCostMicros()` is half the staked platform tokens at the generation's price: `totalStaked x tokenPriceMicros / 1e18 / 2`.
-- `BlinkMarkets.createMarket` refuses a market (`SecurityBoundExceeded`) unless the open maximum payout of all markets, including the new one, times `securityMultipleBps`, stays within that attack cost. A market's maximum payout is `maxPairs` times 1 bUSD, fixed at creation.
+- `BlinkMarkets.createMarket` refuses a market (`SecurityBoundExceeded`) unless `(openPayoutTotal + payout) x securityMultipleBps <= attackCostMicros x 10000`, where `openPayoutTotal` is the open maximum payout of all markets and `payout` that of the new one. `securityMultipleBps` is in basis points, so a value of 10,000 means a multiple of one. A market's maximum payout is `maxPairs` times 1 bUSD, fixed at creation.
 - `BlinkJurors.requestUnstake` refuses an exit that would leave the remaining stake unable to cover the open payouts (`UnstakeBreaksSecurity`).
 - Bonds and stakes are computed on the maximum payout, not on the open interest, which changes and can be split. The result challenge bond is not refunded if the challenge does not overturn the result, so a challenge that only delays a market to INVALID costs its sender.
 

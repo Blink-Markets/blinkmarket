@@ -63,16 +63,37 @@ for (const [key, abi] of Object.entries(agentAbi) as [string, Abi][]) {
 }
 const clientMethods = new Set(Object.keys(createBlinkClient("http://127.0.0.1:1")));
 
-/** The agentAbi function and event names a file mentions as string literals, and the client methods it calls. */
-function usedBy(file: string): { abi: Set<string>; client: Set<string> } {
-  const source = readFileSync(file, "utf8");
-  const literals = [...source.matchAll(/"([A-Za-z_]\w*)"/g)].map((m) => m[1]!);
-  const calls = [...source.matchAll(/\.(\w+)\(/g)].map((m) => m[1]!);
+/** Comment lines are not call sites. */
+const withoutComments = (source: string) => source.replace(/^\s*(?:\/\/|\/\*|\*).*$/gm, "");
+
+/** The agentAbi function and event names a source mentions as string literals, and the client methods it calls. */
+function scan(source: string): { abi: Set<string>; client: Set<string> } {
+  const code = withoutComments(source);
+  const literals = [...code.matchAll(/["']([A-Za-z_]\w*)["']/g)].map((m) => m[1]!);
+  const calls = [...code.matchAll(/\.\s*(\w+)\s*\(/g)].map((m) => m[1]!);
   return {
     abi: new Set(literals.filter((n) => abiNames.has(n))),
     client: new Set(calls.filter((n) => clientMethods.has(n))),
   };
 }
+const usedBy = (file: string) => scan(readFileSync(file, "utf8"));
+
+test("the source scanner sees real call sites and ignores comments", () => {
+  const found = scan(`
+    // "register" is only mentioned here, and ctx.client.getSuggestion(id) is not called
+    /* functionName: "joinRole" */
+    const a = { functionName: "claimRewards", abi: agentAbi.jurors };
+    const b = { functionName: 'stake' };
+    await resolutionCall(ctx, "commitVote", [1n]);
+    const c = await ctx.client
+      .listMarkets({ state: "OPEN" });
+    const d = await client.getMarket ({ marketId });
+    list.push("hello");
+  `);
+  assert.deepEqual([...found.abi].sort(), ["claimRewards", "commitVote", "stake"]);
+  assert.deepEqual([...found.client].sort(), ["getMarket", "listMarkets"]);
+});
+
 const mentions = (text: string, name: string) => new RegExp(`\\b${name}\\b`).test(text);
 
 test("every agentAbi function and every client method the examples call appears in the docs", () => {
@@ -94,6 +115,7 @@ test("each role's Steps name every call its reference agent makes", () => {
   for (const role of ROLE_PAGES) {
     const steps = section(page(role), "Steps");
     const used = usedBy(join(agentsSrc, "roles", `${role}.ts`));
+    assert.ok(used.abi.size + used.client.size > 0, `${role}: the scan found no calls in its source`);
     for (const name of [...used.abi, ...used.client]) assert.ok(mentions(steps, name), `${role}: Steps never names "${name}"`);
   }
 });
@@ -278,4 +300,26 @@ test("client.md names every method of the client and the count it states", () =>
   const body = page("client").body;
   for (const method of clientMethods) assert.ok(body.includes(`\`${method}(`), `client.md: no row for ${method}`);
   assert.ok(body.includes(`The client has ${clientMethods.size} methods`), "client.md: wrong method count");
+});
+
+test("pages state the protocol rules as the contracts enforce them", () => {
+  const body = (slug: string) => page(slug).body;
+  // INVALID is never proposed (BlinkResolution.propose reverts InvalidOutcome).
+  assert.match(body("lifecycle"), /`INVALID` cannot be proposed/);
+  assert.match(body("concepts"), /`INVALID` cannot be proposed/);
+  assert.ok(!/`YES`, `NO` or `INVALID`\) plus|proposer's `YES`, `NO` or `INVALID`/.test(body("lifecycle") + body("concepts")));
+  // A creation challenge leaves the market PENDING; rejected opens it, upheld cancels it.
+  assert.match(body("lifecycle"), /stays `PENDING` with `creationChallenged` set/);
+  assert.match(body("lifecycle"), /`CANCELLED` if the challenge is upheld, `OPEN` if it is rejected/);
+  // The security bound has its basis-point denominator.
+  for (const slug of ["trust", "creator", "concepts"]) assert.match(body(slug), /securityMultipleBps <= attackCostMicros x 10000/, `${slug}: security bound`);
+  // verifySignedQuote is async, takes the signature, and does not read the epoch.
+  assert.match(body("client"), /`verifySignedQuote\(quote, signature, context\)` is asynchronous/);
+  assert.match(body("trader"), /await verifySignedQuote\(quote, signature, context\)/);
+  assert.match(body("trader"), /never reads the maker's epoch/);
+  // Only forecasts take an Idempotency-Key, so a retried RFQ is not deduplicated.
+  assert.ok(!/never acts twice/.test(body("client")));
+  assert.match(body("client"), /retried `createRfq` can open a second RFQ/);
+  // A reverted reward claim is blocked, not retried.
+  assert.match(body("juror"), /claim_blocked/);
 });

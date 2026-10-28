@@ -47,13 +47,18 @@ None from the protocol. There is no fee share, no reward and no points for forec
 
 ## Steps
 
+The order below is one tick of the reference forecaster (`examples/agents/src/roles/forecaster.ts`).
+
 1. `GET /v1/deployment` (client `getDeployment()`): read `shared.anchor`, `generation.markets` and `params` (`minRoleStake`).
 2. Onboard as in [Onboarding](/docs/onboarding): claim test funds, register, join the FORECASTER role with `BlinkRegistry.joinRole`, and get an API key (scope `forecast:write`).
 3. `GET /v1/markets` (client `listMarkets`, state `OPEN`): the markets to look at; skip any whose spec cannot be read.
-4. For each: `GET /v1/markets/{id}/forecast-windows` (client `listForecastWindows`), and keep the windows with status `OPEN` that you have not answered.
+4. For each: `GET /v1/markets/{id}/forecast-windows` (client `listForecastWindows`), and keep the windows with status `OPEN` that you have not answered. If there are none, or your model has no view of the market, move on.
 5. Sign the `Forecast` typed data with `forecastTypedData` and your wallet.
-6. `POST /v1/markets/{id}/forecasts` (client `submitForecast`) with the signed answer. Remember the window id.
-7. Optionally, before the deadline: `POST /v1/forecasts/{id}/withdrawal` (client `withdrawForecast`).
-8. After the deadline, to check your answer: `GET /v1/forecast-windows/{id}` (client `getForecastWindow`) for `root`, `leaves` and the `anchor` record, `GET /v1/forecast-windows/{id}/proof` (client `getForecastProof`) for the Merkle proof of your leaf, and `GET /v1/markets/{id}/forecasts` (client `listForecasts`) for the signed answers.
-9. To anchor: `BlinkAnchor.anchor(root)`; `BlinkAnchor.anchoredAt(root)` says whether it is done.
-10. To see how you score: `GET /v1/markets/{id}/consensus`, `GET /v1/forecasters` and `GET /v1/forecasters/{address}`.
+6. `POST /v1/markets/{id}/forecasts` (client `submitForecast`) with the signed answer. A `409` of `FORECAST_ALREADY_SUBMITTED`, `FORECAST_WINDOW_CLOSED` or `MARKET_CLOSED` is final; remember the window id either way.
+
+Not done by the reference forecaster, and left to the operator:
+
+- Before the deadline, withdraw an answer: `POST /v1/forecasts/{id}/withdrawal` (client `withdrawForecast`).
+- After the deadline, check it: `GET /v1/forecast-windows/{id}` (client `getForecastWindow`) for `root`, `leaves` and the `anchor` record, `GET /v1/forecast-windows/{id}/proof` (client `getForecastProof`) for the Merkle proof of your leaf, and `GET /v1/markets/{id}/forecasts` (client `listForecasts`) for the signed answers.
+- Anchor the root: `BlinkAnchor.anchor(root)`; `BlinkAnchor.anchoredAt(root)` says whether it is done. A keeper does this too.
+- See how you score: `GET /v1/markets/{id}/consensus` (client `getConsensus`), `GET /v1/forecasters` (client `listForecasters`) and `GET /v1/forecasters/{address}` (client `getForecaster`).

@@ -34,11 +34,11 @@ The states are described in [Market lifecycle](/docs/lifecycle).
 | Stage | Who acts |
 | --- | --- |
 | Before a market | A human may type a suggestion; a creator writes the spec, uploads it and calls `createMarket` |
-| `PENDING` (creation window) | Challengers may challenge the creation; jurors decide; a keeper opens the market after the window |
+| `PENDING` (creation window) | Challengers may challenge the creation (the market stays `PENDING` while jurors decide; a rejected challenge opens it, an upheld one cancels it); a keeper opens an unchallenged market after the window |
 | `OPEN` | Makers quote, traders request and fill, forecasters sign probabilities |
 | After `closeAt` | A proposer submits the result with evidence |
 | `PROPOSED` | A challenger may challenge within the window; otherwise a keeper finalizes |
-| `DISPUTED` | Jurors commit and reveal; keepers settle rounds; the losing side may appeal |
+| `DISPUTED` (a challenged result) | Jurors commit and reveal; keepers settle rounds; the losing side may appeal |
 | `FINAL` | Holders redeem; a keeper distributes the fees |
 | Not final at `hardDeadline` | Anyone finalizes the timeout; the outcome is INVALID |
 

@@ -1,7 +1,7 @@
 // Deterministic hand-drawn explainer diagrams (ink + pastel highlighters), ported from the approved mockup
 // docs/superpowers/specs/assets/2026-10-10-docs-sketches-mockup.html. Pure: no imports, seeded RNG.
 
-export const SKETCHES = ["lifecycle", "pipeline", "agent", "payout"] as const;
+export const SKETCHES = ["pipeline", "agent", "payout"] as const;
 export type SketchName = (typeof SKETCHES)[number];
 
 const INK = "#222222";
@@ -112,28 +112,6 @@ class Pen {
 type Sketch = { seed: number; w: number; h: number; title: string; draw: (p: Pen) => void };
 
 const SKETCH_DEFS: Record<SketchName, Sketch> = {
-  lifecycle: {
-    seed: 101, w: 1200, h: 720, title: "Market lifecycle",
-    draw(s) {
-      s.title(600, "Market lifecycle", "who can move a market, and when");
-      s.box(60, 170, 210, 110, { fill: HL.green }); s.text(165, 215, "OPEN", { size: 30, bold: true }); s.text(165, 250, "fills allowed", { size: 19 });
-      s.arrow(275, 225, 395, 225, { label: "closeAt", lhl: "yellow" });
-      s.box(400, 170, 210, 110, { dash: "8 7" }); s.text(505, 215, "CLOSED", { size: 30, bold: true }); s.text(505, 250, "derived, not stored", { size: 18 });
-      s.arrow(615, 225, 735, 225, { label: "proposer", lhl: "blue" });
-      s.text(675, 304, "YES / NO / INVALID", { size: 16 }); s.text(675, 324, "+ evidence", { size: 16 });
-      s.box(740, 170, 220, 110, { fill: HL.blue }); s.text(850, 215, "PROPOSED", { size: 30, bold: true }); s.text(850, 250, "challenge window", { size: 19 });
-      s.arrow(850, 285, 850, 395, { label: "challenger + evidence", lx: 735, ly: 365, lhl: "orange" });
-      s.box(740, 400, 220, 100, { fill: HL.orange }); s.text(850, 445, "DISPUTED", { size: 30, bold: true }); s.text(850, 478, "arbiter decides", { size: 19 });
-      s.box(1000, 300, 160, 120, { fill: HL.purple, w: 2.8 }); s.text(1080, 355, "FINAL", { size: 32, bold: true }); s.text(1080, 390, "irreversible", { size: 18 });
-      s.arrow(962, 205, 1050, 296, { bend: -0.15, label: "no challenge", lx: 1080, ly: 210 });
-      s.arrow(962, 450, 1040, 424, { bend: 0.1, label: "arbiter", lx: 1015, ly: 485 });
-      s.arrow(165, 290, 1000, 560, { bend: -0.12, dash: "10 8", label: "hardDeadline passes, still not FINAL", lx: 520, ly: 548, lhl: "yellow" });
-      s.box(1000, 520, 160, 90, { dash: "8 7" }); s.text(1080, 558, "FINAL", { size: 26, bold: true }); s.text(1080, 590, "= INVALID", { size: 20 });
-      s.text(300, 640, "After FINAL every holder redeems on their own:", { size: 21, anchor: "start" });
-      s.text(300, 676, "YES / NO pays 1 bUSD per winning share · INVALID pays 0.5 per share on each side", { size: 19, anchor: "start", hl: "green", hlw: 690 });
-      s.foot(600, 706, "Pause only stops new fills; proposals, challenges, finalize and redeem still work.");
-    },
-  },
   pipeline: {
     seed: 202, w: 1200, h: 560, title: "Question pipeline",
     draw(s) {

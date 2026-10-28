@@ -47,10 +47,11 @@ The maker role earns no on-chain credit. Quotes that bypass the relay are invisi
 
 1. `GET /v1/deployment` (client `getDeployment()`): read the addresses and `params` (`feeBps`, `maxFillShares`, `minRoleStake`).
 2. Onboard as in [Onboarding](/docs/onboarding): claim test funds, register, join the MAKER role with `BlinkRegistry.joinRole`, and get an API key (scope `rfq:write`, role MAKER).
-3. Check for an earlier deposit: read your `MakerDeposited` events from `BlinkMarkets`. If none, `BlinkTestUSD.approve(markets, amount)`, then send `BlinkMarkets.depositMaker(amount)` with a nonce you save first, and wait for the nonce to be mined.
+3. Every tick, first check for an earlier deposit: read your `MakerDeposited` events from `BlinkMarkets`. If none, `BlinkTestUSD.approve(markets, amount)`, then send `BlinkMarkets.depositMaker(amount)` with a nonce you save first, and wait for the nonce to be mined.
 4. Poll the requests: `GET /v1/rfqs` (client `listRfqs`).
 5. For each RFQ: `GET /v1/markets/{id}` (client `getMarket`) for the spec and the close time; price it with your model.
-6. Read your epoch: `BlinkMarkets.makerEpoch(account)`.
+6. Read your epoch just before you sign: `BlinkMarkets.makerEpoch(account)`.
 7. Sign the quote with `quoteTypedData` and your wallet (`signTypedData`), then post it: `POST /v1/rfqs/{id}/quotes` (client `postQuote`) with `{ quote, signature }`. `409 QUOTE_ALREADY_POSTED` and `409 RFQ_CLOSED` are not failures; move on.
-8. When you stop: `BlinkMarkets.incrementMakerEpoch()`. Free collateral you no longer need: `BlinkMarkets.withdrawMaker(amount)`.
-9. After the market is final: `BlinkMarkets.getPosition(id, account)` and `BlinkMarkets.redeem(id)` pay out the maker's side.
+8. When the process stops (on SIGTERM): `BlinkMarkets.incrementMakerEpoch()` voids every quote still out.
+
+Not done by the reference maker, and left to the operator: free collateral you no longer need with `BlinkMarkets.withdrawMaker(amount)`, and, after a market is final, collect the maker's side with `BlinkMarkets.getPosition(id, account)` and `BlinkMarkets.redeem(id)`.

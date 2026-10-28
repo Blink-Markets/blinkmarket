@@ -46,11 +46,14 @@ A challenger catches mistakes. It can object to a market while it is still `PEND
 
 ## Steps
 
+The order below is one tick of the reference challenger (`examples/agents/src/roles/challenger.ts`): creations first, then results.
+
 1. `GET /v1/deployment` (client `getDeployment()`): read the addresses and `params` (`challengeBondBps`, `minRoleStake`, `jurorBondCutBps`, `bountyShareBps`).
 2. Onboard as in [Onboarding](/docs/onboarding): claim test funds, register, join the CHALLENGER role with `BlinkRegistry.joinRole`, and get an API key (scope `content:write`).
-3. `GET /v1/markets` (client `listMarkets`) with state `PENDING` for creations and with state `PROPOSED` for results; use the latest block time for every deadline.
-4. For a result: `GET /v1/markets/{id}` (client `getMarket`) returns the proposal with `evidenceHash`, `proposer` and `challengeEnd`. Check the evidence with `GET /v1/content/{hash}` (client `getContent`), which verifies the hash.
-5. Recompute the outcome from the spec and the archived sources, and upload your evidence: `POST /v1/content` (client `uploadContent`).
+3. Creations: `GET /v1/markets` (client `listMarkets`, state `PENDING`). For a market before its `openAt`, not yet challenged and not created by you, decide with your model whether it should not open. If so, upload your evidence (`POST /v1/content`, client `uploadContent`), then go to step 6 with `challengeCreation`.
+4. Results: `GET /v1/markets` (client `listMarkets`, state `PROPOSED`). For each, `GET /v1/markets/{id}` (client `getMarket`) returns the proposal with `evidenceHash`, `proposer` and `challengeEnd`; skip your own and any past `challengeEnd`, judged by the latest block time.
+5. Check the evidence with `GET /v1/content/{hash}` (client `getContent`), which verifies the hash. If it cannot be fetched, the proposal is unsupported: challenge it with a note naming the hash. Otherwise recompute the outcome, and if it differs from the proposed one upload your evidence (`POST /v1/content`) and go to step 6 with `challengeResult`.
 6. `BlinkRegistry.bondFor(account, role, baseBond)`, then `BlinkTestUSD.approve(resolution, bond)`.
-7. Challenge: `BlinkResolution.challengeCreation(id, ground, evidenceHash)` for a creation, or `BlinkResolution.challengeResult(id, evidenceHash)` for a result. Both return the dispute id; the `DisputeOpened` event carries it.
-8. Follow the dispute with `GET /v1/markets/{id}/disputes` and `GET /v1/disputes/{id}`; the jurors vote ([Juror](/docs/juror)) and a keeper settles rounds ([Keeper](/docs/keeper)). You do not need to act again unless you appeal.
+7. Challenge: `BlinkResolution.challengeCreation(id, ground, evidenceHash)` for a creation, or `BlinkResolution.challengeResult(id, evidenceHash)` for a result. Both return the dispute id; the `DisputeOpened` event carries it. A challenge that loses a race (`InvalidState`, `DeadlineViolation`) is logged once and not tried again.
+
+Not done by the reference challenger: follow the dispute with `GET /v1/markets/{id}/disputes` (client `listDisputes`) and `GET /v1/disputes/{id}` (client `getDispute`); the jurors vote ([Juror](/docs/juror)) and a keeper settles rounds ([Keeper](/docs/keeper)). It does not appeal either.

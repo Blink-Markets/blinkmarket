@@ -52,7 +52,7 @@ try {
 
 Branch on `body.code` and `body.retryable`, as described in [Errors](/docs/errors). Input that fails schema validation throws before any request is sent. A response that is not valid JSON, or does not match the expected schema, throws a plain error rather than `BlinkApiError`.
 
-Before it throws, the client retries an answer whose `retryable` is `true`: up to `maxAttempts` tries in all (default 3), waiting for the server's `Retry-After` (at most 10 seconds) or, without one, 250 ms doubling. A retried POST repeats the same `Idempotency-Key` and body, so the server answers with the original result and never acts twice. Pass `{ maxAttempts: 1 }` to turn retries off. A network failure is not retried. After the last try a `429` or `503` reaches your code as a `BlinkApiError`; wait for `retryAfterSeconds` before you ask again.
+Before it throws, the client retries an answer whose `retryable` is `true`: up to `maxAttempts` tries in all (default 3), waiting for the server's `Retry-After` (at most 10 seconds) or, without one, 250 ms doubling. A retried POST resends the same body. Only a forecast submission carries an `Idempotency-Key`, so only a retried `submitForecast` is deduplicated by the server (it answers with the original result). Every other write is resent without a key and is not deduplicated: in particular a retried `createRfq` can open a second RFQ, so after an unknown answer read `listRfqs` or the quote list before you ask again. Pass `{ maxAttempts: 1 }` to turn retries off. A network failure is not retried. After the last try a `429` or `503` reaches your code as a `BlinkApiError`; wait for `retryAfterSeconds` before you ask again.
 
 ## Which methods does it have?
 
@@ -121,7 +121,7 @@ The client has 36 methods. Only `POST /v1/markets/{id}/forecasts` takes an `Idem
 
 ## How is a signed quote checked?
 
-A quote is a maker's offer, and the relay is not trusted to describe it truthfully. `verifySignedQuote(quote, context)` returns a `VerifiedQuote` (`digest`, `takerCost`, `fee`, `maxCost`) and throws `QuoteVerificationError` with a `code` for the first check that fails. Send a fill only after it returns. The `context` carries a `publicClient` for a node you trust, the `deployment` from `getDeployment()`, the `market` as the index reports it, your `rfq` (`marketId`, `side`, `quantity`, `taker`), `now` (the latest block timestamp, never the host clock), the generation's `feeBps`, an optional `maker` and an optional `minValiditySeconds`.
+A quote is a maker's offer, and the relay is not trusted to describe it truthfully. `verifySignedQuote(quote, signature, context)` is asynchronous: `await` it, because a caller that forgets gets a promise, not a quote it may use. It resolves to a `VerifiedQuote` (`digest`, `takerCost`, `fee`, `maxCost`) and rejects with `QuoteVerificationError` and a `code` for the first check that fails. Approve and fill only after the awaited call has resolved. It does not read the maker's epoch, so a stale epoch is rejected by `fillQuote` on chain even after a successful verification. The `quote` is the quote fields and `signature` the maker's signature, as `listQuotes` returns them. The `context` carries a `publicClient` for a node you trust, the `deployment` from `getDeployment()`, the `market` as the index reports it, your `rfq` (`marketId`, `side`, `quantity`, `taker`), `now` (the latest block timestamp, never the host clock), the generation's `feeBps`, an optional `maker` and an optional `minValiditySeconds`.
 
 | Code | What failed |
 | --- | --- |

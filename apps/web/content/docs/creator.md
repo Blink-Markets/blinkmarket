@@ -26,7 +26,7 @@ A creator decides which questions become markets. It writes the market's spec, d
 - **Role stake.** `BlinkRegistry.joinRole(ROLE.CREATOR, amount)` with `amount` at least `minRoleStake` (bUSD). It is slashed on a lost creation challenge and returned after `roleExitCooldown` on a normal exit (`requestRoleExit`, then `withdrawRole`).
 - **Creation bond.** Per market: `creationBondBps` of the maximum payout, lowered by your credit (`creditDiscountStepBps` per credit unit, up to `maxCreditDiscountBps`) and rounded up. Read it with `BlinkRegistry.bondFor`. You approve it to `BlinkMarkets` and `createMarket` takes it. It comes back when the market finalizes; it goes to the challenger (less the juror cut, `jurorBondCutBps`) if a creation challenge is upheld.
 - **Exposure limit.** Your open maximum payouts may not exceed `roleStake` times `limitMultiplierBps` times `creatorExposureMultiple`, divided by 10000. More stake raises the limit, so a new identity is never locked out.
-- **Security bound.** Across all markets the open maximum payout times `securityMultipleBps` must stay within the jurors' attack cost (`BlinkJurors.attackCostMicros()`, from the staked platform tokens and the fixed test price). If it would not, `createMarket` reverts with `SecurityBoundExceeded`. See [Trust](/docs/trust).
+- **Security bound.** Across all markets `(openPayoutTotal + payout) x securityMultipleBps <= attackCostMicros x 10000` must hold, where `payout` is the new market's maximum payout, `openPayoutTotal` the open maximum payout of all markets, and `attackCostMicros` is the jurors' attack cost (`BlinkJurors.attackCostMicros()`, from the staked platform tokens and the fixed test price) and `securityMultipleBps` is in basis points. If it would not hold, `createMarket` reverts with `SecurityBoundExceeded`. See [Trust](/docs/trust).
 
 ## Income
 
@@ -50,13 +50,17 @@ A creator decides which questions become markets. It writes the market's spec, d
 
 ## Steps
 
+The order below is one tick of the reference creator (`examples/agents/src/roles/creator.ts`): drafts the model offers, then suggestions to claim, then the claimed suggestions.
+
 1. `GET /v1/deployment` (client `getDeployment()`): read the generation's addresses and its `params`. Every bond, window and cap below is a field of `params`.
 2. Onboard as in [Onboarding](/docs/onboarding): claim test funds, register, join the CREATOR role with `BlinkRegistry.joinRole`, and get an API key (the key needs the `content:write` and `suggestion:claim` scopes, and the role).
-3. Read the room: `BlinkJurors.attackCostMicros()`, `BlinkMarkets.openPayoutTotal()`, `BlinkMarkets.openPayoutByCreator(account)`, `BlinkRegistry.roleStake(account, role)` and `BlinkRegistry.limitMultiplierBps(account, role)`. Clamp `maxPairs` to the smallest room.
-4. For a suggestion: `GET /v1/suggestions` (client `listSuggestions`, filtered to status `OPEN`), then `POST /v1/suggestions/{id}/claims` (client `claimSuggestion`), then `GET /v1/suggestions/{id}` (client `getSuggestion`) for the text to write up.
-5. Make sure the template exists: `GET /v1/templates` (client `listTemplates`). If it is missing, for `GM_LT_V1` upload the parser bytes with `POST /v1/content` (client `uploadContent`), then call `BlinkMarkets.registerTemplate(cls, parserHash, uri)`.
-6. Check that you have not created this spec: read your own `MarketCreated` events from `BlinkMarkets` (`startBlock` of the deployment, your address as `creator`, the `specHash`).
-7. Upload the exact spec bytes: `POST /v1/content` (client `uploadContent`, media type `application/json`). The answer's hash must equal your `specHash`.
-8. Approve the bond: `BlinkRegistry.bondFor(account, role, baseBond)`, then `BlinkTestUSD.approve(markets, bond)`.
-9. Create the market: `BlinkMarkets.createMarket(args)` with `templateId`, `specHash`, `specURI` (`/v1/content/<specHash>`), `replay`, `closeAt`, `proposalDeadline`, `hardDeadline` and `maxPairs`. The `MarketCreated` event carries the market id.
-10. Afterwards `GET /v1/markets/{id}` shows the market `PENDING`. A keeper calls `BlinkMarkets.open(id)` once the creation window has passed and no challenge is pending; you do not need to.
+3. For a draft your model offers, save its spec and go to step 5. For a suggestion: `GET /v1/suggestions` (client `listSuggestions`, status `OPEN`), then for each one your model can write up, `POST /v1/suggestions/{id}/claims` (client `claimSuggestion`). A `409 ALREADY_CLAIMED` means this identity already claimed it; leave it alone. Save the claim before you go on.
+4. For a claimed suggestion with no market yet: `GET /v1/suggestions/{id}` (client `getSuggestion`) for the text to write up, and save the spec you build from it. A saved spec keeps its bytes whatever the model says later.
+5. Check that you have not created this spec: read your own `MarketCreated` events from `BlinkMarkets` (`startBlock` of the deployment, your address as `creator`, the `specHash`). If one exists the market is done, even if it used up the remaining room.
+6. Read the room: `BlinkJurors.attackCostMicros()`, `BlinkMarkets.openPayoutTotal()`, `BlinkMarkets.openPayoutByCreator(account)`, `BlinkRegistry.roleStake(account, role)` and `BlinkRegistry.limitMultiplierBps(account, role)`. Clamp `maxPairs` to the smallest room; with none, log `cap_exhausted` and wait for a later tick.
+7. Make sure the template exists: `GET /v1/templates` (client `listTemplates`). If it is missing, for `GM_LT_V1` upload the parser bytes with `POST /v1/content` (client `uploadContent`), then call `BlinkMarkets.registerTemplate(cls, parserHash, uri)`.
+8. Upload the exact spec bytes: `POST /v1/content` (client `uploadContent`, media type `application/json`). The answer's hash must equal your `specHash`.
+9. Approve the bond: `BlinkRegistry.bondFor(account, role, baseBond)`, then `BlinkTestUSD.approve(markets, bond)`.
+10. Create the market: `BlinkMarkets.createMarket(args)` with `templateId`, `specHash`, `specURI` (`/v1/content/<specHash>`), `replay`, `closeAt`, `proposalDeadline`, `hardDeadline` and `maxPairs`. The `MarketCreated` event carries the market id.
+
+For a draft, steps 5 to 10 apply unchanged: the recovery check comes before the room and the template. The reference creator does not open the market: a keeper calls `BlinkMarkets.open(id)` once the creation window has passed and no challenge is pending, and `GET /v1/markets/{id}` shows the market `PENDING` until then.

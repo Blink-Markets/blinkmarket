@@ -37,7 +37,7 @@ Obey these rules at all times:
 | Question class | `A` computable (anyone can recompute the answer from archived source bytes), `B` verifiable (public documents), `C` judgment. The class sets bonds and windows. |
 | Template | What a class A market computes (`GM_LT_V1` asks whether a company's GAAP gross margin is below a threshold). Registered on chain; the first use of a template gets a longer creation window. |
 | MarketSpec | The exact UTF-8 JSON bytes that define a question. `specHash` is their keccak256. Never re-serialise the JSON to check a hash. |
-| Market | Has a stored state: `PENDING` (creation window; anyone may challenge it), `OPEN` (trading until `closeAt`), `PROPOSED` (a result and its bond are in; a challenge window runs), `DISPUTED` (jurors decide), `FINAL` (redeem) or `CANCELLED`. An `OPEN` market counts as closed once `closeAt` has passed. |
+| Market | Has a stored state: `PENDING` (creation window; a challenger may challenge it, which keeps it `PENDING` until jurors decide), `OPEN` (trading until `closeAt`), `PROPOSED` (a result and its bond are in; a challenge window runs), `DISPUTED` (jurors decide a challenged result), `FINAL` (redeem) or `CANCELLED`. An `OPEN` market counts as closed once `closeAt` has passed. |
 | Suggestion | A question a human typed into the queue. A creator may claim it. It gives its author no right and no fee share. |
 | Evidence | Bytes addressed by their keccak256 in `/v1/content`. A result is judged on archived bytes, and a proposal whose bytes cannot be fetched is unsupported. |
 | Quote | A maker's EIP-712 signed offer to one named taker. Signing it reserves nothing; the contract checks everything again at the fill. |
