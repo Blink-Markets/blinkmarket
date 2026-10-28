@@ -136,6 +136,42 @@ Scope: the docs site only (`apps/web/content/docs`, `apps/web/lib/docs`) and the
 - Not run locally: `pnpm build`, `pnpm build:pages` and Playwright. This host cannot run them, so CI is the evidence.
 - The postgres, drill, alpha, Anvil and Foundry suites were not rerun for this task, because it changes no code they load. The compiled-contract tests in `pnpm check` need `contracts/artifacts` (gitignored), which this worktree had to copy from the main checkout.
 
+## Task 6 — one-command autonomous reference-agent drill (2026-10-28)
+
+### Built
+
+- Added `pnpm alpha:autonomous` with separate agent processes, distinct funded Anvil accounts, per-scenario deadlines, JSON reports, and per-agent logs. The 14-agent world covers two creators, two makers, two traders, a forecaster, honest and lying proposers, a challenger, three jurors, and a keeper. The creation-challenged creator and lying proposer have no later duties.
+- The drill runs normal class A, result dispute, creation challenge, no-proposal timeout, and suggestion scenarios. It cross-checks public API results against chain events and balances, role credit, and an incremental-index rebuild.
+- Class A fixture judgements require the agent's own belief entry; a regression test and drill assertions verify the lying proposer acts only on its dispute market.
+- Added a public API read-bucket setting for the shared loopback IP. Production remains at capacity 60 with refill 1 per second; the drill uses capacity 600 and refill 100 per second. Anvil account-count support supplies distinct funded accounts without platform wallet funding.
+- CI runs both the PostgreSQL success drill and the named stalled-timeout regression, and retains `tmp/alpha-autonomous/` on failure. Its 31-minute limit is `ceil(904s/60)+15m`, based on the measured timeout scenario.
+
+### Schedule and R6
+
+The deployment parameters give `creationWindow + firstUseExtraWindow = 90s`, a 120-second proposal window, a 60-second result challenge window, three 90-second dispute rounds, and 60 seconds of hard-deadline margin. The world uses `closeInSeconds = 300` for normal, suggestion, and timeout, and 200 for the challenged result market.
+
+- Normal and suggestion close at +390s and can first finalize at +452s. Dispute round 2 opens at +442s, so neither is finalized before it opens.
+- The timeout market reaches its hard deadline at +900s (`390 + 120 + 60 + 3×90 + 60`). It has no proposer. Even the conservative upper bound of normal plus suggestion is two finalized markets, below the phase-in threshold of three; the computed finalized count at round-2 opening is zero. Creation is CANCELLED and does not increment `finalizedCount`.
+- The drill checks `creditThreshold == 0` on every creation and result dispute round. It does not alter protocol parameters or chain time.
+
+### Verification status
+
+- `pnpm check:contracts`, `pnpm build:services`, the four service build smoke tests, `pnpm exec tsc --noEmit`, and `git diff --check` passed.
+- The original Task 6 PGlite run passed all scenarios and global checks in 954s: normal 454s, dispute 447s, creation 92s, timeout 904s, suggestion 454s. Its expected minimum was 14 wallet challenges (one per onboarding), not a measured attempt count; retries can spend more. A previous run exposed that the public account API uses uppercase role names (`TAKER` for the agent's `trader`); the drill now maps and cross-checks those names. The original PostgreSQL and `pnpm check` results are recorded in the Task 6 external report; fix-round verification is below.
+
+### Fix round 1
+
+- Shared reference-agent `send` estimates gas for its account and adds 25% headroom. This fixes the reproduced faucet race: a same-second estimate updates an existing token supply checkpoint, while a claim mined in a later second appends one. Sequential juror-first onboarding remains to put stake before creation-dispute snapshots.
+- Normal checks chain logs through finalization for the absence of creation and result challenges. Timeout compares the finalization block timestamp with the actual chain market's hard deadline. Creation requires a nonempty API round list matching the settled chain round count before checking zero credit thresholds.
+- The test launcher owns signal and exit cleanup for each detached process group, forwards SIGINT/SIGTERM, retains bounded SIGKILL fallback, checks cleanup on normal exits, and unregisters handlers after the group is gone. Cheap regressions cover both signals and launcher exit.
+- Reports now call the inferred roster count `expectedMinimumWalletChallenges`: one per planned onboarding, not measured wallet-proof attempts. Successful default runs expect at least 14; the keeper-removed fixture expects at least 13. Retries and restarts can use more.
+- The onboarding guide explains the verified checkpoint estimate/mining boundary and the reference agents' gas headroom. Existing esbuild size warnings remain the accepted baseline; no warning suppression or bundle change was added.
+
+- Final merged-tree verification passed: `pnpm check` (614 tests, no failures/skips, plus root/web types, contracts and dependency boundaries), `pnpm test:anvil` (72 tests, no failures/skips), and the PostgreSQL autonomous suite (2 tests, no failures/skips, 1,067.238s). The PostgreSQL success drill took 945s; its scenario durations were normal 450s, dispute 446s, creation 93s, timeout 900s and suggestion 455s. Its keeper-removed fixture named timeout at 60s with indexed state PENDING. Port 3002 was free before and after the suite.
+- The final PGlite CLI passed all five scenarios and global checks in 976s: normal 452s, dispute 447s, creation 94s, timeout 898s and suggestion 458s. Scenario polling starts after market creation; the finalization block was independently checked against the actual hard deadline. The 31-minute CI bound remains conservative.
+- Focused checks passed: docs 21, runtime 11, existing send receipt/account/headroom tests 3, cancellation 3, and the new gas regression 1. The gas regression first reproduced `FAUCET_CLAIM_REVERTED` with the old send; the fix submits 153,784 gas for a 123,027 estimate and succeeds using 145,631. An initial full check found three missing estimator stubs, which were corrected before the final passing check.
+- Limits: CI, `pnpm build` and `pnpm build:pages` remain controller-owned and were not run here. This completes Task 6 fix round 1, not the whole P3 milestone. No push was attempted, per the dispatch.
+
 ## Task 7 — optional LLM agent demo (2026-10-28)
 
 The optional demo starts from `/llms.txt`, discovers docs and chooses roles through guarded tools. It uses operator model credentials, keeps its wallet and issued API key in memory, and writes a redacted transcript. It is not run in CI. The wallet challenge requires an additional personal-message signing tool.

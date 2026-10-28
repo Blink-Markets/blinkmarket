@@ -4,13 +4,24 @@ import type { AgentContext } from "../examples/agents/src/lib/env.ts";
 import { isRevert } from "../examples/agents/src/lib/resolution.ts";
 import { send } from "../examples/agents/src/lib/session.ts";
 
-// What `send` makes of a receipt: only `reverted` is the chain's final refusal.
+// Gas is estimated for the agent with headroom; only `reverted` is the chain's final refusal.
+const account = { address: "0x" + "34".repeat(20) };
 
 const sendWith = (status: unknown) =>
   send(
     {
-      walletClient: { writeContract: async () => "0x" + "ab".repeat(32) },
-      publicClient: { waitForTransactionReceipt: async () => ({ status, logs: [] }) },
+      account,
+      walletClient: { writeContract: async (request: unknown) => {
+        assert.deepEqual(request, { gas: 153_784n });
+        return "0x" + "ab".repeat(32);
+      } },
+      publicClient: {
+        estimateContractGas: async (request: unknown) => {
+          assert.deepEqual(request, { account });
+          return 123_027n;
+        },
+        waitForTransactionReceipt: async () => ({ status, logs: [] }),
+      },
     } as unknown as AgentContext,
     "CLAIM_REWARDS",
     {} as never,

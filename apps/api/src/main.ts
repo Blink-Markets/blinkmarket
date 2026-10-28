@@ -184,7 +184,7 @@ try {
           ...(config.mode === "markets"
             ? {
                 stage: `m2-${config.mode}` as const,
-                publicReadLimit: { capacity: 60, refillPerSecond: 1 },
+                publicReadLimit: config.publicReadLimit ?? { capacity: 60, refillPerSecond: 1 },
               }
             : {}),
         }

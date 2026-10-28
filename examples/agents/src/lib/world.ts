@@ -29,6 +29,7 @@ export type World = {
   questions: Record<string, WorldQuestion>;
   suggestions: Record<string, string>;
   agents: Record<string, WorldAgent>;
+  notes?: string;
 };
 
 const invalid = (path: string, reason: string) =>
@@ -100,7 +101,9 @@ function parseBelief(raw: unknown, path: string): Belief {
 /** Validates a parsed world file. Hand written: an example cannot import the schema package. */
 export function parseWorld(json: unknown, dir: string): World {
   const root = record(json, "world");
-  only(root, "world", ["questions", "suggestions", "agents"]);
+  only(root, "world", ["questions", "suggestions", "agents", "notes"]);
+  if (root.notes !== undefined && typeof root.notes !== "string")
+    throw invalid("world.notes", "must be a string");
   const questions: Record<string, WorldQuestion> = {};
   const titles = new Set<string>();
   for (const [key, raw] of Object.entries(record(root.questions, "questions"))) {
@@ -150,7 +153,7 @@ export function parseWorld(json: unknown, dir: string): World {
     }
     agents[name] = agent;
   }
-  return { dir, questions, suggestions, agents };
+  return { dir, questions, suggestions, agents, ...(root.notes === undefined ? {} : { notes: root.notes }) };
 }
 
 export async function loadWorld(path: string): Promise<World> {
