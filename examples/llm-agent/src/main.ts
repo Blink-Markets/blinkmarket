@@ -21,7 +21,7 @@ function limit(name: string, fallback: number): number {
 async function main() {
   const key = required('BLINK_AGENT_KEY') as Hex;
   const tools = createTools({ webUrl: required('BLINK_WEB_URL'), apiUrl: required('BLINK_API_URL'), rpcUrl: required('BLINK_RPC_URL'), privateKey: key, maxTxs: limit('BLINK_LLM_MAX_TXS', 50) });
-  const llms = await tools.fetchDoc({ path: '/llms.txt' });
+  const llms = await tools.fetchDoc({ path: 'llms.txt' });
   const dir = fileURLToPath(new URL('../../../tmp/llm-agent/', import.meta.url));
   await mkdir(dir, { recursive: true });
   const file = join(dir, `${new Date().toISOString().replaceAll(':', '-')}.jsonl`);
@@ -46,7 +46,7 @@ async function main() {
   const chainInput = z.object({ address: z.string(), signature: z.string(), args: z.array(z.unknown()) });
   const definitions = [
     betaZodTool({ name: 'fetch_doc', description: 'Read a documentation path on the supplied web origin.', inputSchema: z.object({ path: z.string() }), run: wrap('fetch_doc', tools.fetchDoc) }),
-    betaZodTool({ name: 'api_request', description: 'Call the Blink API. The session key is attached automatically.', inputSchema: z.object({ method: z.enum(['GET', 'POST']), path: z.string(), body: z.unknown().optional() }), run: wrap('api_request', tools.apiRequest) }),
+    betaZodTool({ name: 'api_request', description: 'Call the Blink API. The session key is attached automatically. Operations that need an Idempotency-Key header (such as forecasts) take idempotencyKey: 1-128 printable ASCII characters, POST only.', inputSchema: z.object({ method: z.enum(['GET', 'POST']), path: z.string(), body: z.unknown().optional(), idempotencyKey: z.string().optional() }), run: wrap('api_request', tools.apiRequest) }),
     betaZodTool({ name: 'chain_read', description: 'Read a deployed contract using one human-readable function signature.', inputSchema: chainInput, run: wrap('chain_read', tools.chainRead) }),
     betaZodTool({ name: 'chain_write', description: 'Send a transaction to a deployed contract using one human-readable function signature.', inputSchema: chainInput, run: wrap('chain_write', tools.chainWrite) }),
     betaZodTool({ name: 'sign_typed_data', description: 'Sign EIP-712 typed data on chain 84532.', inputSchema: z.object({ domain: z.record(z.string(), z.unknown()), types: z.record(z.string(), z.array(z.object({ name: z.string(), type: z.string() }))), primaryType: z.string(), message: z.record(z.string(), z.unknown()) }), run: wrap('sign_typed_data', tools.signTypedData) }),

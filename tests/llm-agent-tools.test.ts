@@ -38,3 +38,24 @@ test('wallet verification captures the API key and uses it only for API calls', 
   assert.equal((requests[1]?.headers as Record<string, string>).Authorization, 'Bearer session-secret');
   await assert.rejects(tools.apiRequest({ method: 'GET', path: 'http://evil.test/v1/markets' }), /API_PATH/);
 });
+test('api_request sends a valid Idempotency-Key on POST only and refuses an invalid key or a GET with one', async () => {
+  const requests: RequestInit[] = [];
+  const tools = createTools({ webUrl: 'http://localhost:3000', apiUrl: 'http://localhost:3001', rpcUrl: 'http://localhost:8545', privateKey: key, maxTxs: 1,
+    fetch: async (_url, init) => { requests.push(init ?? {}); return Response.json({ ok: true }); } });
+  await tools.apiRequest({ method: 'POST', path: '/v1/markets/m1/forecasts', body: {}, idempotencyKey: 'forecast-1' });
+  assert.equal((requests[0]?.headers as Record<string, string>)['Idempotency-Key'], 'forecast-1');
+  await tools.apiRequest({ method: 'POST', path: '/v1/markets/m1/forecasts', body: {} });
+  assert.equal('Idempotency-Key' in (requests[1]?.headers as Record<string, string>), false);
+  for (const bad of ['', 'has space', 'x'.repeat(129), 'caf\u00e9'])
+    await assert.rejects(tools.apiRequest({ method: 'POST', path: '/v1/x', body: {}, idempotencyKey: bad }), /IDEMPOTENCY_KEY/);
+  await assert.rejects(tools.apiRequest({ method: 'GET', path: '/v1/markets', idempotencyKey: 'k' }), /IDEMPOTENCY_KEY/);
+  assert.equal(requests.length, 2);
+});
+test('fetch_doc resolves root-absolute llms.txt links against the origin and relative paths under the base path', async () => {
+  const urls: string[] = [];
+  const tools = createTools({ webUrl: 'https://pages.test/blinkmarket', apiUrl: 'http://localhost:3001', rpcUrl: 'http://localhost:8545', privateKey: key, maxTxs: 1,
+    fetch: async (url) => { urls.push(String(url)); return new Response('ok'); } });
+  await tools.fetchDoc({ path: 'llms.txt' });
+  await tools.fetchDoc({ path: '/blinkmarket/docs/agents.md' });
+  assert.deepEqual(urls, ['https://pages.test/blinkmarket/llms.txt', 'https://pages.test/blinkmarket/docs/agents.md']);
+});

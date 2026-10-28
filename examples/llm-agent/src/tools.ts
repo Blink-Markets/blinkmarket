@@ -4,6 +4,7 @@ import { baseSepolia } from 'viem/chains';
 
 const CHAIN = 84532;
 const MAX_DOC = 200_000;
+const IDEMPOTENCY_KEY = /^[\x21-\x7e]{1,128}$/;
 type ChainInput = { address: string; signature: string; args: unknown[] };
 type TypedInput = { domain: Record<string, unknown>; types: Record<string, { name: string; type: string }[]>; primaryType: string; message: Record<string, unknown> };
 type Options = { webUrl: string; apiUrl: string; rpcUrl: string; privateKey: Hex; maxTxs: number; fetch?: typeof fetch; chainId?: () => Promise<number>; write?: () => Promise<string> };
@@ -20,7 +21,8 @@ export function createTools(options: Options) {
   const secrets: string[] = [options.privateKey];
   async function fetchDoc({ path }: { path: string }) {
     const base = new URL(options.webUrl);
-    const url = new URL(path, base);
+    // A relative path resolves under the site's base path (GitHub Pages); a root-absolute llms.txt link keeps its own.
+    const url = new URL(path, base.pathname.endsWith('/') ? base : new URL(`${base.pathname}/`, base));
     if (url.origin !== base.origin || url.username || url.password) throw new Error('ORIGIN');
     const response = await fetcher(url, { redirect: 'error' });
     if (!response.ok) throw new Error(`HTTP_${response.status}`);
@@ -40,11 +42,14 @@ export function createTools(options: Options) {
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
     return new TextDecoder().decode(bytes);
   }
-  async function apiRequest({ method, path, body }: { method: 'GET' | 'POST'; path: string; body?: unknown }) {
+  async function apiRequest({ method, path, body, idempotencyKey }: { method: 'GET' | 'POST'; path: string; body?: unknown; idempotencyKey?: string }) {
     const base = new URL(options.apiUrl);
     const url = new URL(path, base);
     if (url.origin !== base.origin || !url.pathname.startsWith('/v1/') || url.username || url.password) throw new Error('API_PATH');
+    // The API's IdempotencyHeaders rule (packages/schemas/src/http.ts): 1-128 printable ASCII characters.
+    if (idempotencyKey !== undefined && (method !== 'POST' || !IDEMPOTENCY_KEY.test(idempotencyKey))) throw new Error('IDEMPOTENCY_KEY');
     const headers: Record<string, string> = {};
+    if (idempotencyKey !== undefined) headers['Idempotency-Key'] = idempotencyKey;
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     const response = await fetcher(url, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }), redirect: 'error' });
