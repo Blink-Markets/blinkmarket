@@ -11,7 +11,7 @@ agentTask: find the deployed Blink contract and role addresses and check them ag
 > [!NOTE]
 > **v0.1 deployment record.** This page describes the `alpha-2` contracts, the old v0.1 design with fixed roles and trading disabled, kept as history. No P1 generation has been deployed to any network, and `alpha-2` is no longer the target deployment. The current design is the [autonomous market design](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/superpowers/specs/2026-10-23-autonomous-market-design.md).
 
-The contracts were deployed on Base Sepolia (chain ID 84532) on 2026-10-20 as deployment `alpha-2`. Trading is disabled (`tradingEnabled: false`), no markets have been created, the API, worker, indexer and signer are not deployed, and there is no public API host. Nothing trades on this site; bUSD has no value.
+The contracts were deployed on Base Sepolia (chain ID 84532) on 2026-10-20 as deployment `alpha-2`. Trading is disabled (`tradingEnabled: false`) and no markets have been created. These contracts and their fixed roles are the design Blink replaced: an agent today reads the addresses of the current generation from `GET /v1/deployment` of the API it was given, and no generation of the current contracts is deployed to a public network. Nothing trades on this site; bUSD has no value.
 
 ## Which contracts are deployed?
 
@@ -64,5 +64,5 @@ An earlier attempt (`alpha-1`) left an unused BlinkTestUSD at `0x83517271696F742
 ## Hand it to your agent
 
 ```prompt
-Read https://blink-markets.github.io/blinkmarket/docs/deployment.md, list the contract and role addresses, and check them on the explorer and on Sourcify. Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks.
+Read https://blink-markets.github.io/blinkmarket/docs/deployment.md, list the contract and role addresses, and check them on the explorer and on Sourcify. These are v0.1 history, not the contracts agents use today. Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks.
 ```

@@ -1,6 +1,6 @@
 ---
 title: TypeScript client
-description: Reference for @blink/client, the TypeScript client in the repository: how it is created, how it fails, and every method with its endpoint.
+description: Reference for @blink/client, the TypeScript client and agent kit in the repository: how it is created, how it fails, every method with its endpoint, and the helpers for quotes, votes and forecasts.
 group: Reference
 order: 3
 agentTask: understand the shape and behaviour of the @blink/client TypeScript client
@@ -8,173 +8,164 @@ agentTask: understand the shape and behaviour of the @blink/client TypeScript cl
 
 # TypeScript client
 
-> [!NOTE]
-> **Partly v0.1.** The method tables below describe the v0.1 client. P2 removed `requestQuote`, `getQuote`, `claimFaucet`, `getResolution`, `getEvidence` and the resolution-report method, and added methods for the P2 API (reads, content, suggestions, the RFQ relay, signed forecasts) and an async `verifySignedQuote` for the "Blink RFQ" 0.2 domain. The client is a private workspace package; read its source for the current surface. P3 rewrites this page. The current design is the [autonomous market design](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/superpowers/specs/2026-10-23-autonomous-market-design.md).
-
-`@blink/client` is a small typed wrapper around the Blink HTTP API. It lives in `packages/client` and validates every request and response against the shared schemas in `@blink/schemas`.
+`@blink/client` is a small typed wrapper around the Blink HTTP API, plus the helpers an agent needs around it: the contract ABI, the protocol constants, the quote check, the vote commitment and the signed-forecast types. It lives in `packages/client`, validates every request and response against the shared schemas in `@blink/schemas`, and is the only Blink package the reference agents in `examples/agents` import.
 
 > [!NOTE]
-> `@blink/client` is a private package in the repository and is not published to npm. The API it calls is not deployed and there is no public API host, so this page describes the client's shape and behaviour.
+> `@blink/client` is a private package in the repository and is not published to npm. No API host is running, so this page describes the client's shape and behaviour. It holds no private key and signs nothing: signatures come from your own wallet code.
 
 ## How is a client created?
 
 ```ts
 import { createBlinkClient } from "@blink/client";
 
-const client = createBlinkClient("<Blink API URL>", "<invited API key>");
+const client = createBlinkClient(apiUrl, apiKey, { maxAttempts: 3 });
 ```
 
-`createBlinkClient(baseUrl, apiKey?)` behaves as follows:
+`createBlinkClient(baseUrl, apiKey?, options?)` behaves as follows:
 
 - **URL rule.** `https:` URLs are accepted. `http:` is accepted only for loopback addresses. Any other URL throws `Error("HTTPS_REQUIRED")` immediately.
-- **Bearer auth.** If you pass `apiKey`, every request carries `Authorization: Bearer <apiKey>`. Without a key, only calls that need none will succeed (for example `getConfig`). See [Joining](/docs/joining) for how keys are issued.
-- **No redirects.** Requests use `redirect: "error"`, so a redirect response makes the call fail instead of sending your key to another location.
-- **No signing.** The client holds no private key and signs nothing.
+- **Bearer auth.** If you pass `apiKey`, every request carries `Authorization: Bearer <apiKey>`. Without a key only public calls succeed, which includes the wallet proof that issues a key; see [Onboarding](/docs/onboarding).
+- **No redirects.** Requests use `redirect: "error"`, so a redirect makes the call fail instead of sending your key to another location.
+- **Mainnet refused.** A JSON answer that names a mainnet chain throws `MAINNET_REFUSED`.
 
 ## How does it report errors?
 
-A non-2xx response throws `BlinkApiError`, an `Error` subclass with two fields:
+A non-2xx response throws `BlinkApiError`, an `Error` subclass with three fields:
 
 - `status`: the HTTP status code.
 - `body`: the response body parsed as the `ApiError` shape: `code`, `message`, `requestId`, `retryable` and `details`. `message` also becomes the error's message.
+- `retryAfterSeconds`: the server's `Retry-After` in seconds, when it sent one. It is optional.
 
 ```ts
 import { BlinkApiError } from "@blink/client";
 
 try {
-  await client.getConfig();
+  await client.getDeployment();
 } catch (error) {
   if (error instanceof BlinkApiError) {
-    console.error(error.status, error.body.code, error.body.requestId, error.body.retryable);
+    console.error(error.status, error.body.code, error.body.requestId, error.body.retryable, error.retryAfterSeconds);
   } else {
     throw error; // network failure, HTTPS_REQUIRED, redirect, or a schema validation error
   }
 }
 ```
 
-Branch on `body.code` and `body.retryable`, as described in [Errors](/docs/errors). Input that fails schema validation throws before any request is sent. A response that is not valid JSON, or does not match the expected schema, also throws a plain error rather than `BlinkApiError`.
+Branch on `body.code` and `body.retryable`, as described in [Errors](/docs/errors). Input that fails schema validation throws before any request is sent. A response that is not valid JSON, or does not match the expected schema, throws a plain error rather than `BlinkApiError`.
 
-Before it throws, the client retries an answer whose `retryable` is `true`: up to 3 attempts in all, waiting for the server's `Retry-After` (at most 10 seconds) or, without one, 250 ms doubling. A retried POST repeats the same `Idempotency-Key` and body, so the server answers with the original result and never acts twice. Pass `{ maxAttempts: 1 }` as the third argument of `createBlinkClient` to turn retries off. A network failure is not retried.
+Before it throws, the client retries an answer whose `retryable` is `true`: up to `maxAttempts` tries in all (default 3), waiting for the server's `Retry-After` (at most 10 seconds) or, without one, 250 ms doubling. A retried POST resends the same body. Only a forecast submission carries an `Idempotency-Key`, so only a retried `submitForecast` is deduplicated by the server (it answers with the original result). Every other write is resent without a key and is not deduplicated: in particular a retried `createRfq` can open a second RFQ. A taker cannot look for the earlier one: `listRfqs` needs the MAKER role (a taker gets `403 ROLE_REQUIRED`), and a lost answer gives no RFQ id for `listQuotes`. The reference trader does not look either: the failure ends the tick, and the next tick posts a fresh RFQ. An earlier RFQ that was created stays open for its 30 seconds and counts against the taker's limit of open RFQs, but it buys nothing: no money moves until the taker fills a quote it has verified. Pass `{ maxAttempts: 1 }` to turn retries off. A network failure is not retried. After the last try a `429` or `503` reaches your code as a `BlinkApiError`; wait for `retryAfterSeconds` before you ask again.
 
 ## Which methods does it have?
 
-The client has 26 methods. Every `key` argument is optional and is sent as the `Idempotency-Key` header: 1 to 128 printable ASCII characters, no spaces. When you leave it out, the client sends a fresh UUID. Every method that takes a key checks its format locally before sending. Repeating a call with the same key and body returns the original result; see [Errors](/docs/errors). `input` is validated against the endpoint's request schema before sending; the operations and who may call them are in the [API reference](/docs/api).
+The client has 36 methods. Only `POST /v1/markets/{id}/forecasts` takes an `Idempotency-Key`: `submitForecast` accepts your own as its last argument, and otherwise the client chooses a fresh UUID once per call and repeats it on retries. The other POSTs take no key, so the client repeats one only when the server marked its answer `retryable`. `input` is validated against the endpoint's request schema before sending. The operations and who may call them are in the [API reference](/docs/api).
 
-### Config
+### Identity and config
 
-| Method | Calls | Arguments | Returns |
-| --- | --- | --- | --- |
-| `getConfig()` | `GET /v1/config` | none | `chainId` (84532), `stage`, `tradingEnabled`, `deployment`, `asset` (bUSD, 6 decimals, no value) |
+| Method | Calls | Notes |
+| --- | --- | --- |
+| `createWalletChallenge(input)` | `POST /v1/auth/wallet-challenges` | `{ address, action }`, public; answers `challengeId`, `message`, `expiresAt` |
+| `verifyWallet(input)` | `POST /v1/auth/wallet-verifications` | `{ challengeId, signature }`, public, single use; answers `apiKey`, `keyId` and `expiresAt` for `issue` |
+| `getConfig()` | `GET /v1/config` | Chain id and the public parts of the deployment |
+| `getDeployment()` | `GET /v1/deployment` | The current generation's addresses, `params`, `startBlock`, `tokenPriceMicros` and the index health it was read at |
 
-### Identity
+### Markets and protocol reads
 
-| Method | Calls | Arguments | Returns |
-| --- | --- | --- | --- |
-| `createWalletChallenge(input, key?)` | `POST /v1/auth/wallet-challenges` | `{ address }`, idempotency key | `challengeId`, `message`, `expiresAt` |
-| `verifyWallet(input, key?)` | `POST /v1/auth/wallet-verifications` | `{ challengeId, signature }`, idempotency key | `wallet`, `verifiedAt` |
+| Method | Calls | Notes |
+| --- | --- | --- |
+| `listMarkets(query?)` | `GET /v1/markets` | `{ state, after, limit }`; a page of markets with their parsed spec |
+| `getMarket({ marketId })` | `GET /v1/markets/{id}` | The market, the parse of its spec bytes, its proposal (null before one) and the index health |
+| `getMarketSpec({ marketId }, specHash)` | `GET /v1/markets/{id}/spec` | Returns the parsed spec only if the keccak256 of the bytes equals the `specHash` you trust; otherwise throws `SPEC_HASH_MISMATCH` |
+| `listDisputes({ marketId }, query?)` | `GET /v1/markets/{id}/disputes` | A market's disputes |
+| `getDispute({ disputeId }, query?)` | `GET /v1/disputes/{id}` | One dispute, optionally one `round` |
+| `getFees({ marketId })` | `GET /v1/markets/{id}/fees` | A market's fee breakdown, or null before there is one |
+| `getAccount({ address })` | `GET /v1/accounts/{address}` | Registration, each role's stake and credit, and juror state |
+| `getPositions({ address }, query?)` | `GET /v1/accounts/{address}/positions` | YES and NO shares per market |
+| `listTemplates(query?)` | `GET /v1/templates` | Registered templates |
+| `getMetrics(mode)` | `GET /v1/metrics` | Evaluation metrics for `"LIVE"` or `"REPLAY"` markets |
 
-### Candidates and evidence
+### Content and suggestions
 
-| Method | Calls | Arguments | Returns |
-| --- | --- | --- | --- |
-| `createCandidate(input, key?)` | `POST /v1/candidates` | candidate input, idempotency key | `candidateId`, `revision`, `state` |
-| `reviseCandidate(id, input, key?)` | `POST /v1/candidates/:id/revisions` | candidate ID, revision input, idempotency key | `candidateId`, `revision`, `state` |
-| `getCandidate(id)` | `GET /v1/candidates/:id` | candidate ID | `candidate` and its `revisions` |
-| `rejectCandidate(id, input, key?)` | `POST /v1/admin/candidates/:id/reject` | candidate ID, `{ expectedRevision, reasonCode, reason }`, idempotency key; admin key | `candidateId`, `revision`, `state` |
+| Method | Calls | Notes |
+| --- | --- | --- |
+| `uploadContent(bytes, mediaType)` | `POST /v1/content` | Needs `content:write`; the answer must name `keccak256(bytes)` and the size, or it throws `HASH_MISMATCH` |
+| `getContent(hash)` | `GET /v1/content/{hash}` | Returns the bytes only if their keccak256 equals `hash`, else `HASH_MISMATCH`; an unknown hash is `404 NOT_FOUND`, and `503 CONTENT_UNAVAILABLE` means the stored bytes are damaged or unreadable |
+| `submitSuggestion(input)` | `POST /v1/suggestions` | Public; each call adds a suggestion |
+| `listSuggestions(query?)` | `GET /v1/suggestions` | `status` is `OPEN`, `CLAIMED` or `MARKET_CREATED` |
+| `getSuggestion(id)` | `GET /v1/suggestions/{id}` | One suggestion |
+| `claimSuggestion(id)` | `POST /v1/suggestions/{id}/claims` | Needs `suggestion:claim` and the CREATOR role; `409 ALREADY_CLAIMED` means this identity already claimed it |
 
-### Approval and creation tracking (admin)
+### Signed forecasts
 
-These need a key with the `admin` scope and are meant for the Blink team, not autonomous agents.
+| Method | Calls | Notes |
+| --- | --- | --- |
+| `listForecastWindows({ marketId }, page?)` | `GET /v1/markets/{id}/forecast-windows` | Windows with their schedule and, once closed, their Merkle roots |
+| `submitForecast({ marketId }, input, key?)` | `POST /v1/markets/{id}/forecasts` | Needs `forecast:write` and the FORECASTER role; `{ horizon, scheduledAt, probabilityBps, contentHash, signature }`; answers `digest` and `leaf` |
+| `listForecasts({ marketId }, query)` | `GET /v1/markets/{id}/forecasts` | `windowId` is required; before the deadline only your own answer is visible |
+| `withdrawForecast({ submissionId })` | `POST /v1/forecasts/{id}/withdrawal` | Before the window's deadline; the answer is still kept |
+| `getForecastWindow({ windowId })` | `GET /v1/forecast-windows/{id}` | Root, sorted leaves and `BlinkAnchor` record; empty until the deadline |
+| `getForecastProof({ windowId }, leaf)` | `GET /v1/forecast-windows/{id}/proof` | The sibling path for OpenZeppelin `MerkleProof.verify` |
+| `getConsensus({ marketId }, page?)` | `GET /v1/markets/{id}/consensus` | The credit-weighted consensus of closed windows |
+| `listForecasters(page?)` | `GET /v1/forecasters` | Sorted by weight |
+| `getForecaster({ address })` | `GET /v1/forecasters/{address}` | One forecaster's record |
 
-| Method | Calls | Arguments | Returns |
-| --- | --- | --- | --- |
-| `approveCandidate(id, input, key?)` | `POST /v1/admin/candidates/:id/approve` | candidate ID, approval input, idempotency key | `approvalId`, `specHash`, `creationIntentId`, `state` (`DEPLOY_PENDING`); HTTP 202 |
-| `getCreationIntent(id)` | `GET /v1/admin/creation-intents/:id` | creation intent ID | the unsigned creation transaction (`to`, `requiredSender`, `value`, `specHash`, `specUri`, `calldata`) |
-| `getCreationChainStatus(id)` | `GET /v1/admin/creation-intents/:id/chain-status` | creation intent ID | the tracked chain status of the creation |
+### Quote relay and transactions
 
-### Markets
-
-| Method | Calls | Arguments | Returns |
-| --- | --- | --- | --- |
-| `listMarkets(query?)` | `GET /v1/markets` | optional `{ state, after, limit }` | a page (`items`, `next`, `index`); each item has the `market` and its `spec` parse result (the spec, or the reason there is none) |
-| `getMarket(ref)` | `GET /v1/markets/:id` | `{ marketId }` | `market`, `spec` parse result, `proposal` (null before one) and `index` |
-| `getMarketSpec(ref, specHash)` | `GET /v1/markets/:id/spec` | `{ marketId }` and the `specHash` you already trust, from `listMarkets` or a signed quote | the parsed market spec, only if the keccak256 of the returned bytes equals `specHash`; otherwise it throws `SPEC_HASH_MISMATCH` |
-
-### Forecasts
-
-| Method | Calls | Arguments | Returns |
-| --- | --- | --- | --- |
-| `listForecastWindows(ref, page?)` | `GET /v1/markets/:id/forecast-windows?deploymentId=...` | `{ deploymentId, marketId }`, optional `{ limit, cursor }` | a page of windows with `windowId`, `horizonKey`, `openAt`, `deadline`, `status` |
-| `submitForecast(ref, input, key?)` | `POST /v1/markets/:id/forecasts?deploymentId=...` | `{ deploymentId, marketId }`, `{ horizonKey, probability, evidenceIds, rationale, agentVersion }`, idempotency key | `submissionId`, `receivedAt`, `windowId`; HTTP 201 |
-| `listForecasts(ref, query)` | `GET /v1/markets/:id/forecasts?deploymentId=...` | `{ deploymentId, marketId }`, `{ windowId, limit?, cursor? }` | a page of forecasts |
-
-### Quotes and transactions
-
-| Method | Calls | Arguments | Returns |
-| --- | --- | --- | --- |
-| `requestQuote(input, key?)` | `POST /v1/rfqs` | `{ deploymentId, marketId, side, quantity, maxCostMicros }`, idempotency key | a signed quote |
-| `getQuote(quoteId)` | `GET /v1/quotes/:quoteId` | the quote ID (its EIP-712 digest) | `quote`, `status` and `chainCursor`; a quote that was never signed is a 404 |
-| `trackTransaction(input, key?)` | `POST /v1/transactions` | `{ deploymentId, txHash, action, quoteId? }`: `action` is `APPROVE`, `FILL` or `REDEEM`, and `FILL` needs `quoteId`; idempotency key | `trackingId`, `status` (`UNKNOWN`); HTTP 202 |
-| `getTransaction(ref)` | `GET /v1/transactions/:txHash?deploymentId=...` | `{ deploymentId, txHash }` | `status`, `replacementOf`, `rejectReason`, `chainCursor` |
-| `getPositions(ref, page?)` | `GET /v1/accounts/:address/positions` | `{ address }`, optional `{ after, limit }` | a page of positions with `yesShares`, `noShares`, `payoutMicros` (set once the market is final) |
-
-If `requestQuote` is answered with a retryable 503 while the quote is still being signed, the client's retry repeats the same key and resumes the same quote.
-
-### Resolution, faucet and metrics
-
-| Method | Calls | Arguments | Returns |
-| --- | --- | --- | --- |
-| `submitResolutionReport(ref, input, key?)` | `POST /v1/markets/:id/resolution-reports?deploymentId=...` | `{ deploymentId, marketId }`, `{ outcome, evidenceIds, reason }`, idempotency key | `reportId`, `state` (`RECEIVED`); HTTP 202 |
-| `claimFaucet(input, key?)` | `POST /v1/faucet/claims` | `{ deploymentId }`, idempotency key | `claimId`, `intentId`, `state` (`QUEUED`); HTTP 202 |
-| `getMetrics(mode)` | `GET /v1/metrics?mode=...` | `"LIVE"` or `"REPLAY"` | event, missing and invalid counts, `brier`, and research spend: spent, reserved and unknown |
-
-The client has no method for the admin operations in the [API reference](/docs/api).
+| Method | Calls | Notes |
+| --- | --- | --- |
+| `createRfq(input)` | `POST /v1/rfqs` | Taker: `{ marketId, side, quantity }`; open for 30 seconds; the relay never prices or fills |
+| `listRfqs(query?)` | `GET /v1/rfqs` | Maker: the open RFQs |
+| `postQuote(rfqId, input)` | `POST /v1/rfqs/{id}/quotes` | Maker: `{ quote, signature }` |
+| `listQuotes(rfqId)` | `GET /v1/rfqs/{id}/quotes` | Taker: quotes cheapest first, exactly as the makers posted them; verify each one |
+| `getMakerStats(address)` | `GET /v1/makers/{address}/stats` | Informational counts of relayed, filled and cancelled-before-expiry quotes |
+| `trackTransaction({ txHash })` | `POST /v1/transactions` | A hash your wallet sent to the generation, the faucet or the anchor |
+| `getTransaction({ deploymentId, txHash })` | `GET /v1/transactions/{txHash}` | `UNKNOWN`, `INCLUDED`, `FINALIZED`, `REVERTED` or `REORGED` |
 
 ## How is a signed quote checked?
 
-A quote is a maker's offer, and the API is not trusted to describe it truthfully. The client exports `verifySignedQuote(quote, { config, wallet, request, nowSeconds, minValiditySeconds? })`. It returns nothing and throws `QuoteVerificationError` with a `code` for the first check that fails, so approve and send a fill only after it returns:
+A quote is a maker's offer, and the relay is not trusted to describe it truthfully. `verifySignedQuote(quote, signature, context)` is asynchronous: `await` it, because a caller that forgets gets a promise, not a quote it may use. It resolves to a `VerifiedQuote` (`digest`, `takerCost`, `fee`, `maxCost`) and rejects with `QuoteVerificationError` and a `code` for the first check that fails. Approve and fill only after the awaited call has resolved. It does not read the maker's epoch, so a stale epoch is rejected by `fillQuote` on chain even after a successful verification. The `quote` is the quote fields and `signature` the maker's signature, as `listQuotes` returns them. The `context` carries a `publicClient` for a node you trust, the `deployment` from `getDeployment()`, the `market` as the index reports it, your `rfq` (`marketId`, `side`, `quantity`, `taker`), `now` (the latest block timestamp, never the host clock), the generation's `feeBps`, an optional `maker` and an optional `minValiditySeconds`.
 
 | Code | What failed |
 | --- | --- |
-| `DEPLOYMENT_MISMATCH` | the quote or request names a deployment other than the one in `getConfig()` |
-| `DOMAIN_MISMATCH` | the EIP-712 domain (name, version, chain, verifying contract) is not the deployment's market, or the chain is not 84532 |
-| `MAKER_MISMATCH` | the quote's maker is not the deployment's maker role |
-| `SIGNATURE_INVALID` | the signature does not recover to the maker, or is one the contract refuses (an `s` in the upper half of the curve, or a `v` other than 27 or 28) |
-| `DIGEST_MISMATCH` | `quoteId` is not the EIP-712 digest of the signed message |
-| `TAKER_MISMATCH` | the quote names another taker than your wallet |
-| `TERMS_MISMATCH` | the market, side or quantity differs from your request |
-| `COST_MISMATCH` | the reported costs do not follow from the signed price and quantity |
-| `MAX_COST_EXCEEDED` | the taker cost is above your `maxCostMicros` |
-| `NOT_YET_VALID` | `nowSeconds` is before the quote's `validAfter` |
-| `EXPIRED` | less than `minValiditySeconds` is left before `expiresAt`, or `nowSeconds` is at or past it |
-| `CALLDATA_MISMATCH` | the returned calldata is not `fillQuote` for exactly this message and signature |
+| `DEPLOYMENT_MISMATCH` | The quote does not belong to the generation you trust |
+| `MAKER_MISMATCH` | The quote's maker is not the maker you meant to deal with |
+| `TAKER_MISMATCH` | The quote names another taker than your wallet |
+| `TERMS_MISMATCH` | The market, spec hash, side or quantity differs from your request or the indexed market |
+| `INVALID_PRICE` | The price is not in 1..9999 bps |
+| `INVALID_LIFETIME` | The quote lives longer than `BlinkMarkets` allows (60 seconds) |
+| `NOT_YET_VALID` | `now` is before the quote's `validAfter` |
+| `EXPIRED` | Less than `minValiditySeconds` is left, or `now` is at or past `expiresAt` |
+| `AFTER_CLOSE` | The quote would end after the market's `closeAt` |
+| `SIGNATURE_INVALID` | The signature does not verify for the maker, or is one the contract refuses (a wrapper, a high `s`, a `v` other than 27 or 28) |
 
-`config` is the answer of `getConfig()` with a non-null `deployment`, and `nowSeconds` is the chain's latest block timestamp, never the clock of the machine running the code. `minValiditySeconds` is optional and defaults to `DEFAULT_MIN_VALIDITY_SECONDS` (6), which assumes 2-second blocks: one for the approval, one for the fill and one of slack. Pass a larger value if blocks are slower; pass `0n` to accept a quote until its last second.
+`DEFAULT_MIN_VALIDITY_SECONDS` is 6, which assumes 2-second blocks: one for the approval, one for the fill and one of slack. Pass a larger value if blocks are slower, or `0n` to accept a quote until its last second. `approvalFor(quote, feeBps)` gives the allowance a fill needs, the cost plus the fee. `takerCostOf`, `feeOf` and `quoteTypedData` build the pieces. Cross-check the `getDeployment()` answer against a source outside the API before you trust it.
 
-`getConfig()` comes from the same API as the quote, so pin or cross-check `deploymentId`, the `BlinkMarket` address and the maker against a source outside the API (for example the deployment record you were given) before you trust it.
+## What else does the kit export?
+
+| Export | Use |
+| --- | --- |
+| `agentAbi` | The ABI slice of every contract an agent calls; listed in full on [Contracts](/docs/contracts) |
+| `ROLE`, `QUESTION_CLASS`, `MARKET_STATE`, `OUTCOME`, `CREATION_GROUND` | Protocol constants. `CREATION_GROUND` is a P3 decision, not enforced on chain; see [Trust](/docs/trust) |
+| `templateIdFor(cls, parserHash, uri)` | The id `registerTemplate` gives a template |
+| `voteCommitment({ disputeId, round, juror, choice, salt })` | The hash a juror commits, which `revealVote` recomputes |
+| `forecastTypedData`, `forecastDigest`, `forecastLeaf`, `FORECAST_HORIZONS`, `NO_CONTENT_HASH` | What a forecaster signs and the leaf `BlinkAnchor` may anchor |
+| `GM_LT_V1`, `gmLtV1Outcome`, `parseGrossMargin` | The class A template and its computation. `gmLtV1Outcome` accepts only `{"thresholdBps": <int 1..9999>}` |
+| `parseMarketSpec` | Reads the bytes of a MarketSpec without importing the schemas package |
 
 ## What does a typed example look like?
-
-This reads the config, then binds a wallet. The signature must come from the operator's wallet, outside this code.
 
 ```ts
 import { BlinkApiError, createBlinkClient } from "@blink/client";
 
-const client = createBlinkClient("<Blink API URL>", "<invited API key>");
+const client = createBlinkClient(apiUrl, apiKey);
 
-const config = await client.getConfig();
-console.log(config.chainId); // 84532
+const { generation, params } = await client.getDeployment();
+const page = await client.listMarkets({ state: "OPEN", limit: 20 });
 
-async function bind(address: string, signature: (message: string) => Promise<string>) {
+async function track(txHash: string) {
   try {
-    const challenge = await client.createWalletChallenge({ address }, crypto.randomUUID());
-    return await client.verifyWallet(
-      { challengeId: challenge.challengeId, signature: await signature(challenge.message) },
-      crypto.randomUUID(),
-    ); // { wallet, verifiedAt }
+    return await client.trackTransaction({ txHash });
   } catch (error) {
     if (error instanceof BlinkApiError && error.body.retryable) {
-      // retry with the same Idempotency-Key and body, never a new one for the same intent
+      // the client already retried; wait error.retryAfterSeconds and ask again, never send the transaction twice
     }
     throw error;
   }
@@ -188,13 +179,13 @@ Read https://blink-markets.github.io/blinkmarket/docs/client.md and explain how 
 1. Which base URLs createBlinkClient accepts, and what happens with any other URL.
 2. How it sends the API key, and why it refuses redirects.
 3. What BlinkApiError contains, and which failures throw a plain error instead.
-4. For a given method, which endpoint it calls, whether it takes an Idempotency-Key, and whether it is an admin operation meant for the Blink team.
-Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. The API is not deployed, so do not call any host.
+4. For a given method, which endpoint it calls and which scope and role it needs.
+Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. No API host is running, so do not call any host.
 ```
 
 ## Next steps
 
 - [API reference](/docs/api): every operation and who may call it.
-- [Joining](/docs/joining): API keys, scopes and the wallet-challenge flow.
+- [Onboarding](/docs/onboarding): API keys, scopes and the wallet-challenge flow.
 - [Errors](/docs/errors): the error shape, status codes and safe retries.
-- [Agent guide](/docs/agents): the briefing for agents.
+- [Contracts](/docs/contracts): the signatures in `agentAbi`.

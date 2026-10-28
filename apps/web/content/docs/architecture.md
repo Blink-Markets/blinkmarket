@@ -1,6 +1,6 @@
 ---
 title: Architecture
-description: How Blink splits research, funds and signing across processes and trust boundaries.
+description: What the contracts, the platform's processes and the agents each do in Blink, and where the trust boundaries lie.
 group: How markets work
 order: 2
 agentTask: understand which Blink component is responsible for what
@@ -8,88 +8,65 @@ agentTask: understand which Blink component is responsible for what
 
 # Architecture
 
+Blink has three kinds of component. The contracts hold the money and enforce the rules. The agents decide everything else. The platform runs only the infrastructure between them: an API, an indexer, a worker and these docs. It holds no private key, signs nothing, and plays no market role: it does not approve, create, quote, forecast, trade, propose, challenge, vote, keep or fund.
+
 > [!NOTE]
-> **v0.1 architecture.** This page describes the v0.1 processes, including a private signer, platform research and a single maker, which P2 removed. The platform now runs only an API, an indexer and a worker, holds no key and plays no market role; see [P2 off-chain protocol](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/P2_OFFCHAIN_PROTOCOL.md). P3 rewrites this page. The current design is the [autonomous market design](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/superpowers/specs/2026-10-23-autonomous-market-design.md).
-
-Blink is a modular monolith with implemented API, worker, indexer and restricted signer processes. They are not deployed; local verification uses REPLAY fixtures with no paid model provider. The public site is read-only, with fictional samples and no trading. LIVE approval remains rejected. The contracts are deployed on Base Sepolia with trading disabled; see [Deployment](/docs/deployment). The mandate trader, typed SDK and local example agent, local Alpha harness, health/readiness and admin execution metrics are implemented. The harness exercises normal YES, disputed NO and timeout INVALID settlement plus projection recovery on a local stack; it does not establish public-network finality or hosted readiness. Container images for the four processes, operator status reads, alert delivery, a backup restore drill and a deployment runbook are also implemented and verified locally; none of them is a hosted deployment.
-
-![Hand-drawn sketch of the target Blink architecture (target, not live): web, API, worker, indexer and signer processes around PostgreSQL, object storage and the BlinkMarket contract.](/docs-assets/architecture-sketch.jpg)
-
-The trading-mode API exposes public `GET /v1/health` and uses the same readiness decision for `/health/ready`. An admin key adds private diagnostics; `GET /v1/admin/metrics` is admin-only and reports execution latency, persisted status/error counts and role/day gas. Public evaluation metrics remain separate. Readiness does not guarantee a particular market or wallet can trade.
-
-The internal trader reserves mandate risk, verifies public RFQs and uses the restricted signer for exact approval, fill and FINAL redemption. It supports one trader per deployment; mandate caps are enforced by the worker, not independently by the signer. External agents can use the private [typed client](/docs/client) and local example; a future testnet API needs operator configuration.
+> Implemented and tested on a local chain. No generation of the contracts is deployed to a public network and no API host is running, so the processes below describe the code in the repository.
 
 ## What are the three responsibilities?
 
-- **Off-chain research and coordination.** The API receives requests, workers handle research and background jobs, PostgreSQL stores application records, and object storage preserves original evidence and specification bytes.
-- **On-chain funds and outcomes.** The BlinkMarket contract validates quotes, keeps full collateralization, records positions, and enforces settlement and redemption. Users keep control of their own wallets.
-- **Separate signing and synchronization.** A private signer independently checks signing policy. An indexer turns chain events into rebuildable database projections.
+- **On-chain funds and outcomes.** The contracts validate quotes, keep full collateralisation, record positions, run disputes, and enforce settlement and redemption. They have no owner, admin, pause or allowlist function and are not upgradeable. See [Contracts](/docs/contracts).
+- **Agents.** Each agent holds its own wallet, signs its own quotes, forecasts and transactions, and sends its own transactions. See [Roles](/docs/roles).
+- **Off-chain coordination.** The API relays what agents sign or upload and serves reads of the indexed chain. It cannot forge or change anything it relays.
 
-## Which processes exist?
+## Which processes does the platform run?
 
-Web, API, Worker, Indexer and Signer share one codebase and domain definitions, but have different workloads and trust boundaries.
+| Process | Job | Does not do |
+| --- | --- | --- |
+| API | Self-serve wallet identity and keys, public reads of the indexed protocol, the RFQ and quote relay, transaction tracking, hash-addressed content, human suggestions and signed forecasts | Approval, admin actions, quote pricing, any signature |
+| Indexer | Reads the registry, jurors, markets, resolution, faucet, anchor and governor of a generation; handles reorgs; builds the read models | Executing governance |
+| Worker | Forecast windows, scoring, alerts and clean-up of old records | Discovery, forecasting, trading, keeping and faucet jobs |
+| Web | These docs and `/llms.txt` | Trading, positions, administration |
 
-| Process | Job |
-| --- | --- |
-| Web | Read-only explainer and fictional REPLAY samples; no wallet, trading or admin UI |
-| API | Authentication, validation, reads and command intake |
-| Worker | Discovery, forecasting, cost reconciliation and keeper scheduling |
-| Indexer | Chain event pulling, reorg handling and projections |
-| Signer | Restricted signing for maker quotes and similar roles; private boundary |
-| Contracts | Collateral, fills, positions, final outcomes and redemption; not upgradeable |
+The API, the indexer and the worker refuse to start when their environment holds a private key, a mnemonic, a key file or a bare 32-byte hex value. A platform key cannot exist, so a platform cannot act as a market participant.
 
 ## Where are the trust boundaries?
 
-- The Web host holds no database or signer secrets. The current showcase serves static samples; backend public reads are implemented separately.
-- Models hold neither keys nor adjudication authority. Their output is research or a recommendation.
-- A quote is not a trade, and a database reservation is not an on-chain lock. The contract re-checks balances, deadlines, caps and signatures.
-- The chain is the source of truth for funds. Database projections can be rebuilt. An unknown transaction state is not proof of failure and must not be blindly resubmitted.
-- The restricted signer re-verifies policy, intent and nonce and authenticates callers with bearer tokens. Network ACLs, mTLS and key encryption at rest remain deployment work. Administrator, proposer, challenger and arbiter actions use their own manual wallets, not the automatic signer.
-- Pausing stops new trades only. Existing positions can still settle and redeem.
+- **The chain is the source of truth for funds.** The indexer's database is a projection that can be rebuilt. It can lag, and the API answers `503 INDEX_STALE` while it does; act on no stale read.
+- **A quote is not a trade.** A signed quote reserves nothing. The contract re-checks balances, deadlines, caps, the maker's epoch and the signature at the fill, and a taker verifies the quote itself with `verifySignedQuote`.
+- **The relay can refuse, not forge.** It stores and returns signed quote fields unchanged. It may refuse to relay (censorship), and the contracts stay open to anyone who skips the API.
+- **Content is addressed by hash.** Evidence and spec bytes are fetched by keccak256 and checked against it. Anyone can mirror them.
+- **Forecasts are signed and anchored.** A forecast is an EIP-712 signature; the window's Merkle root can be published with `BlinkAnchor`, so the platform cannot change an answer, though it can read sealed answers from its own database before the deadline.
+- **Unknown is not failed.** A transaction with no receipt may have landed. Read the state before you send it again.
+
+See [Trust](/docs/trust) for the assumption that settlement finally rests on.
+
+## What are the reference agents?
+
+`examples/agents` holds one process per role: creator, maker, trader, forecaster, proposer, challenger, juror and keeper. Each onboards itself, keeps its progress in a state file that is saved before a transaction is sent, and uses fixture models. They import only `@blink/client`, `viem`, Node built-ins and their own files, a rule that a script in the repository enforces. They accept a node on their own machine only. They are examples: nothing in the protocol assumes that any of them runs.
 
 ## How is the code layered?
 
-Dependencies point one way: apps wire things together, application use cases depend on ports and domain, adapters implement ports, and schemas define the JSON wire contract used by the API, client and web.
+Dependencies point one way: apps wire things together, application use cases depend on ports and domain, adapters implement ports, and schemas define the JSON wire contract used by the API, the client and the web app.
 
 - `schemas`: wire contract, no framework or database dependency.
 - `domain`: state and invariants.
 - `application`: use cases and transaction boundaries.
-- `ports`: interfaces to storage, chain, models and signing.
+- `ports`: interfaces to storage, chain and signature checks.
 - `adapters`: PostgreSQL, viem and other concrete implementations.
+- `client`: the typed API client and agent kit; see [TypeScript client](/docs/client).
 - `apps`: composition roots and process lifecycles.
 
 A boundary check in the repository verifies the basic import direction. It is not a key-isolation guarantee.
 
-## What are the ports?
-
-Ports are the interfaces the application layer depends on. Adapters provide the concrete implementations.
-
-| Port | Responsibility |
-| --- | --- |
-| `ImmutableObjectStore` | Put-if-absent storage and reads of evidence and specification bytes |
-| `SourceFetcher` | Fetch from allowlisted sources |
-| `ModelGateway` | Budgeted model forecast calls |
-| `ChainSnapshotReader` | Read the RPC head, then the market, maker and taker state at that one block hash |
-| `SpecArchive` | Freeze a market specification to bytes and a hash, and read it back |
-| `JobQueue` | Enqueue within a transaction, lease and acknowledge jobs |
-| `UnitOfWork` | Run work inside one database transaction |
-| `RestrictedSigner` | Sign a request after re-checking trusted intent, policy and nonce |
-| `IdentityStore`, `IdentityCrypto` | Invited keys, wallet challenges and hashing |
-| `PreparationStore` | Evidence records and candidate revisions |
-| `ApprovalStore` | Human approval and unsigned creation intents |
-| `CreationTrackerStore`, `CreationReceiptReader` | Operator-driven tracking of market-creation receipts |
-
-## How does a market get created?
-
-Evidence is fetched from an allowlisted source, stored as bytes with a hash, and attached to a candidate revision. A human approves it. The approval writes the approval, the frozen specification record, an unsigned creation intent, an audit entry and an outbox entry in one database transaction. An administrator then signs the creation transaction in their own wallet. Nothing signs or broadcasts it automatically.
-
 ## Hand it to your agent
 
 ```prompt
-Read https://blink-markets.github.io/blinkmarket/docs/architecture.md and tell me which Blink process or port is responsible for a given task (for example: freezing a specification, signing a quote, reading a creation receipt), and which trust boundary applies. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. The page describes implemented backend services; the API is not deployed, so do not call any host.
+Read https://blink-markets.github.io/blinkmarket/docs/architecture.md and tell me which Blink component is responsible for a given task (for example: holding collateral, relaying a quote, pricing a quote, anchoring a forecast root, keeping a market moving), and which trust boundary applies. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. No API host is running, so do not call any host.
 ```
 
 ## Next steps
 
 - [Market lifecycle](/docs/lifecycle) covers states and settlement.
-- [Roles](/docs/roles) describes who holds each role and key.
+- [Roles](/docs/roles) describes who can take part.
+- [Trust](/docs/trust) explains what you must trust.

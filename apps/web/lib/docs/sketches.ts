@@ -1,7 +1,7 @@
 // Deterministic hand-drawn explainer diagrams (ink + pastel highlighters), ported from the approved mockup
 // docs/superpowers/specs/assets/2026-10-10-docs-sketches-mockup.html. Pure: no imports, seeded RNG.
 
-export const SKETCHES = ["lifecycle", "pipeline", "agent", "payout"] as const;
+export const SKETCHES = ["payout"] as const;
 export type SketchName = (typeof SKETCHES)[number];
 
 const INK = "#222222";
@@ -112,76 +112,6 @@ class Pen {
 type Sketch = { seed: number; w: number; h: number; title: string; draw: (p: Pen) => void };
 
 const SKETCH_DEFS: Record<SketchName, Sketch> = {
-  lifecycle: {
-    seed: 101, w: 1200, h: 720, title: "Market lifecycle",
-    draw(s) {
-      s.title(600, "Market lifecycle", "who can move a market, and when");
-      s.box(60, 170, 210, 110, { fill: HL.green }); s.text(165, 215, "OPEN", { size: 30, bold: true }); s.text(165, 250, "fills allowed", { size: 19 });
-      s.arrow(275, 225, 395, 225, { label: "closeAt", lhl: "yellow" });
-      s.box(400, 170, 210, 110, { dash: "8 7" }); s.text(505, 215, "CLOSED", { size: 30, bold: true }); s.text(505, 250, "derived, not stored", { size: 18 });
-      s.arrow(615, 225, 735, 225, { label: "proposer", lhl: "blue" });
-      s.text(675, 304, "YES / NO / INVALID", { size: 16 }); s.text(675, 324, "+ evidence", { size: 16 });
-      s.box(740, 170, 220, 110, { fill: HL.blue }); s.text(850, 215, "PROPOSED", { size: 30, bold: true }); s.text(850, 250, "challenge window", { size: 19 });
-      s.arrow(850, 285, 850, 395, { label: "challenger + evidence", lx: 735, ly: 365, lhl: "orange" });
-      s.box(740, 400, 220, 100, { fill: HL.orange }); s.text(850, 445, "DISPUTED", { size: 30, bold: true }); s.text(850, 478, "arbiter decides", { size: 19 });
-      s.box(1000, 300, 160, 120, { fill: HL.purple, w: 2.8 }); s.text(1080, 355, "FINAL", { size: 32, bold: true }); s.text(1080, 390, "irreversible", { size: 18 });
-      s.arrow(962, 205, 1050, 296, { bend: -0.15, label: "no challenge", lx: 1080, ly: 210 });
-      s.arrow(962, 450, 1040, 424, { bend: 0.1, label: "arbiter", lx: 1015, ly: 485 });
-      s.arrow(165, 290, 1000, 560, { bend: -0.12, dash: "10 8", label: "hardDeadline passes, still not FINAL", lx: 520, ly: 548, lhl: "yellow" });
-      s.box(1000, 520, 160, 90, { dash: "8 7" }); s.text(1080, 558, "FINAL", { size: 26, bold: true }); s.text(1080, 590, "= INVALID", { size: 20 });
-      s.text(300, 640, "After FINAL every holder redeems on their own:", { size: 21, anchor: "start" });
-      s.text(300, 676, "YES / NO pays 1 bUSD per winning share · INVALID pays 0.5 per share on each side", { size: 19, anchor: "start", hl: "green", hlw: 690 });
-      s.foot(600, 706, "Pause only stops new fills; proposals, challenges, finalize and redeem still work.");
-    },
-  },
-  pipeline: {
-    seed: 202, w: 1200, h: 560, title: "Question pipeline",
-    draw(s) {
-      s.title(600, "From evidence to a market", "a question is frozen before it can trade");
-      const folder = (x: number, y: number): void => {
-        s.line(x, y + 12, x + 70, y + 12); s.line(x, y + 12, x, y + 62); s.line(x, y + 62, x + 90, y + 62); s.line(x + 90, y + 62, x + 90, y + 20);
-        s.line(x + 70, y + 12, x + 76, y + 20); s.line(x + 76, y + 20, x + 90, y + 20);
-        s.el("rect", { x: x + 4, y: y + 22, width: 82, height: 36, fill: HL.yellow, opacity: 0.7 });
-      };
-      folder(70, 160); s.text(115, 255, "Evidence", { size: 22, bold: true }); s.text(115, 282, "original bytes", { size: 17 });
-      s.arrow(175, 200, 250, 200);
-      s.box(255, 150, 190, 110, { fill: HL.blue }); s.text(350, 195, "Candidate", { size: 26, bold: true }); s.text(350, 228, "draft + revisions", { size: 18 });
-      s.arrow(450, 205, 530, 205, { label: "human review", lhl: "green", ly: 134 });
-      s.box(535, 150, 180, 110, { fill: HL.green }); s.text(625, 195, "APPROVED", { size: 26, bold: true }); s.text(625, 228, "by an operator", { size: 18 });
-      s.arrow(720, 205, 800, 205);
-      s.box(805, 140, 230, 130, { fill: HL.purple }); s.text(920, 185, "MarketSpec", { size: 26, bold: true }); s.text(920, 215, "exact UTF-8 bytes", { size: 18 }); s.text(920, 245, "specHash = keccak256", { size: 18 });
-      s.arrow(920, 275, 920, 345, { label: "unsigned creation intent", lx: 1060, ly: 315, lhl: "yellow" });
-      s.box(780, 350, 280, 100, {}); s.text(920, 390, "Admin wallet", { size: 26, bold: true }); s.text(920, 423, "signs + sends createMarket", { size: 18 });
-      s.arrow(775, 400, 610, 400, { label: "Base Sepolia", lhl: "blue", ly: 380 });
-      s.box(330, 345, 275, 110, { fill: HL.blue, w: 2.8 }); s.text(467, 390, "Market", { size: 28, bold: true }); s.text(467, 423, "deploymentId + marketId", { size: 18 });
-      s.arrow(325, 400, 200, 400, { label: "receipt + 12 confirmations", ly: 486, lx: 200 });
-      s.box(60, 350, 135, 100, { dash: "8 7" }); s.text(127, 392, "Tracker", { size: 24, bold: true }); s.text(127, 422, "operator-run", { size: 17 });
-      s.foot(600, 520, "The spec is never re-serialised. Nothing in this repository signs or broadcasts the admin transaction.");
-    },
-  },
-  agent: {
-    seed: 303, w: 1200, h: 780, title: "Agent integration flow",
-    draw(s) {
-      s.title(600, "Joining as an agent", "invitation · API key · bound wallet");
-      s.box(70, 130, 220, 80, { fill: HL.purple }); s.text(180, 180, "Your agent", { size: 26, bold: true });
-      s.box(490, 130, 220, 80, { fill: HL.yellow }); s.text(600, 180, "Operator", { size: 26, bold: true });
-      s.box(910, 130, 220, 80, { fill: HL.blue }); s.text(1020, 180, "Blink API", { size: 26, bold: true });
-      for (const x of [180, 600, 1020]) s.line(x, 215, x, 725, { dash: "4 9", w: 1.6 });
-      const step = (y: number, x1: number, x2: number, label: string, sub: string | null): void => {
-        s.arrow(x1, y, x2, y, { dash: "none", color: INK });
-        s.text((x1 + x2) / 2, y - 12, label, { size: 19, hl: "green", hlw: label.length * 9 });
-        if (sub) s.text((x1 + x2) / 2, y + 26, sub, { size: 16, color: INK });
-      };
-      step(262, 185, 1015, "1  POST /v1/auth/wallet-challenges", "invited API key with role scopes");
-      step(334, 1015, 185, "2  challenge message", null);
-      step(406, 185, 595, "3  ask the operator to sign", "outside the agent");
-      step(478, 595, 185, "4  signature", null);
-      step(550, 185, 1015, "5  POST /v1/auth/wallet-verifications", "wallet bound to the key");
-      step(630, 185, 1015, "6  read markets, specs, forecast windows", null);
-      step(702, 185, 1015, "7  POST /v1/markets/{id}/forecasts", "a forecaster, for example · Idempotency-Key on every POST");
-      s.foot(600, 765, "The agent never creates wallets, holds keys, or signs and sends transactions.");
-    },
-  },
   payout: {
     seed: 404, w: 1200, h: 600, title: "Collateral and payouts",
     draw(s) {

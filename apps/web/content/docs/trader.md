@@ -1,127 +1,65 @@
 ---
 title: Trader
-description: How an invited taker gets test bUSD, requests a signed quote, fills it from its own wallet, and redeems after settlement, with the limits that apply.
+description: The trader (the taker) requests quotes, verifies and fills one from its own wallet, and redeems after settlement; what it stakes, earns and risks, and the calls it makes.
 group: Roles
-order: 5
-agentTask: understand what a trader does and how to join as one
+order: 4
+agentTask: decide whether to take the trader role and buy shares in a market
 ---
 
 # Trader
 
-> [!NOTE]
-> **v0.1 role guidance.** This page describes the v0.1 trader: an invited wallet on a contract allowlist, quotes from the team's maker, and an internal trader under a mandate. P2 removed all of that. In P2 a taker with the `rfq:write` scope and the TAKER role posts an RFQ, several makers answer with signed quotes, and the taker verifies and fills one itself; see the generated [API reference](/docs/api) and [P2 off-chain protocol](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/P2_OFFCHAIN_PROTOCOL.md). P3 rewrites this page. The current design is the [autonomous market design](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/superpowers/specs/2026-10-23-autonomous-market-design.md).
+A trader buys YES or NO shares. It posts a request for quote (an RFQ), receives signed quotes from makers, verifies one itself, approves exactly what it costs and sends the fill from its own wallet. After the market is `FINAL` it redeems. In the protocol the role is called TAKER. Reference implementation: `examples/agents/src/roles/trader.ts`.
 
-The backend for this role is implemented, not yet deployed. The contracts are deployed on Base Sepolia with trading disabled (see [Deployment](/docs/deployment)), but there is no public API host and nothing trades on this site. Local verification uses REPLAY fixtures; no paid model provider is connected. LIVE approval remains rejected.
+## Duties
 
-A trader, or taker, buys YES or NO shares in a market. It asks Blink's maker for a quote, receives a signed quote made out to its own wallet, and fills it by sending the transaction itself. After the market settles, it redeems its shares. All trading uses bUSD on the Base Sepolia testnet, and bUSD has no value.
+- **Form a view first.** A quote is a price from someone who may know more than you. The reference trader requests and fills only where its model has a view of the market. It never posts an RFQ or fills a quote on a market it has no view on, or whose spec bytes it cannot read.
+- **Request.** `POST /v1/rfqs` with `{ marketId, side, quantity }`. The RFQ stays open for a short time and the relay never prices or fills. The reference trader picks the side its model favours (YES from 50%). A fill is at most `maxFillShares` shares, and your total in one market is at most `maxTakerShares`; the reference trader asks for 10 shares.
+- **Collect and verify.** Poll `GET /v1/rfqs/{id}/quotes`; the relay lists them cheapest first, exactly as makers posted them. Never trust the relay's description of a quote. Run `await verifySignedQuote(quote, signature, context)` on each against the generation you trust (from `GET /v1/deployment`), the market, your RFQ and the chain's latest block time. It is asynchronous, so await it before you approve or fill. It checks the maker, taker, terms, price, lifetime, expiry and the signature, and returns the digest, the cost, the fee and `maxCost`. It does not read the maker's epoch.
+- **Decide on the edge.** After the first verified quote the reference trader waits a short grace period (twice its poll interval) so that a second maker can undercut it, then takes the cheapest quote that is still good. It fills only if its model's probability for its side beats the quote's price by at least 500 bps; otherwise it logs `no_edge`, marks the market as passed and does not look at it again.
+- **Approve exactly.** `BlinkTestUSD.approve(markets, maxCost)` where `maxCost` is the taker cost plus the fee, never more. Verify again with at least one second left and check `consumed(digest)`, then send `fillQuote` once.
+- **Never fill twice.** The reference trader writes the pending fill to its state file before it sends. A fill the node refuses before broadcasting, or one whose receipt shows a revert, is a definite miss, and the trader goes straight on to a new RFQ (at most three per tick). Only when the outcome is unknown (the answer is lost or the receipt does not come) does it wait for the receipt, for `consumed(digest)`, or for chain time to pass the quote's expiry with the digest still unused, and only then may a new RFQ replace the quote. A restart settles the same record first.
+- **Redeem.** When the market is `FINAL`, `BlinkMarkets.redeem(id)` burns your shares and pays them. An empty position means you already redeemed.
+- **Keep funds.** The reference trader claims from the faucet when its bUSD balance cannot cover the worst fill.
 
-## What is implemented for agents?
+## Stake or bond
 
-The private workspace [TypeScript client](/docs/client) provides typed responses, same-key retries for server-marked retryable errors, spec-hash checking and `verifySignedQuote`. It is not published on npm. The repository's `examples/agents` demonstrates wallet binding, forecasting, faucet claims, verified quotes, exact-cost approval, fill tracking and redemption against local RPC. A one-command local Alpha harness exercises this agent across YES, NO and INVALID settlements. The client can target a local API or a future operator-configured testnet API; no public API host exists.
+- **Role stake.** `BlinkRegistry.joinRole(ROLE.TAKER, amount)` with `amount` at least `minRoleStake` (bUSD). The reference trader joins just before its first trade, not at onboarding.
+- **No bond.** A fill needs the full price in bUSD: the taker pays `quantity x priceBps x 100` micro-bUSD, plus a fee of `feeBps` of that cost. The maker pays the rest of `quantity x 1 bUSD`. The contract holds one complete set per share, so a fill is always fully collateralised.
+- **Caps.** `maxFillShares` per fill and `maxTakerShares` per market bound your size.
 
-## How does the internal trader work?
+## Income
 
-The implemented internal trader reads its linked platform forecaster in a closed window and buys YES or NO only when its probability for that side (YES probability, or its complement for NO) exceeds the side's RFQ ask by **strictly more** than the mandate threshold (default 500 bps). Exactly 500 bps at the default threshold means no trade. It reserves maximum-payout notional under a mandate lock, checks daily/open caps and maximum fill size, requests a public RFQ with its own invited key, verifies the envelope, and uses the restricted signer for exact-cost approval and fill. The worker holds no private key. It redeems FINAL positions and reconciles risk against the canonical chain; unknown outcomes retain risk.
+- **Position returns.** A YES share pays 1 bUSD if the market ends YES and nothing if it ends NO; a NO share is the reverse. If it ends INVALID, each share on either side pays 0.5 bUSD, which is not a refund of what you paid.
+- **No early exit.** Positions are redeemed only after `FINAL`. There is no sale, transfer, merge or partial fill.
+- **No reward for volume.** The trader earns nothing for trading itself, and the fee is a cost.
 
-Run **one trader per deployment**: evaluation jobs are not routed by forecaster role. It is disabled until configured, and the database owner sets mandates; there is no mandate admin tool. Disabling a mandate stops new spending at the next authorization check while settlement and redemption continue. The signer does not enforce mandate caps independently, so those caps depend on the worker. Wallet binding is an operator setup step, and the mandate wallet is not checked against the signer's trader address at startup. The snapshot view's embargo depends on the session-settable business clock; it is not a hardened boundary against a compromised worker. See the repository's `docs/M3_INTERNAL_TRADER.md` for the remaining operational and security limits.
+## Credit
 
-## What is a trader responsible for?
+Not counted. A trader is limited by its stake, its test funds and the caps above; there is no on-chain credit for trading, so volume buys nothing and wash trading only pays fees.
 
-- Managing its own wallet, keys and spending policy. Blink never takes a user's private key.
-- Checking every quote before filling it, rather than trusting the returned calldata.
-- Paying its own testnet gas in Base Sepolia ETH. Blink does not pay gas for takers.
-- Treating an unknown transaction state as unknown: re-reading state instead of sending a new trade.
+## Risks
 
-## How do I join as a trader?
+- **Being wrong.** A fill loses the price you paid if the market goes the other way. The edge gate lowers the chance of buying at a poor price but does not remove the risk.
+- **Locked until FINAL.** Capital stays in the market until it settles, which can take as long as the hard deadline plus any dispute. A market can also end INVALID after a timeout.
+- **Bad quotes.** A relay or a maker can send a quote that will not fill: wrong taker, wrong market, bad signature, or a lifetime that is too long. `verifySignedQuote` rejects these; an ERC-6492 wrapped signature is refused because `fillQuote` rejects it.
+- **Expiry.** Quotes are judged by block time, not by your clock, and you need time to approve and fill. A quote with too little time left is not worth taking.
+- **Unknown is not failed.** If a send times out, the fill may still land. Read `consumed(digest)` and the receipt before trying again.
+- **Slippage between verify and fill.** `verifySignedQuote` never reads the maker's epoch, so a quote whose epoch has moved can verify and still be rejected by `fillQuote` on chain. A maker can also raise its epoch or cancel the quote after you verified it; the fill then reverts. Read the revert and start again with a new RFQ; the reference trader does at most three RFQs per tick.
 
-After deployment, trading will require an invited wallet; invitations come from the Blink team.
+## Steps
 
-1. Your operator gets an invited API key with `trade:quote`. See [Joining Blink](/docs/joining).
-2. Bind your operator's wallet to the key with the signed challenge described there.
-3. The Blink admin adds that wallet to the contract's taker allowlist. Binding alone does not do this.
+The order below is the order of one tick of the reference trader (`examples/agents/src/roles/trader.ts`).
 
-The contract only accepts a fill sent by the allowlisted taker named in the quote. Team role addresses can never be takers.
-
-## How does a trade work?
-
-1. **Get test bUSD.** `POST /v1/faucet/claims` with `faucet:claim` and `{ "deploymentId": "<deploymentId>" }` queues a limited mint to your approved, bound wallet. It returns `202` with `claimId`, `intentId` and `state: "QUEUED"`.
-2. **Check the market.** `GET /v1/markets/{id}?deploymentId=...` shows `effectiveState`, `paused`, `canTrade` and `reasons`. Do not assume a market is tradable without checking them.
-3. **Request a quote.** `POST /v1/rfqs` with the market, the side, a quantity and the most you will pay:
-
-   ```json
-   {
-     "deploymentId": "<deploymentId>",
-     "marketId": "1",
-     "side": "YES",
-     "quantity": "10",
-     "maxCostMicros": "6500000"
-   }
-   ```
-
-   The answer is a signed quote or `NO_QUOTE`. The maker does not quote when it has no recent qualifying forecast or the official answer is already known.
-4. **Check the quote.** The response has `quoteId`, the EIP-712 `domain`, `types` and `message`, the maker's `signature`, `takerCostMicros`, `makerCostMicros`, `expiresAt` and `calldata`. Recompute the cost yourself: `takerCostMicros = quantity × priceBps × 100`. Check that the domain is `Blink RFQ`, version `0.1`, chain ID 84532 and the deployment's market contract, that the taker is your wallet, and that the `specHash` is the market's.
-5. **Approve and fill.** Approve bUSD for only this trade's cost, not an unlimited allowance. Then call `fillQuote(quote, signature)` from your own wallet before `expiresAt`. If the quote expires while you approve, request a new one; never reuse an old price.
-6. **Report the transaction.** `POST /v1/transactions` with `deploymentId`, `txHash`, `action` (`APPROVE`, `FILL` or `REDEEM`) and, for a fill, `quoteId`. It returns `202` with `status: "UNKNOWN"`; it is a tracking hint, not proof of success.
-7. **Redeem.** Once the market is `FINAL`, call `redeem(marketId)` from your wallet. It pays out both of your sides at once and zeroes them.
-
-## What does the contract check on a fill?
-
-The contract re-checks everything itself, whatever the API said:
-
-- Trading is not paused, and the market exists, is `OPEN` and `now < closeAt`.
-- The maker is the fixed maker, the sender is the quote's taker and is allowlisted, and maker and taker differ.
-- The `specHash` matches, the side is valid, and the quantity is within the market and account caps.
-- `validAfter <= now < expiresAt <= closeAt`, and a quote is valid for at most 60 seconds.
-- The quote's epoch is current, and the quote has not been filled or cancelled.
-- The signature is valid, the maker has enough free collateral, and you have enough bUSD balance and allowance.
-
-If any check fails, the whole fill reverts and nothing changes. A revert is not retried automatically; a new price or deadline needs a new quote.
-
-A signed quote does not reserve funds on-chain, and only the maker can cancel it, on-chain. Until a cancellation is included or the quote expires, it can still be filled.
-
-If the RFQ returns `503 SERVICE_NOT_READY` with `details.reason = SIGN_UNKNOWN`, retry the same POST with the same Idempotency-Key and body. An unsigned quote is not available through GET. A request still signing returns `409 REQUEST_IN_PROGRESS`; never create a second economic intent to recover it. Reservations expire against canonical block time, not the API host clock.
-
-## What limits apply?
-
-| Limit | Value | Enforced by |
-| --- | --- | --- |
-| Shares per trade | 1 to 100 | Contract |
-| Complete sets per market | Set per market at creation, at most 10,000 (up to 10,000 bUSD of collateral) | Contract |
-| Shares bought per taker per market | Set per market at creation, at most 500, YES and NO combined | Contract |
-| Open (unexpired) quotes per taker | 5 | Quote service |
-| Quote lifetime | 30 seconds, at most 60 | Quote service and contract |
-| Quote requests | 2 per second per API key, bursts of 5 | API |
-| Faucet | 1,000 bUSD per approved address per 24 hours | Faucet service |
-
-## How are shares paid?
-
-Each trade creates fully collateralised complete sets: the taker pays its price, the maker pays the rest, and the contract holds 1 bUSD per share pair. Buying 100 YES shares at 6,000 bps costs the taker 60 bUSD; the maker adds 40 bUSD and holds 100 NO. `YES` pays the taker 100 bUSD, `NO` pays the maker 100 bUSD, and `INVALID` pays each side 50 bUSD. See [Concepts](/docs/concepts) for the full example and [Market lifecycle](/docs/lifecycle) for when a market becomes `FINAL`.
-
-## Which endpoints does a trader use?
-
-| Endpoint | Access | Returns |
-| --- | --- | --- |
-| `GET /v1/markets`, `GET /v1/markets/{id}?deploymentId=...` | Public | Market state, `paused`, `canTrade`, `reasons` |
-| `POST /v1/faucet/claims` | `faucet:claim` and approved, bound wallet | `202` with `claimId`, `intentId`, `state` |
-| `POST /v1/rfqs` | `trade:quote` and a bound wallet | The signed quote, or `NO_QUOTE` |
-| `GET /v1/quotes/{quoteId}` | The quote's agent and administrators | Signed quote and status: `SIGNED`, `EXPIRED`, `CANCELLED` or `CONSUMED`; unsigned quotes return `404` |
-| `POST /v1/transactions` | Bound wallet | `202` with `trackingId` and `status: "UNKNOWN"` |
-| `GET /v1/transactions/{txHash}?deploymentId=...` | Public | Transaction state and any replacement |
-| `GET /v1/accounts/{address}/positions?deploymentId=...` | Public | `yesShares`, `noShares`, `payoutMicros` and pending intents per market |
-
-Signing uncertainty (`SIGN_UNKNOWN`) is surfaced by `POST /v1/rfqs` as `503 SERVICE_NOT_READY`. Retry POST with the same Idempotency-Key to resolve it; GET returns signed quotes only.
-
-## What can a trader not do?
-
-- Sell shares back early, transfer them, or fill part of a quote. Shares leave a position only by redemption.
-- Do anything other than buy YES or NO shares from the fixed maker: no selling, merging or trading with other users.
-- Fill a quote made out to another wallet.
-- Use the API key to withdraw or transfer tokens. Trading happens only from the taker's own wallet.
-
-Being removed from the allowlist stops new trades but never blocks redeeming shares you already hold.
-
-## Hand it to your agent
-
-```prompt
-Read https://blink-markets.github.io/blinkmarket/docs/trader.md and explain the Blink taker flow: what a trader needs before trading, how a quote is requested and checked, what the contract re-checks on a fill, which limits apply, and how redemption pays out. Then check a quote I give you: recompute takerCostMicros and list anything that would make the fill revert. Do not fill, approve or redeem anything. Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals.
-```
+1. `GET /v1/deployment` (client `getDeployment()`): read the addresses and `params` (`feeBps`, `maxFillShares`, `maxTakerShares`, `minRoleStake`).
+2. Onboard as in [Onboarding](/docs/onboarding): claim test funds, register, and get an API key (scope `rfq:write`). The TAKER role is joined later, in step 6.
+3. Settle a fill left in flight by an earlier tick: wait for its receipt or `BlinkMarkets.consumed(digest)`.
+4. Redeem markets you filled that became final: `GET /v1/markets/{id}` (client `getMarket`); when it is `FINAL`, `BlinkMarkets.getPosition(id, account)` (empty means already redeemed), then `BlinkMarkets.redeem(id)`. The `PositionRedeemed` event carries the payout.
+5. Pick a market: `GET /v1/markets` (client `listMarkets`, state `OPEN`). Take the first one that is still open by chain time, whose spec you can read, that you have not filled or passed on, and that your model has a view on.
+6. Join the role once: `BlinkRegistry.hasRole(account, role)`; if false, `BlinkTestUSD.approve(registry, minRoleStake)` then `BlinkRegistry.joinRole(role, amount)` with the TAKER role.
+7. Check funds: `BlinkTestUSD.balanceOf(account)`; below the worst fill, `BlinkFaucet.claim()`.
+8. `GET /v1/markets/{id}` (client `getMarket`) for the market you chose.
+9. `POST /v1/rfqs` (client `createRfq`) with the market, side and quantity. A `403 ROLE_REQUIRED` means the index has not seen your role yet; try again on the next tick.
+10. `GET /v1/rfqs/{id}/quotes` (client `listQuotes`) until a quote passes `await verifySignedQuote`; wait the grace period, verify again and take the cheapest. Pass if the edge is under 500 bps.
+11. `BlinkTestUSD.approve(markets, maxCost)`.
+12. Verify the quote again with at least one second left and read `BlinkMarkets.consumed(digest)`.
+13. `BlinkMarkets.fillQuote(q, signature)` once. A fill that the node refuses before sending, or that reverts, goes straight to a new RFQ. If the outcome is unknown, wait for the receipt, for `consumed(digest)`, or for chain time to pass the quote's expiry with the digest still unused, before a new RFQ replaces the quote.

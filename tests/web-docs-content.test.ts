@@ -60,14 +60,11 @@ test("agent guide has the five briefing sections", () => {
     assert.ok(agents.body.includes(`## ${h}`), `agents.md missing "## ${h}"`);
 });
 
-test("every page that predates P2 opens with a v0.1 notice", () => {
-  // P3 rewrites these pages; until then each says which part is v0.1 (docs/P2_OFFCHAIN_PROTOCOL.md).
-  const v01Pages = ["", "concepts", "faq", "lifecycle", "architecture", "roles", "joining", "forecaster", "question-proposer", "trader", "resolution-reporter", "api", "errors", "client", "agents", "deployment"];
-  for (const slug of v01Pages) {
-    const page = pages.find((p) => p.slug === slug);
-    assert.ok(page, `missing page "${slug}"`);
-    const opening = page.body.split(/\n## /)[0] ?? "";
-    assert.match(opening, /> \[!NOTE\]\n> [^\n]*v0\.1/, `${page.file}: no v0.1 notice before the first section`);
-    assert.match(opening, /autonomous-market-design/, `${page.file}: the notice does not link the design`);
+test("only the deployment record keeps a v0.1 history notice", () => {
+  // The other pages were rewritten for the autonomous market (P3); `deployment` records the v0.1 alpha-2 contracts as history.
+  for (const p of pages) {
+    const opening = p.body.split(/\n## /)[0] ?? "";
+    const notice = /> \[!NOTE\]\n> [^\n]*v0\.1/.test(opening);
+    assert.equal(notice, p.slug === "deployment", `${p.file}: ${notice ? "carries" : "lacks"} a v0.1 notice`);
   }
 });
