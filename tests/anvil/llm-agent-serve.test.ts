@@ -53,10 +53,11 @@ test(
       assert.equal(body.deployment.chainId, 84532);
 
       process.kill(pgid, "SIGINT");
+      let timer: NodeJS.Timeout | undefined;
       const result = await Promise.race([
         exited,
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("no exit after SIGINT")), EXIT_TIMEOUT_MS)),
-      ]);
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("no exit after SIGINT")), EXIT_TIMEOUT_MS); }),
+      ]).finally(() => clearTimeout(timer));
       assert.deepEqual(result, { code: 0, signal: null });
       const goneBy = Date.now() + 10_000;
       while (processGroupAlive(pgid) && Date.now() < goneBy) await new Promise((r) => setTimeout(r, 100));

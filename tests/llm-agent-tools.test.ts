@@ -59,3 +59,15 @@ test('fetch_doc resolves root-absolute llms.txt links against the origin and rel
   await tools.fetchDoc({ path: '/blinkmarket/docs/agents.md' });
   assert.deepEqual(urls, ['https://pages.test/blinkmarket/llms.txt', 'https://pages.test/blinkmarket/docs/agents.md']);
 });
+
+test('typed data rejects a caller-supplied domain type', async () => {
+  await assert.rejects(setup().signTypedData({ domain: { chainId: 84532 }, types: { EIP712Domain: [], X: [{ name: 'x', type: 'uint256' }] }, primaryType: 'X', message: { x: 1 } }), /DOMAIN_TYPE/);
+});
+test('personal signing only consumes an outstanding wallet challenge once', async () => {
+  const tools = createTools({ webUrl: 'http://localhost:3000', apiUrl: 'http://localhost:3001', rpcUrl: 'http://localhost:8545', privateKey: key, maxTxs: 1,
+    fetch: async () => Response.json({ challengeId: 'id', message: 'challenge', expiresAt: 'later' }) });
+  await assert.rejects(tools.signMessage({ message: 'arbitrary' }), /CHALLENGE/);
+  await tools.apiRequest({ method: 'POST', path: '/v1/auth/wallet-challenges' });
+  assert.match(await tools.signMessage({ message: 'challenge' }), /^0x/);
+  await assert.rejects(tools.signMessage({ message: 'challenge' }), /CHALLENGE/);
+});

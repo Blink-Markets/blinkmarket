@@ -18,6 +18,7 @@ export function createTools(options: Options) {
   const wallet = createWalletClient({ account, chain: baseSepolia, transport: http(options.rpcUrl) });
   let apiKey = '';
   let txs = 0;
+  const challenges = new Set<string>();
   const secrets: string[] = [options.privateKey];
   async function fetchDoc({ path }: { path: string }) {
     const base = new URL(options.webUrl);
@@ -45,7 +46,7 @@ export function createTools(options: Options) {
   async function apiRequest({ method, path, body, idempotencyKey }: { method: 'GET' | 'POST'; path: string; body?: unknown; idempotencyKey?: string | undefined }) {
     const base = new URL(options.apiUrl);
     const url = new URL(path, base);
-    if (url.origin !== base.origin || !url.pathname.startsWith('/v1/') || url.username || url.password) throw new Error('API_PATH');
+    if (url.origin !== base.origin || !url.pathname.startsWith('/v1/') || url.pathname.includes('%') || url.username || url.password) throw new Error('API_PATH');
     // The API's IdempotencyHeaders rule (packages/schemas/src/http.ts): 1-128 printable ASCII characters.
     if (idempotencyKey !== undefined && (method !== 'POST' || !IDEMPOTENCY_KEY.test(idempotencyKey))) throw new Error('IDEMPOTENCY_KEY');
     const headers: Record<string, string> = {};
@@ -56,10 +57,20 @@ export function createTools(options: Options) {
     const text = await response.text();
     let data: unknown;
     try { data = JSON.parse(text); } catch { data = text; }
-    if (response.ok && method === 'POST' && url.pathname === '/v1/auth/wallet-verifications' && typeof data === 'object' && data !== null && 'apiKey' in data && typeof data.apiKey === 'string') {
-      apiKey = data.apiKey; secrets.push(apiKey);
-      data = { ...data, apiKey: '[REDACTED]' };
+    if (response.ok && method === 'POST' && typeof data === 'object' && data !== null) {
+      if (url.pathname === '/v1/auth/wallet-verifications' && 'apiKey' in data && typeof data.apiKey === 'string') apiKey = data.apiKey;
+      if (url.pathname === '/v1/auth/wallet-challenges' && 'message' in data && typeof data.message === 'string') challenges.add(data.message);
     }
+    function mask(value: unknown): void {
+      if (typeof value !== 'object' || value === null) return;
+      for (const [key, child] of Object.entries(value)) {
+        if (key === 'apiKey' && typeof child === 'string') {
+          secrets.push(child);
+          (value as Record<string, unknown>)[key] = '[REDACTED]';
+        } else mask(child);
+      }
+    }
+    mask(data);
     return { status: response.status, data, retryAfter: response.headers.get('retry-after') };
   }
   async function guard(address: string) {
@@ -93,7 +104,8 @@ export function createTools(options: Options) {
   }
   async function signTypedData(input: TypedInput) {
     if (Number(input.domain.chainId) !== CHAIN) throw new Error('WRONG_CHAIN');
+    if ('EIP712Domain' in input.types) throw new Error('DOMAIN_TYPE');
     return account.signTypedData({ domain: input.domain, types: input.types as unknown as TypedData, primaryType: input.primaryType, message: input.message });
   }
-  return { fetchDoc, apiRequest, chainRead, chainWrite, signTypedData, signMessage: ({ message }: { message: string }) => account.signMessage({ message }), secrets, address: account.address };
+  return { fetchDoc, apiRequest, chainRead, chainWrite, signTypedData, signMessage: async ({ message }: { message: string }) => { if (!challenges.delete(message)) throw new Error('CHALLENGE'); return account.signMessage({ message }); }, secrets, address: account.address };
 }
