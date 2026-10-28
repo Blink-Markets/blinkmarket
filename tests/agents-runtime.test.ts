@@ -270,6 +270,7 @@ test("a redemption that landed but was never recorded does not block the next ma
           }),
         },
         publicClient: {
+          estimateContractGas: async () => 100_000n,
           readContract: async ({ functionName, args }: { functionName: string; args: unknown[] }) =>
             functionName === "getPosition" ? [positions.get(String(args[0])) ?? 0n, 0n] : true,
           waitForTransactionReceipt: async () => ({ status: "success", logs: [], transactionHash: "0x" + "12".repeat(32) }),
@@ -391,7 +392,7 @@ const worldJson = () => ({
         unsourced: { outcome: "YES" },
       },
     },
-    bob: { roles: ["proposer"], beliefs: { gas: { outcome: "NO", probabilityBps: 2500 } } },
+    bob: { roles: ["proposer"], beliefs: { gas: { outcome: "NO", probabilityBps: 2500 }, margin: {} } },
     carol: { roles: ["juror"], beliefs: {} },
   },
 });
@@ -439,6 +440,7 @@ test("fixture model answers only from its own beliefs", async () => {
     assert.equal(computed?.outcome, "YES");
     assert.equal(new TextDecoder().decode(computed!.evidence), "GAAP gross margin was 61.25% in the quarter.");
     assert.equal((await bob.outcome(margin))?.outcome, "YES");
+    assert.equal(await carol.outcome(margin), null);
     // No source for the market: null, even though alice states an outcome for it.
     assert.equal(await alice.outcome(view(world, "unsourced")), null);
     // A market that is not in the world is unknown to everyone.

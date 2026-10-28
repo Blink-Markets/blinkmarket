@@ -29,7 +29,7 @@ const utf8 = (text: string) => new TextEncoder().encode(text);
 /**
  * Answers from the world file, for this agent only: another agent's beliefs are never consulted. A
  * class A market is decided by the template over the source bytes (the world's "fetched" file),
- * never by a stated outcome. With no belief and no source the answer is null.
+ * never by a stated outcome. An agent needs an explicit belief entry and a source to answer.
  */
 export function fixtureModel(world: World, agentName: string): Model {
   const agent = world.agents[agentName];
@@ -64,6 +64,7 @@ export function fixtureModel(world: World, agentName: string): Model {
       const found = questionOf(m);
       if (!found) return null;
       if (m.spec.class === "A") {
+        if (!Object.hasOwn(beliefs, found[0])) return null;
         const source = await sourceOf(found[1], m.spec);
         const outcome =
           source && m.spec.computation

@@ -109,3 +109,13 @@ test("apiConfig exposes the trusted proxies", () => {
     ["127.0.0.1"],
   );
 });
+
+test("public read bucket defaults to production values and accepts the drill override", () => {
+  assert.equal(apiConfig({}).publicReadLimit, undefined);
+  assert.deepEqual(apiConfig({ API_PUBLIC_READ_LIMIT: "600,100" }).publicReadLimit, {
+    capacity: 600,
+    refillPerSecond: 100,
+  });
+  for (const value of ["", "0,1", "1,0", "1.5,2", "1,2,3", "999999999999999999999999999,1", "1,999999999999999999999999999"])
+    assert.throws(() => apiConfig({ API_PUBLIC_READ_LIMIT: value }), /INVALID_API_PUBLIC_READ_LIMIT/);
+});

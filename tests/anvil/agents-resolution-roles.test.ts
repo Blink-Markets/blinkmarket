@@ -87,6 +87,7 @@ const worldJson = () => ({
     proposer: {
       roles: ["proposer"],
       beliefs: {
+        gm: {},
         disputed: { outcome: "YES", appeal: true },
         restart: { outcome: "YES" },
         conflict: { outcome: "YES" },
@@ -100,6 +101,8 @@ const worldJson = () => ({
     challenger: {
       roles: ["challenger"],
       beliefs: {
+        // The challenger recomputes the class A outcome from source bytes, not a stated outcome.
+        gm: {},
         disputed: { outcome: "NO" },
         restart: { outcome: "NO" },
         conflict: { outcome: "NO" },

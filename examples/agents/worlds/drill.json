@@ -1,0 +1,90 @@
+{
+  "questions": {
+    "normal": {
+      "spec": {
+        "schema": "blink.market-spec/0.2",
+        "title": "Was the sample company's Q3 GAAP gross margin below 40 percent?",
+        "question": "Was the sample company's Q3 GAAP gross margin below 40 percent?",
+        "class": "A",
+        "resolution": { "yes": "The archived Q3 results report gross margin below 40 percent.", "no": "The archived Q3 results report gross margin at least 40 percent." },
+        "sources": ["https://example.com/q3-results"],
+        "computation": {
+          "templateId": "0x7b5467d785a524e3294350835b1c26bf9979ff073952855aa57c09d82218af9e",
+          "parserHash": "0x0eced6cdcd4c8bf1f4a69799383467615b9eb3992e446c5e6ee4cde2f33a4f80",
+          "extraction": "{\"thresholdBps\":4000}"
+        }
+      },
+      "closeInSeconds": 300,
+      "maxPairs": 20,
+      "sources": { "https://example.com/q3-results": "sources/normal.txt" }
+    },
+    "dispute": {
+      "spec": {
+        "schema": "blink.market-spec/0.2",
+        "title": "Did the sample company acquire Example Corp in Q3?",
+        "question": "Did the sample company acquire Example Corp in Q3?",
+        "class": "B",
+        "resolution": { "yes": "A public filing confirms the acquisition.", "no": "No public filing confirms the acquisition." },
+        "sources": ["https://example.com/acquisition"]
+      },
+      "closeInSeconds": 200,
+      "maxPairs": 20
+    },
+    "creation": {
+      "spec": {
+        "schema": "blink.market-spec/0.2",
+        "title": "Is this intentionally ambiguous question valid?",
+        "question": "Is this intentionally ambiguous question valid?",
+        "class": "B",
+        "resolution": { "yes": "Valid.", "no": "Invalid." },
+        "sources": ["https://example.com/ambiguous"]
+      },
+      "closeInSeconds": 700,
+      "maxPairs": 1
+    },
+    "timeout": {
+      "spec": {
+        "schema": "blink.market-spec/0.2",
+        "title": "Will a market with no proposer resolve?",
+        "question": "Will a market with no proposer resolve?",
+        "class": "B",
+        "resolution": { "yes": "A proposer submits by the deadline.", "no": "No proposer submits by the deadline." },
+        "sources": ["https://example.com/timeout"]
+      },
+      "closeInSeconds": 300,
+      "maxPairs": 20
+    },
+    "suggestion": {
+      "spec": {
+        "schema": "blink.market-spec/0.2",
+        "title": "Will the sample company open a new factory this year?",
+        "question": "Will the sample company open a new factory this year?",
+        "class": "B",
+        "resolution": { "yes": "A public filing confirms a new factory opening.", "no": "No public filing confirms a new factory opening." },
+        "sources": ["https://example.com/factory"]
+      },
+      "closeInSeconds": 300,
+      "maxPairs": 20
+    }
+  },
+  "suggestions": {
+    "Will the sample company open a new factory this year?": "suggestion"
+  },
+  "agents": {
+    "creator-normal": { "roles": ["creator"], "creates": ["normal", "dispute", "timeout"], "claimsSuggestions": true, "beliefs": {} },
+    "creator-challenge": { "roles": ["creator"], "creates": ["creation"], "beliefs": {} },
+    "maker-1": { "roles": ["maker"], "beliefs": { "normal": { "probabilityBps": 7000 }, "dispute": { "probabilityBps": 7000 }, "timeout": { "probabilityBps": 7000 }, "suggestion": { "probabilityBps": 7000 } } },
+    "maker-2": { "roles": ["maker"], "beliefs": { "normal": { "probabilityBps": 6500 }, "dispute": { "probabilityBps": 6500 }, "timeout": { "probabilityBps": 6500 }, "suggestion": { "probabilityBps": 6500 } } },
+    "trader-1": { "roles": ["trader"], "beliefs": { "normal": { "probabilityBps": 8000 }, "dispute": { "probabilityBps": 8000 }, "timeout": { "probabilityBps": 8000 }, "suggestion": { "probabilityBps": 8000 } } },
+    "trader-2": { "roles": ["trader"], "beliefs": { "normal": { "probabilityBps": 8000 }, "dispute": { "probabilityBps": 8000 }, "timeout": { "probabilityBps": 8000 }, "suggestion": { "probabilityBps": 8000 } } },
+    "forecaster": { "roles": ["forecaster"], "beliefs": { "normal": { "probabilityBps": 7500 } } },
+    "proposer-honest": { "roles": ["proposer"], "beliefs": { "normal": {}, "suggestion": { "outcome": "YES" } } },
+    "proposer-liar": { "roles": ["proposer"], "beliefs": { "dispute": { "outcome": "YES", "appeal": true } } },
+    "challenger": { "roles": ["challenger"], "beliefs": { "creation": { "objection": { "ground": "AMBIGUOUS", "evidence": "The resolution does not define which source or event controls." } }, "dispute": { "outcome": "NO" } } },
+    "juror-1": { "roles": ["juror"], "beliefs": { "creation": { "objection": { "ground": "AMBIGUOUS", "evidence": "The resolution is ambiguous." } }, "dispute": { "outcome": "NO" } } },
+    "juror-2": { "roles": ["juror"], "beliefs": { "creation": { "objection": { "ground": "AMBIGUOUS", "evidence": "The resolution is ambiguous." } }, "dispute": { "outcome": "NO" } } },
+    "juror-3": { "roles": ["juror"], "beliefs": { "creation": { "objection": { "ground": "AMBIGUOUS", "evidence": "The resolution is ambiguous." } }, "dispute": { "outcome": "NO" } } },
+    "keeper": { "roles": ["keeper"], "beliefs": {} }
+  },
+  "notes": "The creation-challenged creator and lying proposer act only in their own scenario; their slashed roles have no later duty."
+}
