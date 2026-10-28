@@ -64,10 +64,22 @@ test('typed data rejects a caller-supplied domain type', async () => {
   await assert.rejects(setup().signTypedData({ domain: { chainId: 84532 }, types: { EIP712Domain: [], X: [{ name: 'x', type: 'uint256' }] }, primaryType: 'X', message: { x: 1 } }), /DOMAIN_TYPE/);
 });
 test('personal signing only consumes an outstanding wallet challenge once', async () => {
+  const account = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266';
+  const other = '0x0000000000000000000000000000000000000002';
+  const message = ['Blink Market wallet identity binding v1', 'This signature only binds your identity. It does not authorize trading, token approvals, or withdrawals.', 'Origin: http://binding.test', 'Chain ID: 84532', `Address: ${account}`, 'Action: issue', 'Challenge ID: id', 'Nonce: nonce', 'Issued At: 2026-10-28T00:00:00.000Z', 'Expires At: 2026-10-28T00:05:00.000Z'].join('\n');
+  let returned = message;
   const tools = createTools({ webUrl: 'http://localhost:3000', apiUrl: 'http://localhost:3001', rpcUrl: 'http://localhost:8545', privateKey: key, maxTxs: 1,
-    fetch: async () => Response.json({ challengeId: 'id', message: 'challenge', expiresAt: 'later' }) });
+    fetch: async () => Response.json({ challengeId: 'id', message: returned, expiresAt: 'later' }) });
   await assert.rejects(tools.signMessage({ message: 'arbitrary' }), /CHALLENGE/);
-  await tools.apiRequest({ method: 'POST', path: '/v1/auth/wallet-challenges' });
-  assert.match(await tools.signMessage({ message: 'challenge' }), /^0x/);
-  await assert.rejects(tools.signMessage({ message: 'challenge' }), /CHALLENGE/);
+  await tools.apiRequest({ method: 'POST', path: '/v1/auth/wallet-challenges', body: { address: other } });
+  await assert.rejects(tools.signMessage({ message }), /CHALLENGE/);
+  for (const invalid of [message.replace(account, other), message.replace('Chain ID: 84532', 'Chain ID: 1')]) {
+    returned = invalid;
+    await tools.apiRequest({ method: 'POST', path: '/v1/auth/wallet-challenges', body: { address: account } });
+    await assert.rejects(tools.signMessage({ message: invalid }), /CHALLENGE/);
+  }
+  returned = message;
+  await tools.apiRequest({ method: 'POST', path: '/v1/auth/wallet-challenges', body: { address: account.toUpperCase() } });
+  assert.match(await tools.signMessage({ message }), /^0x/);
+  await assert.rejects(tools.signMessage({ message }), /CHALLENGE/);
 });

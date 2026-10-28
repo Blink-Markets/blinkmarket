@@ -44,3 +44,10 @@ test('SDK tool wrapper refuses encoded paths and masks keys on unrelated routes'
   assert.doesNotMatch(result.toolResult.content + result.transcript, /other-secret/);
   assert.match(result.toolResult.content, /\[REDACTED\]/);
 });
+test('model-facing typed signing refuses a string chain ID before signing', async () => {
+  const tools = createTools({ webUrl: 'http://localhost:3000', apiUrl: 'http://localhost:3001', rpcUrl: 'http://localhost:8545', privateKey: key, maxTxs: 1 });
+  const definitions = createToolDefinitions(tools, async () => {}, () => tools.secrets);
+  const tool = definitions.find((definition) => definition.name === 'sign_typed_data');
+  assert.ok(tool);
+  await assert.rejects(async () => tool.run({ domain: { chainId: '84532' }, types: { X: [{ name: 'x', type: 'uint256' }] }, primaryType: 'X', message: { x: 1 } }), /WRONG_CHAIN/);
+});

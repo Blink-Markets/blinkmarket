@@ -59,7 +59,10 @@ export function createTools(options: Options) {
     try { data = JSON.parse(text); } catch { data = text; }
     if (response.ok && method === 'POST' && typeof data === 'object' && data !== null) {
       if (url.pathname === '/v1/auth/wallet-verifications' && 'apiKey' in data && typeof data.apiKey === 'string') apiKey = data.apiKey;
-      if (url.pathname === '/v1/auth/wallet-challenges' && 'message' in data && typeof data.message === 'string') challenges.add(data.message);
+      if (url.pathname === '/v1/auth/wallet-challenges' && typeof body === 'object' && body !== null && 'address' in body && typeof body.address === 'string' && body.address.toLowerCase() === account.address.toLowerCase() && 'message' in data && typeof data.message === 'string') {
+        const lines = data.message.split('\n');
+        if (lines.includes(`Address: ${account.address.toLowerCase()}`) && lines.includes('Chain ID: 84532')) challenges.add(data.message);
+      }
     }
     function mask(value: unknown): void {
       if (typeof value !== 'object' || value === null) return;
@@ -103,7 +106,7 @@ export function createTools(options: Options) {
     return wallet.writeContract({ address: input.address as Address, abi: [item], functionName: item.name, args: input.args });
   }
   async function signTypedData(input: TypedInput) {
-    if (Number(input.domain.chainId) !== CHAIN) throw new Error('WRONG_CHAIN');
+    if (typeof input.domain.chainId !== 'number' || input.domain.chainId !== CHAIN) throw new Error('WRONG_CHAIN');
     if ('EIP712Domain' in input.types) throw new Error('DOMAIN_TYPE');
     return account.signTypedData({ domain: input.domain, types: input.types as unknown as TypedData, primaryType: input.primaryType, message: input.message });
   }
