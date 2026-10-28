@@ -391,7 +391,7 @@ const worldJson = () => ({
         unsourced: { outcome: "YES" },
       },
     },
-    bob: { roles: ["proposer"], beliefs: { gas: { outcome: "NO", probabilityBps: 2500 } } },
+    bob: { roles: ["proposer"], beliefs: { gas: { outcome: "NO", probabilityBps: 2500 }, margin: {} } },
     carol: { roles: ["juror"], beliefs: {} },
   },
 });
@@ -439,6 +439,7 @@ test("fixture model answers only from its own beliefs", async () => {
     assert.equal(computed?.outcome, "YES");
     assert.equal(new TextDecoder().decode(computed!.evidence), "GAAP gross margin was 61.25% in the quarter.");
     assert.equal((await bob.outcome(margin))?.outcome, "YES");
+    assert.equal(await carol.outcome(margin), null);
     // No source for the market: null, even though alice states an outcome for it.
     assert.equal(await alice.outcome(view(world, "unsourced")), null);
     // A market that is not in the world is unknown to everyone.

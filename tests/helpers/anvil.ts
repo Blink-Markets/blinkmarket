@@ -29,6 +29,7 @@ export async function startAnvil(
     chainId?: number;
     baseFee?: bigint;
     receiptTimeoutMs?: number;
+    accountCount?: number;
   } = {},
 ) {
   const chainId = options.chainId ?? 84532;
@@ -46,6 +47,8 @@ export async function startAnvil(
       String(port),
       "--chain-id",
       String(chainId),
+      "--accounts",
+      String(options.accountCount ?? 10),
       ...(options.baseFee === undefined
         ? []
         : ["--base-fee", String(options.baseFee), "--gas-price", "1"]),
@@ -127,6 +130,7 @@ export async function startAnvil(
     taker2: account(7),
     keeper: account(8),
     trader: account(9),
+    ...Object.fromEntries(Array.from({ length: Math.max(0, (options.accountCount ?? 10) - 10) }, (_, i) => [`agent${i + 10}`, account(i + 10)])),
   };
   return {
     url,

@@ -248,6 +248,7 @@ function platformEnvs(input: {
   indexerPort: number;
   specDirectory: string;
   schedule: typeof ALPHA_FORECAST_SCHEDULE;
+  publicReadLimit?: { capacity: number; refillPerSecond: number };
   databaseUrl: (login: "api" | "indexer" | "worker") => string;
 }): Record<PlatformName, Record<string, string>> {
   const common = { PATH: process.env.PATH ?? "", BASE_SEPOLIA_RPC_URL: input.rpcUrl };
@@ -262,6 +263,9 @@ function platformEnvs(input: {
       SPEC_OBJECT_DIRECTORY: input.specDirectory,
       SPEC_PUBLIC_ORIGIN: input.apiUrl,
       BLINK_DEPLOYMENT_ID: DEPLOYMENT_ID,
+      ...(input.publicReadLimit
+        ? { API_PUBLIC_READ_LIMIT: `${input.publicReadLimit.capacity},${input.publicReadLimit.refillPerSecond}` }
+        : {}),
     },
     indexer: {
       ...common,
@@ -285,7 +289,12 @@ function platformEnvs(input: {
 }
 
 async function startPostgresPlatform(
-  options: { adminUrl?: string; forecastSchedule?: typeof ALPHA_FORECAST_SCHEDULE } = {},
+  options: {
+    adminUrl?: string;
+    forecastSchedule?: typeof ALPHA_FORECAST_SCHEDULE;
+    publicReadLimit?: { capacity: number; refillPerSecond: number };
+    accountCount?: number;
+  } = {},
 ) {
   const adminUrl = options.adminUrl ?? process.env.TEST_POSTGRES_ADMIN_URL;
   if (!adminUrl) throw new Error("TEST_POSTGRES_ADMIN_URL_REQUIRED");
@@ -350,7 +359,7 @@ async function startPostgresPlatform(
       );
 
     // Chain: the alpha generation, deployed by a key that is not one of the actors.
-    const anvil: Anvil = await startAnvil({ chainId: CHAIN_ID });
+    const anvil: Anvil = await startAnvil({ chainId: CHAIN_ID, ...(options.accountCount === undefined ? {} : { accountCount: options.accountCount }) });
     cleanups.push(() => anvil.stop());
     heartbeat = setInterval(() => void anvil.mine(1).catch(() => undefined), HEARTBEAT_MS);
     const { accounts } = anvil;
@@ -386,6 +395,7 @@ async function startPostgresPlatform(
       indexerPort,
       specDirectory,
       schedule,
+      ...(options.publicReadLimit === undefined ? {} : { publicReadLimit: options.publicReadLimit }),
       databaseUrl,
     });
     const entries: Record<PlatformName, string> = {
@@ -465,6 +475,7 @@ async function startPglitePlatform(
     forecastSchedule?: typeof ALPHA_FORECAST_SCHEDULE;
     /** The API's public read bucket per client IP; every agent of a test shares one loopback IP. */
     publicReadLimit?: { capacity: number; refillPerSecond: number };
+    accountCount?: number;
   } = {},
 ) {
   const schedule = options.forecastSchedule ?? ALPHA_FORECAST_SCHEDULE;
@@ -477,7 +488,7 @@ async function startPglitePlatform(
       await runCleanup([...cleanups].reverse());
     })());
   try {
-    const anvil = await startAnvil({ chainId: CHAIN_ID });
+    const anvil = await startAnvil({ chainId: CHAIN_ID, ...(options.accountCount === undefined ? {} : { accountCount: options.accountCount }) });
     cleanups.push(["anvil", () => anvil.stop()]);
     heartbeat = setInterval(() => void anvil.mine(1).catch(() => undefined), HEARTBEAT_MS);
     const database = await createTestDatabase();
@@ -499,6 +510,7 @@ async function startPglitePlatform(
         indexerPort: 0,
         specDirectory,
         schedule,
+        ...(options.publicReadLimit === undefined ? {} : { publicReadLimit: options.publicReadLimit }),
         databaseUrl: () => "pglite://in-process",
       }),
     ))
@@ -623,6 +635,8 @@ async function startPglitePlatform(
       apiUrl,
       rpcUrl: anvil.url,
       deploymentId: DEPLOYMENT_ID,
+      indexerPool: pool,
+      logReader: logs,
       stop,
     };
   } catch (error) {
@@ -649,11 +663,14 @@ export function startAlphaPlatform(options: {
   backend: "postgres";
   adminUrl?: string;
   forecastSchedule?: typeof ALPHA_FORECAST_SCHEDULE;
+  publicReadLimit?: { capacity: number; refillPerSecond: number };
+  accountCount?: number;
 }): Promise<PostgresPlatform>;
 export function startAlphaPlatform(options: {
   backend: "pglite";
   forecastSchedule?: typeof ALPHA_FORECAST_SCHEDULE;
   publicReadLimit?: { capacity: number; refillPerSecond: number };
+  accountCount?: number;
 }): Promise<AlphaPlatform>;
 /**
  * Starts the platform (see the top of this file). The postgres backend answers with the processes,
@@ -661,11 +678,12 @@ export function startAlphaPlatform(options: {
  */
 export function startAlphaPlatform(
   options:
-    | { backend: "postgres"; adminUrl?: string; forecastSchedule?: typeof ALPHA_FORECAST_SCHEDULE }
+    | { backend: "postgres"; adminUrl?: string; forecastSchedule?: typeof ALPHA_FORECAST_SCHEDULE; publicReadLimit?: { capacity: number; refillPerSecond: number }; accountCount?: number }
     | {
         backend: "pglite";
         forecastSchedule?: typeof ALPHA_FORECAST_SCHEDULE;
         publicReadLimit?: { capacity: number; refillPerSecond: number };
+        accountCount?: number;
       },
 ): Promise<AlphaPlatform> {
   return options.backend === "postgres" ? startPostgresPlatform(options) : startPglitePlatform(options);

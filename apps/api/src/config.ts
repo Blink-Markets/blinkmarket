@@ -47,6 +47,20 @@ export function parseSpecPublicOrigin(raw: string): string {
   return url.origin;
 }
 
+function parsePublicReadLimit(raw: string | undefined) {
+  if (raw === undefined) return undefined;
+  const match = /^(\d+),(\d+)$/.exec(raw);
+  const capacity = Number(match?.[1]);
+  const refillPerSecond = Number(match?.[2]);
+  if (
+    !match ||
+    !Number.isSafeInteger(capacity) || capacity < 1 ||
+    !Number.isSafeInteger(refillPerSecond) || refillPerSecond < 1
+  )
+    throw new Error("INVALID_API_PUBLIC_READ_LIMIT");
+  return { capacity, refillPerSecond };
+}
+
 export function apiConfig(env: NodeJS.ProcessEnv) {
   // The platform holds no role key: a key in the environment stops the process.
   assertNoRoleKeys(env);
@@ -83,5 +97,6 @@ export function apiConfig(env: NodeJS.ProcessEnv) {
     deploymentId: env.BLINK_DEPLOYMENT_ID,
     rpcUrl: env.BASE_SEPOLIA_RPC_URL,
     trustedProxies: parseTrustedProxies(env.API_TRUSTED_PROXIES),
+    publicReadLimit: parsePublicReadLimit(env.API_PUBLIC_READ_LIMIT),
   };
 }

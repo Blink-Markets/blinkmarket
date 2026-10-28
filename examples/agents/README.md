@@ -40,7 +40,7 @@ Every log line is one JSON object on stdout with `ts`, `agent` and `event`. The 
 
 ## Fixture models and the world file
 
-A role asks a `Model` for its judgement: the questions to create, the probability of a market, its outcome, an objection to its creation and whether to appeal. `fixtureModel(world, name)` answers from the world file, for that agent only; CI and the drill use nothing else, so results are reproducible. The world file is `{ questions, suggestions, agents }`; markets are matched to questions by `spec.title`, which must be unique. For a class A market the outcome is computed by the template (`gmLtV1Outcome`) over the source file the world lists for that URL, and a stated outcome is never read. An agent with no belief and no source answers null.
+A role asks a `Model` for its judgement: the questions to create, the probability of a market, its outcome, an objection to its creation and whether to appeal. `fixtureModel(world, name)` answers from the world file, for that agent only; CI and the drill use nothing else, so results are reproducible. The world file is `{ questions, suggestions, agents }`; markets are matched to questions by `spec.title`, which must be unique. For a class A market the outcome is computed by the template (`gmLtV1Outcome`) over the source file the world lists for that URL, and a stated outcome is never read. An agent needs a belief entry for that question and a source to answer.
 
 ## The creator
 

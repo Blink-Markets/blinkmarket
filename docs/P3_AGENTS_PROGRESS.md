@@ -109,3 +109,26 @@ Scope: the four market-side roles of `examples/agents`, each a `RoleTick`, wired
 - **Class B and C template.** One generic template per class (`registerTemplate(cls, 0x0, "blink:generic-v1")`), registered by whichever creator needs it first; its first use gets the longer creation window. The URI is a constant in `creator.ts`.
 - **Schedule.** `closeInSeconds` counts from the end of the creation window including the extra first-use window, which is always added (a reviewed template just gives a market that is open slightly longer). The proposal deadline is close plus 120 s; the hard deadline adds the result challenge window, `maxRounds` rounds and 60 s of slack.
 - **Log noise.** `cap_exhausted` is logged once per draft or suggestion while the room is unchanged (per process; a restart says it once more).
+
+## Task 6 — one-command autonomous reference-agent drill (2026-10-28)
+
+### Built
+
+- Added `pnpm alpha:autonomous` with separate agent processes, distinct funded Anvil accounts, per-scenario deadlines, JSON reports, and per-agent logs. The 14-agent world covers two creators, two makers, two traders, a forecaster, honest and lying proposers, a challenger, three jurors, and a keeper. The creation-challenged creator and lying proposer have no later duties.
+- The drill runs normal class A, result dispute, creation challenge, no-proposal timeout, and suggestion scenarios. It cross-checks public API results against chain events and balances, role credit, and an incremental-index rebuild.
+- Class A fixture judgements require the agent's own belief entry; a regression test and drill assertions verify the lying proposer acts only on its dispute market.
+- Added a public API read-bucket setting for the shared loopback IP. Production remains at capacity 60 with refill 1 per second; the drill uses capacity 600 and refill 100 per second. Anvil account-count support supplies distinct funded accounts without platform wallet funding.
+- CI runs both the PostgreSQL success drill and the named stalled-timeout regression, and retains `tmp/alpha-autonomous/` on failure. Its 31-minute limit is `ceil(904s/60)+15m`, based on the measured timeout scenario.
+
+### Schedule and R6
+
+The deployment parameters give `creationWindow + firstUseExtraWindow = 90s`, a 120-second proposal window, a 60-second result challenge window, three 90-second dispute rounds, and 60 seconds of hard-deadline margin. The world uses `closeInSeconds = 300` for normal, suggestion, and timeout, and 200 for the challenged result market.
+
+- Normal and suggestion close at +390s and can first finalize at +452s. Dispute round 2 opens at +442s, so neither is finalized before it opens.
+- The timeout market reaches its hard deadline at +900s (`390 + 120 + 60 + 3×90 + 60`). It has no proposer. Even the conservative upper bound of normal plus suggestion is two finalized markets, below the phase-in threshold of three; the computed finalized count at round-2 opening is zero. Creation is CANCELLED and does not increment `finalizedCount`.
+- The drill checks `creditThreshold == 0` on every creation and result dispute round. It does not alter protocol parameters or chain time.
+
+### Verification status
+
+- `pnpm check:contracts`, `pnpm build:services`, the four service build smoke tests, `pnpm exec tsc --noEmit`, and `git diff --check` passed.
+- The final PGlite run passed all scenarios and global checks in 954s: normal 454s, dispute 447s, creation 92s, timeout 904s, suggestion 454s. It spent 14 wallet challenges. A previous run exposed that the public account API uses uppercase role names (`TAKER` for the agent's `trader`); the drill now maps and cross-checks those names. Final PostgreSQL and `pnpm check` results are recorded in the Task 6 external report.
