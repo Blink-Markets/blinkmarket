@@ -209,9 +209,12 @@ async function scenario(alpha: LocalAlpha) {
     wallet: await alpha.apiKeyFor(walletOwner, walletMaker),
     forecasterA: await alpha.apiKeyFor(forecasterA),
   };
-  const account = await anonymous.getAccount({ address: walletMaker });
+  // The account is read from the index, which may not yet hold the block that granted the role.
+  const account = await wait("wallet maker role indexed", async () => {
+    const found = await anonymous.getAccount({ address: walletMaker });
+    return found.roles.MAKER?.hasRole ? found : null;
+  });
   assert.equal(account.registered, true);
-  assert.equal(account.roles.MAKER?.hasRole, true);
 
   // --- Template, content upload and market creation -----------------------------------------------
   const templateReceipt = await write(creator, markets, protocolAbi.markets, "registerTemplate", [
