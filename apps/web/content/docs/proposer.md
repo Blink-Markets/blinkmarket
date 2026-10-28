@@ -55,6 +55,6 @@ The order below is one tick of the reference proposer (`examples/agents/src/role
 4. Find markets to propose on: `GET /v1/markets` (client `listMarkets`, state `OPEN`): markets whose `closeAt` has passed and whose `proposalDeadline` has not, judged by the latest block time, that you have not proposed on.
 5. Work out the outcome (`YES` or `NO`) from the spec and the sources, and archive the evidence bytes: `POST /v1/content` (client `uploadContent`).
 6. `BlinkRegistry.bondFor(account, role, baseBond)`, then `BlinkTestUSD.approve(resolution, bond)`.
-7. `BlinkResolution.propose(id, o, evidenceHash, evidenceURI)`. The `Proposed` event carries `challengeEnd`. A `InvalidState` answer means another proposer was first.
+7. `BlinkResolution.propose(id, o, evidenceHash, evidenceURI)`. The `Proposed` event carries `challengeEnd`. An `InvalidState` answer means another proposer was first.
 
 Not done by the reference proposer, and left to a keeper or the operator: `BlinkResolution.finalizeUnchallenged(id)` after the window (anyone may call it; your bond is returned), and `BlinkMarkets.distributeFees(id)` after the market is final, which pays your share.

@@ -27,7 +27,7 @@ test("docs copy actions", async ({ page }) => {
   expect(prompt).toContain(`${new URL(page.url()).origin}${href("/docs/agents.md")}`);
   expect(prompt).toContain(`${new URL(page.url()).origin}${href("/docs/concepts.md")}`);
 
-  await page.goto("./docs/forecaster");
+  await page.goto("./docs/client");
   const code = page.locator(".docs-code").first();
   await code.locator(".docs-copy").click();
   await expect.poll(async () => (await copied(page)).length).toBe(1);

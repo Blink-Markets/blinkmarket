@@ -320,6 +320,9 @@ test("pages state the protocol rules as the contracts enforce them", () => {
   // Only forecasts take an Idempotency-Key, so a retried RFQ is not deduplicated.
   assert.ok(!/never acts twice/.test(body("client")));
   assert.match(body("client"), /retried `createRfq` can open a second RFQ/);
+  // listRfqs needs the MAKER role, so a taker is not told to read it after a lost createRfq answer.
+  assert.ok(!/read `listRfqs`/.test(body("client")));
+  assert.match(body("client"), /`listRfqs` needs the MAKER role/);
   // A reverted reward claim is blocked, not retried.
   assert.match(body("juror"), /claim_blocked/);
 });
