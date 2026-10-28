@@ -10,6 +10,7 @@ export function runProcessGroup(args: string[], env: NodeJS.ProcessEnv = process
     let failure: Error | undefined;
     let cleanup: NodeJS.Timeout | undefined;
     let killStarted: number | undefined;
+    let cleanupTimedOut = false;
     const groupExists = () => {
       if (child.pid === undefined) return false;
       try { process.kill(-child.pid, 0); return true; } catch { return false; }
@@ -33,8 +34,9 @@ export function runProcessGroup(args: string[], env: NodeJS.ProcessEnv = process
         }
         return;
       }
-      if (killStarted !== undefined && Date.now() - killStarted >= 2000) {
-        clearInterval(cleanup);
+      if (!cleanupTimedOut && killStarted !== undefined && Date.now() - killStarted >= 2000) {
+        cleanupTimedOut = true;
+        cleanup?.unref();
         reject(new Error("PROCESS_GROUP_CLEANUP_TIMEOUT"));
       }
     };

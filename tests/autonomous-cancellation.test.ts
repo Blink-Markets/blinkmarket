@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
+import { runProcessGroup } from "./helpers/process-group.ts";
 
 for (const signal of ["SIGINT", "SIGTERM", "exit"] as const) {
   test(`autonomous launcher cleans its detached group on ${signal}`, { timeout: 20_000 }, async () => {
@@ -61,3 +62,38 @@ for (const signal of ["SIGINT", "SIGTERM", "exit"] as const) {
     }
   });
 }
+
+test("autonomous launcher unregisters handlers after cleanup timeout then disappearance", { timeout: 30_000 }, async () => {
+  const signals = ["SIGINT", "SIGTERM", "exit"] as const;
+  const baseline = signals.map((signal) => process.rawListeners(signal));
+  const listenerCounts = () => signals.map((signal) => process.listenerCount(signal));
+  const expectedCounts = baseline.map((listeners) => listeners.length);
+  const originalKill = process.kill;
+  let group: number | undefined;
+  try {
+    process.kill = (pid, signal) => {
+      if (pid < 0 && signal === 0) {
+        group ??= pid;
+        if (pid === group) return true;
+      }
+      return originalKill(pid, signal);
+    };
+    // The real child exits; only its group's visibility is held through the cleanup bound.
+    await assert.rejects(runProcessGroup(["-e", ""]), { message: "PROCESS_GROUP_CLEANUP_TIMEOUT" });
+    assert.deepEqual(listenerCounts(), expectedCounts.map((count) => count + 1));
+    process.kill = originalKill;
+    assert.ok(group !== undefined);
+    assert.throws(() => process.kill(group!, 0), { code: "ESRCH" });
+    for (let i = 0; i < 40 && listenerCounts().some((count, index) => count !== expectedCounts[index]); i++) {
+      await delay(50);
+    }
+    assert.deepEqual(listenerCounts(), expectedCounts);
+  } finally {
+    process.kill = originalKill;
+    for (const [index, signal] of signals.entries()) {
+      for (const listener of process.rawListeners(signal)) {
+        if (!baseline[index]!.includes(listener)) process.off(signal, listener as () => void);
+      }
+    }
+  }
+});
