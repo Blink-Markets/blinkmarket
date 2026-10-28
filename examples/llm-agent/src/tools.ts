@@ -42,7 +42,7 @@ export function createTools(options: Options) {
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
     return new TextDecoder().decode(bytes);
   }
-  async function apiRequest({ method, path, body, idempotencyKey }: { method: 'GET' | 'POST'; path: string; body?: unknown; idempotencyKey?: string }) {
+  async function apiRequest({ method, path, body, idempotencyKey }: { method: 'GET' | 'POST'; path: string; body?: unknown; idempotencyKey?: string | undefined }) {
     const base = new URL(options.apiUrl);
     const url = new URL(path, base);
     if (url.origin !== base.origin || !url.pathname.startsWith('/v1/') || url.username || url.password) throw new Error('API_PATH');
