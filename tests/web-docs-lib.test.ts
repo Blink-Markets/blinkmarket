@@ -94,7 +94,7 @@ test("llmsTxt lists every page's markdown URL with its description", () => {
   const txt = llmsTxt(pages);
   assert.ok(txt.startsWith("# Blink\n\n> "));
   for (const p of pages) assert.ok(txt.includes(`](${p.mdHref}): ${p.meta.description}`), p.slug);
-  assert.match(txt, /## For agents/);
+  assert.match(txt, /## Start here\n- \[Agent guide\]/);
 });
 
 test("apiIndexMarkdown renders one row per operation with its access", () => {
@@ -156,10 +156,10 @@ test("renderDoc inlines known sketches and renders other images lazily", () => {
 });
 
 test("publicMarkdown prefixes root-relative link targets only under a base path", () => {
-  const page = loadDocs(join(import.meta.dirname, "../apps/web/content/docs")).find((p) => p.slug === "architecture")!;
+  const page = loadDocs(join(import.meta.dirname, "../apps/web/content/docs")).find((p) => p.slug === "concepts")!;
   assert.equal(publicMarkdown(page, ""), expandSource(page));
   const out = publicMarkdown(page, "/blinkmarket");
   assert.match(out, /\]\(\/blinkmarket\/docs\/lifecycle\)/);
-  assert.match(out, /\]\(\/blinkmarket\/docs-assets\/architecture-sketch\.jpg\)/);
+  assert.match(out, /\]\(\/blinkmarket\/docs-assets\/payout\.svg\)/);
   assert.doesNotMatch(out, /\]\(\/(?!blinkmarket\/)/);
 });
