@@ -1,0 +1,15 @@
+{
+  "name": "@blink/llm-agent-demo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "demo": "node --import tsx src/main.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.3.0",
+    "@blink/client": "workspace:*",
+    "viem": "2.56.8",
+    "zod": "4.6.5"
+  }
+}
