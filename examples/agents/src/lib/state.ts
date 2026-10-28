@@ -5,6 +5,17 @@ import type { Hex } from "viem";
 /** A fill that was sent and whose outcome this agent has not learned yet (see roles/trader.ts). */
 export type PendingFill = { digest: Hex; expiresAt: string; txHash?: Hex };
 
+/** A market a creator has chosen to create: the exact spec bytes and their hash, saved before anything is sent. */
+export type CreateIntent = {
+  key: string;
+  specHash: Hex;
+  /** The spec exactly as uploaded (UTF-8 text); its keccak256 is `specHash`. */
+  spec: string;
+  closeInSeconds: number;
+  maxPairs: number;
+  suggestionId?: string;
+};
+
 /**
  * What an agent must remember across restarts. The API secret is not here: it is issued again at
  * every start, and only the id of the key is kept so that the old key can be revoked.
@@ -17,6 +28,8 @@ export type AgentState = {
   acted: Record<string, string[]>;
   /** Fills in flight, by market id. */
   fills: Record<string, PendingFill>;
+  /** Markets a creator chose and has not finished, by `draft:<key>` or `suggestion:<id>`. */
+  intents?: Record<string, CreateIntent>;
 };
 
 const FILE = "state.json";
@@ -46,6 +59,7 @@ export async function loadState(dir: string): Promise<AgentState> {
     !isRecord(parsed.salts) ||
     !isRecord(parsed.acted) ||
     !isRecord(parsed.fills) ||
+    (parsed.intents !== undefined && !isRecord(parsed.intents)) ||
     (parsed.apiKeyId !== undefined && typeof parsed.apiKeyId !== "string")
   )
     throw new Error("STATE_CORRUPT");
