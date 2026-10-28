@@ -18,8 +18,14 @@ test(
   "alpha:serve prints the platform URLs, serves the deployment and exits 0 on SIGINT with no process left",
   { timeout: 300_000 },
   async () => {
-    // detached: its own process group, so Anvil and the services can be checked after it exits.
-    const child = spawn("pnpm", ["alpha:serve"], { detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    // The script itself, not `pnpm alpha:serve`: a signal sent to pnpm's pid is not reliably
+    // forwarded to its child (CI's pnpm did not). In a terminal, Ctrl-C reaches the whole foreground
+    // group anyway. detached: its own process group, so Anvil and the services can be checked after
+    // it exits.
+    const child = spawn(process.execPath, ["--import", "tsx", "scripts/alpha-serve.ts"], {
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     const pgid = child.pid!;
     let out = "";
     let err = "";
