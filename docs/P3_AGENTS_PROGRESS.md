@@ -130,4 +130,8 @@ Scope: the docs site only (`apps/web/content/docs`, `apps/web/lib/docs`) and the
 
 ### Verification
 
-See `.superpowers/sdd/2026-10-25-p3-reference-agents-drill/task-5-report.md` for the commands and counts. `pnpm build` and `pnpm build:pages` cannot run on this host; CI runs them. The compiled-contract tests need `contracts/artifacts` (gitignored), which the worktree lacked until it was copied from the main checkout.
+- `node --import tsx --test tests/agent-docs-coverage.test.ts tests/web-docs-content.test.ts`: 21/21 pass.
+- `pnpm typecheck`: exit 0. `pnpm check`: 610/610 pass, on `2cda065`.
+- Branch CI run 40647144776 on `2cda065`: check (with `pnpm build`), browsers (with `pnpm build:pages`) and contracts all pass. The browser `docs copy actions` test now uses `/docs/client`, because the rewritten `forecaster` page has no code block.
+- Not run locally: `pnpm build`, `pnpm build:pages` and Playwright. This host cannot run them, so CI is the evidence.
+- The postgres, drill, alpha, Anvil and Foundry suites were not rerun for this task, because it changes no code they load. The compiled-contract tests in `pnpm check` need `contracts/artifacts` (gitignored), which this worktree had to copy from the main checkout.
