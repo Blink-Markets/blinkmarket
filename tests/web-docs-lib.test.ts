@@ -94,7 +94,7 @@ test("llmsTxt lists every page's markdown URL with its description", () => {
   const txt = llmsTxt(pages);
   assert.ok(txt.startsWith("# Blink\n\n> "));
   for (const p of pages) assert.ok(txt.includes(`](${p.mdHref}): ${p.meta.description}`), p.slug);
-  assert.match(txt, /## For agents/);
+  assert.match(txt, /## Start here\n- \[Agent guide\]/);
 });
 
 test("apiIndexMarkdown renders one row per operation with its access", () => {
@@ -143,23 +143,23 @@ test("renderDoc leaves text, prompt and unknown fences unhighlighted", () => {
 });
 
 test("renderDoc inlines known sketches and renders other images lazily", () => {
-  const alt = "Lifecycle sketch & states";
-  const svg = renderDoc(`![${alt}](/docs-assets/lifecycle.svg)`).html;
-  assert.match(svg, /<figure class="docs-sketch"><div class="docs-sketch-sheet" role="region" aria-label="Lifecycle sketch &amp; states" tabindex="0"><svg [^>]*aria-label="Lifecycle sketch &amp; states"/);
-  assert.match(svg, /<figcaption>Lifecycle sketch &amp; states<\/figcaption>/);
+  const alt = "Payout sketch & states";
+  const svg = renderDoc(`![${alt}](/docs-assets/payout.svg)`).html;
+  assert.match(svg, /<figure class="docs-sketch"><div class="docs-sketch-sheet" role="region" aria-label="Payout sketch &amp; states" tabindex="0"><svg [^>]*aria-label="Payout sketch &amp; states"/);
+  assert.match(svg, /<figcaption>Payout sketch &amp; states<\/figcaption>/);
   assert.ok(!svg.includes("<img"));
-  const png = renderDoc("![Arch](/docs-assets/architecture-sketch.jpg)").html;
-  assert.match(png, /<img src="\/docs-assets\/architecture-sketch\.jpg" alt="Arch" loading="lazy" decoding="async">/);
+  const png = renderDoc("![Photo](/docs-assets/photo.jpg)").html;
+  assert.match(png, /<img src="\/docs-assets\/photo\.jpg" alt="Photo" loading="lazy" decoding="async">/);
   const unknown = renderDoc("![X](/docs-assets/x.svg)").html;
   assert.match(unknown, /<img src="\/docs-assets\/x\.svg" alt="X" loading="lazy"/);
   assert.ok(!unknown.includes("<svg"));
 });
 
 test("publicMarkdown prefixes root-relative link targets only under a base path", () => {
-  const page = loadDocs(join(import.meta.dirname, "../apps/web/content/docs")).find((p) => p.slug === "architecture")!;
+  const page = loadDocs(join(import.meta.dirname, "../apps/web/content/docs")).find((p) => p.slug === "concepts")!;
   assert.equal(publicMarkdown(page, ""), expandSource(page));
   const out = publicMarkdown(page, "/blinkmarket");
   assert.match(out, /\]\(\/blinkmarket\/docs\/lifecycle\)/);
-  assert.match(out, /\]\(\/blinkmarket\/docs-assets\/architecture-sketch\.jpg\)/);
+  assert.match(out, /\]\(\/blinkmarket\/docs-assets\/payout\.svg\)/);
   assert.doesNotMatch(out, /\]\(\/(?!blinkmarket\/)/);
 });

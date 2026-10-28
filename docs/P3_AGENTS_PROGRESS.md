@@ -110,6 +110,32 @@ Scope: the four market-side roles of `examples/agents`, each a `RoleTick`, wired
 - **Schedule.** `closeInSeconds` counts from the end of the creation window including the extra first-use window, which is always added (a reviewed template just gives a market that is open slightly longer). The proposal deadline is close plus 120 s; the hard deadline adds the result challenge window, `maxRounds` rounds and 60 s of slack.
 - **Log noise.** `cap_exhausted` is logged once per draft or suggestion while the room is unchanged (per process; a restart says it once more).
 
+## Task 5 — agent documentation and `/llms.txt` (2026-10-28)
+
+Scope: the docs site only (`apps/web/content/docs`, `apps/web/lib/docs`) and the tests that keep it true. This is the documentation slice of P3; the autonomous drill (Task 6) is not done, and nothing here is deployed.
+
+### What was built
+
+- **Role pages.** `creator`, `maker`, `trader`, `forecaster`, `proposer`, `challenger`, `juror` and `keeper`, each with exactly the H2s Duties, Stake or bond, Income, Credit, Risks and Steps. Steps name each route and each contract call as in the OpenAPI document and `agentAbi`, and send the reader to `GET /v1/deployment` (`params`) for every figure.
+- **Start-here and reference pages.** `agents` (rewritten, five H2s kept), `onboarding` (renamed from `joining`), `trust`, `roles`, `lifecycle`, `concepts`, `faq`, `architecture`, `index`, `client`, `errors`, `contracts` (new, generated from `agentAbi`), plus the Access note of `api` (the table stays generated). `deployment` keeps its v0.1 history notice and now says that no generation of the current contracts is deployed. `question-proposer` and `resolution-reporter` are deleted.
+- **`/llms.txt`.** `llms.ts` renders H1 `Blink`, a blockquote, `## Start here` (agents, onboarding, trust), `## Roles` (the eight role pages), `## Reference` (contracts, api, errors, client) and an `Optional` section for the remaining pages, each as an absolute link to the page's `.md`.
+- **Tests.** `tests/agent-docs-coverage.test.ts` (new) and `tests/web-docs-content.test.ts` / `tests/web-docs-lib.test.ts` (updated).
+
+### Decisions and limitations
+
+- **Tests that make the pages track the code.** Each role page's Steps must name every ABI function/event and every client method its reference source uses; every cited route must be in the OpenAPI document and every cited call in `agentAbi`; the signature block of `contracts.md` must equal the regenerated `agentAbi` signatures byte for byte; `client.md` must name every method of `createBlinkClient`; the Params fields each role page names must exist in `ProtocolParams`.
+- **Claim scan over every page.** No page may carry a v0.1 term as current, a transition notice or a link to a removed page; only `deployment` keeps a v0.1 history notice.
+- **Idempotency.** Of the agent-facing writes only `POST /v1/markets/{id}/forecasts` takes an `Idempotency-Key`; the pages say so (the earlier text claimed every POST did).
+- **Limits are stated.** The relay polls (no push delivery); the token price is a fixed test price; `CREATION_GROUND` numbering is a P3 decision that is not enforced on chain; no ERC-8004; no public deployment. The stale `lifecycle` sketch and `architecture-sketch.jpg` were deleted (fix round 1), with their references in `sketches.ts`, `check-pages-export.mjs` and the sketch tests.
+
+### Verification
+
+- `node --import tsx --test tests/agent-docs-coverage.test.ts tests/web-docs-content.test.ts`: 21/21 pass.
+- `pnpm typecheck`: exit 0. `pnpm check`: 610/610 pass, on `2cda065`.
+- Branch CI run 40647144776 on `2cda065`: check (with `pnpm build`), browsers (with `pnpm build:pages`) and contracts all pass. The browser `docs copy actions` test now uses `/docs/client`, because the rewritten `forecaster` page has no code block.
+- Not run locally: `pnpm build`, `pnpm build:pages` and Playwright. This host cannot run them, so CI is the evidence.
+- The postgres, drill, alpha, Anvil and Foundry suites were not rerun for this task, because it changes no code they load. The compiled-contract tests in `pnpm check` need `contracts/artifacts` (gitignored), which this worktree had to copy from the main checkout.
+
 ## Task 6 — one-command autonomous reference-agent drill (2026-10-28)
 
 ### Built

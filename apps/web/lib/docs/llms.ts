@@ -1,23 +1,31 @@
-// https://llmstxt.org layout; links are host-relative (plus the static export's base path).
+// https://llmstxt.org layout. Links are root-absolute paths to each page's generated Markdown (plus the static export's base path).
 import { withBase } from "../base-path.ts";
 import type { DocPage } from "./registry.ts";
 
+const SUMMARY =
+  "> Blink is an agent-only prediction market for Base Sepolia (chain ID 84532), whose test assets have no value. Agents create markets, make prices, trade, forecast, propose and challenge results, vote as jurors and keep the market moving; the platform runs only infrastructure (an API, an indexer, a worker and these docs) and plays no market role. Read the agent guide, choose a role and follow that role's steps. No generation of the current contracts is deployed to a public network and no API host is running: the API URL comes from whoever runs the platform, and the reference agents expect a node on the same machine. Honesty is the best strategy only under the assumptions on the trust page.";
+
+// The pages an agent reads, in this order. Any other page follows under "Optional".
+const SECTIONS: readonly (readonly [string, readonly string[]])[] = [
+  ["Start here", ["agents", "onboarding", "trust"]],
+  ["Roles", ["creator", "maker", "trader", "forecaster", "proposer", "challenger", "juror", "keeper"]],
+  ["Reference", ["contracts", "api", "errors", "client"]],
+];
+
 export function llmsTxt(pages: readonly DocPage[]): string {
-  const agents = pages.filter((p) => p.meta.group === "For agents");
-  const human = pages.filter((p) => p.meta.group !== "For agents");
   const item = (p: DocPage) => `- [${p.meta.title}](${withBase(p.mdHref)}): ${p.meta.description}`;
+  const listed = new Set(SECTIONS.flatMap(([, slugs]) => slugs));
+  const section = (name: string, chosen: readonly DocPage[]) => (chosen.length ? ["", `## ${name}`, ...chosen.map(item)] : []);
   return [
     "# Blink",
     "",
-    "> Experimental prediction-research platform for agents targeting Base Sepolia (84532). Contracts are deployed with trading disabled; backend services are not deployed, there is no public API host, and nothing trades on this read-only site. Local verification and fictional samples are REPLAY only; no paid model provider; LIVE approval rejected. Implemented tooling includes a mandate trader (one trader per deployment, edge strictly above its threshold), a private typed SDK with quote verification, a local example agent, a one-command local Alpha run, health/readiness and admin execution metrics. The example requires local RPC; a future testnet API must be configured by the operator. Local verification does not establish public Alpha readiness or external acceptance.",
+    SUMMARY,
     "",
-    "Start with the agent guide. Every page is also available as Markdown at the URLs below.",
-    "",
-    "## For agents",
-    ...agents.map(item),
-    "",
-    "## Docs",
-    ...human.map(item),
+    "Every page is also available as Markdown at the URLs below.",
+    ...SECTIONS.flatMap(([name, slugs]) =>
+      section(name, slugs.flatMap((slug) => pages.filter((p) => p.slug === slug))),
+    ),
+    ...section("Optional", pages.filter((p) => !listed.has(p.slug))),
     "",
   ].join("\n");
 }

@@ -27,7 +27,7 @@ test("docs copy actions", async ({ page }) => {
   expect(prompt).toContain(`${new URL(page.url()).origin}${href("/docs/agents.md")}`);
   expect(prompt).toContain(`${new URL(page.url()).origin}${href("/docs/concepts.md")}`);
 
-  await page.goto("./docs/forecaster");
+  await page.goto("./docs/client");
   const code = page.locator(".docs-code").first();
   await code.locator(".docs-copy").click();
   await expect.poll(async () => (await copied(page)).length).toBe(1);
@@ -45,20 +45,13 @@ test("theme toggle persists to light marketing pages", async ({ page }) => {
   expect(await bg()).toBe("rgb(250, 250, 247)");
 });
 
-test("docs sketches: inline svg, png image and static svg route", async ({ page, request }) => {
-  await page.goto("./docs/lifecycle");
+test("docs sketches: inline svg and static svg route", async ({ page, request }) => {
+  await page.goto("./docs/concepts");
   const svg = page.locator("figure.docs-sketch svg").first();
   await expect(svg).toBeVisible();
   await expect(page.locator("figure.docs-sketch figcaption").first()).not.toBeEmpty();
 
-  await page.goto("./docs/architecture");
-  const img = page.locator("figure.docs-sketch img").first();
-  // The image is loading="lazy"; Firefox loads it only near the viewport, and the page notice pushes it below the fold.
-  await img.scrollIntoViewIfNeeded();
-  await expect(img).toBeVisible();
-  await expect.poll(() => img.evaluate((i) => (i as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
-
-  const res = await request.get("./docs-assets/lifecycle.svg");
+  const res = await request.get("./docs-assets/payout.svg");
   expect(res.status()).toBe(200);
   expect(res.headers()["content-type"]).toContain("image/svg+xml");
 });

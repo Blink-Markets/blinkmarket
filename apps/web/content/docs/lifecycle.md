@@ -1,6 +1,6 @@
 ---
 title: Market lifecycle
-description: How a Blink market moves from OPEN to FINAL, and how shares are redeemed.
+description: How a Blink market moves from creation to FINAL, who may make each transition, and how shares are redeemed.
 group: How markets work
 order: 1
 agentTask: explain which state a market is in and what can happen next
@@ -8,59 +8,58 @@ agentTask: explain which state a market is in and what can happen next
 
 # Market lifecycle
 
-> [!NOTE]
-> **v0.1 state machine.** This page describes the v0.1 contract with four stored states, fixed roles and an arbiter. The P1 contracts (implemented, not deployed) have the states PENDING, OPEN, PROPOSED, DISPUTED, FINAL and CANCELLED, market-creation challenges and juror arbitration; see [P1 protocol contracts](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/P1_PROTOCOL_CONTRACTS.md). P3 rewrites this page. The current design is the [autonomous market design](https://github.com/Blink-Markets/blinkmarket/blob/main/docs/superpowers/specs/2026-10-23-autonomous-market-design.md).
-
-Every Blink market is a YES/NO question that moves through a small, fixed set of contract states. The rules below come from the MVP specification (section 6.2) and apply to the Base Sepolia testnet (chain ID 84532), where bUSD has no value.
-
-> [!NOTE]
-> The market contracts are deployed on Base Sepolia with trading disabled and no markets created (see [Deployment](/docs/deployment)); the chain projections run in the indexer, which is not yet deployed. This page describes the implemented state machine. Local verification is REPLAY only; nothing trades on this site.
+Every Blink market is a YES/NO question that moves through a small, fixed set of contract states. Each transition is a contract call with a time condition, and none of them needs a person or the platform. The rules apply to the Base Sepolia testnet (chain ID 84532), where bUSD has no value.
 
 ## What states can a market be in?
 
-A market stores one of four states: `OPEN`, `PROPOSED`, `DISPUTED` or `FINAL`. `CLOSED` is not stored. An `OPEN` market is treated as `CLOSED` once `now >= closeAt`, so closing never waits for a keeper to send a transaction. Pausing is a separate switch that only stops new trades.
+A market stores one of six states. `OPEN` is closed for trading once the clock passes `closeAt`; no transaction is needed for that.
 
 | State | Meaning |
 | --- | --- |
-| `OPEN` | Quotes can be filled until `closeAt`. |
-| `CLOSED` (derived) | An `OPEN` market whose `closeAt` has passed. Trading has stopped; an outcome can be proposed. |
-| `PROPOSED` | An outcome (`YES`, `NO` or `INVALID`) and its evidence hash have been submitted. A challenge window is running. |
-| `DISPUTED` | The proposal was challenged with evidence. An arbiter must decide. |
+| `PENDING` | Created, in its creation window. A challenger may challenge the creation until `openAt`. A challenge does not change the state: the market stays `PENDING` with `creationChallenged` set while jurors decide. |
+| `OPEN` | Quotes can be filled until `closeAt`. After `closeAt` the market is closed to trading and a result can be proposed. |
+| `PROPOSED` | A proposer has submitted an outcome (`YES` or `NO`; `INVALID` cannot be proposed), its evidence hash and a bond. A challenge window runs. |
+| `DISPUTED` | The proposed result was challenged. Jurors decide by commit and reveal; the losing side may appeal. (A creation challenge keeps the market `PENDING`.) |
 | `FINAL` | The outcome is fixed and cannot be changed. Holders can redeem. |
-
-![Market lifecycle sketch: OPEN becomes derived CLOSED at closeAt; a proposer moves it to PROPOSED with evidence; with no challenge it becomes FINAL, a challenger moves it to DISPUTED and the arbiter decides FINAL; if hardDeadline passes before FINAL the market finalizes as INVALID. Holders then redeem: 1 bUSD per winning share, or 0.5 per share on each side for INVALID.](/docs-assets/lifecycle.svg)
+| `CANCELLED` | A creation challenge was upheld. The market never opened and trades nothing. A rejected creation challenge opens the market (`OPEN`) instead. |
 
 ## How does a market move between states?
 
-Each transition is a contract function with a required role and time condition.
-
-| Function | Who | Condition | Result |
+| Call | Who | Condition | Result |
 | --- | --- | --- | --- |
-| `createMarket` | ADMIN | Valid specification and times | New market in `OPEN` |
-| `fillQuote` | Taker (with a signed quote) | `OPEN`, `now < closeAt`, not paused | Position created; stays `OPEN` |
-| `proposeOutcome` | RESULT_PROPOSER | `OPEN` and `closeAt <= now < proposalDeadline`; one proposal only | `PROPOSED` |
-| `challengeOutcome` | CHALLENGER | `PROPOSED`, before the challenge window ends, non-empty evidence hash; no bond | `DISPUTED` |
-| `finalizeUnchallenged` | Anyone | `PROPOSED`, challenge window over, `now < hardDeadline` | `FINAL` with the proposed outcome |
-| `arbitrate` | ARBITER | `DISPUTED`, `now < hardDeadline`, decision evidence hash | `FINAL` with the arbiter's outcome |
-| `finalizeTimeout` | Anyone | Not `FINAL` and `now >= hardDeadline` | `FINAL` with outcome `INVALID` |
-| `redeem` | Share holder | `FINAL` | Shares burned, payout sent |
+| `BlinkMarkets.createMarket` | A creator (role CREATOR) | Valid spec and times; within the security bound and the creator's exposure limit; creation bond posted | `PENDING` |
+| `BlinkResolution.challengeCreation` | A challenger | `PENDING`, before `openAt`, evidence hash set | A creation dispute opens; the market stays `PENDING` with `creationChallenged` set while jurors decide |
+| `BlinkMarkets.open` | Anyone | `PENDING`, `openAt` passed, not creation-challenged | `OPEN` |
+| `BlinkMarkets.fillQuote` | The named taker, with a maker's signed quote | `OPEN`, before `closeAt`, balances and caps hold | A position; the market stays `OPEN` |
+| `BlinkResolution.propose` | A proposer | `OPEN`, from `closeAt` until `proposalDeadline`, once per market; bond posted | `PROPOSED` |
+| `BlinkResolution.challengeResult` | A challenger | `PROPOSED`, before the proposal's `challengeEnd`, evidence hash set; bond posted | `DISPUTED` |
+| `BlinkResolution.finalizeUnchallenged` | Anyone | `PROPOSED`, challenge window over | `FINAL` with the proposed outcome |
+| `BlinkResolution.settleRound` | Anyone | The round's reveal phase is over | The round's result, or a restart if it missed quorum or tied |
+| `BlinkResolution.appeal` | The losing side | The round's appeal phase; a doubled bond; below `maxRounds`; time left for a new round before `hardDeadline` | A new round |
+| `BlinkResolution.finalizeDispute` | Anyone | The settled round's appeal phase is over | Result dispute: `FINAL` with the jurors' outcome. Creation dispute: `CANCELLED` if the challenge is upheld, `OPEN` if it is rejected |
+| `BlinkResolution.finalizeTimeout` | Anyone | Neither `FINAL` nor `CANCELLED`, and `hardDeadline` passed | `FINAL` with outcome `INVALID` |
+| `BlinkMarkets.redeem` | A share holder | `FINAL` | Shares burned, payout sent |
+| `BlinkMarkets.distributeFees` | Anyone (the caller earns a tip) | `FINAL`, once | The fee pool is split |
 
-## What does a proposal, a challenge and arbitration look like?
+The windows (`creationWindow`, `resultChallengeWindow`, `commitSeconds`, `revealSeconds`, `appealSeconds`) and the number of appeal rounds (`maxRounds`) are fields of `params`; read them from `GET /v1/deployment`. The first use of a template gets a longer creation window (`firstUseExtraWindow`). Every deadline is a block timestamp, so compare with the latest block, not your own clock.
 
-1. After `closeAt`, a human result proposer submits `YES`, `NO` or `INVALID` plus an evidence hash. This can happen once.
-2. A challenger can dispute the proposal during the challenge window. The challenge needs a non-empty evidence hash. The window is 86,400 seconds (24 hours) for `LIVE` markets and 120 seconds for `REPLAY` markets, as enforced by the shared specification schema.
-3. If nobody challenges, anyone can finalize the proposed outcome once the window is over.
-4. If someone challenges, an arbiter records a decision and its evidence hash, and the market becomes `FINAL`.
+## What happens in a dispute?
 
-Models hold no keys and no adjudication authority. Proposals, challenges and arbitration are done by people holding the explicit roles above.
+1. A challenger posts a bond and evidence. A creation challenge names one of three grounds (see [Trust](/docs/trust) for the numbering).
+2. Jurors who staked before the round began commit a hashed vote, then reveal it. A vote counts with the weight of the juror's slashable stake at the round's snapshot. Credit does not change the weight.
+3. After the reveal phase `settleRound` counts the revealed weight. A round whose committed weight is below the quorum, or that ties, restarts; it does not become INVALID. Revealed votes that differ from the final outcome and unrevealed commitments are slashed.
+4. The losing side may appeal with a doubled bond, up to `maxRounds` rounds. Higher rounds can require credit (`roundCreditThreshold`) once the generation has finalized enough markets.
+5. When the last round's appeal phase passes, `finalizeDispute` fixes the outcome. A challenge that does not overturn the original loses its bond.
+
+A dispute that is still unfinished at `hardDeadline` ends as INVALID through `finalizeTimeout`; the challenger's bond is forfeited in that case.
 
 ## What happens if nobody acts in time?
 
-If the market is not `FINAL` by `hardDeadline`, anyone can call `finalizeTimeout`, and the outcome is fixed to `INVALID`. This also applies to an unchallenged proposal that nobody finalized in time. After `hardDeadline`, late proposals and late arbitration are not allowed; only the timeout path remains. The specification requires this fail-safe rule to appear in the market specification and on the trade confirmation page.
+If the market is not `FINAL` by `hardDeadline`, anyone can call `finalizeTimeout` and the outcome is INVALID. That applies if nobody proposes, if a proposal is not finalized and if a dispute is unfinished. After `hardDeadline` no late proposal or vote counts; only the timeout remains. The creator must choose the schedule so that `proposalDeadline` leaves room for a challenge window and every round of a dispute before `hardDeadline`.
 
 ## How are shares paid out?
 
-One complete set is 1,000,000 base units, which is 1 bUSD. After `FINAL`, each holder redeems their own shares:
+One complete set, one YES share plus one NO share, is collateralised with 1 bUSD (1,000,000 micros). Shares are integers held in the market's ledger, not tokens. After `FINAL`, each holder redeems their own shares:
 
 | Final outcome | Each YES share pays | Each NO share pays |
 | --- | --- | --- |
@@ -68,29 +67,26 @@ One complete set is 1,000,000 base units, which is 1 bUSD. After `FINAL`, each h
 | `NO` | 0 | 1 bUSD |
 | `INVALID` | 0.5 bUSD | 0.5 bUSD |
 
-Example from the README: buying 100 YES shares at 6,000 bps costs the taker 60 bUSD and the maker 40 bUSD, so the contract holds 100 bUSD. `YES` pays the taker 100 bUSD, `NO` pays the maker 100 bUSD, and `INVALID` pays each side 50 bUSD.
+Example: buying 100 YES shares at 6,000 bps costs the taker 60 bUSD and the maker 40 bUSD, so the contract holds 100 bUSD. `YES` pays the taker 100 bUSD, `NO` pays the maker 100 bUSD, and `INVALID` pays each side 50 bUSD. The taker also pays the fee (`feeBps`) on top of the price.
 
-`FINAL` is irreversible and there is no admin function to change a result. Pausing stops only new fills; proposing, challenging, finalizing and redeeming keep working.
+`FINAL` is irreversible and no function changes a result. There is no early exit: no transfer, sell-back, merge or partial fill exists. Redeeming never stops, so a holder can always collect.
 
 ## How final is a transaction?
 
-A separate question from market state is how settled a transaction is on the chain. The specification tracks transaction states `CREATED`, `SIGNED`, `SUBMITTED`, `PRECONFIRMED` (if the RPC supports it), `INCLUDED` and `FINALIZED`, plus the branches `REVERTED`, `REPLACED`, `UNKNOWN` and `REORGED`.
+A separate question from market state is how settled a transaction is on the chain. `POST /v1/transactions` tracks a hash your wallet sent, and `GET /v1/transactions/{txHash}` answers one of `UNKNOWN`, `INCLUDED`, `FINALIZED`, `REVERTED` or `REORGED`.
 
-- `UNKNOWN` is not failure. A missing receipt never justifies automatically sending a new economic intent.
-- `PRECONFIRMED` is only a hint. It does not count as a settled position.
+- `UNKNOWN` is not failure. A missing receipt never justifies sending a second economic intent: read the state (an event, `consumed(digest)`, a position) first.
 - `INCLUDED` and `FINALIZED` are different levels. Do not treat a fixed number of blocks as Base L1 finality.
 - Expect a wait. When measured on 2026-10-21, Base Sepolia's finalized block trailed the latest block by 14 to 33 minutes, so a transaction can stay `INCLUDED` that long before it becomes `FINALIZED`.
-
-Blink's market-creation tracker uses a fixed observation policy of 12 confirmations. That is explicitly not Base L1 finality.
 
 ## Hand it to your agent
 
 ```prompt
-Read https://blink-markets.github.io/blinkmarket/docs/lifecycle.md and explain the lifecycle of a Blink market. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. Given a market state and the current time relative to closeAt, proposalDeadline and hardDeadline, say which transitions are allowed, who may perform them, and what INVALID would pay per share.
+Read https://blink-markets.github.io/blinkmarket/docs/lifecycle.md and explain the lifecycle of a Blink market. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. Given a market state and the current time relative to openAt, closeAt, proposalDeadline and hardDeadline, say which transitions are allowed, who may call them, and what INVALID would pay per share.
 ```
 
 ## Next steps
 
-- [Architecture](/docs/architecture) shows which processes own each part of this flow.
-- [Roles](/docs/roles) explains who holds each role in this flow.
-- [API reference](/docs/api) lists the HTTP endpoints.
+- [Architecture](/docs/architecture) shows which processes the platform runs and what it cannot do.
+- [Roles](/docs/roles) explains who acts at each stage.
+- [Contracts](/docs/contracts) lists the calls named above.
