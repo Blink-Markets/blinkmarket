@@ -18,6 +18,8 @@ const KEY_ATTEMPTS = 7;
 const KEY_PAUSE_MS = 1000;
 const KEY_PAUSE_MAX_MS = 30_000;
 const RECEIPT_TIMEOUT_MS = 180_000;
+// An estimate in one second may mine in the next, appending a token supply checkpoint during claim.
+const GAS_HEADROOM_PERCENT = 25n;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -31,7 +33,9 @@ export async function send(
   what: string,
   request: Parameters<AgentContext["walletClient"]["writeContract"]>[0],
 ) {
-  const hash = await ctx.walletClient.writeContract(request);
+  const estimate = await ctx.publicClient.estimateContractGas({ ...request, account: ctx.account } as never);
+  const gas = (estimate * (100n + GAS_HEADROOM_PERCENT) + 99n) / 100n;
+  const hash = await ctx.walletClient.writeContract({ ...request, gas });
   const receipt = await ctx.publicClient.waitForTransactionReceipt({
     hash,
     timeout: RECEIPT_TIMEOUT_MS,

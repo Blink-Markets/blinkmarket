@@ -270,6 +270,7 @@ test("a redemption that landed but was never recorded does not block the next ma
           }),
         },
         publicClient: {
+          estimateContractGas: async () => 100_000n,
           readContract: async ({ functionName, args }: { functionName: string; args: unknown[] }) =>
             functionName === "getPosition" ? [positions.get(String(args[0])) ?? 0n, 0n] : true,
           waitForTransactionReceipt: async () => ({ status: "success", logs: [], transactionHash: "0x" + "12".repeat(32) }),

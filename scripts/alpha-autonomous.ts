@@ -66,6 +66,7 @@ async function waitFor<T>(what: string, until: number, read: () => Promise<T | n
 
 async function startActors(world: World, worldPath: string, apiUrl: string, rpcUrl: string, stateDir: string, actors: Actor[]): Promise<void> {
   const roster = Object.entries(world.agents);
+  // Juror stake must precede creation-dispute snapshots; send handles the faucet checkpoint gas race.
   const ordered = roster.map(([name, actor]) => ({ name, actor, slot: roster.findIndex(([other]) => other === name) }))
     .sort((a, b) => Number(a.actor.roles.includes("creator")) - Number(b.actor.roles.includes("creator")) || Number(b.actor.roles.includes("juror")) - Number(a.actor.roles.includes("juror")));
   for (const { name, actor, slot } of ordered) {
@@ -184,7 +185,7 @@ async function main() {
     scenarioDeadlines = Object.fromEntries(scenarios.map((name) => [name,
       Math.min(name === "timeout" ? (config.timeoutDeadlineSeconds ?? config.timeout) : config.timeout, scenarioBudgets[name]),
     ])) as Record<typeof scenarios[number], number>;
-    const event = async (contract: "markets" | "resolution", eventName: string, args: Record<string, unknown> = {}) => platform!.anvil.publicClient.getContractEvents({ address: deployment.generation[contract] as Address, abi: contract === "markets" ? protocolAbi.markets : protocolAbi.resolution, eventName, args, fromBlock: BigInt(deployment.startBlock) } as never) as Promise<any[]>;
+    const event = async (contract: "markets" | "resolution", eventName: string, args: Record<string, unknown> = {}, toBlock?: bigint) => platform!.anvil.publicClient.getContractEvents({ address: deployment.generation[contract] as Address, abi: contract === "markets" ? protocolAbi.markets : protocolAbi.resolution, eventName, args, fromBlock: BigInt(deployment.startBlock), ...(toBlock === undefined ? {} : { toBlock }) } as never) as Promise<any[]>;
     const transfers = async (hash: Hex, from: Address, to: Address) => {
       const receipt = await platform!.anvil.publicClient.getTransactionReceipt({ hash });
       return parseEventLogs({ abi: erc20Abi, eventName: "Transfer", logs: receipt.logs.filter((log) => log.address.toLowerCase() === deployment.shared.busd.toLowerCase()) })
@@ -255,6 +256,10 @@ async function main() {
           return null;
         });
         await state("normal", "FINAL");
+        const [finalized] = await event("markets", "MarketFinalized", { marketId: BigInt(id) });
+        assert.ok(finalized, "normal finalization event missing");
+        assert.equal((await event("markets", "CreationChallenged", { marketId: BigInt(id) }, finalized.blockNumber)).length, 0);
+        assert.equal((await event("resolution", "DisputeOpened", { marketId: BigInt(id) }, finalized.blockNumber)).length, 0);
         const final = await api.getMarket({ marketId: id }); const spec = world.questions.normal!;
         const normalProposals = await event("resolution", "Proposed", { id: BigInt(id) });
         assert.equal(normalProposals.length, 1);
@@ -305,12 +310,19 @@ async function main() {
         assert.ok(rounds.length >= 1);
         assert.ok(rounds.every((round) => Number(round.args.choice) === 1), "creation jurors did not uphold the ambiguous question");
         const dispute = await api.getDispute({ disputeId: String(opened.args.disputeId) });
+        assert.ok(dispute.rounds.length > 0, "creation API rounds missing");
+        assert.equal(dispute.rounds.length, rounds.length, "creation API and settled chain round counts differ");
         assert.ok(dispute.rounds.every((round) => round.creditThreshold === 0));
       }),
       complete("timeout", async () => {
         const item = await waitMarket("timeout"); const id = item.market.marketId; await state("timeout", "OPEN");
         const final = await waitFor("timeout invalid", deadlineFor("timeout"), async () => { const m = await api.getMarket({ marketId: id }); return m.market.state === "FINAL" && m.market.finalOutcome === "INVALID" ? m : null; });
         lastStates.timeout = final.market.state;
+        const [finalized] = await event("markets", "MarketFinalized", { marketId: BigInt(id) });
+        assert.ok(finalized, "timeout finalization event missing");
+        const block = await platform!.anvil.publicClient.getBlock({ blockHash: finalized.blockHash });
+        const chainMarket = await platform!.anvil.publicClient.readContract({ address: deployment.generation.markets as Address, abi: agentAbi.markets, functionName: "getMarket", args: [BigInt(id)] });
+        assert.ok(block.timestamp >= chainMarket.hardDeadline, "timeout finalized before its hard deadline");
         assert.equal(final.market.finalOutcome, "INVALID"); await redeem("timeout");
       }),
       complete("suggestion", async () => {
@@ -368,7 +380,7 @@ async function main() {
     try { await platform?.stop(); }
     catch (error) { failure ??= error; }
   }
-  const result = { backend: config.backend, startedAt: new Date(started).toISOString(), durationSeconds: Math.round((Date.now() - started) / 1000), roster, walletChallenges: roster.length, apiPublicReadLimit: readLimit, slashedRoleDutyNote: world.notes, scenarioDeadlinesSeconds: scenarioDeadlines, r6, scenarios: report, lastIndexedStates: lastStates, result: failure ? "fail" : "pass", error: failure instanceof Error ? failure.message : undefined };
+  const result = { backend: config.backend, startedAt: new Date(started).toISOString(), durationSeconds: Math.round((Date.now() - started) / 1000), roster, expectedMinimumWalletChallenges: roster.length, apiPublicReadLimit: readLimit, slashedRoleDutyNote: world.notes, scenarioDeadlinesSeconds: scenarioDeadlines, r6, scenarios: report, lastIndexedStates: lastStates, result: failure ? "fail" : "pass", error: failure instanceof Error ? failure.message : undefined };
   await writeFile(join(output, "report.json"), JSON.stringify(result, null, 2) + "\n");
   if (failure) {
     const logs = actors.map((actor) => `${actor.name}:\n${actor.tail.join("\n")}`).join("\n");

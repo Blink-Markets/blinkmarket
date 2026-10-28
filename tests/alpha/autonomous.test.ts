@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { runProcessGroup } from "../helpers/process-group.ts";
 
 const adminUrl = process.env.TEST_POSTGRES_ADMIN_URL;
 const skip = adminUrl
@@ -12,51 +12,7 @@ const skip = adminUrl
 if (skip) console.error("autonomous test skipped: " + skip);
 
 function run(args: string[], env: NodeJS.ProcessEnv = process.env, hardTimeoutMs = 28 * 60_000) {
-  return new Promise<{ code: number | null; output: string }>((resolve, reject) => {
-    const child = spawn(process.execPath, ["--import", "tsx", "scripts/alpha-autonomous.ts", ...args], { cwd: process.cwd(), env, stdio: ["ignore", "pipe", "pipe"], detached: true });
-    let timedOut = false;
-    let groupGone = false;
-    let closed = false;
-    let exitCode: number | null = null;
-    let cleanup: NodeJS.Timeout | undefined;
-    const maybeResolve = () => {
-      if (closed && (!timedOut || groupGone)) resolve({ code: exitCode, output });
-    };
-    const groupExists = () => {
-      if (child.pid === undefined) return false;
-      try { process.kill(-child.pid, 0); return true; } catch { return false; }
-    };
-    const killGroup = (signal: NodeJS.Signals) => {
-      if (child.pid === undefined) return;
-      try { process.kill(-child.pid, signal); } catch { /* the process group has already exited */ }
-    };
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      killGroup("SIGTERM");
-      const graceStarted = Date.now();
-      cleanup = setInterval(() => {
-        if (!groupExists()) { groupGone = true; clearInterval(cleanup); maybeResolve(); }
-        else if (Date.now() - graceStarted >= 10_000) {
-          killGroup("SIGKILL");
-          const killStarted = Date.now();
-          clearInterval(cleanup);
-          cleanup = setInterval(() => {
-            if (!groupExists() || Date.now() - killStarted >= 2_000) {
-              groupGone = true; clearInterval(cleanup); maybeResolve();
-            }
-          }, 100);
-        }
-      }, 250);
-    }, hardTimeoutMs);
-    let output = "";
-    child.stdout.on("data", (chunk) => (output += chunk));
-    child.stderr.on("data", (chunk) => (output += chunk));
-    child.once("error", (error) => { clearTimeout(timeout); clearInterval(cleanup); reject(error); });
-    child.once("close", (code) => {
-      closed = true; exitCode = code; clearTimeout(timeout);
-      if (!timedOut) resolve({ code, output }); else maybeResolve();
-    });
-  });
+  return runProcessGroup(["--import", "tsx", "scripts/alpha-autonomous.ts", ...args], env, hardTimeoutMs);
 }
 
 test("every autonomous scenario passes", { skip, timeout: 1_800_000 }, async () => {
