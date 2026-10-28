@@ -76,6 +76,17 @@ if (existsSync("examples/agents/src")) {
       errors.push(`${path}: an example takes its ABIs from agentAbi, not parseAbi`);
   }
 }
+// The LLM demo also acts as an outside developer, with its SDK as an additional public dependency.
+if (existsSync("examples/llm-agent/src")) {
+  const root = resolve("examples/llm-agent") + sep;
+  const publicImport = /^(@anthropic-ai\/sdk(\/.*)?|zod|@blink\/client|viem(\/.*)?|node:.*)$/;
+  for (const path of files("examples/llm-agent/src").filter((p) => /\.[cm]?[jt]sx?$/.test(p))) {
+    for (const { fileName: dep } of ts.preProcessFile(readFileSync(path, "utf8"), true, true).importedFiles) {
+      const inside = dep.startsWith(".") && (resolve(dirname(path), dep) + sep).startsWith(root);
+      if (!inside && !publicImport.test(dep)) errors.push(`${path}: forbidden LLM demo import ${dep}`);
+    }
+  }
+}
 if (errors.length) {
   console.error(errors.join("\n"));
   process.exit(1);

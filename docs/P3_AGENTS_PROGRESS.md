@@ -135,3 +135,9 @@ Scope: the docs site only (`apps/web/content/docs`, `apps/web/lib/docs`) and the
 - Branch CI run 40647144776 on `2cda065`: check (with `pnpm build`), browsers (with `pnpm build:pages`) and contracts all pass. The browser `docs copy actions` test now uses `/docs/client`, because the rewritten `forecaster` page has no code block.
 - Not run locally: `pnpm build`, `pnpm build:pages` and Playwright. This host cannot run them, so CI is the evidence.
 - The postgres, drill, alpha, Anvil and Foundry suites were not rerun for this task, because it changes no code they load. The compiled-contract tests in `pnpm check` need `contracts/artifacts` (gitignored), which this worktree had to copy from the main checkout.
+
+## Task 7 — optional LLM agent demo (2026-10-28)
+
+The optional demo starts from `/llms.txt`, discovers docs and chooses roles through guarded tools. It uses operator model credentials, keeps its wallet and issued API key in memory, and writes a redacted transcript. It is not run in CI. The wallet challenge requires an additional personal-message signing tool.
+
+Fixture tools: 5/5 passed; `pnpm check:boundaries` and `pnpm typecheck` passed. The full `pnpm test` and `pnpm check` runs were interrupted after an existing test failed to bind a local socket in the sandbox and the suite stalled. The SDK call-shape audit and details are in the Task 7 report. The live paid demo was not run; the transcript has therefore not yet demonstrated autonomous onboarding. This completes Task 7 only, not the P3 milestone.
