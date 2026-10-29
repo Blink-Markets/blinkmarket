@@ -43,11 +43,11 @@ The design is [the autonomous market design](docs/superpowers/specs/2026-10-23-a
 
 - **P1, the protocol contracts, is done** ([delivery](docs/P1_PROTOCOL_CONTRACTS.md)): identity and role stakes, question classes and market-creation challenges, multi-maker RFQ with full collateral and ERC-1271 maker wallets, layered settlement with juror arbitration, credit, fee shares, a self-serve faucet and next-generation governance.
 - **P2, the off-chain rework, is merged on main** ([delivery](docs/P2_OFFCHAIN_PROTOCOL.md), [progress](docs/P2_OFFCHAIN_PROGRESS.md)): the platform signer, research, approval and invitations are removed; the API, indexer and worker now serve self-serve wallet identity, an RFQ relay, public protocol reads, hash-addressed content, human suggestions and signed forecasts with anchorable Merkle roots. Its final whole-branch review is done and its six findings are fixed.
-- **P3 is next:** reference agents for each role, agent documentation and the autonomous drill. **P4:** the website's advantages page and the introduction video. Neither is done.
+- **P3 is merged** ([delivery](docs/P3_REFERENCE_AGENTS.md), [progress](docs/P3_AGENTS_PROGRESS.md)): reference agents for each role, agent documentation and the autonomous drill. The whole-branch review follows. **P4 is next:** the website's advantages page and the introduction video.
 
-**Nothing is deployed.** The P1 generation has not been deployed to any network, and the API, indexer and worker have no public host. The `alpha-2` contracts on Base Sepolia ([manifest](deployments/base-sepolia/alpha-2.manifest.json)) are the old v0.1 design, kept as history and no longer the target. The website at the top of this page is read-only, and nothing trades on it. Its pages that describe the v0.1 roles carry a notice; P3 rewrites them.
+**Nothing is deployed.** The P1 generation has not been deployed to any network, and the API, indexer and worker have no public host. The `alpha-2` contracts on Base Sepolia ([manifest](deployments/base-sepolia/alpha-2.manifest.json)) are the old v0.1 design, kept as history and no longer the target. The website at the top of this page is read-only, and nothing trades on it.
 
-Everything is verified locally on Anvil (chain ID 84532), in local PostgreSQL and in CI. The measured results are in the [P2 delivery](docs/P2_OFFCHAIN_PROTOCOL.md#verification).
+Everything is verified locally on Anvil (chain ID 84532), in local PostgreSQL and in CI. The measured results are in the [P2 delivery](docs/P2_OFFCHAIN_PROTOCOL.md#verification) and [P3 delivery](docs/P3_REFERENCE_AGENTS.md#verification).
 
 ## Local alpha and agent tooling
 
@@ -59,7 +59,9 @@ TEST_POSTGRES_ADMIN_URL='<dedicated local PostgreSQL administrator URL>' pnpm al
 
 The administrator needs CREATEDB/CREATEROLE privileges. The harness creates and removes its own database and service logins, starts a local Anvil on chain ID 84532, deploys a protocol generation, and spawns the real API, indexer and worker with no role key in their environment. Independent actors then run the full life of one market through the public API and the contracts: registration and role stakes, a human suggestion claimed by a creator, content upload, market creation, two RFQs answered by an EOA maker and an ERC-1271 wallet maker, signed forecasts with an anchored window root, a proposal, unchallenged finalization, fee distribution and redemption. The run takes about five and a half minutes because the alpha protocol windows are real time. This verifies local flows only; see [Local alpha](docs/M5_LOCAL_ALPHA.md) for the v0.1 harness it replaced and the [P2 delivery](docs/P2_OFFCHAIN_PROTOCOL.md) for the current one.
 
-`@blink/client` is a private workspace package, not published on npm. It provides typed responses, runtime validation, same-key retries for server-marked retryable errors, the P2 API methods and `verifySignedQuote`. [The example agent](examples/agents/README.md) is a complete taker: it registers, proves its wallet, posts an RFQ, verifies the quotes that come back, approves exactly what the best one can cost, fills it and redeems. Its RPC is loopback-only.
+`pnpm alpha:autonomous` runs the independent reference agents through five scenarios on a local stack. The PostgreSQL CI success scenario took 934 seconds; see the [P3 delivery](docs/P3_REFERENCE_AGENTS.md) for the roster and limitations.
+
+`@blink/client` is a private workspace package, not published on npm. It provides typed responses, runtime validation, same-key retries for server-marked retryable errors, the P2 API methods and `verifySignedQuote`. [The reference agents](examples/agents/README.md) implement every market role, including a trader that verifies quotes, fills and redeems. Their RPC is loopback-only.
 
 ## Architecture
 
@@ -123,7 +125,7 @@ packages/
   adapters/    database, migrations, protocol ABI, indexer store, deployment tooling, signature verifier
   runtime/     shared HTTP startup, health, error handling and the platform-key guard
   client/      Private typed SDK, quote verification and same-key retries
-examples/      External taker agent for the local stack
+examples/      Independent reference agents and optional LLM demo
 contracts/     Protocol contracts (src/protocol), BlinkTestUSD, Foundry tests, generated ABI and bytecode
 infra/         local PostgreSQL (Docker Compose) and the API, worker and indexer container templates
 deployments/   release manifest template (no real addresses) and the historical alpha-2 manifest
@@ -134,8 +136,8 @@ tests/         unit, contract-protocol, PostgreSQL, Anvil, local-alpha and brows
 
 ## Documentation
 
-- **[Docs site](https://blink-markets.github.io/blinkmarket/docs/)**: concepts, lifecycle, API reference and a guide for agents. Every page is also available as Markdown. The role pages still describe the v0.1 roles and carry a notice; P3 rewrites them.
-- **Current design and delivery:** [Autonomous market design](docs/superpowers/specs/2026-10-23-autonomous-market-design.md) · [P1 protocol contracts](docs/P1_PROTOCOL_CONTRACTS.md) · [P2 off-chain protocol](docs/P2_OFFCHAIN_PROTOCOL.md) · [P2 progress](docs/P2_OFFCHAIN_PROGRESS.md) · [Roadmap](docs/ROADMAP.md) · [Domain terminology](CONTEXT.md)
+- **[Docs site](https://blink-markets.github.io/blinkmarket/docs/)**: concepts, lifecycle, API reference and a guide for agents. Every page is also available as Markdown. The role pages describe the current agent roles.
+- **Current design and delivery:** [Autonomous market design](docs/superpowers/specs/2026-10-23-autonomous-market-design.md) · [P1 protocol contracts](docs/P1_PROTOCOL_CONTRACTS.md) · [P2 off-chain protocol](docs/P2_OFFCHAIN_PROTOCOL.md) · [P2 progress](docs/P2_OFFCHAIN_PROGRESS.md) · [P3 delivery](docs/P3_REFERENCE_AGENTS.md) · [Roadmap](docs/ROADMAP.md) · [Domain terminology](CONTEXT.md)
 - [Architecture](docs/ARCHITECTURE.md) · [Data model](docs/DATA_MODEL.md) · [Development](docs/DEVELOPMENT.md) · [Operations](docs/OPERATIONS.md) · [Verification](docs/VERIFICATION.md) · [Acceptance matrix](docs/ACCEPTANCE_MATRIX.md) · [Example agent](examples/agents/README.md)
 - **History (v0.1, team-operated design, historical):** [Architecture diagrams](docs/ARCHITECTURE_GUIDE.md) · [Detailed design](docs/design/README.md) · [Architecture decisions](docs/adr/0001-platform.md) · delivery records `docs/M0_M1_DELIVERY.md`, `docs/M2_*.md`, `docs/M3_*.md`, `docs/M4_*.md` and `docs/M5_*.md` · [Deployment manifest `alpha-2`](deployments/base-sepolia/alpha-2.manifest.json) · [Original MVP specification](Blink_MVP_v0.1_Base_Sepolia_Spec.md)
 

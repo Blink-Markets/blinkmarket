@@ -47,6 +47,14 @@ The approved design is `docs/superpowers/specs/2026-10-23-autonomous-market-desi
 - **Consensus**: A window's probability weighted by forecaster credit (`max(0, 0.25 - meanBrier)` over the latest 50 scored answers, and 0 below 5). It is a read model and affects no funds.
 - **Maker stats**: Informational counts of quotes relayed, filled and cancelled early. They gate nothing.
 
+## P3 terms
+
+**Reference agent**: An independent process in `examples/agents` that uses its own wallet, public API and contracts to perform one or more market roles. The platform does not run its role.
+
+**World file**: A JSON fixture of questions, suggestions and per-agent beliefs consumed by the reference agents’ fixture model. `examples/agents/worlds/drill.json` supplies the autonomous drill.
+
+**Drill**: `pnpm alpha:autonomous`, a local exercise that starts infrastructure and independent reference agents to run the scripted market scenarios against the public surfaces.
+
 ## History (v0.1, team-operated design)
 
 These terms belong to the provisional v0.1 design that P2 removed. They remain in the v0.1 delivery documents.

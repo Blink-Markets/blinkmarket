@@ -43,11 +43,11 @@ Blink Market 是一個實驗性市場，所有角色都由自主 agent 擔任：
 
 - **P1 協定合約已完成**（[交付紀錄](docs/P1_PROTOCOL_CONTRACTS.md)）：身分與角色質押、題目分類與建市挑戰、完整抵押的多 maker RFQ（支援 ERC-1271 錢包）、分層結算與陪審員仲裁、信用、手續費分潤、自助水龍頭與下一代治理。
 - **P2 鏈下改寫已合併到 main**（[交付紀錄](docs/P2_OFFCHAIN_PROTOCOL.md)、[進度](docs/P2_OFFCHAIN_PROGRESS.md)）：已移除平台簽署器、研究、核准與邀請制；API、indexer 與 worker 現在提供自助錢包身分、RFQ 轉送、公開協定讀取、以雜湊定址的內容、人類題目建議，以及帶可錨定 Merkle root 的簽章預測。整個分支的最終審查已完成，六項發現皆已修正。
-- **下一步是 P3：** 各角色的參考 agent、給 agent 的文件與自主演練。**P4：** 網站優勢頁與介紹影片。兩者都尚未完成。
+- **P3 已合併**（[交付紀錄](docs/P3_REFERENCE_AGENTS.md)、[進度](docs/P3_AGENTS_PROGRESS.md)）：各角色的參考 agent、agent 文件與自主演練。接下來進行整個分支的審查。**下一步是 P4：** 網站優勢頁與介紹影片。
 
-**目前沒有任何部署。** P1 這一代合約沒有部署到任何網路，API、indexer 與 worker 也沒有公開主機。Base Sepolia 上的 `alpha-2` 合約（[manifest](deployments/base-sepolia/alpha-2.manifest.json)）是舊的 v0.1 設計，只當作歷史保留，不再是目標部署。網站為唯讀，不提供交易；描述 v0.1 角色的頁面已加上提示，P3 會改寫。
+**目前沒有任何部署。** P1 這一代合約沒有部署到任何網路，API、indexer 與 worker 也沒有公開主機。Base Sepolia 上的 `alpha-2` 合約（[manifest](deployments/base-sepolia/alpha-2.manifest.json)）是舊的 v0.1 設計，只當作歷史保留，不再是目標部署。網站為唯讀，不提供交易。
 
-所有驗證都在本機 Anvil（chain ID 84532）、本機 PostgreSQL 與 CI 上進行，實測結果見 [P2 交付紀錄](docs/P2_OFFCHAIN_PROTOCOL.md#verification)。
+所有驗證都在本機 Anvil（chain ID 84532）、本機 PostgreSQL 與 CI 上進行，實測結果見 [P2 交付紀錄](docs/P2_OFFCHAIN_PROTOCOL.md#verification)與 [P3 交付紀錄](docs/P3_REFERENCE_AGENTS.md#verification)。
 
 ## 本機 Alpha 與 agent 工具
 
@@ -59,7 +59,9 @@ TEST_POSTGRES_ADMIN_URL='<專用本機 PostgreSQL 管理員連線 URL>' pnpm alp
 
 管理員須具備 CREATEDB／CREATEROLE 權限。Harness 自行建立並清除測試資料庫與服務帳號，在 chain ID 84532 的本機 Anvil 上部署一代協定，並啟動真實的 API、indexer 與 worker，其環境中沒有任何角色私鑰。獨立的 actor 接著只透過公開 API 與合約跑完一個市場的完整生命週期：註冊與角色質押、由 creator 認領的人類建議、內容上傳、建市、由 EOA maker 與 ERC-1271 錢包 maker 回覆的兩次 RFQ、帶錨定視窗 root 的簽章預測、提出結果、無挑戰終局化、手續費分配與贖回。因為 alpha 協定的視窗是實際時間，整個流程約需五分半鐘。這只驗證本機流程；它取代的 v0.1 harness 見[本機 Alpha](docs/M5_LOCAL_ALPHA.md)，目前的 harness 見 [P2 交付紀錄](docs/P2_OFFCHAIN_PROTOCOL.md)。
 
-`@blink/client` 是未發布至 npm 的 private workspace package，提供型別化回應、runtime validation、伺服器標示可重試錯誤的同 key 重試、P2 API 方法及 `verifySignedQuote`。[Agent 範例](examples/agents/README.md)是一個完整的 taker：註冊、證明錢包控制權、送出 RFQ、驗證回來的報價、精確授權最佳報價的成本、成交並贖回；RPC 限本機 loopback。
+`pnpm alpha:autonomous` 在本機堆疊啟動獨立的參考 agent，執行五個情境。PostgreSQL CI 成功情境耗時 934 秒；參與角色與限制見 [P3 交付紀錄](docs/P3_REFERENCE_AGENTS.md)。
+
+`@blink/client` 是未發布至 npm 的 private workspace package，提供型別化回應、runtime validation、伺服器標示可重試錯誤的同 key 重試、P2 API 方法及 `verifySignedQuote`。[參考 agent](examples/agents/README.md) 實作所有市場角色，包括驗證報價、成交並贖回的 trader；RPC 限本機 loopback。
 
 ## 架構
 
@@ -123,7 +125,7 @@ packages/
   adapters/    資料庫、migration、協定 ABI、indexer store、部署工具、簽章驗證器
   runtime/     共用的 HTTP 啟動、健康檢查、錯誤處理與平台無私鑰檢查
   client/      Private 型別化 SDK、報價驗證與同 key 重試
-examples/      本機堆疊的外部 taker agent 範例
+examples/      獨立參考 agent 與選用的 LLM 示範
 contracts/     協定合約（src/protocol）、BlinkTestUSD、Foundry 測試、生成的 ABI 與 bytecode
 infra/         本機 PostgreSQL（Docker Compose）與 API、worker、indexer 容器範本
 deployments/   發布 manifest 範本（不含真實地址）與歷史的 alpha-2 manifest
@@ -134,8 +136,8 @@ tests/         單元、合約協定、PostgreSQL、Anvil、本機 alpha 與瀏�
 
 ## 文件
 
-- **[文件網站](https://blink-markets.github.io/blinkmarket/docs/)**：核心概念、市場生命週期、API 參考與 agent 指南（英文），每一頁也提供 Markdown 版本。角色頁面仍描述 v0.1 的角色並附有提示，P3 會改寫。
-- **目前的設計與交付：**[自主市場設計](docs/superpowers/specs/2026-10-23-autonomous-market-design.md) · [P1 協定合約](docs/P1_PROTOCOL_CONTRACTS.md) · [P2 鏈下協定](docs/P2_OFFCHAIN_PROTOCOL.md) · [P2 進度](docs/P2_OFFCHAIN_PROGRESS.md) · [實作進度](docs/ROADMAP.md) · [領域用語](CONTEXT.md)
+- **[文件網站](https://blink-markets.github.io/blinkmarket/docs/)**：核心概念、市場生命週期、API 參考與 agent 指南（英文），每一頁也提供 Markdown 版本。角色頁面描述目前的 agent 角色。
+- **目前的設計與交付：**[自主市場設計](docs/superpowers/specs/2026-10-23-autonomous-market-design.md) · [P1 協定合約](docs/P1_PROTOCOL_CONTRACTS.md) · [P2 鏈下協定](docs/P2_OFFCHAIN_PROTOCOL.md) · [P2 進度](docs/P2_OFFCHAIN_PROGRESS.md) · [P3 交付紀錄](docs/P3_REFERENCE_AGENTS.md) · [實作進度](docs/ROADMAP.md) · [領域用語](CONTEXT.md)
 - [整體架構](docs/ARCHITECTURE.md) · [資料模型](docs/DATA_MODEL.md) · [開發指南](docs/DEVELOPMENT.md) · [運行與部署](docs/OPERATIONS.md) · [驗證](docs/VERIFICATION.md) · [驗收矩陣](docs/ACCEPTANCE_MATRIX.md) · [Agent 範例](examples/agents/README.md)
 - **歷史（v0.1 團隊營運設計，已成歷史）：**[架構圖解](docs/ARCHITECTURE_GUIDE.md) · [細部設計](docs/design/README.md) · [技術決策](docs/adr/0001-platform.md) · 交付紀錄 `docs/M0_M1_DELIVERY.md`、`docs/M2_*.md`、`docs/M3_*.md`、`docs/M4_*.md` 與 `docs/M5_*.md` · [部署 manifest `alpha-2`](deployments/base-sepolia/alpha-2.manifest.json) · [原始 MVP 規格](Blink_MVP_v0.1_Base_Sepolia_Spec.md)
 
