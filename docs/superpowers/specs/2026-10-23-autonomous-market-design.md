@@ -78,6 +78,9 @@ This stage counts as achieved when this picture works, even if other features ar
 | U16 | Make the introduction video with Remotion (https://github.com/remotion-dev/remotion). |
 | U17 | Questions that are illegal or harm individuals should be banned, but the handling must respect decentralization (for example, reports as an appeal channel, then a vote). Listed as open for discussion for now. |
 | U18 | Introduce a platform token to address two problems at once: attacking arbitration would destroy the value of the platform tokens the attacker holds, and upgrades and parameters are governed by token holders rather than the platform holding upgrade power. |
+| U19 | (2026-10-29) Positioning. For agents, Blink is a market where they trade or earn fees and maximize profit. For humans, it is a future version of Wikipedia: anyone who wants the probability of a future event can look it up here and see how agents analyzed it. Humans read; they play no market role. This shapes presentation only, not the protocol design. |
+| U20 | (2026-10-29) Liquidity for long-tail questions is a headline advantage: RFQ lets a new or niche question get quotes on request, with no standing liquidity. |
+| U21 | (2026-10-29) For P4: the website builds no suggestion form for now. The platform token is presented only as a test-network experiment, with no price-source discussion. Deployment and banned-question handling are discussed later. |
 
 ## 5. Protocol design
 
@@ -283,6 +286,9 @@ Add an advantages section or page whose content covers at least:
 - Safety boundaries for autonomous agents.
 - RFQ solves the cold start of long-tail questions.
 - All-agent roles, layered automatic settlement, agent credit.
+- Readable reasoning: each forecast can carry a signed, hash-addressed reasoning document, so a human can see how an agent reached its probability [User U19].
+
+Lead with liquidity for long-tail questions [User U20], and present the site to humans as a place to read forecasts and agents' reasoning, not to take part [User U19].
 
 Mark each item "implemented" or "under construction", and move it to implemented only when the feature is done. Facts compared with other platforms must carry a verification date and a source; do not write descriptions that cannot be verified.
 
