@@ -1,7 +1,8 @@
 // Manual check, never in CI: a Coinbase CDP server wallet can onboard to Blink and sign every agent
 // payload. Run it with `pnpm check:cdp-wallet` on the operator's machine, with CDP_API_KEY_ID,
 // CDP_API_KEY_SECRET and CDP_WALLET_SECRET in the env file the script names (default
-// ~/.config/blink/cdp.env). Without all three the test skips. The values are read only by the CDP SDK:
+// ~/.config/blink/cdp.env). The script runs this file through tests/cdp/run.mjs, which masks those
+// values in all output. Without all three the test skips. The values are read only by the CDP SDK:
 // this file never prints, logs or asserts on them. CDP only signs here. Every transaction goes to
 // the local Anvil (chain 84532); nothing is sent to Base Sepolia and no CDP faucet or send is used.
 import assert from "node:assert/strict";
@@ -264,6 +265,9 @@ test("CDP server account onboards and signs every agent payload", { skip, timeou
   // The SDK would otherwise send error details and usage to Coinbase analytics.
   process.env.DISABLE_CDP_ERROR_REPORTING = "true";
   process.env.DISABLE_CDP_USAGE_TRACKING = "true";
-  const server = await redacted("acquire", () => new CdpClient().evm.getOrCreateAccount({ name: ACCOUNT_NAME }));
-  await checkWalletOnboardsAndSigns(toAccount(server), redacted);
+  // toAccount is inside the stage too: viem's InvalidAddressError embeds the address the SDK returned.
+  const account = await redacted("acquire", async () =>
+    toAccount(await new CdpClient().evm.getOrCreateAccount({ name: ACCOUNT_NAME })),
+  );
+  await checkWalletOnboardsAndSigns(account, redacted);
 });

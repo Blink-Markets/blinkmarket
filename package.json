@@ -43,7 +43,7 @@
     "drill:restore:test": "node scripts/check-contracts.mjs && node --import tsx --test tests/alpha/restore-drill.test.ts",
     "images:build": "for s in api worker indexer; do docker build -f infra/Dockerfile.$s -t blink-$s:local . || exit 1; done",
     "test:images": "node --test tests/images.test.mjs",
-    "check:cdp-wallet": "node --env-file-if-exists=${BLINK_CDP_ENV:-$HOME/.config/blink/cdp.env} --import tsx --test tests/cdp/cdp-wallet.test.ts",
+    "check:cdp-wallet": "node --env-file-if-exists=${BLINK_CDP_ENV:-$HOME/.config/blink/cdp.env} tests/cdp/run.mjs tests/cdp/cdp-wallet.test.ts",
     "images:smoke": "node scripts/check-contracts.mjs && node --import tsx scripts/images-smoke.ts"
   },
   "devDependencies": {
