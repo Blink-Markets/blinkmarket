@@ -43,6 +43,7 @@
     "drill:restore:test": "node scripts/check-contracts.mjs && node --import tsx --test tests/alpha/restore-drill.test.ts",
     "images:build": "for s in api worker indexer; do docker build -f infra/Dockerfile.$s -t blink-$s:local . || exit 1; done",
     "test:images": "node --test tests/images.test.mjs",
+    "check:cdp-wallet": "node --env-file-if-exists=${BLINK_CDP_ENV:-$HOME/.config/blink/cdp.env} --import tsx --test tests/cdp/cdp-wallet.test.ts",
     "images:smoke": "node scripts/check-contracts.mjs && node --import tsx scripts/images-smoke.ts"
   },
   "devDependencies": {
@@ -60,6 +61,8 @@
     "tsx": "4.23.15",
     "solc": "0.8.30",
     "@playwright/test": "1.63.0",
-    "yaml": "2.9.1"
+    "yaml": "2.9.1",
+    "@coinbase/cdp-sdk": "1.60.0",
+    "zod": "4.6.5"
   }
 }
