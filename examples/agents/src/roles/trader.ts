@@ -253,14 +253,14 @@ async function positionIsEmpty(ctx: AgentContext, marketId: string): Promise<boo
  * `NoPosition` if sent again and block every later market. The chain is therefore asked first, and
  * asked again when a send fails: an empty position is a completed redemption, recorded and skipped.
  */
-async function redeemFinal(ctx: AgentContext) {
-  const redeemed = actedOn(ctx, REDEEMED);
+export async function redeemFinal(ctx: AgentContext, filled = actedOn(ctx, FILLED), redeemedKey = REDEEMED) {
+  const redeemed = actedOn(ctx, redeemedKey);
   const record = async (marketId: string, fields: Record<string, unknown>) => {
     redeemed.push(marketId);
     await ctx.state.save();
     ctx.log("redeemed", { marketId, ...fields });
   };
-  for (const marketId of actedOn(ctx, FILLED).filter((id) => !redeemed.includes(id))) {
+  for (const marketId of filled.filter((id) => !redeemed.includes(id))) {
     const { market } = await ctx.client.getMarket({ marketId });
     if (market.state !== "FINAL") continue;
     if (await positionIsEmpty(ctx, marketId)) {

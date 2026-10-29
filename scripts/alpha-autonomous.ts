@@ -49,18 +49,34 @@ function argsOf(args: string[]) {
   return { backend, world: resolve(world), timeout, timeoutDeadlineSeconds };
 }
 
-async function waitFor<T>(what: string, until: number, read: () => Promise<T | null | undefined | false>): Promise<T> {
+export async function withinDeadline<T>(what: string, until: number, work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (signal?.aborted) throw new Error(`SCENARIO_ABORTED:${what}`);
+  const remaining = until - Date.now();
+  if (remaining <= 0) throw new Error(`SCENARIO_TIMEOUT:${what}`);
+  let timer: ReturnType<typeof setTimeout>;
+  let onAbort: () => void;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`SCENARIO_TIMEOUT:${what}`)), remaining);
+    onAbort = () => reject(new Error(`SCENARIO_ABORTED:${what}`));
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+  try { return await Promise.race([Promise.resolve().then(work), limit]); }
+  finally { clearTimeout(timer!); signal?.removeEventListener("abort", onAbort!); }
+}
+
+export async function waitFor<T>(what: string, until: number, read: () => Promise<T | null | undefined | false>): Promise<T> {
   let last: unknown;
   for (;;) {
     if (activeSignal?.aborted) throw new Error(`SCENARIO_ABORTED:${what}`);
-    try { const value = await read(); if (value !== null && value !== undefined && value !== false) return value; }
+    try { const value = await withinDeadline(what, until, read, activeSignal); if (value !== null && value !== undefined && value !== false) return value; }
     catch (error) {
+      if (error instanceof Error && (error.message.startsWith("SCENARIO_TIMEOUT:") || error.message.startsWith("SCENARIO_ABORTED:"))) throw error;
       if (error instanceof BlinkApiError && (error.status === 401 || error.status === 403)) throw error;
       last = error;
     }
     if (activeSignal?.aborted) throw new Error(`SCENARIO_ABORTED:${what}`);
     if (Date.now() >= until) throw new Error(`SCENARIO_TIMEOUT:${what}${last ? ":" + String(last) : ""}`);
-    await delay(1000);
+    await withinDeadline(what, until, () => delay(1000), activeSignal);
   }
 }
 
@@ -208,7 +224,7 @@ async function main() {
     const complete = async (name: typeof scenarios[number], work: () => Promise<void>) => {
       const at = Date.now();
       deadlines[name] = at + scenarioDeadlines[name] * 1000;
-      try { await work(); report[name] = { status: "pass", durationSeconds: Math.round((Date.now() - at) / 1000) }; }
+      try { await withinDeadline(`${name} scenario`, deadlines[name], work, abort.signal); report[name] = { status: "pass", durationSeconds: Math.round((Date.now() - at) / 1000) }; }
       catch (error) { report[name] = { status: "fail", durationSeconds: Math.round((Date.now() - at) / 1000), error: String(error) }; failure ??= error; abort.abort(); }
     };
     const suggestionText = Object.keys(world.suggestions)[0]!;
@@ -216,7 +232,10 @@ async function main() {
     const suggestionId: string = suggestion.id;
     const traders = actors.filter((a) => a.roles.includes("trader"));
     const redeem = async (key: typeof scenarios[number]) => {
-      for (const trader of traders) {
+      const fills = await event("markets", "QuoteFilled", { marketId: BigInt(ids[key]!) });
+      const outcome = (await api.getMarket({ marketId: ids[key]! })).market.finalOutcome;
+      const makers = actors.filter((actor) => actor.roles.includes("maker") && fills.some((fill) => fill.args.maker.toLowerCase() === actor.account.address.toLowerCase()));
+      for (const trader of [...traders, ...makers]) {
         const redeemed = await waitFor(`${key} redemption ${trader.name}`, deadlineFor(key), async () => {
           const rows = await api.getPositions({ address: trader.account.address });
           const redeemed = await event("markets", "PositionRedeemed", { marketId: BigInt(ids[key]!), account: trader.account.address });
@@ -225,10 +244,13 @@ async function main() {
         const payout = BigInt(redeemed.redeemedPayoutMicros);
         const chainPosition = await platform!.anvil.publicClient.readContract({ address: deployment.generation.markets as Address, abi: agentAbi.markets, functionName: "getPosition", args: [BigInt(ids[key]!), trader.account.address] }) as readonly [bigint, bigint];
         assert.deepEqual(chainPosition, [0n, 0n], `${trader.name} position remains after redeem`);
-        if (key === "timeout") {
-          const receipt = (await event("markets", "PositionRedeemed", { marketId: BigInt(ids[key]!), account: trader.account.address }))[0]!;
-          assert.equal(payout, (BigInt(receipt.args.yes) + BigInt(receipt.args.no)) * 500_000n);
-        }
+        const receipt = (await event("markets", "PositionRedeemed", { marketId: BigInt(ids[key]!), account: trader.account.address }))[0]!;
+        const yes = BigInt(receipt.args.yes), no = BigInt(receipt.args.no);
+        assert.equal(payout, outcome === "YES" ? yes * 1_000_000n : outcome === "NO" ? no * 1_000_000n : (yes + no) * 500_000n);
+      }
+      for (const maker of actors.filter((actor) => actor.roles.includes("maker"))) {
+        const position = await platform!.anvil.publicClient.readContract({ address: deployment.generation.markets as Address, abi: agentAbi.markets, functionName: "getPosition", args: [BigInt(ids[key]!), maker.account.address] });
+        assert.deepEqual(position, [0n, 0n], `${maker.name} position remains after redeem`);
       }
     };
     const running = [
@@ -333,6 +355,7 @@ async function main() {
       }),
     ];
     await Promise.all(running);
+    if (failure) throw failure;
 
     if (agentExited) {
       const nextClaimAt = await platform.anvil.publicClient.readContract({ address: deployment.shared.faucet as Address, abi: agentAbi.faucet, functionName: "nextClaimAt", args: [agentExited.account.address] });
@@ -360,7 +383,7 @@ async function main() {
   } catch (error) {
     failure ??= error;
     if (apiClient) try {
-      const page = await apiClient.listMarkets({ limit: 100 });
+      const page = await withinDeadline("diagnostics", Date.now() + 3000, () => apiClient!.listMarkets({ limit: 100 }));
       for (const [key, question] of Object.entries(world.questions)) {
         const item = page.items.find((market: any) => market.spec?.ok && market.spec.spec.title === question.spec.title);
         if (item) { ids[key] = item.market.marketId; lastStates[key] = item.market.state; }

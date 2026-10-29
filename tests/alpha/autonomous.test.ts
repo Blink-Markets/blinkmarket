@@ -54,3 +54,22 @@ test("drill reports a stalled scenario by name", { skip, timeout: 240_000 }, asy
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("a stalled market response reaches cleanup and writes a failure report", { skip, timeout: 240_000 }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), "blink-autonomous-read-stall-"));
+  try {
+    const preload = join(dir, "stall.mjs");
+    await writeFile(preload, `const original = globalThis.fetch;\n` +
+      `globalThis.fetch = (url, ...args) => new URL(String(url)).pathname === '/v1/markets' ? new Promise(() => {}) : original(url, ...args);\n`);
+    const started = Date.now();
+    const result = await run(["--backend", "postgres", "--scenario-timeout-seconds", "2"],
+      { ...process.env, NODE_OPTIONS: `--import=${preload}` }, 180_000);
+    assert.notEqual(result.code, 0, result.output);
+    assert.ok(Date.now() - started < 180_000);
+    const report = JSON.parse(await readFile("tmp/alpha-autonomous/report.json", "utf8"));
+    assert.equal(report.result, "fail");
+    assert.match(report.error, /SCENARIO_TIMEOUT:/);
+    assert.match(result.output, /Last indexed states/);
+    assert.match(result.output, /Last agent log lines:/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
