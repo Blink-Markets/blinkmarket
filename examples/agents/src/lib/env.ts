@@ -7,7 +7,7 @@ import {
   type Chain,
   type HttpTransport,
   type Hex,
-  type PrivateKeyAccount,
+  type LocalAccount,
   type PublicClient,
   type WalletClient,
 } from "viem";
@@ -59,8 +59,9 @@ export type AgentContext = {
   /** Anonymous until `onboard` has an API key; `onboard` then replaces it. */
   client: BlinkClient;
   publicClient: PublicClient<HttpTransport, Chain>;
-  walletClient: WalletClient<HttpTransport, Chain, PrivateKeyAccount>;
-  account: PrivateKeyAccount;
+  /** Any viem local account: a private key, or a custody service that signs (a CDP server wallet). */
+  walletClient: WalletClient<HttpTransport, Chain, LocalAccount>;
+  account: LocalAccount;
   /** The generation the API serves; nothing is read from a file. */
   deployment: AgentDeployment;
   model: Model;
