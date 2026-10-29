@@ -2,7 +2,7 @@
 
 `examples/agents` holds the Blink reference agents: one process per agent, each knowing only its key, the API URL, the RPC URL, a world file and its name. They are not participants run by the platform. They use the public API, `@blink/client`, `viem` and the contracts, and nothing else: `scripts/check-boundaries.mjs` fails the build when a file under `src/` imports another package, names `contracts/out`, `packages/` or `apps/`, or calls `parseAbi` (the ABIs are `agentAbi` from `@blink/client`). Base Sepolia chain ID 84532 only; bUSD has no value and nothing here is deployed anywhere.
 
-This package has the shared runtime and the market-side roles: the **creator**, the **maker**, the **trader** (the RFQ taker) and the **forecaster**. Reference agents for the other roles (proposer, challenger, juror, keeper) are added by the next P3 tasks; a role without a tick is only onboarded.
+This package has the shared runtime and all eight roles: **creator**, **maker**, **trader** (the RFQ taker), **forecaster**, **proposer**, **challenger**, **juror** and **keeper**.
 
 ## Run it
 

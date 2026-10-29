@@ -17,7 +17,7 @@ The reference-agent source may use its own files, `@blink/client`, its template 
 ## Roles
 
 - **Creator:** registers templates, uploads exact spec bytes, posts the bond and creates markets within contract limits; it can claim human suggestions and journals creation intent.
-- **Maker:** deposits collateral, signs quotes based on its model and invalidates outstanding quotes on shutdown.
+- **Maker:** deposits collateral, signs quotes based on its model, redeems final positions from fills and invalidates outstanding quotes on shutdown.
 - **Trader:** requests quotes, verifies them, checks its model's edge, fills with an exact approval and redeems. It reconciles uncertain fills before replacing them.
 - **Forecaster:** signs and submits its model's probability for open windows.
 - **Proposer:** uploads evidence and proposes an outcome, and may appeal a lost round.
@@ -39,13 +39,15 @@ The roster has 14 agents: two creators, two makers, two traders, one forecaster,
 
 `examples/llm-agent` starts from `/llms.txt` and public documentation, uses the operator's model credentials and guarded tools, and keeps wallet and API secrets in memory with a redacted transcript. It is not in CI. The live demo has not been run, so autonomous onboarding through the live model remains unverified.
 
+The final-review fix round adds origin-bound wallet challenge checks, proposer appeal recovery, maker position redemption and scenario deadline races. Full verification of this round is pending.
+
 ## Known limitations
 
 - The CDP server-wallet check is manual and not in CI. The operator ran it on 2026-10-29 with `@coinbase/cdp-sdk` 1.60.0: 1 test passed in 185 s. CDP smart accounts (ERC-4337) remain unverified.
 - The drill uses EOA makers; it does not exercise a contract-wallet maker. P2's local alpha covers an ERC-1271 maker.
 - The drill covers timeout when nobody proposes; arbitration reaching no conclusion is covered only by forge.
 - The `client-agent-uncertain-fill` receipt wait has flaked under load and is parked for whole-branch review.
-- The LLM demo signs any successful challenge issued by its configured API for its own wallet; the challenge origin is not bound to the API URL. The live LLM demo has never been run.
+- The reference runtime and LLM demo validate wallet challenges against the configured API origin, wallet, action and expiry before signing. A different binding origin fails closed. The live LLM demo has never been run.
 - Suggestion claims are not exclusive between distinct creators, and slashed agents do not automatically restore their role stake.
 
 ## Verification

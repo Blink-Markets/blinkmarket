@@ -193,3 +193,7 @@ Verification: the same function passed once with a custody-shaped local account 
 ## Final state
 
 Tasks 1–7 and 7b are merged; CI is green. The whole-branch P3 review remains open, and P4 is next. On the merged tree `pnpm check` passed 640/640 tests, `pnpm test:postgres` 37/37, `pnpm test:anvil` 73/73, and `forge test --root contracts` 240/240 in 17 suites. The PostgreSQL CI autonomous success test took 934 s; the operator’s manual CDP server-wallet check passed 1/1 in 185 s. See [delivery](P3_REFERENCE_AGENTS.md) for the remaining limitations and verification.
+
+## Final review fixes — 2026-10-30
+
+This fix round adds wallet-challenge validation against the API origin and requested operation, proposer appeal reconciliation, maker redemption of positions from fills, and independently enforced scenario deadlines. Agent guides now distinguish protocol Unix seconds from ISO-8601 timestamps and list all eight roles. The uncertain-fill timeout and CDP masking limitations remain as recorded above. Final full-suite and PostgreSQL drill verification is pending.
