@@ -39,7 +39,7 @@ The roster has 14 agents: two creators, two makers, two traders, one forecaster,
 
 `examples/llm-agent` starts from `/llms.txt` and public documentation, uses the operator's model credentials and guarded tools, and keeps wallet and API secrets in memory with a redacted transcript. It is not in CI. The live demo has not been run, so autonomous onboarding through the live model remains unverified.
 
-The final-review fix round adds origin-bound wallet challenge checks, proposer appeal recovery, maker position redemption and scenario deadline races. Full verification of this round is pending.
+The final-review fix round adds origin-bound wallet challenge checks, proposer appeal recovery, maker position redemption and scenario deadline races. Its verification is below.
 
 ## Known limitations
 
@@ -52,18 +52,21 @@ The final-review fix round adds origin-bound wallet challenge checks, proposer a
 
 ## Verification
 
-The merged tree at `8947f8d` was measured on 2026-10-29; these are recorded runs, not a deployment:
+The final-review fix tree at `969eb38` was measured on 2026-10-30; these are recorded runs, not a deployment:
 
 | Command | Result |
 | --- | --- |
-| `pnpm check` | 640 tests passed, 0 failed (886 s) |
+| `pnpm typecheck` | passed (33 s) |
+| `pnpm check:boundaries` | passed (1 s) |
+| `pnpm check` | 641 tests passed, 0 failed (796 s) |
 | `pnpm build:services` | passed (2 s) |
 | `pnpm test:service-build` | 4/4 passed (1 s) |
-| `pnpm test:postgres` | 37/37 passed (86 s) |
-| `pnpm drill:restore:test` | 1/1 passed (77 s) |
-| `pnpm alpha:local` | 1/1 passed (374 s) |
-| `pnpm test:anvil` | 73/73 passed (671 s) |
-| `forge test --root contracts` | 240/240 passed in 17 suites, 0 skipped (219 s) |
+| `pnpm test:postgres` | 37/37 passed (88 s) |
+| `pnpm drill:restore:test` | 1/1 passed (90 s) |
+| `pnpm alpha:local` | 1/1 passed (385 s) |
+| `pnpm test:anvil` | 73/73 passed (623 s) |
+| `forge test --root contracts` | 240/240 passed in 17 suites, 0 skipped (203 s) |
+| `tests/alpha/autonomous.test.ts` on local PostgreSQL | 3/3 passed (1080 s) |
 
 `pnpm test:browsers`, `pnpm build` and `pnpm build:pages` run in CI because the development host cannot run Turbopack. The check, contracts, browsers and autonomous CI jobs were green on `61fc27f`.
 
