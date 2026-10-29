@@ -392,10 +392,13 @@ test("a maker whose deposit is still unmined sends it again with the same nonce,
   const send = makerA.ctx.walletClient.writeContract.bind(makerA.ctx.walletClient) as (r: { functionName: string }) => Promise<Hex>;
   const nonces: unknown[] = [];
   let lost = false;
+  let resent = false;
   (makerA.ctx.walletClient as { writeContract: unknown }).writeContract = async (request: { functionName: string; nonce?: number }) => {
     if (request.functionName !== "depositMaker") return send(request);
     nonces.push(request.nonce);
-    if (lost) return send(request);
+    if (lost) {
+      try { return await send(request); } finally { resent = true; }
+    }
     // Mining stops, the deposit is broadcast and the answer never arrives.
     lost = true;
     await rpc("evm_setAutomine", [false]);
@@ -413,7 +416,9 @@ test("a maker whose deposit is still unmined sends it again with the same nonce,
     // The process restarts and ticks again while the first deposit is still in the pool.
     await restart(makerA);
     const second = tick(maker, makerA.ctx);
-    await new Promise((r) => setTimeout(r, 1500));
+    // Mining resumes only once the repeat has reached the node (which may refuse it as already imported);
+    // on a fixed delay a slow tick sent it after the first deposit mined.
+    await waitFor("the repeated deposit to reach the node", () => resent, 60_000, 50);
     await rpc("evm_setAutomine", [true]);
     await rpc("evm_mine", []);
     await second;
