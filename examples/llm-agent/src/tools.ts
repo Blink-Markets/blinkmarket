@@ -1,6 +1,7 @@
 import { createPublicClient, createWalletClient, http, parseAbiItem, type Address, type Hex, type TypedData } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia } from 'viem/chains';
+import { checkWalletChallenge } from '@blink/client';
 
 const CHAIN = 84532;
 const MAX_DOC = 200_000;
@@ -59,9 +60,9 @@ export function createTools(options: Options) {
     try { data = JSON.parse(text); } catch { data = text; }
     if (response.ok && method === 'POST' && typeof data === 'object' && data !== null) {
       if (url.pathname === '/v1/auth/wallet-verifications' && 'apiKey' in data && typeof data.apiKey === 'string') apiKey = data.apiKey;
-      if (url.pathname === '/v1/auth/wallet-challenges' && typeof body === 'object' && body !== null && 'address' in body && typeof body.address === 'string' && body.address.toLowerCase() === account.address.toLowerCase() && 'message' in data && typeof data.message === 'string') {
-        const lines = data.message.split('\n');
-        if (lines.includes(`Address: ${account.address.toLowerCase()}`) && lines.includes('Chain ID: 84532')) challenges.add(data.message);
+      if (url.pathname === '/v1/auth/wallet-challenges' && typeof body === 'object' && body !== null && !Array.isArray(body) && Object.keys(body).every((key) => ['address', 'action', 'keyId'].includes(key)) && 'address' in body && typeof body.address === 'string' && body.address.toLowerCase() === account.address.toLowerCase() && 'action' in body && (body.action === 'issue' || body.action === 'revoke') && (!('keyId' in body) || typeof body.keyId === 'string')) {
+        const challenge = checkWalletChallenge(data, { origin: base.origin, address: body.address, action: body.action, ...('keyId' in body ? { keyId: body.keyId as string } : {}), now: new Date() });
+        challenges.add(challenge.message);
       }
     }
     function mask(value: unknown): void {
