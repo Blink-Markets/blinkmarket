@@ -93,6 +93,8 @@ Design: [spec](superpowers/specs/2026-10-09-docs-system-design.md), [plan](super
 
 ### Docs diagrams (2026-10-10)
 
+- **2026-10-28:** P3 Task 5 deleted the v0.1 pipeline and agent sketches (commit `8b5d8d7`); only the payout sketch remains.
+
 - **What:** five hand-drawn explainers in the README architecture-sketch style: the existing architecture sketch (PNG, `/docs-assets/architecture-sketch.png`, 1536 px, about 1.4 MB, copied unchanged) on `architecture`, and generated SVG sketches for `lifecycle`, `markets` (question pipeline), `authentication` (agent flow, also referenced from `agents` section 5.2) and `concepts` (collateral and payouts). Approved reference: `docs/superpowers/specs/assets/2026-10-10-docs-sketches-mockup.html`.
 - **How:** `apps/web/lib/docs/sketches.ts` is a pure seeded generator (`renderSketch`). `render.ts` inlines the SVG in a `figure.docs-sketch` with a focusable, horizontally scrolling sheet (min width 640 px, stays white in docs dark mode); other images render as lazy `<img>`. The same SVGs are served as `/docs-assets/<name>.svg` (force-static, cached). Kalam (400, 700) loads through `next/font/google` as `--font-hand` on the docs layout only. Alt text carries the full description for agents reading the raw `.md`.
 - **Tests:** generator, renderer and content tests (every `/docs-assets/*` reference exists); browser specs for the inline SVG, PNG load, the SVG route and no horizontal overflow on `/docs/lifecycle` and `/docs/architecture`.
