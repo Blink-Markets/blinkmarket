@@ -33,6 +33,7 @@ import { forecaster } from "../../examples/agents/src/roles/forecaster.ts";
 import { maker } from "../../examples/agents/src/roles/maker.ts";
 import { createTrader } from "../../examples/agents/src/roles/trader.ts";
 import { startAlphaPlatform, waitFor, type AlphaPlatform } from "../../scripts/alpha/platform.ts";
+import { redacted } from "./redact.ts";
 
 const CREDENTIALS = ["CDP_API_KEY_ID", "CDP_API_KEY_SECRET", "CDP_WALLET_SECRET"] as const;
 const ACCOUNT_NAME = "blink-p3-check";
@@ -227,23 +228,30 @@ async function checkForecast(cdp: Agent, marketId: string) {
   }
 }
 
+/** Runs one named stage of the check; the CDP test passes a wrapper that redacts failures. */
+export type Stage = <T>(name: string, run: () => Promise<T>) => Promise<T>;
+const plain: Stage = (_name, run) => run();
+
 /**
  * Everything the CDP check asserts, for any viem account. The test below passes the CDP server
  * account; a local run with a public Anvil test account proves the flow without credentials.
  */
-export async function checkWalletOnboardsAndSigns(account: LocalAccount): Promise<void> {
-  const platform = await startAlphaPlatform({ backend: "pglite" });
+export async function checkWalletOnboardsAndSigns(account: LocalAccount, stage: Stage = plain): Promise<void> {
+  const platform = await stage("platform", () => startAlphaPlatform({ backend: "pglite" }));
   const dirs: string[] = [];
   try {
-    // Gas money on the local Anvil is test setup: the wallet itself is never funded by CDP.
-    await platform.anvil.publicClient.request({ method: "anvil_setBalance", params: [account.address, GAS_MONEY] } as never);
-    const cdp = await startAgent(platform, dirs, { name: "cdp", account, roles: ["maker", "forecaster"] });
-    await checkOnboarding(cdp);
-    const marketId = await openMarket(platform, dirs);
-    await checkQuote(platform, dirs, cdp);
-    await checkForecast(cdp, marketId);
+    const cdp = await stage("onboard", async () => {
+      // Gas money on the local Anvil is test setup: the wallet itself is never funded by CDP.
+      await platform.anvil.publicClient.request({ method: "anvil_setBalance", params: [account.address, GAS_MONEY] } as never);
+      const agent = await startAgent(platform, dirs, { name: "cdp", account, roles: ["maker", "forecaster"] });
+      await checkOnboarding(agent);
+      return agent;
+    });
+    const marketId = await stage("market", () => openMarket(platform, dirs));
+    await stage("quote", () => checkQuote(platform, dirs, cdp));
+    await stage("forecast", () => checkForecast(cdp, marketId));
   } finally {
-    await platform.stop();
+    await stage("platform", () => platform.stop());
     for (const dir of dirs) await rm(dir, { recursive: true, force: true });
   }
 }
@@ -253,6 +261,9 @@ const skip = missing.length > 0 ? `no CDP credentials: ${missing.join(", ")} not
 if (skip) console.log(`SKIP cdp-wallet: ${skip}`);
 
 test("CDP server account onboards and signs every agent payload", { skip, timeout: 900_000 }, async () => {
-  const server = await new CdpClient().evm.getOrCreateAccount({ name: ACCOUNT_NAME });
-  await checkWalletOnboardsAndSigns(toAccount(server));
+  // The SDK would otherwise send error details and usage to Coinbase analytics.
+  process.env.DISABLE_CDP_ERROR_REPORTING = "true";
+  process.env.DISABLE_CDP_USAGE_TRACKING = "true";
+  const server = await redacted("acquire", () => new CdpClient().evm.getOrCreateAccount({ name: ACCOUNT_NAME }));
+  await checkWalletOnboardsAndSigns(toAccount(server), redacted);
 });
