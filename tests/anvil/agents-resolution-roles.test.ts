@@ -472,7 +472,28 @@ test(
   async () => {
     const m = await createMarket("disputed");
     await openMarket(m);
-    await propose(m);
+    const agent = agents.proposer;
+    const wallet = agent.ctx.walletClient as any;
+    const publicClient = agent.ctx.publicClient as any;
+    const originalWrite = wallet.writeContract;
+    const originalWait = publicClient.waitForTransactionReceipt;
+    let lostHash: Hex | undefined;
+    let lose = "propose";
+    wallet.writeContract = async (request: any) => {
+      const hash = await originalWrite(request);
+      if (request.functionName === lose) lostHash = hash;
+      return hash;
+    };
+    publicClient.waitForTransactionReceipt = async (request: any) => {
+      const receipt = await originalWait(request);
+      if (request.hash === lostHash) { lostHash = undefined; throw new Error("LOST_RECEIPT"); }
+      return receipt;
+    };
+    await warpTo(m.closeAt);
+    await indexed();
+    await assert.rejects(run(agent, proposer), /LOST_RECEIPT/);
+    assert.equal((await chainMarket(m.marketId)).state, STATE.PROPOSED);
+    await indexed();
     const [proposed] = await resolutionEvents("Proposed", { id: m.marketId });
     assert.equal(proposed!.args.outcome, OUTCOME_CODE.YES);
 
@@ -489,7 +510,10 @@ test(
     const [first] = await resolutionEvents("RoundSettled", { disputeId });
     assert.equal(first!.args.choice, OUTCOME_CODE.NO);
     await indexed();
-    await run(agents.proposer, proposer);
+    lose = "appeal";
+    await assert.rejects(run(agents.proposer, proposer), /LOST_RECEIPT/);
+    wallet.writeContract = originalWrite;
+    publicClient.waitForTransactionReceipt = originalWait;
     assert.equal((await resolutionEvents("Appealed", { disputeId })).length, 1);
 
     // Round 1 (the appeal): the same jurors vote the same truth; the proposer does not appeal again.
