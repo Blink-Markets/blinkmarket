@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process";
 import { inspect } from "node:util";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+// @ts-expect-error Plain JS module without a declaration file (it also runs under plain Node).
+import { createMasker } from "./cdp/mask.mjs";
 import { redacted } from "./cdp/redact.ts";
 
 // A string that appears nowhere in the helper; if it shows up in an output, the helper leaked it.
@@ -73,4 +75,63 @@ test("run.mjs masks the credential values in everything the child prints, and ke
   assert.ok(output.includes("[REDACTED:CDP_API_KEY_ID]"), output);
   assert.ok(output.includes("[REDACTED:CDP_WALLET_SECRET]"), output);
   assert.notEqual(run.status, 0, output);
+});
+
+// Values built from Q, Z and digits only, characters that appear nowhere in a marker or in the text around them.
+const KEY_ID = "QQ11ZZ22";
+const WALLET = "QQ11ZZ22Q9Z8Q7Z6"; // starts with the key id
+const PEM_LINES = ["Q1Z2Q3Z4Q5Z6Q7Z8Q9", "Z9Q8Z7Q6Z5Q4Z3Q2Z1"];
+const PEM = ["-----BEGIN KEY-----", ...PEM_LINES, "-----END KEY-----"].join("\n");
+const maskOf = (env: Record<string, string>) => createMasker(env);
+/** No 2-character piece of a value may survive in the output. */
+const assertNoFragment = (output: string, values: string[]) => {
+  for (const value of values)
+    for (let i = 0; i + 2 <= value.length; i++) assert.ok(!output.includes(value.slice(i, i + 2)), `${value.slice(i, i + 2)} in ${output}`);
+};
+
+test("createMasker covers a key id that is a prefix of the wallet secret", () => {
+  const mask = maskOf({ CDP_API_KEY_ID: KEY_ID, CDP_WALLET_SECRET: WALLET });
+  const out = mask(`a ${WALLET} b ${KEY_ID} c`);
+  assert.equal(out, "a [REDACTED:CDP_WALLET_SECRET] b [REDACTED:CDP_API_KEY_ID] c");
+  assertNoFragment(out, [KEY_ID, WALLET]);
+});
+
+test("createMasker merges values that overlap into one span", () => {
+  const first = "Q1Z2Q3Z4Q5Z6Q7Z8";
+  const second = "Q5Z6Q7Z8Q9Z9Q8Z8"; // starts with the last half of the first
+  const mask = maskOf({ CDP_API_KEY_SECRET: first, CDP_WALLET_SECRET: second });
+  const out = mask("x Q1Z2Q3Z4Q5Z6Q7Z8Q9Z9Q8Z8 y");
+  assert.equal(out, "x [REDACTED:CDP_API_KEY_SECRET] y");
+  assertNoFragment(out, [first, second]);
+});
+
+test("createMasker masks a value repeated on one line, and a CRLF line keeps its CR", () => {
+  const mask = maskOf({ CDP_API_KEY_ID: KEY_ID });
+  assert.equal(mask(`${KEY_ID}${KEY_ID} and ${KEY_ID}`), "[REDACTED:CDP_API_KEY_ID] and [REDACTED:CDP_API_KEY_ID]");
+  assert.equal(mask(`id ${KEY_ID}\r`), "id [REDACTED:CDP_API_KEY_ID]\r");
+});
+
+test("createMasker masks each long line of a multi-line key on its own, and leaves other lines alone", () => {
+  const mask = maskOf({ CDP_API_KEY_SECRET: PEM });
+  for (const line of PEM_LINES) {
+    const out = mask(`> ${line}`);
+    assert.equal(out, "> [REDACTED:CDP_API_KEY_SECRET]");
+    assertNoFragment(out, PEM_LINES);
+  }
+  // The header is 16 or more characters, so it counts as a line of the key too.
+  assert.equal(mask("-----BEGIN KEY-----"), "[REDACTED:CDP_API_KEY_SECRET]");
+  assert.equal(mask("nothing to hide here"), "nothing to hide here");
+});
+
+test("createMasker with no credential set returns every line unchanged", () => {
+  assert.equal(maskOf({})("QQ11ZZ22"), "QQ11ZZ22");
+});
+
+test("run.mjs passes the exit code of the child through exactly", () => {
+  const run = spawnSync(process.execPath, [fileURLToPath(new URL("./cdp/run.mjs", import.meta.url)), fileURLToPath(new URL("./cdp/fixtures/exit.mjs", import.meta.url))], {
+    encoding: "utf8",
+    env: Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== "NODE_TEST_CONTEXT")),
+  });
+  assert.match(run.stdout, /exiting/);
+  assert.equal(run.status, 3);
 });
