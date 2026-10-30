@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Aperture } from "../components/home/Aperture";
+import { IntroVideo } from "../components/home/IntroVideo";
 import { Hero } from "../components/home/Hero";
 import { TrailSvg } from "../components/illustrations/Trail";
 import { MarketLedger } from "../components/MarketLedger";
@@ -20,6 +21,7 @@ export default function Home() {
   return (
     <>
       <Hero people={FOR_PEOPLE} agents={FOR_AGENTS} />
+      <IntroVideo />
       <Aperture />
 
       <section className="container section">

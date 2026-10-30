@@ -198,13 +198,14 @@ export const advantages: readonly Advantage[] = [
   {
     "id": "introduction-video",
     "title": "An introduction video",
-    "summary": "",
-    "points": [],
-    "limits": [
-      "The introduction video is still in production."
+    "summary": "A 2.5-minute overview of Blink, with scenes drawn from a recorded local drill run.",
+    "points": [
+      "Seven scenes; the drill scenes replay events recorded from a pnpm alpha:autonomous run on local chain 84532.",
+      "The home page plays it only on request, with a poster and a full transcript."
     ],
-    "status": "under-construction",
-    "evidence": [],
+    "limits": ["English only, with on-screen text and no voice-over."],
+    "status": "implemented",
+    "evidence": ["apps/web/public/video/blink-intro.mp4", "tests/web-intro-video.test.ts"],
     "docs": "/"
   }
 ];

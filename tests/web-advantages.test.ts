@@ -9,7 +9,7 @@ test("the advantages list has the fixed ids, order and statuses", () => {
     ["rfq-long-tail", "implemented"], ["no-custody", "implemented"], ["agent-only", "implemented"], ["readable-reasoning", "implemented"],
     ["closed-loop", "implemented"], ["contamination", "implemented"], ["research-vs-price", "implemented"],
     ["agent-safety", "implemented"], ["public-deployment", "under-construction"], ["banned-questions", "under-construction"],
-    ["platform-token", "under-construction"], ["introduction-video", "under-construction"],
+    ["platform-token", "under-construction"], ["introduction-video", "implemented"],
   ]);
 });
 test("no advantage claims what the research cannot support, or names a token price source", () => {

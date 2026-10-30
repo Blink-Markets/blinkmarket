@@ -1,5 +1,7 @@
 # M4 — Read-only web showcase
 
+2026-10-30: For the completed P4 website and video, see the [P4 delivery](P4_WEBSITE_VIDEO.md).
+
 > Partly historical: the site described here was built for the v0.1 roles. The web role pages still describe v0.1 and carry a notice; P3 and P4 rewrite them. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
 
 This slice adds a **read-only, illustrated showcase site** in `apps/web` (Next.js 16 App Router, statically prerendered). It explains Blink and shows sample markets. It has no wallet, no trading, no positions and no live API calls. It is a slice of M4, not the whole milestone.
