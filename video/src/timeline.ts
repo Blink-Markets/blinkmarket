@@ -16,7 +16,7 @@ export function scenarioCards(run: RunRecord): readonly { name: string; duration
   return run.scenarios.map((scenario) => ({
     name: scenario.name,
     durationSeconds: scenario.durationSeconds,
-    events: run.events.filter((event) => event.market === markets[scenario.name] || (!event.market && ["committed", "revealed", "suggestion_claimed"].includes(event.event)))
-      .map((event) => `${event.t}s · ${event.agent} · ${event.event}${event.market ? "" : " · run-wide"}`),
+    // Scenarios ran concurrently, so an event without a market ID cannot be placed on one card.
+    events: run.events.filter((event) => event.market === markets[scenario.name]).map((event) => `${event.t}s · ${event.agent} · ${event.event}`),
   }));
 }

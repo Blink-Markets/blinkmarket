@@ -24,6 +24,11 @@ test("scenario cards come from the real run record", () => {
   assert.deepEqual(cards.map((c) => c.name), run.scenarios.map((s) => s.name));
   for (const c of cards) assert.equal(c.durationSeconds, run.scenarios.find((s) => s.name === c.name)!.durationSeconds);
 });
+test("a scenario card lists only events with its market ID", () => {
+  const cards = scenarioCards(run as Parameters<typeof scenarioCards>[0]);
+  const normal = cards.find((c) => c.name === "normal")!;
+  assert.ok(normal.events.length > 0 && !normal.events.some((e) => /committed|revealed|suggestion_claimed/.test(e)), normal.events.join("\n"));
+});
 
 test("boundary checker rejects video dependencies and cross-workspace imports", async () => {
   const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");

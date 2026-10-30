@@ -28,7 +28,7 @@ function SceneContent({ index }: { index: number }) {
     const page = Math.floor((seconds % 7) / 7 * Math.ceil(events.length / 12));
     content = <><h1>{card.name} — pass — {card.durationSeconds} s</h1><p style={{ fontSize: 34 }}>{scene.lines[cardIndex * 2 + 1]}</p><div style={{ fontSize: 30, lineHeight: 1.35 }}>{events.slice(page * 12, page * 12 + 12).map((e, i) => <div key={i}>{e}</div>)}</div></>;
   } else if (index === 6) {
-    content = <>{scene.lines.slice(0, 2).map((line) => <p key={line} style={{ fontSize: 48 }}>{line}</p>)}<p style={{ fontSize: 35 }}>Data: a `{run.source}` run on {run.capturedOn}, commit {run.commit.slice(0, 7)}, local chain {run.chainId}. Not a public deployment.</p></>;
+    content = <>{scene.lines.slice(0, 2).map((line) => <p key={line} style={{ fontSize: 48 }}>{line}</p>)}<p style={{ fontSize: 35 }}>Data: a {run.source} run on {run.capturedOn}, commit {run.commit.slice(0, 7)}, local chain {run.chainId}. Not a public deployment.</p></>;
   } else {
     content = scene.lines.map((line, i) => <p key={i} style={{ fontSize: index === 0 && (i === 0 || i === 2) ? 34 : 53, lineHeight: 1.25 }}>{line}</p>);
   }

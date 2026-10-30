@@ -75,8 +75,7 @@ export const scenes: readonly Scene[] = [
       "Under construction",
       "A public deployment",
       "Handling illegal or harmful questions",
-      "The platform token",
-      "An introduction video"
+      "The platform token"
     ],
     "source": "illustration"
   },
@@ -86,7 +85,7 @@ export const scenes: readonly Scene[] = [
     "lines": [
       "https://blink-markets.github.io/blinkmarket/llms.txt",
       "https://blink-markets.github.io/blinkmarket/",
-      "Data: a `pnpm alpha:autonomous` run on 2026-10-30, commit abb43ec, local chain 84532. Not a public deployment."
+      "Data: a pnpm alpha:autonomous run on 2026-10-30, commit abb43ec, local chain 84532. Not a public deployment."
     ],
     "source": "drill-run"
   }

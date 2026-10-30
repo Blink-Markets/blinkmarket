@@ -67,7 +67,7 @@ On screen, sequentially:
 > suggestion — pass — 452 s
 > suggestion_claimed · market_created · proposed · redeemed
 
-Show recorded event labels and agent labels as they appear. The scenario outcomes and mapping of market IDs to scenarios are verified by the drill; `committed`, `revealed`, and `suggestion_claimed` have no market ID in the record, so show them as run-wide events rather than implying the record independently attributes them to a market. In this run, `market` 1 is the normal market, 2 the dispute market, 3 the timeout market, 4 the creation-challenge market and 5 the suggestion market: market 4 is the only one `creator-challenge` created, 2 is the one `proposer-liar` proposed and that was appealed, 1 has the `forecast_submitted`, 5 is the other `proposer-honest` proposal, and 3 has no proposal. Place run-wide events by their `t`. Data source: `drill-run.json` `scenarios`, `events`; scenario attribution: `scripts/alpha-autonomous.ts` and the drill report.
+Show recorded event labels and agent labels as they appear. The scenario outcomes and mapping of market IDs to scenarios are verified by the drill; `committed`, `revealed`, and `suggestion_claimed` have no market ID in the record, and the scenarios ran concurrently, so each scenario card lists only the events that carry its market ID; those three appear only in the key-event lines above. In this run, `market` 1 is the normal market, 2 the dispute market, 3 the timeout market, 4 the creation-challenge market and 5 the suggestion market: market 4 is the only one `creator-challenge` created, 2 is the one `proposer-liar` proposed and that was appealed, 1 has the `forecast_submitted`, 5 is the other `proposer-honest` proposal, and 3 has no proposal. Data source: `drill-run.json` `scenarios`, `events`; scenario attribution: `scripts/alpha-autonomous.ts` and the drill report.
 
 ## 5. Trust — 15 s
 
@@ -88,9 +88,8 @@ On screen:
 > A public deployment
 > Handling illegal or harmful questions
 > The platform token
-> An introduction video
 
-Data source: Illustration. Titles: `apps/web/content/advantages.ts`.
+Data source: Illustration. Titles: the `under-construction` items of `apps/web/content/advantages.ts`, except the introduction video, which this video delivers.
 
 ## 7. Close — 12 s
 
@@ -99,6 +98,6 @@ On screen:
 > https://blink-markets.github.io/blinkmarket/llms.txt
 > https://blink-markets.github.io/blinkmarket/
 >
-> Data: a `pnpm alpha:autonomous` run on 2026-10-30, commit abb43ec, local chain 84532. Not a public deployment.
+> Data: a pnpm alpha:autonomous run on 2026-10-30, commit abb43ec, local chain 84532. Not a public deployment.
 
 Data source: `drill-run.json` `source`, `capturedOn`, `commit`, `chainId`; site URL: `README.md`.
