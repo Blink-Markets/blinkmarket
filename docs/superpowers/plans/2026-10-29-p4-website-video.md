@@ -35,6 +35,7 @@
   - no suggestion form;
   - the platform token is described only as a test-network experiment, with no price-source text;
   - deployment and banned-question handling get one neutral line each, with no design detail.
+- Per spec U22 (2026-10-30): the website offers no trading, signing or wallet connection, and the platform custodies no funds. The advantages page presents this smaller attack surface as an advantage, and a test keeps the website free of wallet code. Custody comparison facts describe mechanisms only and never name another platform's security incident.
 - User decisions (2026-10-29):
   - The Remotion Free License applies: the project is run by an individual or a team of at most three. `video/README.md` records this, with the license URL and the date checked.
   - The video is English only, with on-screen text and no voice-over.
@@ -74,6 +75,7 @@
   - `apps/web/content/advantages.ts`
   - `apps/web/app/advantages/page.tsx` and `page.module.css`
   - `tests/web-advantages.test.ts`
+  - `tests/web-no-wallet.test.ts`
   - `tests/browser/advantages.spec.ts`
   - `docs/P4_WEBSITE_VIDEO.md`
 - Modify:
@@ -89,7 +91,7 @@
     - `evidence` holds repo-relative paths.
     - `docs` is a site path such as `/docs/trust`.
   - `export type ComparisonFact = { platform: string; topic: ComparisonTopic; fact: string; source: string; checkedOn: string };`
-  - `export type ComparisonTopic = "market-creation" | "resolution" | "liquidity" | "agents";`
+  - `export type ComparisonTopic = "market-creation" | "resolution" | "liquidity" | "agents" | "custody";`
   - `export const advantages: readonly Advantage[];`
   - `export const comparison: readonly ComparisonFact[];`
   - `export const blinkPosition: Readonly<Record<ComparisonTopic, string>>;`
@@ -101,6 +103,7 @@
 | id | Title | Status | Evidence | Docs | Required limits |
 | --- | --- | --- | --- | --- | --- |
 | `rfq-long-tail` | Liquidity for long-tail questions, on request | implemented | `tests/rfq-relay.test.ts`, `contracts/test/protocol/MarketsTrading.t.sol` | `/docs/maker` | The relay polls; there is no push delivery yet. A question gets a price only when at least one registered maker chooses to quote it. |
+| `no-custody` | No custody, and a website that cannot move funds | implemented | `tests/web-no-wallet.test.ts`, `tests/platform-keys.test.ts`, `tests/client-verify-quote.test.ts`, `tests/wallet-challenge.test.ts` | `/docs/trust` | Each agent guards its own key: a stolen key loses that agent's funds. An agent that skips the client's checks can be fed a bad quote or challenge by a compromised API. The contracts have had no external audit. |
 | `agent-only` | Every role is an agent, with layered settlement and per-role credit | implemented | `tests/alpha/autonomous.test.ts`, `scripts/alpha-autonomous.ts`, `contracts/test/protocol/ResolutionDispute.t.sol`, `contracts/test/protocol/Registry.t.sol` | `/docs/roles` | The §5.12 sentence: under the publicly listed assumptions, honesty is the provably best strategy. Link `/docs/trust`. |
 | `readable-reasoning` | Readable reasoning behind every forecast | implemented | `tests/forecast-signing.test.ts`, `tests/content.test.ts` | `/docs/forecaster` | The reference forecaster publishes no reasoning document, because it uses a fixture model. A forecaster with its own model can. |
 | `closed-loop` | A verifiable loop from raw data to score | implemented | `tests/content.test.ts`, `tests/forecast-signing.test.ts`, `tests/forecast-merkle.test.ts`, `contracts/test/protocol/Anchor.t.sol`, `tests/evaluation.test.ts` | `/docs/forecaster` | A window root is on chain only if an agent anchors it. |
@@ -110,14 +113,16 @@
 | `public-deployment` | A public deployment | under-construction | none | `/docs/deployment` | Not deployed yet; everything runs on a local test chain. |
 | `banned-questions` | Handling illegal or harmful questions | under-construction | none | `/docs/trust` | Under discussion. |
 | `platform-token` | The platform token | under-construction | none | `/docs/trust` | A test-network experiment for now. |
-| `introduction-video` | An introduction video | under-construction | none | `/` | Task 6 makes it implemented. |
+| `introduction-video` | An introduction video | under-construction | none | `/` | The introduction video is still in production. |
 
 **What the `rfq-long-tail` points say.** One point compares Blink with others using only the liquidity facts at the end of this plan. For example: "In the markets checked on 2026-10-29, liquidity comes from an order book, a designated liquidity provider program or the creator's own pool (sources below)." A second point states Blink's mechanism: any registered maker can quote any question when a taker asks, with no standing pool. Never claim that no other market has such a mechanism: the research supports only the markets it checked.
 
+**What the `no-custody` points say.** The platform holds no funds and no key that can move them. Collateral sits in the protocol contracts, which have no owner, admin, pause or upgrade function; the governor can only adopt the next generation and cannot touch an existing market (`/docs/trust`). Each agent holds its own wallet and signs its own transactions; the platform creates, funds and custodies no wallet, and an API key never authorizes a withdrawal or a transfer. The website only reads: it asks for no wallet, requests no signature and sends no transaction. The client and the reference agents check a quote's signature and terms, and a wallet challenge's origin and action, before they sign. Name no other platform's incident.
+
 **What the `readable-reasoning` points say.** A forecast's signed message includes `contentHash`, the hash of a `/v1/content` document holding the agent's reasoning. So the reasoning cannot be swapped after signing, and anyone can fetch it by hash.
 
-**The comparison.** One section, "How other markets handle this". It is a `<section aria-label="Comparison with other markets">` with one block per topic, in the order market-creation, resolution, liquidity, agents.
-- Each block lists its facts: the platform, the fact, the source as a link and "checked 2026-10-29".
+**The comparison.** One section, "How other markets handle this". It is a `<section aria-label="Comparison with other markets">` with one block per topic, in the order market-creation, resolution, liquidity, agents, custody.
+- Each block lists its facts: the platform, the fact, the source as a link and "checked" with the fact's `checkedOn` date.
 - Each block ends with Blink's approach, taken from `blinkPosition`.
 - The facts are sparse across platforms, so this is a list per topic, not a grid. It cannot overflow a phone.
 - Facts and sources: the "Comparison facts" section at the end of this plan, verbatim.
@@ -128,7 +133,8 @@
 ```ts
 test("the advantages list has the fixed ids, order and statuses", () => {
   assert.deepEqual(advantages.map((a) => [a.id, a.status]), [
-    ["rfq-long-tail", "implemented"], ["agent-only", "implemented"], ["readable-reasoning", "implemented"],
+    ["rfq-long-tail", "implemented"], ["no-custody", "implemented"], ["agent-only", "implemented"],
+    ["readable-reasoning", "implemented"],
     ["closed-loop", "implemented"], ["contamination", "implemented"], ["research-vs-price", "implemented"],
     ["agent-safety", "implemented"],
     ["public-deployment", "under-construction"], ["banned-questions", "under-construction"],
@@ -160,10 +166,28 @@ test("the positioning lines are the approved copy", () => {
 test("every comparison fact has an https source and the check date", () => {
   for (const f of comparison) {
     assert.match(f.source, /^https:\/\/[^\s]+$/);
-    assert.equal(f.checkedOn, "2026-10-29");
+    assert.equal(f.checkedOn, f.topic === "custody" ? "2026-10-30" : "2026-10-29");
     assert.ok(f.fact.length > 0 && !/\b(best|leading|only)\b/i.test(f.fact), f.platform);
   }
-  assert.deepEqual(Object.keys(blinkPosition).sort(), ["agents", "liquidity", "market-creation", "resolution"]);
+  assert.deepEqual(Object.keys(blinkPosition).sort(), ["agents", "custody", "liquidity", "market-creation", "resolution"]);
+});
+```
+
+Also write `tests/web-no-wallet.test.ts`, which keeps the `no-custody` claims true:
+
+```ts
+test("the website depends on no wallet or chain library", () => {
+  // apps/web/package.json dependencies and devDependencies contain none of: viem, wagmi, ethers, web3,
+  // @rainbow-me/rainbowkit, connectkit, @reown/*, @web3modal/*, @walletconnect/*, @coinbase/wallet-sdk, @metamask/*.
+});
+test("no website source asks for a wallet, a signature or a transaction", () => {
+  // No .ts, .tsx, .js, .jsx or .mjs file under apps/web (excluding node_modules, .next and out) matches the pattern below.
+  // Markdown and text are agent documentation, which may name these calls; they are not website code.
+  // /window\.ethereum|eth_requestAccounts|eth_sendTransaction|personal_sign|eth_signTypedData|signTypedData|sendTransaction|writeContract/.
+});
+test("no protocol contract has an owner, admin, pause or upgrade function", () => {
+  // For each contract in contracts/src/protocol/*.sol, read the ABI in contracts/artifacts/<Name>.json
+  // (as tests/protocol-abi.test.ts does): no function name matches /owner|admin|pause|upgrade|rescue|sweep|emergency/i.
 });
 ```
 
@@ -195,7 +219,7 @@ Layout rules:
 test("advantages page labels every status in text", async ({ page }) => {
   await page.goto("./advantages");
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-  await expect(page.getByText("Implemented", { exact: true })).toHaveCount(7);
+  await expect(page.getByText("Implemented", { exact: true })).toHaveCount(8);
   await expect(page.getByText("Under construction", { exact: true })).toHaveCount(4);
   await expect(page.getByText(FOR_PEOPLE)).toBeVisible();
   await expect(page.getByRole("region", { name: "Comparison with other markets" })).toBeVisible();
@@ -216,7 +240,7 @@ Read `nav.spec.ts`. If the header has a mobile menu or a fixed link count, updat
 
 - [ ] **Step 7: Run the local checks**
 
-Run each once: `node --import tsx --test tests/web-advantages.test.ts`, `pnpm typecheck`, `pnpm check`.
+Run each once: `node --import tsx --test tests/web-advantages.test.ts tests/web-no-wallet.test.ts`, `pnpm typecheck`, `pnpm check`.
 Expected: all pass. Browser and Pages checks run in branch CI.
 
 - [ ] **Step 8: Start the P4 doc**
@@ -228,7 +252,7 @@ Create `docs/P4_WEBSITE_VIDEO.md`, styled like `docs/P3_AGENTS_PROGRESS.md`:
 - [ ] **Step 9: Commit**
 
 ```bash
-git add apps/web/content/positioning.ts apps/web/content/advantages.ts apps/web/app/advantages tests/web-advantages.test.ts tests/browser/advantages.spec.ts tests/browser/routes.spec.ts apps/web/components/SiteHeader.tsx scripts/check-pages-export.mjs docs/P4_WEBSITE_VIDEO.md
+git add apps/web/content/positioning.ts apps/web/content/advantages.ts apps/web/app/advantages tests/web-advantages.test.ts tests/web-no-wallet.test.ts tests/browser/advantages.spec.ts tests/browser/routes.spec.ts apps/web/components/SiteHeader.tsx scripts/check-pages-export.mjs docs/P4_WEBSITE_VIDEO.md
 git commit -m "feat: add the advantages page with statuses and sourced comparisons"
 ```
 
@@ -616,7 +640,7 @@ git commit -m "feat: add the Remotion workspace for the introduction video"
   - `apps/web/app/page.tsx` (a "Watch" section after the hero)
   - `apps/web/content/advantages.ts` (`introduction-video` → implemented, with evidence `apps/web/public/video/blink-intro.mp4` and `tests/web-intro-video.test.ts`)
   - `tests/web-advantages.test.ts` (the new status)
-  - `tests/browser/advantages.spec.ts` (counts 8 and 3)
+  - `tests/browser/advantages.spec.ts` (counts 9 and 3)
   - `tests/browser/home.spec.ts`
   - `scripts/check-pages-export.mjs` (`KEY_FILES` gains `video/blink-intro.mp4` and `video/blink-intro-poster.png`)
   - `README.md` and `README.zh-TW.md`
@@ -694,7 +718,7 @@ git commit -m "feat: embed the introduction video and close P4"
 
 ## Comparison facts
 
-Copy these verbatim into `comparison` (Task 1). Every fact has `checkedOn: "2026-10-29"`. The topic of each is its heading. Source: the controller's research report of 2026-10-29. It keeps only facts with a primary source that no other note contradicts.
+Copy these verbatim into `comparison` (Task 1). Every fact has `checkedOn: "2026-10-29"`, except the custody facts, which have `checkedOn: "2026-10-30"`. The topic of each is its heading. Source: the controller's research report of 2026-10-29. It keeps only facts with a primary source that no other note contradicts.
 
 ### market-creation
 
@@ -737,5 +761,12 @@ Copy these verbatim into `comparison` (Task 1). Every fact has `checkedOn: "2026
   https://docs.limitless.exchange/developers/mcp-server.md
 - **Olas Predict:** "Olas Predict describes four agent roles (market creator, trader, prediction broker and closer), with agents trading Omen markets on Gnosis Chain and Polymarket markets on Polygon."
   https://olas.network/agent-economies/predict
+
+### custody
+
+- **Polymarket:** "Polymarket orders are EIP-712 messages that the user signs with a private key; the signature lets the settlement contract execute the trade without taking custody of the user's funds, and the CLOB operator submits matched trades to the chain."
+  https://docs.polymarket.com/concepts/order-lifecycle.md
+- **Kalshi:** "Kalshi describes segregation of customer funds under CFTC oversight, and states that its clearinghouse, Kalshi Klear, handles all settlement."
+  https://news.kalshi.com/p/kalshi-fully-regulated-trustworthy-not-a-scam
 
 The page shows `platform` as written in bold above. UMA and Kleros are listed as the resolution layers that other markets use, not as markets.

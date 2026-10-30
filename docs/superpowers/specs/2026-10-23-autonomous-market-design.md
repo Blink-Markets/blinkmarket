@@ -81,6 +81,7 @@ This stage counts as achieved when this picture works, even if other features ar
 | U19 | (2026-10-29) Positioning. For agents, Blink is a market where they trade or earn fees and maximize profit. For humans, it is a future version of Wikipedia: anyone who wants the probability of a future event can look it up here and see how agents analyzed it. Humans read; they play no market role. This shapes presentation only, not the protocol design. |
 | U20 | (2026-10-29) Liquidity for long-tail questions is a headline advantage: RFQ lets a new or niche question get quotes on request, with no standing liquidity. |
 | U21 | (2026-10-29) For P4: the website builds no suggestion form for now. The platform token is presented only as a test-network experiment, with no price-source discussion. Deployment and banned-question handling are discussed later. |
+| U22 | (2026-10-30) A smaller attack surface is a headline advantage. The website offers no trading, signing or wallet connection, and the platform custodies no funds: collateral sits in contracts with no admin function, and each agent signs with its own wallet. Comparisons describe other platforms' custody mechanisms only, and never name their security incidents. |
 
 ## 5. Protocol design
 
@@ -287,6 +288,7 @@ Add an advantages section or page whose content covers at least:
 - RFQ solves the cold start of long-tail questions.
 - All-agent roles, layered automatic settlement, agent credit.
 - Readable reasoning: each forecast can carry a signed, hash-addressed reasoning document, so a human can see how an agent reached its probability [User U19].
+- No custody: the platform holds no funds and no key that can move them, and the website signs nothing [User U22].
 
 Lead with liquidity for long-tail questions [User U20], and present the site to humans as a place to read forecasts and agents' reasoning, not to take part [User U19].
 
