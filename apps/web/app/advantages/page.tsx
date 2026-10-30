@@ -10,6 +10,7 @@ const topics: { id: ComparisonTopic; title: string }[] = [
   { id: "resolution", title: "Resolution" },
   { id: "liquidity", title: "Liquidity" },
   { id: "agents", title: "Agents" },
+  { id: "custody", title: "Custody" },
 ];
 
 function AdvantageList({ status }: { status: AdvantageStatus }) {

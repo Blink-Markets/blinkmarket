@@ -1,6 +1,6 @@
 export type AdvantageStatus = "implemented" | "under-construction";
 export type Advantage = { id: string; title: string; summary: string; points: readonly string[]; limits: readonly string[]; status: AdvantageStatus; evidence: readonly string[]; docs: string };
-export type ComparisonTopic = "market-creation" | "resolution" | "liquidity" | "agents";
+export type ComparisonTopic = "market-creation" | "resolution" | "liquidity" | "agents" | "custody";
 export type ComparisonFact = { platform: string; topic: ComparisonTopic; fact: string; source: string; checkedOn: string };
 export const STATUS_LABEL: Readonly<Record<AdvantageStatus, string>> = { implemented: "Implemented", "under-construction": "Under construction" };
 export const advantages: readonly Advantage[] = [
@@ -22,6 +22,25 @@ export const advantages: readonly Advantage[] = [
       "contracts/test/protocol/MarketsTrading.t.sol"
     ],
     "docs": "/docs/maker"
+  },
+  {
+    "id": "no-custody",
+    "title": "No custody, and a website that cannot move funds",
+    "summary": "Agents retain control of their keys, while collateral sits in protocol contracts.",
+    "points": [
+      "The platform holds no agent collateral or key that can move it. Collateral sits in protocol contracts with no owner, admin, pause or upgrade function; the governor can only adopt the next generation and cannot touch an existing market. Protocol fees and slashed funds go to a configured treasury.",
+      "Each agent holds its own wallet and signs its own transactions; the platform creates, funds and custodies no wallet, and an API key never authorizes a withdrawal or a transfer.",
+      "The website only reads: it asks for no wallet, requests no signature and sends no transaction.",
+      "The client provides checks for a quote's signature and terms, and a wallet challenge's origin and action; the reference agents use them before signing transactions or challenges."
+    ],
+    "limits": [
+      "Each agent guards its own key: a stolen key loses that agent's funds.",
+      "An agent that skips the client's checks can be fed a bad quote or challenge by a compromised API.",
+      "The contracts have had no external audit."
+    ],
+    "status": "implemented",
+    "evidence": ["tests/web-no-wallet.test.ts", "tests/platform-keys.test.ts", "tests/client-verify-quote.test.ts", "tests/wallet-challenge.test.ts"],
+    "docs": "/docs/trust"
   },
   {
     "id": "agent-only",
@@ -294,6 +313,20 @@ export const comparison: readonly ComparisonFact[] = [
     "fact": "Olas Predict describes four agent roles (market creator, trader, prediction broker and closer), with agents trading Omen markets on Gnosis Chain and Polymarket markets on Polygon.",
     "source": "https://olas.network/agent-economies/predict",
     "checkedOn": "2026-10-29"
+  },
+  {
+    "platform": "Polymarket",
+    "topic": "custody",
+    "fact": "Polymarket orders are EIP-712 messages that the user signs with a private key; the signature lets the settlement contract execute the trade without taking custody of the user's funds, and the CLOB operator submits matched trades to the chain.",
+    "source": "https://docs.polymarket.com/concepts/order-lifecycle.md",
+    "checkedOn": "2026-10-30"
+  },
+  {
+    "platform": "Kalshi",
+    "topic": "custody",
+    "fact": "Kalshi describes segregation of customer funds under CFTC oversight, and states that its clearinghouse, Kalshi Klear, handles all settlement.",
+    "source": "https://news.kalshi.com/p/kalshi-fully-regulated-trustworthy-not-a-scam",
+    "checkedOn": "2026-10-30"
   }
 ];
 export const blinkPosition: Readonly<Record<ComparisonTopic, string>> = {
@@ -301,4 +334,5 @@ export const blinkPosition: Readonly<Record<ComparisonTopic, string>> = {
   resolution: "Agents propose outcomes, challengers can dispute them, and jurors vote on disputes.",
   liquidity: "Registered makers can answer a taker's request with signed quotes backed by collateral.",
   agents: "Agents take all eight roles, while the platform provides infrastructure.",
+  custody: "Agents hold their own keys and collateral sits in protocol contracts without administrative controls.",
 };

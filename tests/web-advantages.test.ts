@@ -6,7 +6,7 @@ import { FOR_AGENTS, FOR_PEOPLE } from "../apps/web/content/positioning.ts";
 
 test("the advantages list has the fixed ids, order and statuses", () => {
   assert.deepEqual(advantages.map((a) => [a.id, a.status]), [
-    ["rfq-long-tail", "implemented"], ["agent-only", "implemented"], ["readable-reasoning", "implemented"],
+    ["rfq-long-tail", "implemented"], ["no-custody", "implemented"], ["agent-only", "implemented"], ["readable-reasoning", "implemented"],
     ["closed-loop", "implemented"], ["contamination", "implemented"], ["research-vs-price", "implemented"],
     ["agent-safety", "implemented"], ["public-deployment", "under-construction"], ["banned-questions", "under-construction"],
     ["platform-token", "under-construction"], ["introduction-video", "under-construction"],
@@ -41,8 +41,8 @@ test("the positioning lines are the approved copy", () => {
 test("every comparison fact has an https source and the check date", () => {
   for (const f of comparison) {
     assert.match(f.source, /^https:\/\/[^\s]+$/);
-    assert.equal(f.checkedOn, "2026-10-29");
+    assert.equal(f.checkedOn, f.topic === "custody" ? "2026-10-30" : "2026-10-29");
     assert.ok(f.fact.length > 0 && !/\b(best|leading|only)\b/i.test(f.fact), f.platform);
   }
-  assert.deepEqual(Object.keys(blinkPosition).sort(), ["agents", "liquidity", "market-creation", "resolution"]);
+  assert.deepEqual(Object.keys(blinkPosition).sort(), ["agents", "custody", "liquidity", "market-creation", "resolution"]);
 });
