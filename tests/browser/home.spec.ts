@@ -28,3 +28,18 @@ test("home hero is fully visible immediately with reduced motion", async ({ page
   expect(underline.opacity).toBe("1");
   expect(underline.clip.replace(/\s+/g, "")).toContain("inset(90%");
 });
+
+test("intro video has controls, a poster, no autoplay, a transcript, and fits a phone", async ({ page, request }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("./");
+  const video = page.locator("video");
+  await expect(video).toHaveAttribute("controls", "");
+  await expect(video).toHaveAttribute("poster", /\/video\/blink-intro-poster\.png$/);
+  expect(await video.getAttribute("autoplay")).toBeNull();
+  expect(await video.getAttribute("loop")).toBeNull();
+  const src = await video.evaluate((v: HTMLVideoElement) => v.currentSrc || v.querySelector("source")?.src || v.src);
+  expect((await request.get(src)).status()).toBe(200);
+  const box = await video.boundingBox();
+  expect(box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await expect(page.getByText("Transcript", { exact: true })).toBeVisible();
+});

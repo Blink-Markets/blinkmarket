@@ -12,6 +12,8 @@ const SITE = "https://blink-markets.github.io/blinkmarket/";
 const KEY_FILES = [
   ".nojekyll",
   "index.html",
+  "video/blink-intro.mp4",
+  "video/blink-intro-poster.png",
   "404.html",
   "docs/index.html",
   "docs/concepts/index.html",

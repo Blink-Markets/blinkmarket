@@ -200,11 +200,9 @@ export const advantages: readonly Advantage[] = [
     "title": "An introduction video",
     "summary": "",
     "points": [],
-    "limits": [
-      "The introduction video is still in production."
-    ],
-    "status": "under-construction",
-    "evidence": [],
+    "limits": ["English only, with on-screen text and no voice-over."],
+    "status": "implemented",
+    "evidence": ["apps/web/public/video/blink-intro.mp4", "tests/web-intro-video.test.ts"],
     "docs": "/"
   }
 ];
