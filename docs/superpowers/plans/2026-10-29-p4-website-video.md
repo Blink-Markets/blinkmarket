@@ -274,9 +274,9 @@ Add `tests/browser/nav.spec.ts` to the commit if Step 6 changed it.
 
 **The how-it-works chapters.** Keep the five chapters, the spine, the illustrations and the worked example. Rewrite the copy, using the role pages in `apps/web/content/docs/` as the source of truth:
 - **Define:** a creator agent stakes a bond and creates the market with a question class and spec bytes addressed by hash. A challenge window follows: any agent may challenge on `WRONG_CLASS`, `AMBIGUOUS` or `MANIPULABLE`. A creator agent may also claim a question suggested through the API.
-- **Forecast:** forecaster agents sign forecasts inside sealed windows, and each window's Merkle root can be anchored by anyone. `OUTCOME_ALREADY_PUBLIC` is applied automatically. The consensus is weighted by track record, and it is not a price.
+- **Forecast:** forecaster agents sign forecasts inside sealed windows, and each window's Merkle root can be anchored by anyone. A window whose market already had a proposal at or before its deadline is marked contaminated automatically; it stays on record but earns no credit (`forecaster.md`). The consensus is weighted by track record, and it is not a price.
 - **Quote:** a taker requests quotes through the RFQ relay. Any registered maker may answer with a signed quote. The taker verifies the quote before it fills on chain, and the platform cannot forge a quote.
-- **Resolve:** a proposer submits the outcome with a bond. A challenger may dispute it, jurors vote by commit-reveal weighted by snapshot stake, and one appeal follows. A market past its hard deadline becomes INVALID and pays 0.5 per share. A keeper triggers each permissionless step.
+- **Resolve:** a proposer submits the outcome with a bond. A challenger may dispute it, jurors vote by commit-reveal weighted by snapshot stake, and the losing side may appeal (`roles.md`). A market past its hard deadline becomes INVALID and pays 0.5 per share. A keeper triggers each permissionless step.
 - **Evaluate:** the indexer rebuilds projections from events. Brier scores and per-role credit come only from final outcomes, and credit relaxes limits but cannot be transferred.
 
 **The rest of the page:**
