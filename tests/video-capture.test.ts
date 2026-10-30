@@ -24,6 +24,10 @@ test("a roster agent needs a started line", () => {
   assert.throws(() => buildRunRecord(passingReport, new Map([["maker-1", "{}"]]), meta), /RUN_ROSTER_INCOMPLETE/);
 });
 
+test("capture refuses a run with no kept events", () => {
+  assert.throws(() => buildRunRecord(passingReport, new Map([["maker-1", started("maker-1")]]), meta), /RUN_EVENTS_MISSING/);
+});
+
 test("events are ordered by time, then agent", () => {
   const line = (agent: string, ts: string) => JSON.stringify({ agent, ts, event: "registered" });
   const logs = new Map([["b", [started("b"), line("b", "2026-11-01T00:00:02Z"), line("b", "2026-11-01T00:00:01Z")].join("\n")], ["a", [started("a"), line("a", "2026-11-01T00:00:02Z")].join("\n")]]);

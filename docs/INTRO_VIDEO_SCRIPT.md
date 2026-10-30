@@ -67,13 +67,13 @@ On screen, sequentially:
 > suggestion — pass — 452 s
 > suggestion_claimed · market_created · proposed · redeemed
 
-Show recorded event labels and agent labels as they appear. The scenario outcomes and mapping of market IDs to scenarios are verified by the drill; `committed`, `revealed`, and `suggestion_claimed` have no market ID in the record, so show them as run-wide events rather than implying the record independently attributes them to a market. Data source: `drill-run.json` `scenarios`, `events`; scenario attribution: `scripts/alpha-autonomous.ts` and the drill report.
+Show recorded event labels and agent labels as they appear. The scenario outcomes and mapping of market IDs to scenarios are verified by the drill; `committed`, `revealed`, and `suggestion_claimed` have no market ID in the record, so show them as run-wide events rather than implying the record independently attributes them to a market. In this run, `market` 1 is the normal market, 2 the dispute market, 3 the timeout market, 4 the creation-challenge market and 5 the suggestion market: market 4 is the only one `creator-challenge` created, 2 is the one `proposer-liar` proposed and that was appealed, 1 has the `forecast_submitted`, 5 is the other `proposer-honest` proposal, and 3 has no proposal. Place run-wide events by their `t`. Data source: `drill-run.json` `scenarios`, `events`; scenario attribution: `scripts/alpha-autonomous.ts` and the drill report.
 
 ## 5. Trust — 15 s
 
 On screen:
 
-> The slashable juror stake inside the snapshot is an honest majority.
+> The final safety of settlement rests on one assumption: the slashable juror stake inside the snapshot is an honest majority.
 > Under the publicly listed assumptions, honesty is the provably best strategy.
 > /docs/trust
 > The platform token: a test-network experiment for now.

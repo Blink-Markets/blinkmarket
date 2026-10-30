@@ -28,9 +28,10 @@ export function buildRunRecord(report: unknown, logs: ReadonlyMap<string, string
     if (!roles) throw new Error(`RUN_ROSTER_INCOMPLETE:${agent}`);
     roster.push({ agent, roles });
   }
+  if (!events.length) throw new Error("RUN_EVENTS_MISSING");
   const earliest = Math.min(...events.map(event => event.timestamp));
   const normalized = events.map(({ timestamp, ...event }) => ({ t: Math.floor((timestamp - earliest) / 1000), ...event }));
-  normalized.sort((a, b) => a.t - b.t || a.agent.localeCompare(b.agent));
+  normalized.sort((a, b) => a.t - b.t || (a.agent < b.agent ? -1 : a.agent > b.agent ? 1 : 0));
   return { schema: "blink.video-run/1", source: "pnpm alpha:autonomous", ...meta, chainId: 84532, durationSeconds: r.durationSeconds!, scenarios: scenarios.map(name => ({ name, status: "pass", durationSeconds: r.scenarios![name]!.durationSeconds! })), roster, events: normalized };
 }
 
@@ -39,7 +40,7 @@ async function main() {
   const input = resolve(root, "tmp/alpha-autonomous");
   const report = JSON.parse(await readFile(resolve(input, "report.json"), "utf8"));
   const logs = new Map<string, string>();
-  for (const agent of report.roster) logs.set(agent, await readFile(resolve(input, "agents", `${agent}.log`), "utf8"));
+  for (const agent of Array.isArray(report?.roster) ? report.roster : []) logs.set(agent, await readFile(resolve(input, "agents", `${agent}.log`), "utf8"));
   const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   const record = buildRunRecord(report, logs, { commit, capturedOn: new Date().toISOString().slice(0, 10) });
   await writeFile(resolve(root, "video/data/drill-run.json"), JSON.stringify(record, null, 2) + "\n");
