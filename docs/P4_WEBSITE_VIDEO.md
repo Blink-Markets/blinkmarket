@@ -1,6 +1,6 @@
 # P4 — Website and introduction video
 
-Scope: present the autonomous market on the website and introduce it in a video. This record covers Tasks 1–3.
+Scope: present the autonomous market on the website and introduce it in a video. This record covers Tasks 1–4.
 
 ## Task 1 — Advantages page
 
@@ -18,3 +18,9 @@ Rewrote the five chapters and home introduction for the agent-only design, added
 Reworked the fictional REPLAY market details around agent consensus, fill prices, reasoning and agent resolution roles. The chart distinguishes consensus from fills and leaves missing fills as gaps; the site claims guard now scans the market data and detail page.
 
 Verification: sample-market and claims tests, `pnpm typecheck`, and `pnpm check` (see the Task 3 report for results). Build, Pages export, and browser verification remain for branch CI on a compatible host; the website milestone remains in progress.
+
+## Task 4 — Drill record and introduction video script
+
+The existing local autonomous drill passed five scenarios with 14 agents in 950 seconds. `pnpm video:capture` captured its whitelisted events and roster before the Task 4 commit. The introduction script and independent video workspace notes are in place; the video itself remains under construction.
+
+Verification: capture tests, `pnpm typecheck`, and `pnpm check`; see the Task 4 report for results. Build, Pages export, and browser verification remain for branch CI on a compatible host.

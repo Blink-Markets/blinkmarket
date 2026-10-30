@@ -1,0 +1,741 @@
+{
+  "schema": "blink.video-run/1",
+  "source": "pnpm alpha:autonomous",
+  "commit": "abb43ecaa842db05feebcd61f01f925cf2dcc50e",
+  "capturedOn": "2026-10-30",
+  "chainId": 84532,
+  "durationSeconds": 950,
+  "scenarios": [
+    {
+      "name": "normal",
+      "status": "pass",
+      "durationSeconds": 451
+    },
+    {
+      "name": "dispute",
+      "status": "pass",
+      "durationSeconds": 444
+    },
+    {
+      "name": "creation",
+      "status": "pass",
+      "durationSeconds": 93
+    },
+    {
+      "name": "timeout",
+      "status": "pass",
+      "durationSeconds": 898
+    },
+    {
+      "name": "suggestion",
+      "status": "pass",
+      "durationSeconds": 452
+    }
+  ],
+  "roster": [
+    {
+      "agent": "creator-normal",
+      "roles": [
+        "creator"
+      ]
+    },
+    {
+      "agent": "creator-challenge",
+      "roles": [
+        "creator"
+      ]
+    },
+    {
+      "agent": "maker-1",
+      "roles": [
+        "maker"
+      ]
+    },
+    {
+      "agent": "maker-2",
+      "roles": [
+        "maker"
+      ]
+    },
+    {
+      "agent": "trader-1",
+      "roles": [
+        "trader"
+      ]
+    },
+    {
+      "agent": "trader-2",
+      "roles": [
+        "trader"
+      ]
+    },
+    {
+      "agent": "forecaster",
+      "roles": [
+        "forecaster"
+      ]
+    },
+    {
+      "agent": "proposer-honest",
+      "roles": [
+        "proposer"
+      ]
+    },
+    {
+      "agent": "proposer-liar",
+      "roles": [
+        "proposer"
+      ]
+    },
+    {
+      "agent": "challenger",
+      "roles": [
+        "challenger"
+      ]
+    },
+    {
+      "agent": "juror-1",
+      "roles": [
+        "juror"
+      ]
+    },
+    {
+      "agent": "juror-2",
+      "roles": [
+        "juror"
+      ]
+    },
+    {
+      "agent": "juror-3",
+      "roles": [
+        "juror"
+      ]
+    },
+    {
+      "agent": "keeper",
+      "roles": [
+        "keeper"
+      ]
+    }
+  ],
+  "events": [
+    {
+      "t": 0,
+      "agent": "juror-1",
+      "event": "registered"
+    },
+    {
+      "t": 0,
+      "agent": "juror-1",
+      "event": "juror_staked"
+    },
+    {
+      "t": 2,
+      "agent": "juror-2",
+      "event": "registered"
+    },
+    {
+      "t": 3,
+      "agent": "juror-2",
+      "event": "juror_staked"
+    },
+    {
+      "t": 5,
+      "agent": "juror-3",
+      "event": "registered"
+    },
+    {
+      "t": 5,
+      "agent": "juror-3",
+      "event": "juror_staked"
+    },
+    {
+      "t": 8,
+      "agent": "maker-1",
+      "event": "registered"
+    },
+    {
+      "t": 9,
+      "agent": "maker-1",
+      "event": "joined_role"
+    },
+    {
+      "t": 11,
+      "agent": "maker-2",
+      "event": "registered"
+    },
+    {
+      "t": 12,
+      "agent": "maker-2",
+      "event": "joined_role"
+    },
+    {
+      "t": 14,
+      "agent": "trader-1",
+      "event": "registered"
+    },
+    {
+      "t": 17,
+      "agent": "trader-2",
+      "event": "registered"
+    },
+    {
+      "t": 21,
+      "agent": "forecaster",
+      "event": "registered"
+    },
+    {
+      "t": 21,
+      "agent": "forecaster",
+      "event": "joined_role"
+    },
+    {
+      "t": 24,
+      "agent": "proposer-honest",
+      "event": "registered"
+    },
+    {
+      "t": 24,
+      "agent": "proposer-honest",
+      "event": "joined_role"
+    },
+    {
+      "t": 27,
+      "agent": "proposer-liar",
+      "event": "registered"
+    },
+    {
+      "t": 27,
+      "agent": "proposer-liar",
+      "event": "joined_role"
+    },
+    {
+      "t": 30,
+      "agent": "challenger",
+      "event": "registered"
+    },
+    {
+      "t": 30,
+      "agent": "challenger",
+      "event": "joined_role"
+    },
+    {
+      "t": 33,
+      "agent": "keeper",
+      "event": "registered"
+    },
+    {
+      "t": 36,
+      "agent": "creator-normal",
+      "event": "registered"
+    },
+    {
+      "t": 36,
+      "agent": "creator-normal",
+      "event": "joined_role"
+    },
+    {
+      "t": 37,
+      "agent": "creator-normal",
+      "event": "market_created",
+      "market": "1"
+    },
+    {
+      "t": 37,
+      "agent": "creator-normal",
+      "event": "market_created",
+      "market": "2"
+    },
+    {
+      "t": 37,
+      "agent": "creator-normal",
+      "event": "market_created",
+      "market": "3"
+    },
+    {
+      "t": 39,
+      "agent": "creator-challenge",
+      "event": "registered"
+    },
+    {
+      "t": 39,
+      "agent": "creator-challenge",
+      "event": "joined_role"
+    },
+    {
+      "t": 40,
+      "agent": "creator-challenge",
+      "event": "market_created",
+      "market": "4"
+    },
+    {
+      "t": 41,
+      "agent": "challenger",
+      "event": "challenged",
+      "market": "4"
+    },
+    {
+      "t": 41,
+      "agent": "creator-normal",
+      "event": "suggestion_claimed"
+    },
+    {
+      "t": 41,
+      "agent": "creator-normal",
+      "event": "market_created",
+      "market": "5"
+    },
+    {
+      "t": 41,
+      "agent": "juror-1",
+      "event": "committed"
+    },
+    {
+      "t": 42,
+      "agent": "juror-2",
+      "event": "committed"
+    },
+    {
+      "t": 43,
+      "agent": "juror-3",
+      "event": "committed"
+    },
+    {
+      "t": 72,
+      "agent": "juror-1",
+      "event": "revealed"
+    },
+    {
+      "t": 72,
+      "agent": "juror-3",
+      "event": "revealed"
+    },
+    {
+      "t": 73,
+      "agent": "juror-2",
+      "event": "revealed"
+    },
+    {
+      "t": 129,
+      "agent": "trader-2",
+      "event": "joined_role"
+    },
+    {
+      "t": 130,
+      "agent": "trader-1",
+      "event": "joined_role"
+    },
+    {
+      "t": 131,
+      "agent": "trader-2",
+      "event": "rfq_posted"
+    },
+    {
+      "t": 132,
+      "agent": "maker-2",
+      "event": "quote_posted",
+      "market": "1"
+    },
+    {
+      "t": 132,
+      "agent": "trader-1",
+      "event": "rfq_posted"
+    },
+    {
+      "t": 133,
+      "agent": "juror-1",
+      "event": "claimed_rewards"
+    },
+    {
+      "t": 133,
+      "agent": "juror-3",
+      "event": "claimed_rewards"
+    },
+    {
+      "t": 133,
+      "agent": "maker-1",
+      "event": "quote_posted",
+      "market": "1"
+    },
+    {
+      "t": 133,
+      "agent": "maker-1",
+      "event": "quote_posted",
+      "market": "1"
+    },
+    {
+      "t": 134,
+      "agent": "juror-2",
+      "event": "claimed_rewards"
+    },
+    {
+      "t": 134,
+      "agent": "maker-2",
+      "event": "quote_posted",
+      "market": "1"
+    },
+    {
+      "t": 134,
+      "agent": "trader-2",
+      "event": "filled",
+      "market": "1"
+    },
+    {
+      "t": 136,
+      "agent": "trader-1",
+      "event": "filled",
+      "market": "1"
+    },
+    {
+      "t": 136,
+      "agent": "trader-2",
+      "event": "rfq_posted"
+    },
+    {
+      "t": 137,
+      "agent": "maker-1",
+      "event": "quote_posted",
+      "market": "2"
+    },
+    {
+      "t": 138,
+      "agent": "maker-2",
+      "event": "quote_posted",
+      "market": "2"
+    },
+    {
+      "t": 138,
+      "agent": "maker-2",
+      "event": "quote_posted",
+      "market": "2"
+    },
+    {
+      "t": 138,
+      "agent": "trader-1",
+      "event": "rfq_posted"
+    },
+    {
+      "t": 139,
+      "agent": "maker-1",
+      "event": "quote_posted",
+      "market": "2"
+    },
+    {
+      "t": 140,
+      "agent": "trader-2",
+      "event": "filled",
+      "market": "2"
+    },
+    {
+      "t": 141,
+      "agent": "trader-1",
+      "event": "filled",
+      "market": "2"
+    },
+    {
+      "t": 142,
+      "agent": "maker-2",
+      "event": "quote_posted",
+      "market": "3"
+    },
+    {
+      "t": 142,
+      "agent": "trader-2",
+      "event": "rfq_posted"
+    },
+    {
+      "t": 143,
+      "agent": "maker-1",
+      "event": "quote_posted",
+      "market": "3"
+    },
+    {
+      "t": 143,
+      "agent": "maker-1",
+      "event": "quote_posted",
+      "market": "3"
+    },
+    {
+      "t": 143,
+      "agent": "trader-1",
+      "event": "rfq_posted"
+    },
+    {
+      "t": 145,
+      "agent": "maker-2",
+      "event": "quote_posted",
+      "market": "3"
+    },
+    {
+      "t": 145,
+      "agent": "trader-2",
+      "event": "filled",
+      "market": "3"
+    },
+    {
+      "t": 146,
+      "agent": "trader-1",
+      "event": "filled",
+      "market": "3"
+    },
+    {
+      "t": 147,
+      "agent": "trader-2",
+      "event": "rfq_posted"
+    },
+    {
+      "t": 148,
+      "agent": "maker-1",
+      "event": "quote_posted",
+      "market": "5"
+    },
+    {
+      "t": 148,
+      "agent": "trader-1",
+      "event": "rfq_posted"
+    },
+    {
+      "t": 149,
+      "agent": "maker-2",
+      "event": "quote_posted",
+      "market": "5"
+    },
+    {
+      "t": 149,
+      "agent": "maker-2",
+      "event": "quote_posted",
+      "market": "5"
+    },
+    {
+      "t": 150,
+      "agent": "maker-1",
+      "event": "quote_posted",
+      "market": "5"
+    },
+    {
+      "t": 151,
+      "agent": "trader-2",
+      "event": "filled",
+      "market": "5"
+    },
+    {
+      "t": 152,
+      "agent": "trader-1",
+      "event": "filled",
+      "market": "5"
+    },
+    {
+      "t": 268,
+      "agent": "forecaster",
+      "event": "forecast_submitted",
+      "market": "1"
+    },
+    {
+      "t": 329,
+      "agent": "challenger",
+      "event": "challenged",
+      "market": "2"
+    },
+    {
+      "t": 329,
+      "agent": "proposer-liar",
+      "event": "proposed",
+      "market": "2"
+    },
+    {
+      "t": 330,
+      "agent": "juror-3",
+      "event": "committed"
+    },
+    {
+      "t": 331,
+      "agent": "juror-1",
+      "event": "committed"
+    },
+    {
+      "t": 331,
+      "agent": "juror-2",
+      "event": "committed"
+    },
+    {
+      "t": 361,
+      "agent": "juror-1",
+      "event": "revealed"
+    },
+    {
+      "t": 361,
+      "agent": "juror-3",
+      "event": "revealed"
+    },
+    {
+      "t": 362,
+      "agent": "juror-2",
+      "event": "revealed"
+    },
+    {
+      "t": 373,
+      "agent": "keeper",
+      "event": "anchor",
+      "market": "1"
+    },
+    {
+      "t": 392,
+      "agent": "juror-2",
+      "event": "committed"
+    },
+    {
+      "t": 392,
+      "agent": "proposer-liar",
+      "event": "appealed",
+      "market": "2"
+    },
+    {
+      "t": 393,
+      "agent": "juror-3",
+      "event": "committed"
+    },
+    {
+      "t": 394,
+      "agent": "juror-1",
+      "event": "committed"
+    },
+    {
+      "t": 423,
+      "agent": "juror-2",
+      "event": "revealed"
+    },
+    {
+      "t": 423,
+      "agent": "juror-3",
+      "event": "revealed"
+    },
+    {
+      "t": 424,
+      "agent": "juror-1",
+      "event": "revealed"
+    },
+    {
+      "t": 429,
+      "agent": "proposer-honest",
+      "event": "proposed",
+      "market": "1"
+    },
+    {
+      "t": 431,
+      "agent": "proposer-honest",
+      "event": "proposed",
+      "market": "5"
+    },
+    {
+      "t": 483,
+      "agent": "juror-1",
+      "event": "claimed_rewards"
+    },
+    {
+      "t": 483,
+      "agent": "trader-2",
+      "event": "redeemed",
+      "market": "2"
+    },
+    {
+      "t": 484,
+      "agent": "juror-2",
+      "event": "claimed_rewards"
+    },
+    {
+      "t": 484,
+      "agent": "juror-3",
+      "event": "claimed_rewards"
+    },
+    {
+      "t": 484,
+      "agent": "maker-2",
+      "event": "redeemed",
+      "market": "2"
+    },
+    {
+      "t": 484,
+      "agent": "trader-1",
+      "event": "redeemed",
+      "market": "2"
+    },
+    {
+      "t": 485,
+      "agent": "keeper",
+      "event": "distribute_fees",
+      "market": "2"
+    },
+    {
+      "t": 490,
+      "agent": "maker-2",
+      "event": "redeemed",
+      "market": "1"
+    },
+    {
+      "t": 490,
+      "agent": "trader-1",
+      "event": "redeemed",
+      "market": "1"
+    },
+    {
+      "t": 490,
+      "agent": "trader-2",
+      "event": "redeemed",
+      "market": "1"
+    },
+    {
+      "t": 491,
+      "agent": "keeper",
+      "event": "distribute_fees",
+      "market": "1"
+    },
+    {
+      "t": 492,
+      "agent": "maker-2",
+      "event": "redeemed",
+      "market": "5"
+    },
+    {
+      "t": 492,
+      "agent": "trader-1",
+      "event": "redeemed",
+      "market": "5"
+    },
+    {
+      "t": 492,
+      "agent": "trader-2",
+      "event": "redeemed",
+      "market": "5"
+    },
+    {
+      "t": 493,
+      "agent": "keeper",
+      "event": "distribute_fees",
+      "market": "5"
+    },
+    {
+      "t": 937,
+      "agent": "maker-2",
+      "event": "redeemed",
+      "market": "3"
+    },
+    {
+      "t": 938,
+      "agent": "trader-1",
+      "event": "redeemed",
+      "market": "3"
+    },
+    {
+      "t": 938,
+      "agent": "trader-2",
+      "event": "redeemed",
+      "market": "3"
+    },
+    {
+      "t": 939,
+      "agent": "keeper",
+      "event": "distribute_fees",
+      "market": "3"
+    }
+  ]
+}
