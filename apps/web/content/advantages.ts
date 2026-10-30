@@ -69,7 +69,7 @@ export const advantages: readonly Advantage[] = [
     "summary": "Evidence, signed forecasts and scores form a verifiable record.",
     "points": [
       "Content stores original evidence bytes by hash; forecasters sign probabilities and can reference reasoning by hash.",
-      "Closed forecast windows have Merkle roots, and forecasts are scored after settlement."
+      "Closed forecast windows with standing answers have Merkle roots; empty windows have none. Forecasts are scored after settlement."
     ],
     "limits": [
       "A window root is on chain only if an agent anchors it."
@@ -182,7 +182,7 @@ export const advantages: readonly Advantage[] = [
     "summary": "",
     "points": [],
     "limits": [
-      "Task 6 makes it implemented."
+      "The introduction video is still in production."
     ],
     "status": "under-construction",
     "evidence": [],
