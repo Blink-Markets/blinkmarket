@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "pnpm --parallel --filter './apps/*' dev",
-    "typecheck": "tsc --noEmit && pnpm --filter @blink/web typecheck",
+    "typecheck": "tsc --noEmit && pnpm --filter @blink/web typecheck && pnpm --filter @blink/video typecheck",
     "test": "node --import tsx --test tests/*.test.ts",
     "check": "pnpm typecheck && pnpm check:contracts && pnpm test && pnpm check:boundaries",
     "check:boundaries": "node scripts/check-boundaries.mjs",
@@ -45,7 +45,10 @@
     "images:build": "for s in api worker indexer; do docker build -f infra/Dockerfile.$s -t blink-$s:local . || exit 1; done",
     "test:images": "node --test tests/images.test.mjs",
     "check:cdp-wallet": "node --env-file-if-exists=${BLINK_CDP_ENV:-$HOME/.config/blink/cdp.env} tests/cdp/run.mjs tests/cdp/cdp-wallet.test.ts",
-    "images:smoke": "node scripts/check-contracts.mjs && node --import tsx scripts/images-smoke.ts"
+    "images:smoke": "node scripts/check-contracts.mjs && node --import tsx scripts/images-smoke.ts",
+    "video:studio": "pnpm --dir video exec remotion studio src/index.ts",
+    "video:render": "pnpm --dir video exec remotion render src/index.ts BlinkIntro ../tmp/video/blink-intro.mp4",
+    "video:still": "pnpm --dir video exec remotion still src/index.ts BlinkIntro ../tmp/video/blink-intro-poster.png"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

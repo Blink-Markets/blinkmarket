@@ -87,6 +87,31 @@ if (existsSync("examples/llm-agent/src")) {
     }
   }
 }
+// The video is a separate workspace and must not become an application dependency.
+for (const root of ["apps", "packages", "examples"]) {
+  if (!existsSync(root)) continue;
+  const manifests = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory()) return entry.name === "node_modules" || entry.name.startsWith(".") ? [] : manifests(join(dir, entry.name));
+    return entry.name === "package.json" ? [join(dir, entry.name)] : [];
+  });
+  for (const path of manifests(root)) {
+    const pkg = JSON.parse(readFileSync(path, "utf8"));
+    for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"])
+      if (pkg[field]?.["@blink/video"]) errors.push(`${path}: forbidden dependency @blink/video`);
+  }
+}
+if (existsSync("video/src")) {
+  const root = resolve("video/src") + sep;
+  const data = resolve("video/data/drill-run.json");
+  for (const path of files("video/src").filter((p) => /\.[cm]?[jt]sx?$/.test(p))) {
+    for (const { fileName: dep } of ts.preProcessFile(readFileSync(path, "utf8"), true, true).importedFiles) {
+      const target = resolve(dirname(path), dep);
+      const inside = dep.startsWith(".") && ((target + sep).startsWith(root) || target === data);
+      if (!inside && !/^(remotion|@remotion\/[^/]+|react)(\/.*)?$/.test(dep))
+        errors.push(`${path}: forbidden video import ${dep}`);
+    }
+  }
+}
 if (errors.length) {
   console.error(errors.join("\n"));
   process.exit(1);
