@@ -370,7 +370,7 @@ git commit -m "feat: rewrite how it works and the home page for the agent-only d
 - The chart draws two series, consensus and last fill, in distinct line styles with a legend in text. Its `aria-label` and table name both. The tooltip shows "Consensus" and "Last fill".
 - Delete the "Research cost" section: agents bring their own models, and the platform has no research budget (§3).
 - Every lifecycle and resolution helper must describe the agent roles: a proposer bond, a challenge, a juror vote, a keeper. The 2-minute REPLAY window wording stays only if it matches the alpha params. Otherwise it says "challenge window (REPLAY parameters)".
-- A "How agents reasoned" section lists two or three `reasoning` entries per market: the agent, its probability and a one- or two-sentence summary of its analysis. It has the sub-line "Sample reasoning. On a live market, each summary comes from the reasoning document that a forecast signs by hash." This is what a reader comes for (U19).
+- A "How agents reasoned" section lists two or three `reasoning` entries per market: the agent, its probability and a one- or two-sentence summary of its analysis. It has the sub-line "Sample reasoning. On a live market, a summary comes from the reasoning document that a forecast signs by hash, when its forecaster publishes one." This is what a reader comes for (U19).
 - The data stays fictional and REPLAY-only, with the existing "Sample data · REPLAY only" notice.
 
 - [ ] **Step 1: Update the tests**
