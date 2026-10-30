@@ -1,0 +1,8 @@
+.title { font-size: clamp(44px, 7.5vw, 104px); font-weight: 800; letter-spacing: -0.05em; max-width: 14ch; }
+.intro { margin-top: 32px; display: grid; gap: 16px; }
+.list { display: grid; gap: 0; max-width: 840px; margin-top: 32px; }
+.item { display: grid; gap: 14px; padding-block: 28px; border-top: 1px solid var(--rule); min-width: 0; }
+.item ul { padding-left: 1.3em; }
+.item li + li { margin-top: 10px; }
+.item a { overflow-wrap: anywhere; }
+.facts { display: grid; gap: 16px; }
