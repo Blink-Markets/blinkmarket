@@ -8,7 +8,7 @@ Run `pnpm video:studio`, `pnpm video:still`, or `pnpm video:render` from the roo
 
 Remotion 4.0.536's renderer sends a usage event only when a license key is set (`@remotion/renderer/dist/render-media.js`); this workspace sets none. `pnpm video:still` and `pnpm video:render` make no update check. The interactive `pnpm video:studio` asks registry.npmjs.org for the latest Remotion version (`@remotion/studio-server/dist/get-latest-remotion-version.js`) and fetches known bugs; 4.0.536 has no setting to turn this off, so do not run the Studio where that request is unwanted.
 
-The render settings are H.264 at CRF 30. The 150-second video rendered on 2026-10-30 is about 1.5 MB, well under the 25 MB limit.
+The render settings are H.264 at CRF 30. The 150-second video rendered on 2026-10-30 is about 1.2 MB, well under the 25 MB limit.
 
 The development host (glibc 2.28) cannot run Remotion's browser, which needs glibc 2.31 and libgbm. Render in a pinned Debian bookworm (glibc 2.36) container. Copy the repository into the container rather than installing into the mounted tree, so the host's `node_modules` stays untouched, and copy the output back:
 
