@@ -1,3 +1,5 @@
+> Superseded by [INTRO_VIDEO_SCRIPT.md](INTRO_VIDEO_SCRIPT.md); retained as v0.1 history.
+
 # M5 demo script — Task A8 delivery
 
 > Historical (v0.1): the storyboard shows the v0.1 flow with a platform maker, team-run roles and trusted resolution, which no longer exist. It must not be used for the current design; the introduction video is a P4 item. See [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md).
