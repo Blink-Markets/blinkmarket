@@ -36,7 +36,7 @@ const chapters = [
     n: "04", title: "Resolve", Art: Resolution,
     body: [
       "A proposer submits the outcome with a bond. A challenger may dispute it, jurors vote by commit-reveal weighted by snapshot stake, and the losing side may appeal.",
-      "A market past its hard deadline becomes INVALID and pays 0.5 per share. A keeper triggers the permissionless steps that advance the market.",
+      "If an active market has not finalized by its hard deadline, anyone can finalize it as INVALID; each share then pays 0.5. A keeper triggers the permissionless steps that advance the market.",
     ],
   },
   {

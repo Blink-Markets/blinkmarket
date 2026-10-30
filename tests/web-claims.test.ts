@@ -22,7 +22,12 @@ function siteFiles(dir: string): string[] {
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 test("no site page describes a removed v0.1 role as current", () => {
-  for (const file of ["app", "components", "content"].flatMap(siteFiles)) {
+  const files = ["app", "components", "content"].map((dir) => {
+    const found = siteFiles(dir);
+    assert.ok(found.length > 0, `the scan must see files under ${dir}`);
+    return found;
+  }).flat();
+  for (const file of files) {
     for (const phrase of banned) assert.ok(!read(file).toLowerCase().includes(phrase.toLowerCase()), `${file}: "${phrase}"`);
   }
 });
@@ -35,6 +40,10 @@ test("the home page and the advantages page state both positioning lines", () =>
       assert.match(source, new RegExp(`\\{${name}\\}`));
     }
   }
+  // The home page passes the lines to Hero, which must render both.
+  assert.match(read("app/page.tsx"), /<Hero\s+people=\{FOR_PEOPLE\}\s+agents=\{FOR_AGENTS\}\s*\/>/);
+  const hero = read("components/home/Hero.tsx");
+  for (const prop of ["people", "agents"]) assert.match(hero, new RegExp(`<p[^>]*>\\{${prop}\\}</p>`), `Hero renders {${prop}}`);
 });
 
 test("how it works states the trust claim with its condition", () => {
