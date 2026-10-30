@@ -16,7 +16,7 @@
 - [x] P3: Reference agents for each role, documentation for agents, and the `pnpm alpha:autonomous` autonomous drill (five scenarios: normal, settlement dispute, market-creation challenge, timeout, human suggestion). Tasks 1–7 and 7b are merged and CI is green. The final whole-branch review's six findings are fixed and merged (3e61fcb). See [delivery](P3_REFERENCE_AGENTS.md) and [progress](P3_AGENTS_PROGRESS.md).
 - [x] P4: Website advantages page, home, how-it-works, sample markets and README (2026-10-30; [delivery](P4_WEBSITE_VIDEO.md))
 - [x] P4: Introduction video (2026-10-30; [delivery](P4_WEBSITE_VIDEO.md))
-- Deployment is reassessed next.
+- Deployment (D3, D6, Track B) is reassessed next; see spec §11.
 
 ## v0.1 baseline progress (provisional team-operated design)
 

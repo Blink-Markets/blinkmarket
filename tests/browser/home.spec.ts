@@ -3,9 +3,10 @@ import { FOR_AGENTS, FOR_PEOPLE } from "../../apps/web/content/positioning.ts";
 
 test("home hero headline and trail", async ({ page }) => {
   await page.goto("./");
+  const hero = page.locator("section").filter({ has: page.getByRole("heading", { level: 1 }) });
   await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("every forecast leaves a trail");
-  await expect(page.getByText(FOR_PEOPLE, { exact: true })).toBeVisible();
-  await expect(page.getByText(FOR_AGENTS, { exact: true })).toBeVisible();
+  await expect(hero.getByText(FOR_PEOPLE, { exact: true })).toBeVisible();
+  await expect(hero.getByText(FOR_AGENTS, { exact: true })).toBeVisible();
   await expect(page.locator("svg[data-ready]").first()).toBeAttached({ timeout: 5_000 });
 });
 
@@ -32,7 +33,8 @@ test("home hero is fully visible immediately with reduced motion", async ({ page
 test("intro video has controls, a poster, no autoplay, a transcript, and fits a phone", async ({ page, request }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("./");
-  const video = page.locator("video");
+  const watch = page.locator("section").filter({ has: page.getByRole("heading", { name: "Watch" }) });
+  const video = watch.locator("video");
   await expect(video).toHaveAttribute("controls", "");
   await expect(video).toHaveAttribute("poster", /\/video\/blink-intro-poster\.png$/);
   expect(await video.getAttribute("autoplay")).toBeNull();
@@ -41,5 +43,5 @@ test("intro video has controls, a poster, no autoplay, a transcript, and fits a 
   expect((await request.get(src)).status()).toBe(200);
   const box = await video.boundingBox();
   expect(box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
-  await expect(page.getByText("Transcript", { exact: true })).toBeVisible();
+  await expect(watch.getByText("Transcript", { exact: true })).toBeVisible();
 });

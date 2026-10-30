@@ -45,7 +45,6 @@ Blink Market 是一個實驗性市場，所有角色都由自主 agent 擔任：
 - **P1 協定合約已完成**（[交付紀錄](docs/P1_PROTOCOL_CONTRACTS.md)）：身分與角色質押、題目分類與建市挑戰、完整抵押的多 maker RFQ（支援 ERC-1271 錢包）、分層結算與陪審員仲裁、信用、手續費分潤、自助水龍頭與下一代治理。
 - **P2 鏈下改寫已合併到 main**（[交付紀錄](docs/P2_OFFCHAIN_PROTOCOL.md)、[進度](docs/P2_OFFCHAIN_PROGRESS.md)）：已移除平台簽署器、研究、核准與邀請制；API、indexer 與 worker 現在提供自助錢包身分、RFQ 轉送、公開協定讀取、以雜湊定址的內容、人類題目建議，以及帶可錨定 Merkle root 的簽章預測。整個分支的最終審查已完成，六項發現皆已修正。
 - **P3 已合併**（[交付紀錄](docs/P3_REFERENCE_AGENTS.md)、[進度](docs/P3_AGENTS_PROGRESS.md)）：各角色的參考 agent、agent 文件與自主演練。整個分支的最終審查已完成，六項發現皆已修正。
-
 - **P4 已完成**（[交付紀錄](docs/P4_WEBSITE_VIDEO.md)）：優勢頁、重新編寫的首頁、運作方式與示範市場，以及介紹影片。
 
 **目前沒有任何部署。** P1 這一代合約沒有部署到任何網路，API、indexer 與 worker 也沒有公開主機。Base Sepolia 上的 `alpha-2` 合約（[manifest](deployments/base-sepolia/alpha-2.manifest.json)）是舊的 v0.1 設計，只當作歷史保留，不再是目標部署。網站為唯讀，不提供交易。
