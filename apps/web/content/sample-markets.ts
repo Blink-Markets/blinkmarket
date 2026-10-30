@@ -269,7 +269,7 @@ export function lifecycleSteps(m: SampleMarket): LifecycleStep[] {
 export function stateDetail(m: SampleMarket): string {
   if (m.state === "OPEN") return `Closes ${formatUtc(m.closeAt)}`;
   if (m.state === "FINAL") {
-    return m.outcome === "INVALID" ? "No qualifying value by the hard deadline" : `Resolved ${m.outcome}`;
+    return m.outcome === "INVALID" ? "No qualifying value; finalized INVALID after the hard deadline" : `Resolved ${m.outcome}`;
   }
   return `Closed ${formatUtc(m.closeAt)}`;
 }
@@ -280,7 +280,7 @@ export function resolutionRule(m: SampleMarket): [string, string, string, string
   return [
     "YES if the ",
     "first qualifying release",
-    ` of ${possessive(m.entity)} ${formatPeriod(m.fiscalPeriod)} GAAP reported gross margin is below ${th}. NO if it is ${th} or higher. If no qualifying value is published, the market resolves `,
+    ` of ${possessive(m.entity)} ${formatPeriod(m.fiscalPeriod)} GAAP reported gross margin is below ${th}. NO if it is ${th} or higher. A proposer can propose only YES or NO. If no result is final by the hard deadline, for example because no qualifying value was published, a keeper can finalize the market as `,
     "INVALID",
     " and each side gets 0.5 bUSD per share.",
   ];
@@ -297,7 +297,6 @@ export type FrozenSpec = {
   comparator: "LT";
   valueVersion: "FIRST_QUALIFYING_RELEASE";
   missingValueOutcome: "INVALID";
-  challengeSeconds: 120;
 };
 
 export function frozenSpec(m: SampleMarket): FrozenSpec {
@@ -312,6 +311,5 @@ export function frozenSpec(m: SampleMarket): FrozenSpec {
     comparator: "LT",
     valueVersion: "FIRST_QUALIFYING_RELEASE",
     missingValueOutcome: "INVALID",
-    challengeSeconds: 120,
   };
 }

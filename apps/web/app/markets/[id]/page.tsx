@@ -115,7 +115,7 @@ export default async function MarketDetailPage({ params }: Props) {
           <dt>Metric</dt><dd><code>quarterly_gaap_reported_gross_margin</code></dd>
           <dt>Comparator</dt><dd><code>LT</code> {m.thresholdBps} bps</dd>
           <dt>Value version</dt><dd><code>FIRST_QUALIFYING_RELEASE</code></dd>
-          <dt>Missing value</dt><dd><code>INVALID</code> · 500,000 micros per YES and per NO share</dd>
+          <dt>Not final by the hard deadline</dt><dd><code>INVALID</code> · 500,000 micros per YES and per NO share</dd>
           <dt>Close</dt><dd>{formatUtc(m.closeAt)}</dd>
           <dt>Proposal deadline</dt><dd>{formatUtc(m.proposalDeadline)}</dd>
           <dt>Hard deadline</dt><dd>{formatUtc(m.hardDeadline)}</dd>
@@ -152,7 +152,7 @@ export default async function MarketDetailPage({ params }: Props) {
       <section className={styles.section} aria-labelledby="spec-h">
         <h2 id="spec-h" className={styles.h2}>Frozen spec</h2>
         <p className={styles.lede}>
-          Sample specification fields for this fictional market. The challengeSeconds field is a fixture value; the drill uses its own REPLAY parameters.
+          Sample specification fields for this fictional market. Timing comes from the deployment's parameters, not from the spec.
         </p>
         <details className={styles.details}>
           <summary>Show spec JSON</summary>

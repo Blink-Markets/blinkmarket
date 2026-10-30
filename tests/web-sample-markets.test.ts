@@ -172,7 +172,7 @@ test("stateDetail, resolutionRule and frozenSpec", () => {
   assert.match(stateDetail(s6), /No qualifying value/);
   assert.equal(
     resolutionRule(s1).join(""),
-    "YES if the first qualifying release of Ostrander Kiln Works' FY2025 Q3 GAAP reported gross margin is below 70.00%. NO if it is 70.00% or higher. If no qualifying value is published, the market resolves INVALID and each side gets 0.5 bUSD per share.",
+    "YES if the first qualifying release of Ostrander Kiln Works' FY2025 Q3 GAAP reported gross margin is below 70.00%. NO if it is 70.00% or higher. A proposer can propose only YES or NO. If no result is final by the hard deadline, for example because no qualifying value was published, a keeper can finalize the market as INVALID and each side gets 0.5 bUSD per share.",
   );
   assert.deepEqual(frozenSpec(s1), {
     schemaVersion: "blink.market.v0.1.1",
@@ -185,6 +185,6 @@ test("stateDetail, resolutionRule and frozenSpec", () => {
     comparator: "LT",
     valueVersion: "FIRST_QUALIFYING_RELEASE",
     missingValueOutcome: "INVALID",
-    challengeSeconds: 120,
   });
+  assert.equal(stateDetail(s6), "No qualifying value; finalized INVALID after the hard deadline");
 });
