@@ -9,6 +9,7 @@ test("markets row link opens the sample-01 detail page with its chart", async ({
   await page.getByRole("link", { name: /Ostrander Kiln Works/ }).click();
   await expect(page).toHaveURL(/\/markets\/sample-01\/?$/);
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Ostrander Kiln Works");
+  await expect(page.getByRole("heading", { name: "How agents reasoned" })).toBeVisible();
   await expect(page.getByRole("img", { name: /Line chart of the probability of YES/ })).toBeVisible();
 });
 
@@ -23,8 +24,8 @@ test("chart hover shows a tooltip", async ({ page }, info) => {
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   const tip = page.getByTestId("chart-tip");
   await expect(tip).toBeVisible();
-  await expect(tip).toContainText("Platform");
-  await expect(tip).toContainText("Baseline");
+  await expect(tip).toContainText("Consensus");
+  await expect(tip).toContainText("Last fill");
 });
 
 test("Show table reveals one row per window", async ({ page }) => {
@@ -34,6 +35,9 @@ test("Show table reveals one row per window", async ({ page }) => {
   await page.getByRole("button", { name: "Show table" }).click();
   await expect(table).toBeVisible();
   await expect(table.locator("tbody tr")).toHaveCount(first?.windows.length ?? 0);
+  await expect(table).toContainText("No fill");
+  const fillPath = page.getByRole("img", { name: /last fill/i }).locator("path[stroke-dasharray]");
+  expect((await fillPath.getAttribute("d"))?.match(/M/g)).toHaveLength(2);
   await expect(page.getByRole("button", { name: "Hide table" })).toHaveAttribute("aria-expanded", "true");
 });
 

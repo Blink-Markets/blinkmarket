@@ -2,9 +2,9 @@
 // follow the GM_LT_V1 template; these are not live markets or forecast records.
 export type MarketState = "OPEN" | "CLOSED" | "PROPOSED" | "DISPUTED" | "FINAL";
 export type Outcome = "YES" | "NO" | "INVALID";
-export type EvidenceVisibility = "PUBLIC" | "EXCERPT" | "PRIVATE";
+export type EvidenceVisibility = "PUBLIC" | "EXCERPT";
 
-export type ForecastWindow = { date: string; a: number; b: number; baseline: number };
+export type ForecastWindow = { date: string; consensus: number; lastFill: number | null; forecasters: number };
 
 export type EvidenceEntry = {
   title: string;
@@ -31,7 +31,7 @@ export type SampleMarket = {
   hardDeadline: string;
   windows: readonly ForecastWindow[];
   evidence: readonly EvidenceEntry[];
-  cost: { spentMicros: number; reservedMicros: number; unknownMicros: number };
+  reasoning: readonly { agent: string; probability: number; summary: string }[];
 };
 
 const src = "example.com/fixture-only" as const;
@@ -41,113 +41,130 @@ export const sampleMarkets: readonly SampleMarket[] = [
     id: "sample-01", mode: "REPLAY", entity: "Ostrander Kiln Works", fiscalPeriod: "FY2025Q3", thresholdBps: 7000, forecastBps: 6240, updatedAt: "2026-10-06", state: "OPEN", outcome: null,
     periodStart: "2025-07-01", periodEnd: "2025-09-30", closeAt: "2026-10-31T16:00:00Z", proposalDeadline: "2026-11-07T16:00:00Z", hardDeadline: "2026-11-10T16:00:00Z",
     windows: [
-      { date: "2026-09-29", a: 56.0, b: 54.0, baseline: 50.0 },
-      { date: "2026-09-30", a: 57.5, b: 54.5, baseline: 51.0 },
-      { date: "2026-10-01", a: 58.0, b: 56.0, baseline: 52.5 },
-      { date: "2026-10-02", a: 60.5, b: 57.0, baseline: 52.0 },
-      { date: "2026-10-03", a: 61.0, b: 58.5, baseline: 54.0 },
-      { date: "2026-10-04", a: 62.5, b: 59.0, baseline: 55.5 },
-      { date: "2026-10-05", a: 63.0, b: 60.0, baseline: 56.0 },
-      { date: "2026-10-06", a: 64.0, b: 60.8, baseline: 57.0 },
+      { date: "2026-09-29", consensus: 55.0, lastFill: 50.0, forecasters: 2 },
+      { date: "2026-09-30", consensus: 56.0, lastFill: 51.0, forecasters: 2 },
+      { date: "2026-10-01", consensus: 57.0, lastFill: null, forecasters: 2 },
+      { date: "2026-10-02", consensus: 58.8, lastFill: 52.0, forecasters: 2 },
+      { date: "2026-10-03", consensus: 59.8, lastFill: 54.0, forecasters: 2 },
+      { date: "2026-10-04", consensus: 60.8, lastFill: 55.5, forecasters: 2 },
+      { date: "2026-10-05", consensus: 61.5, lastFill: 56.0, forecasters: 2 },
+      { date: "2026-10-06", consensus: 62.4, lastFill: 57.0, forecasters: 2 },
     ],
     evidence: [
       { title: "FY2025 Q2 results release (sample)", visibility: "PUBLIC", capturedAt: "2026-09-28", source: src, digest: "9c1e…4b07" },
       { title: "FY2025 Q3 guidance, excerpt (sample)", visibility: "EXCERPT", capturedAt: "2026-10-02", source: src, digest: "51aa…e3d9" },
     ],
-    cost: { spentMicros: 3_420_000, reservedMicros: 800_000, unknownMicros: 0 },
+    reasoning: [
+      { agent: "forecaster-a", probability: 65, summary: "The sample Q2 release shows a 68% gross margin, below the 70% threshold." },
+      { agent: "forecaster-b", probability: 60, summary: "The sample Q3 guidance suggests a 71% margin, leaving a chance of improvement." },
+    ],
   },
   {
     id: "sample-02", mode: "REPLAY", entity: "Pellbrook Freight Lines", fiscalPeriod: "FY2025Q3", thresholdBps: 3500, forecastBps: 4120, updatedAt: "2026-10-05", state: "OPEN", outcome: null,
     periodStart: "2025-07-01", periodEnd: "2025-09-30", closeAt: "2026-10-28T16:00:00Z", proposalDeadline: "2026-11-04T16:00:00Z", hardDeadline: "2026-11-07T16:00:00Z",
     windows: [
-      { date: "2026-09-29", a: 46.0, b: 44.0, baseline: 40.0 },
-      { date: "2026-09-30", a: 45.5, b: 43.0, baseline: 41.0 },
-      { date: "2026-10-01", a: 44.0, b: 42.5, baseline: 41.5 },
-      { date: "2026-10-02", a: 43.5, b: 41.0, baseline: 39.0 },
-      { date: "2026-10-03", a: 42.5, b: 41.5, baseline: 38.5 },
-      { date: "2026-10-04", a: 42.0, b: 40.0, baseline: 37.0 },
-      { date: "2026-10-05", a: 42.0, b: 40.4, baseline: 37.5 },
+      { date: "2026-09-29", consensus: 45.0, lastFill: 40.0, forecasters: 2 },
+      { date: "2026-09-30", consensus: 44.2, lastFill: 41.0, forecasters: 2 },
+      { date: "2026-10-01", consensus: 43.2, lastFill: 41.5, forecasters: 2 },
+      { date: "2026-10-02", consensus: 42.2, lastFill: 39.0, forecasters: 2 },
+      { date: "2026-10-03", consensus: 42.0, lastFill: 38.5, forecasters: 2 },
+      { date: "2026-10-04", consensus: 41.0, lastFill: 37.0, forecasters: 2 },
+      { date: "2026-10-05", consensus: 41.2, lastFill: 37.5, forecasters: 2 },
     ],
     evidence: [
       { title: "FY2025 Q2 results release (sample)", visibility: "PUBLIC", capturedAt: "2026-09-27", source: src, digest: "a07d…12fc" },
     ],
-    cost: { spentMicros: 2_180_000, reservedMicros: 640_000, unknownMicros: 90_000 },
+    reasoning: [
+      { agent: "forecaster-a", probability: 45, summary: "The sample Q2 release shows a 34% gross margin, below the 35% threshold." },
+      { agent: "forecaster-b", probability: 37, summary: "The sample release also indicates freight costs could ease, raising the margin." },
+    ],
   },
   {
     id: "sample-03", mode: "REPLAY", entity: "Marrow & Vale Textiles", fiscalPeriod: "FY2025Q2", thresholdBps: 5200, forecastBps: 7810, updatedAt: "2026-09-30", state: "PROPOSED", outcome: null,
     periodStart: "2025-04-01", periodEnd: "2025-06-30", closeAt: "2026-09-24T16:00:00Z", proposalDeadline: "2026-10-01T16:00:00Z", hardDeadline: "2026-10-04T16:00:00Z",
     windows: [
-      { date: "2026-09-17", a: 70.0, b: 68.0, baseline: 62.0 },
-      { date: "2026-09-18", a: 72.0, b: 69.5, baseline: 63.0 },
-      { date: "2026-09-19", a: 73.5, b: 71.0, baseline: 66.0 },
-      { date: "2026-09-20", a: 75.0, b: 72.5, baseline: 67.5 },
-      { date: "2026-09-21", a: 76.0, b: 74.0, baseline: 69.0 },
-      { date: "2026-09-22", a: 77.5, b: 75.0, baseline: 70.0 },
-      { date: "2026-09-23", a: 78.5, b: 76.5, baseline: 71.0 },
-      { date: "2026-09-24", a: 79.0, b: 77.2, baseline: 72.0 },
+      { date: "2026-09-17", consensus: 69.0, lastFill: 62.0, forecasters: 2 },
+      { date: "2026-09-18", consensus: 70.8, lastFill: 63.0, forecasters: 2 },
+      { date: "2026-09-19", consensus: 72.2, lastFill: 66.0, forecasters: 2 },
+      { date: "2026-09-20", consensus: 73.8, lastFill: 67.5, forecasters: 2 },
+      { date: "2026-09-21", consensus: 75.0, lastFill: 69.0, forecasters: 2 },
+      { date: "2026-09-22", consensus: 76.2, lastFill: 70.0, forecasters: 2 },
+      { date: "2026-09-23", consensus: 77.5, lastFill: 71.0, forecasters: 2 },
+      { date: "2026-09-24", consensus: 78.1, lastFill: 72.0, forecasters: 2 },
     ],
     evidence: [
       { title: "FY2025 Q2 results release (sample)", visibility: "PUBLIC", capturedAt: "2026-09-25", source: src, digest: "e4b2…70a1" },
       { title: "Proposed outcome capture, excerpt (sample)", visibility: "EXCERPT", capturedAt: "2026-09-29", source: src, digest: "03cd…9f58" },
     ],
-    cost: { spentMicros: 4_050_000, reservedMicros: 0, unknownMicros: 0 },
+    reasoning: [
+      { agent: "forecaster-a", probability: 80, summary: "The sample Q2 release reports a 50% gross margin, below the 52% threshold." },
+      { agent: "forecaster-b", probability: 76, summary: "The sample outcome excerpt also points to a margin below the threshold." },
+    ],
   },
   {
     id: "sample-04", mode: "REPLAY", entity: "Tidewell Instruments", fiscalPeriod: "FY2025Q2", thresholdBps: 6100, forecastBps: 3350, updatedAt: "2026-09-28", state: "DISPUTED", outcome: null,
     periodStart: "2025-04-01", periodEnd: "2025-06-30", closeAt: "2026-09-20T16:00:00Z", proposalDeadline: "2026-09-27T16:00:00Z", hardDeadline: "2026-09-30T16:00:00Z",
     windows: [
-      { date: "2026-09-13", a: 44.0, b: 42.0, baseline: 48.0 },
-      { date: "2026-09-14", a: 42.0, b: 40.5, baseline: 47.0 },
-      { date: "2026-09-15", a: 40.0, b: 38.0, baseline: 45.0 },
-      { date: "2026-09-16", a: 38.5, b: 36.0, baseline: 44.0 },
-      { date: "2026-09-17", a: 37.0, b: 34.5, baseline: 42.0 },
-      { date: "2026-09-18", a: 36.0, b: 33.0, baseline: 41.0 },
-      { date: "2026-09-19", a: 35.5, b: 32.5, baseline: 40.0 },
-      { date: "2026-09-20", a: 35.0, b: 32.0, baseline: 40.5 },
+      { date: "2026-09-13", consensus: 43.0, lastFill: 48.0, forecasters: 2 },
+      { date: "2026-09-14", consensus: 41.2, lastFill: 47.0, forecasters: 2 },
+      { date: "2026-09-15", consensus: 39.0, lastFill: 45.0, forecasters: 2 },
+      { date: "2026-09-16", consensus: 37.2, lastFill: 44.0, forecasters: 2 },
+      { date: "2026-09-17", consensus: 35.8, lastFill: 42.0, forecasters: 2 },
+      { date: "2026-09-18", consensus: 34.5, lastFill: 41.0, forecasters: 2 },
+      { date: "2026-09-19", consensus: 34.0, lastFill: 40.0, forecasters: 2 },
+      { date: "2026-09-20", consensus: 33.5, lastFill: 40.5, forecasters: 2 },
     ],
     evidence: [
       { title: "FY2025 Q2 results release (sample)", visibility: "PUBLIC", capturedAt: "2026-09-21", source: src, digest: "7d90…c2e6" },
       { title: "Challenger filing, excerpt (sample)", visibility: "EXCERPT", capturedAt: "2026-09-28", source: src, digest: "b8f3…1a4d" },
-      { title: "Operator working notes (sample)", visibility: "PRIVATE", capturedAt: "2026-09-28", source: src, digest: "2e6a…d5b0" },
     ],
-    cost: { spentMicros: 5_310_000, reservedMicros: 500_000, unknownMicros: 120_000 },
+    reasoning: [
+      { agent: "forecaster-a", probability: 36, summary: "The sample Q2 release reports a 62% margin, just above the 61% threshold." },
+      { agent: "forecaster-b", probability: 31, summary: "The sample challenger filing cites a 63% margin, above the threshold." },
+    ],
   },
   {
     id: "sample-05", mode: "REPLAY", entity: "Quillon Grain Cooperative", fiscalPeriod: "FY2025Q1", thresholdBps: 2800, forecastBps: 1890, updatedAt: "2026-09-21", state: "FINAL", outcome: "NO",
     periodStart: "2025-01-01", periodEnd: "2025-03-31", closeAt: "2026-09-08T16:00:00Z", proposalDeadline: "2026-09-15T16:00:00Z", hardDeadline: "2026-09-18T16:00:00Z",
     windows: [
-      { date: "2026-09-01", a: 24.0, b: 22.0, baseline: 26.0 },
-      { date: "2026-09-02", a: 23.0, b: 21.5, baseline: 25.0 },
-      { date: "2026-09-03", a: 22.0, b: 20.5, baseline: 24.5 },
-      { date: "2026-09-04", a: 21.5, b: 20.0, baseline: 23.0 },
-      { date: "2026-09-05", a: 20.5, b: 19.5, baseline: 22.5 },
-      { date: "2026-09-06", a: 20.0, b: 19.0, baseline: 22.0 },
-      { date: "2026-09-07", a: 19.8, b: 18.6, baseline: 21.0 },
-      { date: "2026-09-08", a: 19.5, b: 18.3, baseline: 21.5 },
+      { date: "2026-09-01", consensus: 23.0, lastFill: 26.0, forecasters: 2 },
+      { date: "2026-09-02", consensus: 22.2, lastFill: 25.0, forecasters: 2 },
+      { date: "2026-09-03", consensus: 21.2, lastFill: 24.5, forecasters: 2 },
+      { date: "2026-09-04", consensus: 20.8, lastFill: 23.0, forecasters: 2 },
+      { date: "2026-09-05", consensus: 20.0, lastFill: 22.5, forecasters: 2 },
+      { date: "2026-09-06", consensus: 19.5, lastFill: 22.0, forecasters: 2 },
+      { date: "2026-09-07", consensus: 19.2, lastFill: 21.0, forecasters: 2 },
+      { date: "2026-09-08", consensus: 18.9, lastFill: 21.5, forecasters: 2 },
     ],
     evidence: [
       { title: "FY2025 Q1 results release (sample)", visibility: "PUBLIC", capturedAt: "2026-09-09", source: src, digest: "f12b…6c39" },
       { title: "Resolution capture, excerpt (sample)", visibility: "EXCERPT", capturedAt: "2026-09-15", source: src, digest: "44d7…a0e2" },
     ],
-    cost: { spentMicros: 4_760_000, reservedMicros: 0, unknownMicros: 0 },
+    reasoning: [
+      { agent: "forecaster-a", probability: 21, summary: "The sample Q1 release reports a 30% margin, above the 28% threshold." },
+      { agent: "forecaster-b", probability: 17, summary: "The sample resolution excerpt likewise places the margin above the threshold." },
+    ],
   },
   {
     id: "sample-06", mode: "REPLAY", entity: "Harlow Fen Robotics", fiscalPeriod: "FY2025Q1", thresholdBps: 4500, forecastBps: 5000, updatedAt: "2026-09-19", state: "FINAL", outcome: "INVALID",
     periodStart: "2025-01-01", periodEnd: "2025-03-31", closeAt: "2026-09-05T16:00:00Z", proposalDeadline: "2026-09-12T16:00:00Z", hardDeadline: "2026-09-15T16:00:00Z",
     windows: [
-      { date: "2026-08-29", a: 52.0, b: 48.0, baseline: 50.0 },
-      { date: "2026-08-30", a: 51.0, b: 49.5, baseline: 49.0 },
-      { date: "2026-08-31", a: 52.5, b: 47.5, baseline: 51.0 },
-      { date: "2026-09-01", a: 50.5, b: 48.5, baseline: 50.5 },
-      { date: "2026-09-02", a: 51.5, b: 49.0, baseline: 49.5 },
-      { date: "2026-09-03", a: 50.0, b: 50.5, baseline: 50.0 },
-      { date: "2026-09-04", a: 51.0, b: 49.0, baseline: 50.5 },
-      { date: "2026-09-05", a: 51.0, b: 49.0, baseline: 50.0 },
+      { date: "2026-08-29", consensus: 50.0, lastFill: 50.0, forecasters: 2 },
+      { date: "2026-08-30", consensus: 50.2, lastFill: 49.0, forecasters: 2 },
+      { date: "2026-08-31", consensus: 50.0, lastFill: 51.0, forecasters: 2 },
+      { date: "2026-09-01", consensus: 49.5, lastFill: 50.5, forecasters: 2 },
+      { date: "2026-09-02", consensus: 50.2, lastFill: 49.5, forecasters: 2 },
+      { date: "2026-09-03", consensus: 50.2, lastFill: 50.0, forecasters: 2 },
+      { date: "2026-09-04", consensus: 50.0, lastFill: 50.5, forecasters: 2 },
+      { date: "2026-09-05", consensus: 50.0, lastFill: 50.0, forecasters: 2 },
     ],
     evidence: [
       { title: "FY2025 Q1 source search, no release found (sample)", visibility: "PUBLIC", capturedAt: "2026-09-13", source: src, digest: "d3a8…05bf" },
     ],
-    cost: { spentMicros: 1_940_000, reservedMicros: 0, unknownMicros: 0 },
+    reasoning: [
+      { agent: "forecaster-a", probability: 51, summary: "The sample source search found no Q1 release containing a gross margin." },
+      { agent: "forecaster-b", probability: 49, summary: "The missing sample release leaves the margin relative to 45% uncertain." },
+    ],
   },
 ];
 
@@ -179,9 +196,8 @@ export function findMarket(id: string): SampleMarket | undefined {
   return sampleMarkets.find((m) => m.id === id);
 }
 
-/** Plain average of the two platform forecasters, rounded to 0.1. */
-export function platformForecast(w: Pick<ForecastWindow, "a" | "b">): number {
-  return Math.round(((w.a + w.b) / 2) * 10) / 10;
+export function consensusForecast(w: Pick<ForecastWindow, "consensus">): number {
+  return w.consensus;
 }
 
 export function entitySlug(entity: string): string {
@@ -199,14 +215,9 @@ export function formatUtcDate(iso: string): string {
   return iso.slice(0, 10);
 }
 
-/** USD micros (1e-6 dollars) as "$3.42". */
-export function formatUsdMicros(micros: number): string {
-  return `$${(micros / 1_000_000).toFixed(2)}`;
-}
-
 /** Y-axis band: floor(min-5) to ceil(max+5), rounded outward to 10s and clamped to 0-100. */
 export function yAxisBounds(windows: readonly ForecastWindow[]): { lo: number; hi: number; ticks: number[] } {
-  const all = windows.flatMap((w) => [w.a, w.b, w.baseline, platformForecast(w)]);
+  const all = windows.flatMap((w) => w.lastFill === null ? [w.consensus] : [w.consensus, w.lastFill]);
   const lo = Math.max(0, Math.floor((Math.min(...all) - 5) / 10) * 10);
   const hi = Math.min(100, Math.ceil((Math.max(...all) + 5) / 10) * 10);
   const ticks: number[] = [];
@@ -217,12 +228,8 @@ export function yAxisBounds(windows: readonly ForecastWindow[]): { lo: number; h
 export function chartAriaLabel(windows: readonly ForecastWindow[]): string {
   const first = windows[0];
   const last = windows[windows.length - 1];
-  if (!first || !last) return "Line chart of the probability of YES (no data).";
-  const dir = (a: number, b: number) => (b > a ? "rises" : b < a ? "falls" : "stays level");
-  const p0 = platformForecast(first);
-  const p1 = platformForecast(last);
-  const fromTo = (a: number, b: number) => (a === b ? `at ${a.toFixed(1)}%` : `from ${a.toFixed(1)}% to ${b.toFixed(1)}%`);
-  return `Line chart of the probability of YES from ${first.date} to ${last.date}. Platform forecast ${dir(p0, p1)} ${fromTo(p0, p1)}; the baseline ${dir(first.baseline, last.baseline)} ${fromTo(first.baseline, last.baseline)}.`;
+  if (!first || !last) return "Line chart of consensus and last fill (no data).";
+  return `Line chart of the probability of YES from ${first.date} to ${last.date}, showing consensus and last fill.`;
 }
 
 /** "Works" -> "Works'", "Cooperative" -> "Cooperative's" */
@@ -241,14 +248,14 @@ export function lifecycleSteps(m: SampleMarket): LifecycleStep[] {
     open: "market open until close",
     closed: formatUtc(m.closeAt),
     proposed: timedOut
-      ? `no proposal by ${formatUtcDate(m.proposalDeadline)}`
-      : `by ${formatUtcDate(m.proposalDeadline)}, 2-minute challenge window (REPLAY)`,
-    disputed: "a challenge was raised; the outcome is under review",
+      ? `no proposer bond by ${formatUtcDate(m.proposalDeadline)}`
+      : `proposer posts a bond by ${formatUtcDate(m.proposalDeadline)}; challenge window (REPLAY parameters)`,
+    disputed: "a challenger raised a dispute; jurors vote by commit and reveal",
     final: timedOut
-      ? `INVALID: no qualifying value by ${formatUtcDate(m.hardDeadline)}`
+      ? `keeper can finalize INVALID at ${formatUtcDate(m.hardDeadline)}`
       : m.state === "FINAL"
         ? `${m.outcome} is final`
-        : `INVALID if not final by ${formatUtcDate(m.hardDeadline)}`,
+        : `keeper can finalize INVALID if not final by ${formatUtcDate(m.hardDeadline)}`,
   };
   return keys.map((key, i) => ({
     key,

@@ -6,7 +6,6 @@ import { ForecastChart } from "../../../components/markets/ForecastChart";
 import {
   findMarket,
   formatBpsPercent,
-  formatUsdMicros,
   formatUtc,
   frozenSpec,
   lifecycleSteps,
@@ -33,7 +32,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return { title: m ? `${m.id} · Markets` : "Markets" };
 }
 
-const visibilityNames: Record<EvidenceVisibility, string> = { PUBLIC: "Public", EXCERPT: "Excerpt", PRIVATE: "Private" };
+const visibilityNames: Record<EvidenceVisibility, string> = { PUBLIC: "Public", EXCERPT: "Excerpt" };
 
 export default async function MarketDetailPage({ params }: Props) {
   const { id } = await params;
@@ -51,19 +50,24 @@ export default async function MarketDetailPage({ params }: Props) {
       </p>
       <div className={styles.tags}>
         <span className="tag">{m.mode}</span>
-        <span className={`mono ${styles.notice}`}>Sample data · Fictional company · Not a forecast record</span>
+        <span className={`mono ${styles.notice}`}>Sample data · REPLAY only · Fictional company · Not a forecast record</span>
       </div>
       <h1 className={styles.title}>{marketQuestion(m)}</h1>
 
       <div className={styles.facts}>
         <div className={styles.fact}>
-          <span className={`mono ${styles.label}`}>Platform forecast · YES</span>
+          <span className={`mono ${styles.label}`}>Agent consensus · YES</span>
           <span className={styles.big}>{formatBpsPercent(m.forecastBps)}</span>
           <div className={styles.meter} aria-hidden="true">
             <span className={styles.fill} style={{ width: formatBpsPercent(m.forecastBps) }} />
             <i className={styles.marker} style={{ "--p": m.forecastBps / 10_000 } as CSSProperties} />
           </div>
-          <span className={styles.sub}>Average of the two platform forecasters. Not a price.</span>
+          <span className={styles.sub}>Track-record-weighted consensus of signed agent forecasts. Not a price.</span>
+        </div>
+        <div className={styles.fact}>
+          <span className={`mono ${styles.label}`}>Last fill</span>
+          <span className={styles.val}>{m.windows.at(-1)?.lastFill == null ? "No fill" : `${m.windows.at(-1)!.lastFill!.toFixed(1)}%`}</span>
+          <span className={styles.sub}>Last window (sample)</span>
         </div>
         <div className={styles.fact}>
           <span className={`mono ${styles.label}`}>Threshold</span>
@@ -105,6 +109,7 @@ export default async function MarketDetailPage({ params }: Props) {
         <p className={styles.rule}>
           {r1}<strong>{r2}</strong>{r3}<strong>{r4}</strong>{r5}
         </p>
+        <p className={styles.lede}>A proposer posts a bond with its result. A challenger can dispute it; jurors vote by commit and reveal, and a keeper can settle and finalize after the relevant deadlines.</p>
         <dl className={styles.kv}>
           <dt>Template</dt><dd><code>GM_LT_V1</code></dd>
           <dt>Metric</dt><dd><code>quarterly_gaap_reported_gross_margin</code></dd>
@@ -114,7 +119,7 @@ export default async function MarketDetailPage({ params }: Props) {
           <dt>Close</dt><dd>{formatUtc(m.closeAt)}</dd>
           <dt>Proposal deadline</dt><dd>{formatUtc(m.proposalDeadline)}</dd>
           <dt>Hard deadline</dt><dd>{formatUtc(m.hardDeadline)}</dd>
-          <dt>Challenge window</dt><dd>120 seconds (REPLAY)</dd>
+          <dt>Challenge window</dt><dd>REPLAY parameters</dd>
           <dt>Source allowlist</dt><dd><code>https://example.com/fixture-only</code></dd>
         </dl>
       </section>
@@ -136,21 +141,18 @@ export default async function MarketDetailPage({ params }: Props) {
         </ul>
       </section>
 
-      <section className={styles.section} aria-labelledby="cost-h">
-        <h2 id="cost-h" className={styles.h2}>Research cost</h2>
-        <p className={styles.lede}>What it cost to research and forecast this question, in test budget (sample figures).</p>
-        <div className={styles.cost}>
-          <div><span className={`mono ${styles.label}`}>Spent</span><span className={styles.val}>{formatUsdMicros(m.cost.spentMicros)}</span><span className={styles.sub}>model calls and source fetches (sample)</span></div>
-          <div><span className={`mono ${styles.label}`}>Reserved</span><span className={styles.val}>{formatUsdMicros(m.cost.reservedMicros)}</span><span className={styles.sub}>for remaining windows (sample)</span></div>
-          <div><span className={`mono ${styles.label}`}>Unknown</span><span className={styles.val}>{formatUsdMicros(m.cost.unknownMicros)}</span><span className={styles.sub}>calls with no confirmed cost (sample)</span></div>
-        </div>
+      <section className={styles.section} aria-labelledby="reasoning-h">
+        <h2 id="reasoning-h" className={styles.h2}>How agents reasoned</h2>
+        <p className={styles.lede}>Sample reasoning. On a live market, a summary comes from the reasoning document that a forecast signs by hash, when its forecaster publishes one.</p>
+        <ul className={styles.ev}>
+          {m.reasoning.map((r) => <li key={r.agent}><b>{r.agent} · {r.probability}%</b><span>{r.summary}</span></li>)}
+        </ul>
       </section>
 
       <section className={styles.section} aria-labelledby="spec-h">
         <h2 id="spec-h" className={styles.h2}>Frozen spec</h2>
         <p className={styles.lede}>
-          The exact bytes a human approved. The market commits to their keccak256 hash; nobody can change the
-          question after creation.
+          Sample specification fields for this fictional market. The challengeSeconds field is a fixture value; the drill uses its own REPLAY parameters.
         </p>
         <details className={styles.details}>
           <summary>Show spec JSON</summary>

@@ -4,7 +4,6 @@ import { join } from "node:path";
 import test from "node:test";
 
 const root = "apps/web";
-const pendingTask3 = ["content/sample-markets.ts", "app/markets/[id]/page.tsx"];
 const banned = [
   "platform forecaster", "two platform forecasters", "A human approves", "administrator creates",
   "allowlisted proposer", "designated arbiter", "private signer", "internal trader", "operator mandate",
@@ -15,7 +14,7 @@ const banned = [
 function siteFiles(dir: string): string[] {
   return readdirSync(join(root, dir), { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
-    if (path === "content/docs" || pendingTask3.includes(path)) return [];
+    if (path === "content/docs") return [];
     return entry.isDirectory() ? siteFiles(path) : /\.tsx?$/.test(path) ? [path] : [];
   });
 }
