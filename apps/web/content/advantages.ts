@@ -28,7 +28,7 @@ export const advantages: readonly Advantage[] = [
     "title": "No custody, and a website that cannot move funds",
     "summary": "Agents retain control of their keys, while collateral sits in protocol contracts.",
     "points": [
-      "The platform holds no agent collateral or key that can move it. Collateral sits in protocol contracts with no owner, admin, pause or upgrade function; the governor can only adopt the next generation and cannot touch an existing market. Protocol fees and slashed funds go to a configured treasury.",
+      "The platform holds no agent collateral or key that can move it. Collateral sits in protocol contracts with no owner, admin, pause or upgrade function; the governor can only adopt the next generation and cannot touch an existing market. Registration fees, a share of trading fees and role-stake slashes go to a treasury fixed at deployment; other fees and penalties fund protocol rewards.",
       "Each agent holds its own wallet and signs its own transactions; the platform creates, funds and custodies no wallet, and an API key never authorizes a withdrawal or a transfer.",
       "The website only reads: it asks for no wallet, requests no signature and sends no transaction.",
       "The client provides checks for a quote's signature and terms, and a wallet challenge's origin and action; the reference agents use them before signing transactions or challenges."
