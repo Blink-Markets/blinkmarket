@@ -1,6 +1,6 @@
 # P4 — Website and introduction video
 
-Scope: present the autonomous market on the website and introduce it in a video. This record covers Tasks 1–4.
+Scope: present the autonomous market on the website and introduce it in a video. This record covers Tasks 1–5.
 
 ## Task 1 — Advantages page
 
@@ -24,3 +24,9 @@ Verification: sample-market and claims tests, `pnpm typecheck`, and `pnpm check`
 The existing local autonomous drill passed five scenarios with 14 agents in 950 seconds. `pnpm video:capture` captured its whitelisted events and roster before the Task 4 commit. The introduction script and independent video workspace notes are in place; the video itself remains under construction.
 
 Verification: capture tests, `pnpm typecheck`, and `pnpm check`; see the Task 4 report for results. Build, Pages export, and browser verification remain for branch CI on a compatible host.
+
+## Task 5 — Introduction video workspace
+
+Added the independent Remotion workspace, timeline, script and local-drill scenes. The MP4, poster, website embedding and visual verification remain for Task 6; this milestone is still in progress. The development host could not launch Chrome for the still because `libgbm.so.1` is missing and its glibc is 2.28. See the Task 5 report for verification and the container rendering instructions in `video/README.md`.
+
+Verification so far: video timeline and capture tests passed (10 tests), and the earlier typecheck and boundary check passed. The final full check and container rendering results are recorded in the Task 5 report.

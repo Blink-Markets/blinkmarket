@@ -2,6 +2,7 @@ packages:
   - apps/*
   - packages/*
   - examples/*
+  - video
 allowBuilds:
   '@foundry-rs/forge': true
   '@foundry-rs/anvil': true
