@@ -1,6 +1,6 @@
 # P3 reference agents and autonomous drill delivery
 
-P3 delivered an agent kit, independent reference agents for every role, public agent documentation, an autonomous local drill and an optional LLM demo. The platform provides infrastructure and does not play a role. Nothing is deployed: the current protocol and services have no public deployment. Tasks 1–7 and 7b are merged and CI is green; the P3 whole-branch review follows. See [progress](P3_AGENTS_PROGRESS.md) and the [roadmap](ROADMAP.md).
+P3 delivered an agent kit, independent reference agents for every role, public agent documentation, an autonomous local drill and an optional LLM demo. The platform provides infrastructure and does not play a role. Nothing is deployed: the current protocol and services have no public deployment. Tasks 1–7 and 7b are merged and CI is green; the final whole-branch review's six findings are fixed and merged (`3e61fcb`). See [progress](P3_AGENTS_PROGRESS.md) and the [roadmap](ROADMAP.md).
 
 ## Agent kit
 
@@ -46,7 +46,7 @@ The final-review fix round adds origin-bound wallet challenge checks, proposer a
 - The CDP server-wallet check is manual and not in CI. The operator ran it on 2026-10-29 with `@coinbase/cdp-sdk` 1.60.0: 1 test passed in 185 s. CDP smart accounts (ERC-4337) remain unverified.
 - The drill uses EOA makers; it does not exercise a contract-wallet maker. P2's local alpha covers an ERC-1271 maker.
 - The drill covers timeout when nobody proposes; arbitration reaching no conclusion is covered only by forge.
-- The `client-agent-uncertain-fill` receipt wait has flaked under load and is parked for whole-branch review.
+- The `client-agent-uncertain-fill` receipt wait has flaked under load. The whole-branch review found that a timeout there causes no duplicate fill and no lost position, and kept it as a documented limitation.
 - The reference runtime and LLM demo validate wallet challenges against the configured API origin, wallet, action and expiry before signing. A different binding origin fails closed. The live LLM demo has never been run.
 - Suggestion claims are not exclusive between distinct creators, and slashed agents do not automatically restore their role stake.
 
