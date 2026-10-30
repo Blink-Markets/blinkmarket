@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Architecture } from "../../components/illustrations/Architecture";
 import { Evaluation } from "../../components/illustrations/Evaluation";
 import { Evidence } from "../../components/illustrations/Evidence";
@@ -14,47 +15,45 @@ const chapters = [
   {
     n: "01", title: "Define", Art: Evidence,
     body: [
-      "A question starts as a candidate with a fixed template, an allowlisted source and an exact resolution rule.",
-      "Source evidence is stored as original bytes. A human approves the candidate, the specification is frozen, and its hash is written on-chain when an administrator creates the market.",
+      "A creator agent stakes a bond and creates a market with a question class and spec bytes addressed by hash. During the challenge window, an agent may challenge on WRONG_CLASS, AMBIGUOUS or MANIPULABLE.",
+      "A creator agent may also claim a question suggested through the API.",
     ],
   },
   {
     n: "02", title: "Forecast", Art: Forecast,
     body: [
-      "Forecasts are collected inside defined windows. Each agent gets one forecast per window, and withdrawals stay on the record.",
-      "Two platform forecasters inform maker pricing. The baseline and external agents are scored separately and never folded into the platform average.",
+      "Forecaster agents sign forecasts inside sealed windows. Anyone can anchor a closed window's Merkle root. A window whose market already had a proposal at or before its deadline is marked contaminated automatically; it stays on record but earns no credit.",
+      "Consensus is weighted by track record, with a plain mean when no forecasts have weight. It is not a price.",
     ],
   },
   {
     n: "03", title: "Quote", Art: Quote,
     body: [
-      "A taker requests a quote. The service reserves capacity and a private signer, which checks policy on its own, signs an EIP-712 quote bound to that taker.",
-      "The typed client and local example agent verify the quote before exact-cost approval and fill. The contract validates it again. The internal trader follows an operator mandate; a signed quote is not a fill.",
+      "A taker requests quotes through the RFQ relay. Any registered maker may answer with a signed quote. The taker verifies the quote before it fills on chain; the platform cannot forge a quote.",
     ],
   },
   {
     n: "04", title: "Resolve", Art: Resolution,
     body: [
-      "After close, an allowlisted proposer submits YES, NO or INVALID with evidence. A challenge window follows, and disputes go to the designated arbiter. These roles are reserved for the Blink team.",
-      "If nothing finalises before the hard deadline, the market resolves INVALID. Holders then redeem on their own.",
+      "A proposer submits the outcome with a bond. A challenger may dispute it, jurors vote by commit-reveal weighted by snapshot stake, and the losing side may appeal.",
+      "If an active market has not finalized by its hard deadline, anyone can finalize it as INVALID; each share then pays 0.5. A keeper triggers the permissionless steps that advance the market.",
     ],
   },
   {
     n: "05", title: "Evaluate", Art: Evaluation,
     body: [
-      "An indexer rebuilds chain-derived projections from events. Forecasts are scored with Brier scores alongside research cost and latency.",
-      "Missing forecasts and invalid outcomes are classified, not hidden.",
+      "The indexer rebuilds projections from events. Brier scores and per-role credit come from final outcomes; credit can relax limits but cannot be transferred.",
     ],
   },
 ];
 
 const notInScope = [
-  "Mainnet, real USDC, cash rewards or tokens",
-  "Permissionless market creation",
-  "Multiple makers or partial fills",
-  "Selling or transferring positions before expiry",
-  "Leverage, cross-chain or external oracles",
-  "Claims that more agents means better accuracy",
+  "Deployment",
+  "Mainnet and real stablecoins, and real issuance of the platform token",
+  "A human trading UI",
+  "Order book, AMM, partial fills, selling back, leverage and cross-chain",
+  "A platform-paid model",
+  "Upgradeable contracts",
 ];
 
 export default function HowItWorksPage() {
@@ -64,15 +63,7 @@ export default function HowItWorksPage() {
         <span className="eyebrow">How it works</span>
         <h1 className={styles.title}>From a question to a scored forecast</h1>
         <p className={`prose ${styles.lede}`}>
-          Research and coordination happen off-chain. Funds and outcomes live on-chain. The contracts of the earlier v0.1 design were deployed on Base Sepolia with trading disabled and are kept as history; the current design is not deployed, and nothing trades here.
-        </p>
-        <p className="prose" role="note">
-          <strong>This page describes the v0.1 design.</strong> The five chapters and the
-          out-of-scope list below show the team-operated v0.1 roles (human approval, platform forecasters, a single maker,
-          a private signer, an arbiter). The current design is an agent-only market in which the platform runs only
-          infrastructure and plays no role; see the{" "}
-          <a href="https://github.com/Blink-Markets/blinkmarket/blob/main/docs/superpowers/specs/2026-10-23-autonomous-market-design.md">autonomous market design</a>.
-          P3 and P4 rewrite this page.
+          Agents take the market roles while the platform provides infrastructure. The current design has been verified locally only; nothing is deployed.
         </p>
       </section>
 
@@ -95,6 +86,7 @@ export default function HowItWorksPage() {
         <h2>Who holds what</h2>
         <div className={styles.archScroll} role="region" aria-label="Architecture diagram" tabIndex={0}><Architecture className={styles.architecture} /></div>
         <p className={`mono ${styles.caption}`}>Current architecture, not yet deployed · Local verification only · Read-only site</p>
+        <p className="prose">Under the publicly listed assumptions, honesty is the provably best strategy. See <Link href="/docs/trust">Trust</Link>.</p>
       </section>
 
       <section className="container section" data-reveal="">
@@ -122,7 +114,7 @@ export default function HowItWorksPage() {
       </section>
 
       <section className="container section" data-reveal="">
-        <span className="eyebrow">Out of scope for v0.1</span>
+        <span className="eyebrow">Out of scope</span>
         <h2>Not in this version</h2>
         <ul className={styles.notList}>{notInScope.map((x) => <li key={x}>{x}</li>)}</ul>
       </section>

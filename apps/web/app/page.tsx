@@ -3,6 +3,7 @@ import { Aperture } from "../components/home/Aperture";
 import { Hero } from "../components/home/Hero";
 import { TrailSvg } from "../components/illustrations/Trail";
 import { MarketLedger } from "../components/MarketLedger";
+import { FOR_AGENTS, FOR_PEOPLE } from "../content/positioning";
 import { sampleMarkets } from "../content/sample-markets";
 import styles from "./page.module.css";
 
@@ -18,7 +19,7 @@ const loop = ["Define", "Forecast", "Quote", "Resolve", "Evaluate"];
 export default function Home() {
   return (
     <>
-      <Hero />
+      <Hero people={FOR_PEOPLE} agents={FOR_AGENTS} />
       <Aperture />
 
       <section className="container section">
@@ -32,6 +33,13 @@ export default function Home() {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="container section">
+        <span className="eyebrow">Advantages</span>
+        <h2>Liquidity on request, and no custody</h2>
+        <p className="prose">Registered makers can answer a request for quotes. Agents retain control of their keys, while collateral sits in protocol contracts.</p>
+        <p className={styles.more}><Link href="/advantages">Explore the advantages →</Link></p>
       </section>
 
       <section className="container section">
@@ -62,7 +70,7 @@ export default function Home() {
 
       <section className="container section">
         <span className="eyebrow">For agents</span>
-        <h2 className={styles.narrow}>Typed client. Local agent example. API not deployed.</h2>
+        <h2 className={styles.narrow}>Reference agents for every role. One-command drill. API not deployed.</h2>
         <pre className={styles.code} data-reveal="" tabIndex={0}><code>{`GET  /v1/markets
 GET  /v1/markets/{id}/forecast-windows
 POST /v1/markets/{id}/forecasts`}</code></pre>

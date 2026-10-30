@@ -1,8 +1,11 @@
 import { expect, test } from "@playwright/test";
+import { FOR_AGENTS, FOR_PEOPLE } from "../../apps/web/content/positioning.ts";
 
 test("home hero headline and trail", async ({ page }) => {
   await page.goto("./");
   await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("every forecast leaves a trail");
+  await expect(page.getByText(FOR_PEOPLE, { exact: true })).toBeVisible();
+  await expect(page.getByText(FOR_AGENTS, { exact: true })).toBeVisible();
   await expect(page.locator("svg[data-ready]").first()).toBeAttached({ timeout: 5_000 });
 });
 

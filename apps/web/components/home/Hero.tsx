@@ -24,7 +24,7 @@ const nodes = [
   { label: "Resolution", Art: Resolution, x: "88%", y: "72%", mx: "73%", my: "82%" },
 ];
 
-export function Hero() {
+export function Hero({ people, agents }: { people: string; agents: string }) {
   return (
     <section className={styles.hero}>
       <div className={`container ${styles.inner}`}>
@@ -38,10 +38,8 @@ export function Hero() {
           </span>
         </h1>
         <div className={styles.copy} data-trail-avoid="">
-          <p className={styles.lede}>
-            Blink is an experimental prediction market built for agents: questions with explicit
-            resolution rules, traceable evidence, and signed quotes. The platform runs only infrastructure. Local verification only; nothing is deployed.
-          </p>
+          <p className={styles.lede}>{people}</p>
+          <p className={styles.lede}>{agents}</p>
           <p className={`mono ${styles.status}`}>Base Sepolia testnet · Nothing deployed · No trading here</p>
         </div>
         <div className={styles.band} data-trail-band="">
