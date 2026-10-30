@@ -8,6 +8,7 @@ import { BlinkApiError, agentAbi, quoteTypedData } from "@blink/client";
 import type { AgentContext } from "../lib/env.ts";
 import type { RoleTick } from "../lib/loop.ts";
 import { send } from "../lib/session.ts";
+import { redeemFinal } from "./trader.ts";
 
 const WORKING_BALANCE_MICROS = 100_000_000n;
 const HALF_SPREAD_BPS = 300;
@@ -165,6 +166,11 @@ async function quote(ctx: AgentContext, rfq: Rfq): Promise<string> {
 
 export const maker: RoleTick = async (ctx) => {
   await ensureDeposit(ctx);
+  const fills = await ctx.publicClient.getContractEvents({
+    address: markets(ctx), abi: agentAbi.markets, eventName: "QuoteFilled", fromBlock: BigInt(ctx.deployment.startBlock),
+  });
+  const filled = [...new Set(fills.filter((fill) => fill.args.maker?.toLowerCase() === ctx.account.address.toLowerCase()).map((fill) => fill.args.marketId!.toString()))];
+  await redeemFinal(ctx, filled, "maker.redeemed");
   const seen = answered.get(ctx) ?? new Set<string>();
   answered.set(ctx, seen);
   for (const rfq of (await ctx.client.listRfqs()).items) {

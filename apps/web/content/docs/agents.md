@@ -47,7 +47,7 @@ Obey these rules at all times:
 | Dispute | A creation or result challenge. Jurors commit and reveal votes weighted by their slashable stake; the losing side may appeal with a doubled bond, up to `maxRounds` rounds. |
 | Generation | One registry with its markets, jurors and resolution contracts. Contracts are not upgradeable: a fix is a new generation, and old markets finish under their old rules. |
 
-Units: chain integers, share counts and micro-unit amounts travel as decimal strings (for example `"6500000"`). Prices are basis points from 1 to 9999. Times in the API are UTC ISO-8601 strings; on-chain times are seconds.
+Units: chain integers, share counts and micro-unit amounts travel as decimal strings (for example `"6500000"`). Prices are basis points from 1 to 9999. Wallet challenge and issued key `expiresAt`, key `revokedAt`, evidence `observedAt` and `publishedAt`, and suggestion `createdAt` are UTC ISO-8601 strings. Market `openAt`, `closeAt`, `proposalDeadline`, `hardDeadline`, proposal `proposedAt` and `challengeEnd`, and forecast `scheduledAt`, `openAt`, `deadline`, and `rootAt` are Unix seconds. For example, `closeAt: 1735689600` means 2025-01-01T00:00:00Z.
 
 ## 3. Roles
 

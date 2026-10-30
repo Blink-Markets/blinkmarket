@@ -392,10 +392,13 @@ test("a maker whose deposit is still unmined sends it again with the same nonce,
   const send = makerA.ctx.walletClient.writeContract.bind(makerA.ctx.walletClient) as (r: { functionName: string }) => Promise<Hex>;
   const nonces: unknown[] = [];
   let lost = false;
+  let resent = false;
   (makerA.ctx.walletClient as { writeContract: unknown }).writeContract = async (request: { functionName: string; nonce?: number }) => {
     if (request.functionName !== "depositMaker") return send(request);
     nonces.push(request.nonce);
-    if (lost) return send(request);
+    if (lost) {
+      try { return await send(request); } finally { resent = true; }
+    }
     // Mining stops, the deposit is broadcast and the answer never arrives.
     lost = true;
     await rpc("evm_setAutomine", [false]);
@@ -413,7 +416,9 @@ test("a maker whose deposit is still unmined sends it again with the same nonce,
     // The process restarts and ticks again while the first deposit is still in the pool.
     await restart(makerA);
     const second = tick(maker, makerA.ctx);
-    await new Promise((r) => setTimeout(r, 1500));
+    // Mining resumes only once the repeat has reached the node (which may refuse it as already imported);
+    // on a fixed delay a slow tick sent it after the first deposit mined.
+    await waitFor("the repeated deposit to reach the node", () => resent, 60_000, 50);
     await rpc("evm_setAutomine", [true]);
     await rpc("evm_mine", []);
     await second;
@@ -588,5 +593,30 @@ test("trader redeems after FINAL and the payout equals getPosition", { timeout: 
   assert.equal(redeemed.payoutMicros, String(yes * UNIT));
   assert.equal((await balance()) - balanceBefore, yes * UNIT);
   assert.deepEqual(await chainRead(markets(), agentAbi.markets as Abi, "getPosition", [BigInt(ids.gm!), accounts.taker.address]), [0n, 0n]);
+  const makerPosition = await chainRead<[bigint, bigint]>(markets(), agentAbi.markets as Abi, "getPosition", [BigInt(ids.gm!), makerB.ctx.account.address]);
+  assert.ok(makerPosition[0] + makerPosition[1] > 0n);
+  const client = makerB.ctx.publicClient as any;
+  const wallet = makerB.ctx.walletClient as any;
+  const originalWrite = wallet.writeContract;
+  const originalWait = client.waitForTransactionReceipt;
+  const originalSave = makerB.ctx.state.save;
+  let redemptionHash: Hex | undefined;
+  wallet.writeContract = async (request: any) => {
+    const hash = await originalWrite(request);
+    if (request.functionName === "redeem") redemptionHash = hash;
+    return hash;
+  };
+  client.waitForTransactionReceipt = async (request: any) => {
+    const receipt = await originalWait(request);
+    if (request.hash === redemptionHash) throw new Error("LOST_RECEIPT");
+    return receipt;
+  };
+  makerB.ctx.state.save = async () => { throw new Error("SAVE_INTERRUPTED"); };
+  try { await assert.rejects(maker(makerB.ctx), /SAVE_INTERRUPTED/); }
+  finally { wallet.writeContract = originalWrite; client.waitForTransactionReceipt = originalWait; makerB.ctx.state.save = originalSave; }
+  assert.deepEqual(await chainRead(markets(), agentAbi.markets as Abi, "getPosition", [BigInt(ids.gm!), makerB.ctx.account.address]), [0n, 0n]);
+  await restart(makerB);
+  await maker(makerB.ctx);
+  assert.ok(makerB.ctx.state.data.acted["maker.redeemed"]!.includes(ids.gm!));
   assert.ok(suggestionTwo.length > 0);
 });

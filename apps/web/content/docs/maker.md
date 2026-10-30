@@ -54,4 +54,4 @@ The maker role earns no on-chain credit. Quotes that bypass the relay are invisi
 7. Sign the quote with `quoteTypedData` and your wallet (`signTypedData`), then post it: `POST /v1/rfqs/{id}/quotes` (client `postQuote`) with `{ quote, signature }`. `409 QUOTE_ALREADY_POSTED` and `409 RFQ_CLOSED` are not failures; move on.
 8. When the process stops (on SIGTERM): `BlinkMarkets.incrementMakerEpoch()` voids every quote still out.
 
-Not done by the reference maker, and left to the operator: free collateral you no longer need with `BlinkMarkets.withdrawMaker(amount)`, and, after a market is final, collect the maker's side with `BlinkMarkets.getPosition(id, account)` and `BlinkMarkets.redeem(id)`.
+The reference maker discovers fills from `QuoteFilled` events and calls `BlinkMarkets.getPosition(id, account)` and `BlinkMarkets.redeem(id)` after finalization, including INVALID. Withdrawing unused free collateral with `BlinkMarkets.withdrawMaker(amount)` remains the operator's choice.

@@ -1,4 +1,4 @@
-import { BlinkApiError, ROLE, agentAbi, createBlinkClient } from "@blink/client";
+import { BlinkApiError, ROLE, agentAbi, createBlinkClient, checkWalletChallenge } from "@blink/client";
 import type { Hex } from "viem";
 import type { AgentContext, RoleName } from "./env.ts";
 
@@ -153,7 +153,9 @@ async function walletProof(
   request: { action: "issue" } | { action: "revoke"; keyId: string },
 ) {
   const address = ctx.account.address.toLowerCase();
-  const challenge = await anonymous.createWalletChallenge({ address, ...request });
+  const challenge = checkWalletChallenge(await anonymous.createWalletChallenge({ address, ...request }), {
+    origin: new URL(ctx.apiUrl).origin, address, ...request, now: new Date(),
+  });
   return anonymous.verifyWallet({
     challengeId: challenge.challengeId,
     signature: await ctx.account.signMessage({ message: challenge.message }),

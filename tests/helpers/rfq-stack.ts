@@ -1,5 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import type { AddressInfo } from "node:net";
+import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -119,10 +119,15 @@ export async function startRfqStack() {
     await sync();
 
     const verifier = viemSignatureVerifier(anvil.publicClient);
+    const probe = createServer();
+    await new Promise<void>((resolve, reject) => { probe.once("error", reject); probe.listen(0, "127.0.0.1", resolve); });
+    const apiPort = (probe.address() as AddressInfo).port;
+    await new Promise<void>((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
+    const apiUrl = "http://127.0.0.1:" + apiPort;
     const identity = createIdentityService(
       postgresIdentityStore(t.pool),
       identityCrypto,
-      "https://blink.example",
+      apiUrl,
       { verifier, reader: publicReader },
     );
     const rfq = createRfqService({
@@ -148,8 +153,7 @@ export async function startRfqStack() {
     });
     const api = buildApi({ identity, services: [rfq, reads] });
     api.log.level = "silent";
-    await api.listen({ port: 0, host: "127.0.0.1" });
-    const apiUrl = "http://127.0.0.1:" + (api.server.address() as AddressInfo).port;
+    await api.listen({ port: apiPort, host: "127.0.0.1" });
 
     // Keeps the index fresh while a test step is waiting on something else.
     let syncing = true;

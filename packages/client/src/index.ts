@@ -347,6 +347,7 @@ export {
   type VerifiedQuote,
 } from "./verify-quote.ts";
 export { agentAbi } from "./agent-abi.ts";
+export { checkWalletChallenge } from "./wallet-challenge.ts";
 export {
   CREATION_GROUND,
   MARKET_STATE,

@@ -17,7 +17,7 @@ The reference-agent source may use its own files, `@blink/client`, its template 
 ## Roles
 
 - **Creator:** registers templates, uploads exact spec bytes, posts the bond and creates markets within contract limits; it can claim human suggestions and journals creation intent.
-- **Maker:** deposits collateral, signs quotes based on its model and invalidates outstanding quotes on shutdown.
+- **Maker:** deposits collateral, signs quotes based on its model, redeems final positions from fills and invalidates outstanding quotes on shutdown.
 - **Trader:** requests quotes, verifies them, checks its model's edge, fills with an exact approval and redeems. It reconciles uncertain fills before replacing them.
 - **Forecaster:** signs and submits its model's probability for open windows.
 - **Proposer:** uploads evidence and proposes an outcome, and may appeal a lost round.
@@ -39,29 +39,34 @@ The roster has 14 agents: two creators, two makers, two traders, one forecaster,
 
 `examples/llm-agent` starts from `/llms.txt` and public documentation, uses the operator's model credentials and guarded tools, and keeps wallet and API secrets in memory with a redacted transcript. It is not in CI. The live demo has not been run, so autonomous onboarding through the live model remains unverified.
 
+The final-review fix round adds origin-bound wallet challenge checks, proposer appeal recovery, maker position redemption and scenario deadline races. Its verification is below.
+
 ## Known limitations
 
 - The CDP server-wallet check is manual and not in CI. The operator ran it on 2026-10-29 with `@coinbase/cdp-sdk` 1.60.0: 1 test passed in 185 s. CDP smart accounts (ERC-4337) remain unverified.
 - The drill uses EOA makers; it does not exercise a contract-wallet maker. P2's local alpha covers an ERC-1271 maker.
 - The drill covers timeout when nobody proposes; arbitration reaching no conclusion is covered only by forge.
 - The `client-agent-uncertain-fill` receipt wait has flaked under load and is parked for whole-branch review.
-- The LLM demo signs any successful challenge issued by its configured API for its own wallet; the challenge origin is not bound to the API URL. The live LLM demo has never been run.
+- The reference runtime and LLM demo validate wallet challenges against the configured API origin, wallet, action and expiry before signing. A different binding origin fails closed. The live LLM demo has never been run.
 - Suggestion claims are not exclusive between distinct creators, and slashed agents do not automatically restore their role stake.
 
 ## Verification
 
-The merged tree at `8947f8d` was measured on 2026-10-29; these are recorded runs, not a deployment:
+The final-review fix tree at `969eb38` was measured on 2026-10-30; these are recorded runs, not a deployment:
 
 | Command | Result |
 | --- | --- |
-| `pnpm check` | 640 tests passed, 0 failed (886 s) |
+| `pnpm typecheck` | passed (33 s) |
+| `pnpm check:boundaries` | passed (1 s) |
+| `pnpm check` | 641 tests passed, 0 failed (796 s) |
 | `pnpm build:services` | passed (2 s) |
 | `pnpm test:service-build` | 4/4 passed (1 s) |
-| `pnpm test:postgres` | 37/37 passed (86 s) |
-| `pnpm drill:restore:test` | 1/1 passed (77 s) |
-| `pnpm alpha:local` | 1/1 passed (374 s) |
-| `pnpm test:anvil` | 73/73 passed (671 s) |
-| `forge test --root contracts` | 240/240 passed in 17 suites, 0 skipped (219 s) |
+| `pnpm test:postgres` | 37/37 passed (88 s) |
+| `pnpm drill:restore:test` | 1/1 passed (90 s) |
+| `pnpm alpha:local` | 1/1 passed (385 s) |
+| `pnpm test:anvil` | 73/73 passed (623 s) |
+| `forge test --root contracts` | 240/240 passed in 17 suites, 0 skipped (203 s) |
+| `tests/alpha/autonomous.test.ts` on local PostgreSQL | 3/3 passed (1080 s) |
 
 `pnpm test:browsers`, `pnpm build` and `pnpm build:pages` run in CI because the development host cannot run Turbopack. The check, contracts, browsers and autonomous CI jobs were green on `61fc27f`.
 

@@ -24,6 +24,7 @@ import {
 /** Market ids this proposer has proposed on, and dispute ids it has appealed (`state.acted`). */
 const PROPOSED = "proposer.proposed";
 const APPEALED = "proposer.appealed";
+const APPEAL_INTENT = "proposer.appeal-intent";
 
 async function proposeDue(ctx: AgentContext, now: number) {
   const proposed = actedOn(ctx, PROPOSED);
@@ -58,18 +59,41 @@ async function proposeDue(ctx: AgentContext, now: number) {
 
 /** Appeals a settled round that went against this agent's proposal, once per dispute, while the appeal window is open. */
 async function appealLost(ctx: AgentContext, now: number) {
-  const mine = actedOn(ctx, PROPOSED);
-  if (mine.length === 0) return;
   const appealed = actedOn(ctx, APPEALED);
   const { params } = ctx.deployment;
   for (const item of await listAll(ctx, "DISPUTED")) {
     const { market } = item;
-    if (!mine.includes(market.marketId)) continue;
     const { proposal } = await ctx.client.getMarket({ marketId: market.marketId });
     if (!proposal || proposal.proposer.toLowerCase() !== ctx.account.address.toLowerCase()) continue;
     const view = viewOf(item);
     for (const dispute of (await ctx.client.listDisputes({ marketId: market.marketId }, { limit: 100 })).items) {
       if (dispute.kind !== "RESULT" || dispute.settled || appealed.includes(dispute.disputeId)) continue;
+      const intents = actedOn(ctx, APPEAL_INTENT);
+      const existing = intents.map((value) => JSON.parse(value) as { disputeId: string; nonce: number }).find((value) => value.disputeId === dispute.disputeId);
+      const nonce = existing && await ctx.publicClient.getTransactionCount({ address: ctx.account.address, blockTag: "latest" });
+      const events = await ctx.publicClient.getContractEvents({
+        address: resolutionAddress(ctx), abi: agentAbi.resolution, eventName: "Appealed",
+        args: { disputeId: BigInt(dispute.disputeId), appellant: ctx.account.address }, fromBlock: BigInt(ctx.deployment.startBlock),
+      });
+      if (events.length) {
+        appealed.push(dispute.disputeId);
+        ctx.state.data.acted[APPEAL_INTENT] = intents.filter((value) => JSON.parse(value).disputeId !== dispute.disputeId);
+        await ctx.state.save();
+        continue;
+      }
+      if (existing && nonce! <= existing.nonce) {
+        try {
+          await ctx.walletClient.writeContract({ address: resolutionAddress(ctx), abi: agentAbi.resolution,
+            functionName: "appeal", args: [BigInt(dispute.disputeId)], nonce: existing.nonce, gas: 1_000_000n });
+        } catch (error) {
+          if (!/already known|underpriced|nonce too low|nonce provided .* is lower/i.test(String(error))) throw error;
+        }
+        continue;
+      }
+      if (existing) {
+        ctx.state.data.acted[APPEAL_INTENT] = intents.filter((value) => JSON.parse(value).disputeId !== dispute.disputeId);
+        await ctx.state.save();
+      }
       const { dispute: d, round } = await readDispute(ctx, BigInt(dispute.disputeId));
       // Lost: the settled round did not lead with the proposed outcome. Restarted rounds are not settled results.
       if (!round.settled || round.restarted || round.leadingChoice === OUTCOME[proposal.outcome]) continue;
@@ -79,6 +103,10 @@ async function appealLost(ctx: AgentContext, now: number) {
       if (!view || !(await ctx.model.appeal(view))) continue;
       await approveBond(ctx, d.lastBond * 2n);
       const fields = { marketId: market.marketId, disputeId: dispute.disputeId };
+      // A saved intent prevents another appeal while its transaction may still be pending.
+      const appealNonce = await ctx.publicClient.getTransactionCount({ address: ctx.account.address, blockTag: "pending" });
+      actedOn(ctx, APPEAL_INTENT).push(JSON.stringify({ disputeId: dispute.disputeId, nonce: appealNonce }));
+      await ctx.state.save();
       const done = await attempt(
         ctx,
         "APPEAL",
@@ -87,11 +115,13 @@ async function appealLost(ctx: AgentContext, now: number) {
           abi: agentAbi.resolution,
           functionName: "appeal",
           args: [BigInt(dispute.disputeId)],
+          nonce: appealNonce,
         },
         ["InvalidState", "DeadlineViolation"],
         fields,
       );
       appealed.push(dispute.disputeId);
+      ctx.state.data.acted[APPEAL_INTENT] = actedOn(ctx, APPEAL_INTENT).filter((value) => JSON.parse(value).disputeId !== dispute.disputeId);
       await ctx.state.save();
       if (done) ctx.log("appealed", { ...fields, bond: (d.lastBond * 2n).toString() });
     }

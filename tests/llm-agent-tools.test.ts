@@ -66,20 +66,25 @@ test('typed data rejects a caller-supplied domain type', async () => {
 test('personal signing only consumes an outstanding wallet challenge once', async () => {
   const account = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266';
   const other = '0x0000000000000000000000000000000000000002';
-  const message = ['Blink Market wallet identity binding v1', 'This signature only binds your identity. It does not authorize trading, token approvals, or withdrawals.', 'Origin: http://binding.test', 'Chain ID: 84532', `Address: ${account}`, 'Action: issue', 'Challenge ID: id', 'Nonce: nonce', 'Issued At: 2026-10-28T00:00:00.000Z', 'Expires At: 2026-10-28T00:05:00.000Z'].join('\n');
+  const issued = new Date().toISOString();
+  const expires = new Date(Date.now() + 300_000).toISOString();
+  const message = ['Blink Market wallet identity binding v1', 'This signature only binds your identity. It does not authorize trading, token approvals, or withdrawals.', 'Origin: http://localhost:3001', 'Chain ID: 84532', `Address: ${account}`, 'Action: issue', 'Challenge ID: id', 'Nonce: nonce', `Issued At: ${issued}`, `Expires At: ${expires}`].join('\n');
   let returned = message;
   const tools = createTools({ webUrl: 'http://localhost:3000', apiUrl: 'http://localhost:3001', rpcUrl: 'http://localhost:8545', privateKey: key, maxTxs: 1,
-    fetch: async () => Response.json({ challengeId: 'id', message: returned, expiresAt: 'later' }) });
+    fetch: async () => Response.json({ challengeId: 'id', message: returned, expiresAt: expires }) });
   await assert.rejects(tools.signMessage({ message: 'arbitrary' }), /CHALLENGE/);
-  await tools.apiRequest({ method: 'POST', path: '/v1/auth/wallet-challenges', body: { address: other } });
+  await tools.apiRequest({ method: 'POST', path: '/v1/auth/wallet-challenges', body: { address: other, action: 'issue' } });
   await assert.rejects(tools.signMessage({ message }), /CHALLENGE/);
   for (const invalid of [message.replace(account, other), message.replace('Chain ID: 84532', 'Chain ID: 1')]) {
     returned = invalid;
-    await tools.apiRequest({ method: 'POST', path: '/v1/auth/wallet-challenges', body: { address: account } });
+    await assert.rejects(tools.apiRequest({ method: 'POST', path: '/v1/auth/wallet-challenges', body: { address: account, action: 'issue' } }), /WALLET_CHALLENGE_MISMATCH/);
     await assert.rejects(tools.signMessage({ message: invalid }), /CHALLENGE/);
   }
+  returned = message.replace('Origin: http://localhost:3001', 'Origin: https://foreign.test').replace('Action: issue', 'Action: revoke\nKey ID: key');
+  await assert.rejects(tools.apiRequest({ method: 'POST', path: '/v1/auth/wallet-challenges', body: { address: account, action: 'issue' } }), /WALLET_CHALLENGE_MISMATCH/);
+  await assert.rejects(tools.signMessage({ message: returned }), /CHALLENGE/);
   returned = message;
-  await tools.apiRequest({ method: 'POST', path: '/v1/auth/wallet-challenges', body: { address: account.toUpperCase() } });
+  await tools.apiRequest({ method: 'POST', path: '/v1/auth/wallet-challenges', body: { address: account.toUpperCase(), action: 'issue' } });
   assert.match(await tools.signMessage({ message }), /^0x/);
   await assert.rejects(tools.signMessage({ message }), /CHALLENGE/);
 });

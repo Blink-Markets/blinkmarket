@@ -81,7 +81,7 @@ packages/
   runtime/            shared HTTP startup, health, error handling, platform-key guard
   client/             Private typed responses, quote verification and same-key retry
 contracts/            protocol contracts (src/protocol), BlinkTestUSD, Foundry tests, generated ABI/bytecode artifacts
-examples/agents/      Reference agents (shared runtime and the trader)
+examples/agents/      Reference agents (shared runtime and all eight roles)
 infra/                local PostgreSQL and container templates
 deployments/          release manifest template, historical alpha-2 manifest
 fixtures/replay/      schema fixtures explicitly marked REPLAY
