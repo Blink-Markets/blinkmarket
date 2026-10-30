@@ -11,7 +11,7 @@
 .first { border-top: 0; }
 .lede { color: var(--ink-soft); max-width: 64ch; line-height: 1.6; margin-top: 10px; }
 
-.facts { display: grid; grid-template-columns: 1.4fr repeat(3, minmax(0, 1fr)); margin-top: 40px; border-top: 2px solid var(--ink); }
+.facts { display: grid; grid-template-columns: 1.4fr repeat(4, minmax(0, 1fr)); margin-top: 40px; border-top: 2px solid var(--ink); }
 .fact { padding: 18px 20px 20px 0; display: grid; gap: 8px; align-content: start; min-width: 0; }
 .fact + .fact { padding-left: 20px; border-left: 1px solid var(--rule); }
 .fact .label { color: var(--ink-soft); }
@@ -47,12 +47,8 @@
 .ev { list-style: none; margin: 24px 0 0; padding: 0; border-top: 2px solid var(--ink); }
 .ev li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 24px; padding: 16px 0; border-bottom: 1px solid var(--rule); }
 .ev b { font-weight: 600; }
+.ev li > span:not(.tag) { grid-column: 1 / -1; }
 .meta { grid-column: 1 / -1; color: var(--ink-soft); font-size: 13px; font-family: var(--font-mono); overflow-wrap: anywhere; }
-
-.cost { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 24px; border-top: 2px solid var(--ink); }
-.cost div { padding: 16px 20px 16px 0; display: grid; gap: 6px; }
-.cost div + div { padding-left: 20px; border-left: 1px solid var(--rule); }
-.cost .label { color: var(--ink-soft); }
 
 .details { margin-top: 18px; }
 .details summary { cursor: pointer; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
@@ -60,10 +56,9 @@
 
 @media (max-width: 860px) {
   .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .fact:nth-child(3) { padding-left: 0; border-left: 0; }
+  .fact:nth-child(odd) { padding-left: 0; border-left: 0; }
   .life { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 18px; }
-  .cost { grid-template-columns: minmax(0, 1fr); }
-  .cost div + div { padding-left: 0; border-left: 0; border-top: 1px solid var(--rule); }
+
 }
 @media (max-width: 560px) {
   .kv { grid-template-columns: minmax(0, 1fr); }
