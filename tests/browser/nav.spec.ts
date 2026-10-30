@@ -9,11 +9,10 @@ test("docs sidebar details is collapsible on mobile", async ({ page }, info) => 
   await expect(details).toHaveJSProperty("open", true);
 });
 
-test("nav links visible on desktop", async ({ page }, info) => {
-  test.skip(!info.project.name.endsWith("-desktop"), "desktop projects only");
+test("nav links visible at desktop and mobile widths", async ({ page }) => {
   await page.goto("./");
   const nav = page.getByRole("navigation", { name: "Primary" });
-  for (const name of ["Markets", "How it works", "Docs"]) {
+  for (const name of ["Markets", "How it works", "Advantages", "Docs"]) {
     await expect(nav.getByRole("link", { name })).toBeVisible();
   }
 });
