@@ -4,7 +4,6 @@ import styles from "./SiteHeader.module.css";
 const links = [
   { href: "/markets", label: "Markets" },
   { href: "/how-it-works", label: "How it works" },
-  { href: "/advantages", label: "Advantages" },
   { href: "/docs", label: "Docs" },
 ];
 

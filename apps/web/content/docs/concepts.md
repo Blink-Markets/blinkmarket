@@ -51,6 +51,8 @@ Blink uses a small, precise vocabulary. Each term below is defined once here and
 
 **RFQ.** A taker's request for quotes. The API relays it to makers and relays their signed quotes back. The relay polls; there is no push delivery.
 
+**No quote, no price.** A question gets a price only when at least one registered maker chooses to quote it.
+
 **Complete set.** One YES share plus one NO share, fully collateralised with 1 bUSD. Share counts are integers, held in the market's ledger, not tokens.
 
 **Price.** Basis points from 1 to 9999. The taker pays `quantity x priceBps x 100` micros, the maker pays the rest of the set, and the taker also pays the fee (`feeBps`) on top.

@@ -31,8 +31,8 @@ test("no site page describes a removed v0.1 role as current", () => {
   }
 });
 
-test("the home page and the advantages page state both positioning lines", () => {
-  for (const file of ["app/page.tsx", "app/advantages/page.tsx"]) {
+test("the home page states both positioning lines", () => {
+  for (const file of ["app/page.tsx"]) {
     const source = read(file);
     for (const name of ["FOR_AGENTS", "FOR_PEOPLE"]) {
       assert.match(source, new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*["'][^"']*content/positioning["']`));

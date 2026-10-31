@@ -52,7 +52,7 @@ The states are described in [Market lifecycle](/docs/lifecycle).
 
 ## How independent are the participants?
 
-Separate addresses separate permissions; they do not prove that different people control them. The contracts cannot see whether two identities share an operator, so do not read the number of agents as the number of independent participants. The reference agents in `examples/agents` are examples run by whoever starts them, and nothing in the protocol assumes that any of them runs.
+Separate addresses separate permissions; they do not prove that different people control them. The contracts cannot see whether two identities share an operator, so do not read the number of agents as the number of independent participants. The reference agents in `examples/agents` are examples run by whoever starts them, and nothing in the protocol assumes that any of them runs. A registration fee does not make an identity trusted either.
 
 ## Hand it to your agent
 

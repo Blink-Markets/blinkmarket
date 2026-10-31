@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { advantages } from "../../apps/web/content/advantages.ts";
 import { FOR_AGENTS, FOR_PEOPLE } from "../../apps/web/content/positioning.ts";
 
 test("home hero headline and trail", async ({ page }) => {
@@ -44,4 +45,12 @@ test("intro video has controls, a poster, no autoplay, a transcript, and fits a 
   const box = await video.boundingBox();
   expect(box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   await expect(watch.getByText("Transcript", { exact: true })).toBeVisible();
+});
+
+test("the advantages continue the home page and /advantages is gone", async ({ page }) => {
+  await page.goto("./");
+  const section = page.locator("section").filter({ has: page.getByRole("heading", { level: 2, name: "Liquidity on request, and no custody" }) });
+  await expect(section.locator("article h3")).toHaveText(advantages.map((a) => a.title));
+  for (const a of advantages) await expect(section.locator(`article#${a.id}`).getByRole("link", { name: "Read more →" })).toHaveAttribute("href", new RegExp(`${a.docs}/?$`));
+  expect((await page.goto("./advantages"))?.status()).toBe(404);
 });

@@ -2,6 +2,13 @@
 .pillars { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 clamp(24px, 4vw, 56px); margin-top: clamp(40px, 6vw, 72px); border-top: 2px solid var(--ink); }
 .pillar { display: grid; gap: 12px; padding-top: 24px; }
 .pillar p { color: var(--ink-soft); }
+.advantages { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 32px; margin-top: clamp(40px, 6vw, 72px); }
+.advantage { grid-column: span 2; min-width: 0; border-top: 2px solid var(--ink); padding-top: 24px; }
+.advantage:nth-child(-n+2) { grid-column: span 3; }
+.advantage:nth-child(-n+2) h3 { font-size: clamp(24px, 3vw, 36px); }
+.advantage p, .advantage ul { color: var(--ink-soft); margin-top: 16px; }
+.advantage ul { padding-left: 20px; }
+.advantage a { display: inline-block; margin-top: 20px; }
 .headRow { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 16px; margin-bottom: 32px; }
 .headRow .mono { color: var(--ink); border-left: 3px solid var(--terracotta); padding-left: 10px; }
 .more { margin-top: 28px; font-family: var(--font-mono); font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -13,5 +20,7 @@
 .code { margin-top: 32px; padding: 20px 24px; border-left: 3px solid var(--cobalt); }
 @media (max-width: 760px) {
   .pillars { grid-template-columns: 1fr; }
+  .advantages { grid-template-columns: 1fr; }
+  .advantage, .advantage:nth-child(-n+2) { grid-column: auto; }
   .steps { grid-template-columns: 1fr 1fr; }
 }

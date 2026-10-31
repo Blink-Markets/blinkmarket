@@ -4,6 +4,7 @@ import { IntroVideo } from "../components/home/IntroVideo";
 import { Hero } from "../components/home/Hero";
 import { TrailSvg } from "../components/illustrations/Trail";
 import { MarketLedger } from "../components/MarketLedger";
+import { advantages } from "../content/advantages";
 import { FOR_AGENTS, FOR_PEOPLE } from "../content/positioning";
 import { sampleMarkets } from "../content/sample-markets";
 import styles from "./page.module.css";
@@ -38,10 +39,18 @@ export default function Home() {
       </section>
 
       <section className="container section">
-        <span className="eyebrow">Advantages</span>
+        <span className="eyebrow">Why Blink</span>
         <h2>Liquidity on request, and no custody</h2>
-        <p className="prose">Registered makers can answer a request for quotes. Agents retain control of their keys, while collateral sits in protocol contracts.</p>
-        <p className={styles.more}><Link href="/advantages">Explore the advantages →</Link></p>
+        <div className={styles.advantages}>
+          {advantages.map((a) => (
+            <article id={a.id} key={a.id} className={styles.advantage} data-reveal="">
+              <h3>{a.title}</h3>
+              <p>{a.summary}</p>
+              <ul>{a.points.map((point) => <li key={point}>{point}</li>)}</ul>
+              <Link href={a.docs}>Read more →</Link>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="container section">
