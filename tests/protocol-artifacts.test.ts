@@ -11,6 +11,15 @@ test("compiles protocol contracts within EIP-170", () => {
   assert.ok(existsSync("contracts/artifacts/BlinkFaucet.json"));
 });
 
+// The forced-recompile path is not repeated here: it costs a full ~50 s solc-js compile, and it
+// already runs whenever contracts/src, solc, OpenZeppelin or the script itself changes.
+test("an unchanged contract set skips the recompile", () => {
+  const rerun = spawnSync(process.execPath, ["scripts/check-contracts.mjs"], { encoding: "utf8" });
+  assert.equal(rerun.status, 0, rerun.stderr);
+  assert.match(rerun.stdout, /contracts unchanged/);
+  assert.ok(existsSync("contracts/artifacts/.inputs.sha256"));
+});
+
 test("protocol contracts expose no privileged functions", () => {
   const names = readdirSync("contracts/src/protocol")
     .filter((name) => name.endsWith(".sol"))

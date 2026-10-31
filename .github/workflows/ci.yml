@@ -1,92 +1,81 @@
 name: Blink checks
-on: [push, pull_request]
+# Planning and progress notes do not trigger a run. Docs that tests or the web build read
+# (INTRO_VIDEO_SCRIPT, DEPLOYMENT_RUNBOOK, the READMEs, ...) still do. The autonomous drill runs
+# nightly in autonomous.yml, because it waits on real market and dispute windows (~18 minutes).
+on:
+  push:
+    paths-ignore: ["docs/superpowers/**", "docs/*_PROGRESS.md", "docs/ROADMAP.md"]
+  pull_request:
+    paths-ignore: ["docs/superpowers/**", "docs/*_PROGRESS.md", "docs/ROADMAP.md"]
 permissions:
   contents: read
+# A newer push to the same branch cancels the older run there; other branches keep theirs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  autonomous:
-    runs-on: ubuntu-latest
-    timeout-minutes: 31
-    services:
-      postgres:
-        image: postgres:17.6
-        env:
-          POSTGRES_USER: blink_test
-          POSTGRES_PASSWORD: local-ci-only
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U blink_test -d postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.20.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm check:contracts
-      - run: node --import tsx --test tests/alpha/autonomous.test.ts
-        env:
-          TEST_POSTGRES_ADMIN_URL: postgresql://blink_test:local-ci-only@127.0.0.1:5432/postgres
-      - name: Upload autonomous drill logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: alpha-autonomous
-          path: tmp/alpha-autonomous/
-          retention-days: 7
   check:
     runs-on: ubuntu-latest
-    # pnpm check, the PostgreSQL suites, the restore drill, the build, and the infrastructure-only
-    # local alpha (real API, indexer and worker against PostgreSQL and Anvil, about five minutes in
-    # real time). The contract and Anvil suites run in the parallel `contracts` job, because this job
-    # already took 11-19 of its former 30 minutes without them. 30 minutes is still well over the
-    # loaded figure, and ends a hang that escapes every in-harness bound long before GitHub's 6-hour
-    # default.
-    timeout-minutes: 30
-    services:
-      postgres:
-        image: postgres:17.6
-        env:
-          POSTGRES_USER: blink_test
-          POSTGRES_PASSWORD: local-ci-only
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U blink_test -d postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+    # Typechecks, contract sizes, the unit tests (about 6 minutes), boundaries and the builds.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.20.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - run: pnpm check
-      - run: pnpm test:postgres
-        env:
-          TEST_POSTGRES_ADMIN_URL: postgresql://blink_test:local-ci-only@127.0.0.1:5432/postgres
-      - run: pnpm drill:restore:test
-        env:
-          TEST_POSTGRES_ADMIN_URL: postgresql://blink_test:local-ci-only@127.0.0.1:5432/postgres
-      - run: pnpm alpha:local
-        env:
-          TEST_POSTGRES_ADMIN_URL: postgresql://blink_test:local-ci-only@127.0.0.1:5432/postgres
       - run: pnpm build
       - run: pnpm build:services
       - run: pnpm test:service-build
+  postgres:
+    runs-on: ubuntu-latest
+    # The PostgreSQL suites and the restore drill, about two minutes.
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: blink_test
+          POSTGRES_PASSWORD: local-ci-only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U blink_test -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_POSTGRES_ADMIN_URL: postgresql://blink_test:local-ci-only@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm check:contracts
+      - run: pnpm test:postgres
+      - run: pnpm drill:restore:test
+  alpha-local:
+    runs-on: ubuntu-latest
+    # The infrastructure-only local alpha: real API, indexer and worker against PostgreSQL and
+    # Anvil, about five and a half minutes in real time.
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: blink_test
+          POSTGRES_PASSWORD: local-ci-only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U blink_test -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_POSTGRES_ADMIN_URL: postgresql://blink_test:local-ci-only@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm alpha:local
   contracts:
     runs-on: ubuntu-latest
     # Forge unit and invariant suites, the Anvil suites and the two invariant seeds. They need
@@ -94,14 +83,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.20.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       # The Anvil suites deploy the compiled artifacts.
       - run: pnpm check:contracts
       - run: pnpm test:contracts
@@ -114,14 +96,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.20.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - name: Cache Playwright browsers
         id: pw-cache
         uses: actions/cache@v4

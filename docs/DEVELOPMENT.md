@@ -54,6 +54,8 @@ Standalone backend bundles: `pnpm build:services` (API, worker and indexer). To 
 
 A PostgreSQL 17.6 container (the same image as CI) is enough for the PostgreSQL suites; point `TEST_POSTGRES_ADMIN_URL` at an administrator login with CREATEDB and CREATEROLE. The PostgreSQL suites run serially because historical migrations create cluster-wide roles that migration 0025 drops. Measured results are in [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md#verification).
 
+CI (`.github/workflows/ci.yml`) runs `check`, `postgres`, `alpha-local`, `contracts` and `browsers` as parallel jobs on every push and pull request. Pushes that only touch `docs/superpowers/**`, `docs/*_PROGRESS.md` or `docs/ROADMAP.md` skip CI. A newer push to the same branch cancels the older run. The autonomous drill (`tests/alpha/autonomous.test.ts`, about 18 minutes of real market and dispute windows) runs nightly on main and on demand through `.github/workflows/autonomous.yml`. `scripts/check-contracts.mjs` writes `contracts/artifacts/.inputs.sha256` after a passing compile and skips solc while its inputs are unchanged. Delete that file to force a recompile.
+
 ## Optional local infrastructure
 
 ```sh
