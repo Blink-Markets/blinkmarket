@@ -1,5 +1,6 @@
-import solc from "solc";
+import { createHash } from "node:crypto";
 import {
+  existsSync,
   readFileSync,
   mkdirSync,
   writeFileSync,
@@ -43,6 +44,26 @@ const input = {
     },
   },
 };
+// solc-js (wasm, viaIR) takes about 45 s, and CI used to run it six times per push. Skip it when
+// nothing that feeds the compile changed since the last run that passed the EIP-170 check.
+const stampFile = "contracts/artifacts/.inputs.sha256";
+const versionOf = (pkg) =>
+  JSON.parse(readFileSync(`node_modules/${pkg}/package.json`, "utf8")).version;
+const hash = createHash("sha256")
+  .update(readFileSync(new URL(import.meta.url)))
+  .update(versionOf("solc") + "/" + versionOf("@openzeppelin/contracts"));
+for (const f of readdirSync("contracts/src", { recursive: true }).sort())
+  if (String(f).endsWith(".sol"))
+    hash.update(String(f)).update(readFileSync("contracts/src/" + f));
+const inputsHash = hash.digest("hex");
+if (existsSync(stampFile) && readFileSync(stampFile, "utf8") === inputsHash) {
+  console.log(
+    "contracts unchanged since the last passing compile; artifacts are current",
+  );
+  process.exit(0);
+}
+rmSync(stampFile, { force: true });
+const { default: solc } = await import("solc");
 const output = JSON.parse(
   solc.compile(JSON.stringify(input), {
     import: (p) => {
@@ -117,3 +138,4 @@ for (const path of paths) {
   }
 }
 if (oversize) process.exit(1);
+writeFileSync(stampFile, inputsHash);

@@ -1,0 +1,20 @@
+name: Blink setup
+description: pnpm, Node from .nvmrc, a frozen install, and the compiled-contract cache
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11.20.0
+    - uses: actions/setup-node@v4
+      with:
+        node-version-file: .nvmrc
+        cache: pnpm
+    - run: pnpm install --frozen-lockfile
+      shell: bash
+    # scripts/check-contracts.mjs skips solc when its stamp in contracts/artifacts matches its
+    # inputs, so a restored cache saves the ~45 s compile in every job that needs the artifacts.
+    - uses: actions/cache@v4
+      with:
+        path: contracts/artifacts
+        key: contract-artifacts-${{ hashFiles('contracts/src/**', 'scripts/check-contracts.mjs', 'pnpm-lock.yaml') }}
