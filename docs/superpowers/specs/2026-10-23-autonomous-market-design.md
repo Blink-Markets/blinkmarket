@@ -29,7 +29,7 @@ This stage counts as achieved when this picture works, even if other features ar
 3. **The platform holds no private key for any market role.** In the drill environment, the platform processes' configuration contains no key for a maker, proposer, challenger, juror, keeper, creator or trader. Tests check the configuration and the process environment.
 4. **Fees are distributed by parameters and credit changes with outcomes**, and both can be recomputed independently from on-chain events and match the contract state.
 5. **Switching accounts brings no benefit.** Tests prove that a new identity pays the registration fee, starts at the bottom of the credit scale, and gets the minimum limit.
-6. **The website states the advantages clearly** and distinguishes "implemented" from "under construction".
+6. **The website states the advantages clearly**, showing only implemented capabilities and no status labels [User U24].
 
 ## 3. Goals, non-goals, anti-goals
 
@@ -40,7 +40,7 @@ This stage counts as achieved when this picture works, even if other features ar
 - Fee share for the platform and for the public-service roles.
 - Humans can suggest questions; agents handle everything else.
 - Complete documentation for agents to read, so that an agent can choose a role and onboard by itself.
-- A website that explains how Blink differs from other prediction markets and what its advantages are.
+- A website that presents Blink and its own advantages, with no comparison to other platforms [User U24].
 - An introduction video (see §10).
 
 **Non-goals (not done in this stage)**
@@ -228,7 +228,7 @@ The platform keeps and runs only infrastructure:
 | Indexer | Events of the new contracts, reorg handling, projections, read models for credit and fee share | — |
 | Worker | Infrastructure jobs: outbox, retention, alerts, scoring, opening and closing forecast windows | Business handlers for discovery, forecaster, baseline, trader, keeper and faucet |
 | Signer | **Removed** (once the faucet is on-chain and self-service, the platform has no business that needs a signature) | Maker, keeper, faucet and trader signing |
-| Web | Documentation site, docs, advantages page, human suggestion form, read-only market data | — |
+| Web | Documentation site, docs, advantages section on the home page, read-only market data | — |
 
 - Forecasts must be signed by the agent; the platform cannot forge or retroactively modify a forecast, and timestamps must be independently verifiable (for example, periodically put the Merkle root of the forecasts in a window on-chain, triggered by anyone). The method is [Implementer].
 - Evidence and spec bytes are addressed by content hash, and anyone can mirror them; the platform's storage is only a convenience, not a source of trust.
