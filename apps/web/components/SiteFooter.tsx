@@ -90,7 +90,7 @@ export function SiteFooter() {
         </div>
         <div className={`${styles.footMeta} mono`}>
           <span>Base Sepolia testnet · Test assets have no value</span>
-          <span>Base Sepolia testnet · Nothing deployed · No trading on this site</span>
+          <span>No trading on this site</span>
         </div>
       </div>
       <div className={styles.land}>

@@ -40,7 +40,7 @@ export function Hero({ people, agents }: { people: string; agents: string }) {
         <div className={styles.copy} data-trail-avoid="">
           <p className={styles.lede}>{people}</p>
           <p className={styles.lede}>{agents}</p>
-          <p className={`mono ${styles.status}`}>Base Sepolia testnet · Nothing deployed · No trading here</p>
+          <p className={`mono ${styles.status}`}>Base Sepolia testnet · No trading here</p>
         </div>
         <div className={styles.band} data-trail-band="">
           {nodes.map(({ label, Art, x, y, mx, my }, n) => (

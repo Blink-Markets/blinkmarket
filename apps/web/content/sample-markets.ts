@@ -229,7 +229,7 @@ export function chartAriaLabel(windows: readonly ForecastWindow[]): string {
   const first = windows[0];
   const last = windows[windows.length - 1];
   if (!first || !last) return "Line chart of consensus and last fill (no data).";
-  return `Line chart of the probability of YES from ${first.date} to ${last.date}, showing consensus and last fill.`;
+  return `Line chart of the probability of YES from ${first.date} to ${last.date}: consensus moves from ${first.consensus.toFixed(1)}% to ${last.consensus.toFixed(1)}%, with last fill shown.`;
 }
 
 /** "Works" -> "Works'", "Cooperative" -> "Cooperative's" */

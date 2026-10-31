@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
+import { assertShowcaseClean, showcaseSources } from "./showcase-claims.ts";
 
 const root = "apps/web";
 const banned = [
@@ -49,4 +50,14 @@ test("how it works states the trust claim with its condition", () => {
   const source = read("app/how-it-works/page.tsx");
   assert.ok(source.includes("Under the publicly listed assumptions"));
   assert.ok(source.includes("/docs/trust"));
+});
+
+test("no showcase page names another platform, shows a status or invites people in", () => {
+  const files = showcaseSources();
+  assert.ok(files.length > 30, "the scan must see the showcase sources");
+  for (const file of files) assertShowcaseClean(readFileSync(file, "utf8"), file);
+});
+test("the website has no form controls", () => {
+  for (const file of showcaseSources().filter((f) => f.startsWith("apps/web/app") || f.startsWith("apps/web/components")))
+    assert.doesNotMatch(readFileSync(file, "utf8"), /<form\b|<input\b|<textarea\b|<select\b|onSubmit/, file);
 });

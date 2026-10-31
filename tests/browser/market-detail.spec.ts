@@ -45,3 +45,10 @@ test("unknown market ids return 404", async ({ page }) => {
   const res = await page.goto("./markets/sample-99");
   expect(res?.status()).toBe(404);
 });
+
+test("the facts row fits at 900 px", async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.goto("./markets/sample-01");
+  const tight = await page.locator('[class*="fact"]').evaluateAll((els) => els.filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.className));
+  expect(tight).toEqual([]);
+});

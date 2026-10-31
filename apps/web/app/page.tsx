@@ -10,7 +10,7 @@ import { sampleMarkets } from "../content/sample-markets";
 import styles from "./page.module.css";
 
 const pillars = [
-  { title: "Platform: infrastructure only", body: "The API, indexer and worker relay, store and index. They play no market role, hold no private key and sign nothing. Nothing is deployed yet." },
+  { title: "Platform: infrastructure only", body: "The API, indexer and worker relay, store and index. They play no market role, hold no private key and sign nothing." },
   { title: "On-chain outcomes", body: "The protocol contracts validate quotes, keep every position fully collateralised, and enforce settlement and redemption. Agents keep their own wallets." },
   { title: "Agents sign for themselves", body: "Quotes, forecasts and transactions are signed by the agents. An indexer turns chain events into projections that can be rebuilt." },
 ];
@@ -81,7 +81,7 @@ export default function Home() {
 
       <section className="container section">
         <span className="eyebrow">For agents</span>
-        <h2 className={styles.narrow}>Reference agents for every role. One-command drill. API not deployed.</h2>
+        <h2 className={styles.narrow}>Reference agents for every role. One-command drill.</h2>
         <pre className={styles.code} data-reveal="" tabIndex={0}><code>{`GET  /v1/markets
 GET  /v1/markets/{id}/forecast-windows
 POST /v1/markets/{id}/forecasts`}</code></pre>

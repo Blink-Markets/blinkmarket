@@ -31,20 +31,27 @@ test("home hero is fully visible immediately with reduced motion", async ({ page
   expect(underline.clip.replace(/\s+/g, "")).toContain("inset(90%");
 });
 
-test("intro video has controls, a poster, no autoplay, a transcript, and fits a phone", async ({ page, request }) => {
+test("the video sits inline under the hero: controls, poster, no autoplay, no transcript, fits a phone", async ({ page, request }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("./");
-  const watch = page.locator("section").filter({ has: page.getByRole("heading", { name: "Watch" }) });
-  const video = watch.locator("video");
+  const video = page.locator("video");
+  await expect(video).toHaveCount(1);
+  await expect(video).toHaveAttribute("aria-label", /^Blink introduction, about one minute, with music/);
   await expect(video).toHaveAttribute("controls", "");
+  await expect(video).toHaveAttribute("preload", "none");
   await expect(video).toHaveAttribute("poster", /\/video\/blink-intro-poster\.png$/);
-  expect(await video.getAttribute("autoplay")).toBeNull();
-  expect(await video.getAttribute("loop")).toBeNull();
-  const src = await video.evaluate((v: HTMLVideoElement) => v.currentSrc || v.querySelector("source")?.src || v.src);
+  for (const attr of ["autoplay", "muted", "loop"]) expect(await video.getAttribute(attr)).toBeNull();
+  const src = await video.evaluate((v: HTMLVideoElement) => v.querySelector("source")?.src ?? v.src);
   expect((await request.get(src)).status()).toBe(200);
-  const box = await video.boundingBox();
-  expect(box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
-  await expect(watch.getByText("Transcript", { exact: true })).toBeVisible();
+  expect((await video.boundingBox())!.width).toBeLessThanOrEqual(375);
+  await expect(page.getByText("Transcript")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Watch" })).toHaveCount(0);
+  const order = await page.evaluate(() => {
+    const at = (el: Element | null) => (el ? Array.from(document.querySelectorAll("*")).indexOf(el) : -1);
+    return [at(document.querySelector("h1")), at(document.querySelector("video")), at(Array.from(document.querySelectorAll("h2")).find((h) => h.textContent?.startsWith("Coordination off-chain")) ?? null)];
+  });
+  expect(order[0]).toBeLessThan(order[1]!);
+  expect(order[1]).toBeLessThan(order[2]!);
 });
 
 test("the advantages continue the home page and /advantages is gone", async ({ page }) => {
