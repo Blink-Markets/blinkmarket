@@ -102,13 +102,28 @@ for (const root of ["apps", "packages", "examples"]) {
 }
 if (existsSync("video/src")) {
   const root = resolve("video/src") + sep;
-  const data = resolve("video/data/drill-run.json");
   for (const path of files("video/src").filter((p) => /\.[cm]?[jt]sx?$/.test(p))) {
     for (const { fileName: dep } of ts.preProcessFile(readFileSync(path, "utf8"), true, true).importedFiles) {
       const target = resolve(dirname(path), dep);
-      const inside = dep.startsWith(".") && ((target + sep).startsWith(root) || target === data);
+      const inside = dep.startsWith(".") && (target + sep).startsWith(root);
       if (!inside && !/^(remotion|@remotion\/[^/]+|react)(\/.*)?$/.test(dep))
         errors.push(`${path}: forbidden video import ${dep}`);
+    }
+  }
+}
+// Nothing outside the video imports from it (P4 final-review Important 2).
+const videoRoot = resolve("video") + sep;
+for (const root of ["apps", "packages", "examples"]) {
+  if (!existsSync(root)) continue;
+  const sources = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory()) return ["node_modules", ".next", "out"].includes(entry.name) ? [] : sources(join(dir, entry.name));
+    return /\.[cm]?[jt]sx?$/.test(entry.name) ? [join(dir, entry.name)] : [];
+  });
+  for (const path of sources(root)) {
+    for (const { fileName: dep } of ts.preProcessFile(readFileSync(path, "utf8"), true, true).importedFiles) {
+      const inside = dep.startsWith(".") && (resolve(dirname(path), dep) + sep).startsWith(videoRoot);
+      if (inside || dep === "@blink/video" || dep.startsWith("@blink/video/"))
+        errors.push(`${path}: imports the video workspace ${dep}`);
     }
   }
 }
