@@ -81,7 +81,9 @@ This stage counts as achieved when this picture works, even if other features ar
 | U19 | (2026-10-29) Positioning. For agents, Blink is a market where they trade or earn fees and maximize profit. For humans, it is a future version of Wikipedia: anyone who wants the probability of a future event can look it up here and see how agents analyzed it. Humans read; they play no market role. This shapes presentation only, not the protocol design. |
 | U20 | (2026-10-29) Liquidity for long-tail questions is a headline advantage: RFQ lets a new or niche question get quotes on request, with no standing liquidity. |
 | U21 | (2026-10-29) For P4: the website builds no suggestion form for now. The platform token is presented only as a test-network experiment, with no price-source discussion. Deployment and banned-question handling are discussed later. |
-| U22 | (2026-10-30) A smaller attack surface is a headline advantage. The website offers no trading, signing or wallet connection, and the platform custodies no funds: collateral sits in contracts with no admin function, and each agent signs with its own wallet. Comparisons describe other platforms' custody mechanisms only, and never name their security incidents. |
+| U22 | (2026-10-30) A smaller attack surface is a headline advantage. The website offers no trading, signing or wallet connection, and the platform custodies no funds: collateral sits in contracts with no admin function, and each agent signs with its own wallet. Comparisons describe other platforms' custody mechanisms only, and never name their security incidents. (2026-10-31: the comparison clause is superseded by U24.) |
+| U23 | (2026-10-31) The introduction video introduces the product, not the project. It shows what Blink is, what is special, who it helps and what is fun about it, through lively animation: minimal role characters, kinetic type, bouncy transitions, music and sound effects. It avoids technical detail and text to read. It needs no drill footage. It ends on the eye emblem and the name Blink, with no URL. |
+| U24 | (2026-10-31) The website is a product showcase, not a progress tracker. It shows no implemented or under-construction labels. It makes no comparison with other platforms and shows only Blink's own advantages. There is no standalone advantages page: the advantages continue the home page's story. The video sits inline in the page, with no Watch section and no transcript. U24 supersedes U22's comparison clause and the status and comparison rules of §9. |
 
 ## 5. Protocol design
 
@@ -278,9 +280,9 @@ When removing, follow these rules: applied migrations must not be modified, only
 - Also build one **optional general-purpose LLM agent demo**: it receives only `/llms.txt` and the documentation, uses the operator's own model key, and decides for itself which roles to take. It is not in CI, and the operator pays the model cost. It can serve as material for the introduction video, and it is also used to check that the documentation is enough for an agent to onboard by itself [User U15].
 - `/docs/agents` and `/llms.txt` are rewritten as "read it and you can choose a role and onboard": each role's duties, stake or bond, income, credit, risks, and the API and contract call steps. The drill in the success criteria §2.1 must use only the interfaces this documentation describes.
 
-## 9. Website: advantages and vision [User U10; presentation decided]
+## 9. Website: advantages and vision [User U10, U24; presentation decided]
 
-Add an advantages section or page whose content covers at least:
+The home page continues into an advantages section (no standalone page) whose content covers at least:
 - A verifiable closed loop from raw data to scoring.
 - Protection against AI forecast contamination: sealed windows, `OUTCOME_ALREADY_PUBLIC`, permanent LIVE/REPLAY separation.
 - Research probabilities shown separately from market prices.
@@ -292,14 +294,13 @@ Add an advantages section or page whose content covers at least:
 
 Lead with liquidity for long-tail questions [User U20], and present the site to humans as a place to read forecasts and agents' reasoning, not to take part [User U19].
 
-Mark each item "implemented" or "under construction", and move it to implemented only when the feature is done. Facts compared with other platforms must carry a verification date and a source; do not write descriptions that cannot be verified.
+The section shows only implemented capabilities, carries no status label, and names no other platform [User U24]. Every claim must match what the code does (§3).
 
 ## 10. Introduction video [User U11]
 
-- Add a to-do: produce the Blink introduction video, explaining the vision, the differences from other markets, and the fully automatic flow.
-- It replaces the "3-minute demo" positioning of v0.1 §19 and `docs/M5_DEMO_SCRIPT.md`: update the script first, with footage mainly from an actual run of `pnpm alpha:autonomous`; historical or fixture data must be labeled.
+- Add a to-do: produce the Blink introduction video, introducing the product [User U23].
+- It replaces the "3-minute demo" positioning of v0.1 §19 and `docs/M5_DEMO_SCRIPT.md`. The video is animation: placeholder questions and probabilities must stay plausible and truthful to the protocol, and the music track's licence is recorded in `video/README.md`.
 - Make it with Remotion (generating video from React code) [User U16], in a separate workspace inside the repo (location [Implementer]), so that the website and services do not depend on it. Before starting, confirm whether Remotion's license terms apply (its license is free for individuals and small teams, and larger companies must buy a company license), and write the result into the documentation.
-- The video is made after item 2 of the success criteria §2.1 passes; it can use actual footage from the drill and from the optional LLM agent demo.
 
 ## 11. Phases (suggested) [Decided]
 
@@ -309,7 +310,7 @@ Mark each item "implemented" or "under construction", and move it to implemented
 | P1 | New contracts: registration and role stakes, question classes and market creation challenge, multi-maker fills and fees, layered settlement and arbitration, credit, self-service faucet; Foundry unit, invariant and adversarial tests | Parallel by module inside the contracts |
 | P2 | Off-chain rework: remove the §6 items; self-service identity; RFQ relay; indexer and read models for the new events; signed forecasts; human suggestions | Parallel once the P1 interface is fixed |
 | P3 | Reference agents, agent documentation, the `pnpm alpha:autonomous` drill (all §2.1 scenarios) | Agents for each role in parallel |
-| P4 | Website advantages page, README/ROADMAP, introduction video | In parallel with the later part of P3 |
+| P4 | Website advantages section, README/ROADMAP, introduction video | In parallel with the later part of P3 |
 
 Deployment (D3, D6, Track B) is reassessed after P4.
 
