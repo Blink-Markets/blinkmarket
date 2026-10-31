@@ -45,13 +45,13 @@ Blink uses a small, precise vocabulary. Each term below is defined once here and
 
 **Window root.** The Merkle root of a window's signed forecasts. `BlinkAnchor.anchor(root)` publishes it, which proves the answers existed at that time and could not be changed afterwards.
 
+**Consensus moves no funds.** The consensus is a read model that combines signed forecasts; it moves no funds.
+
 ## Trading and collateral
 
 **Quote.** A maker's EIP-712 signed offer to one named taker. Signing a quote does not mean it traded, and it reserves nothing on chain. The contract checks balances, deadlines, caps, the maker's epoch and the signature again at the fill.
 
 **RFQ.** A taker's request for quotes. The API relays it to makers and relays their signed quotes back. The relay polls; there is no push delivery.
-
-**No quote, no price.** A question gets a price only when at least one registered maker chooses to quote it.
 
 **Complete set.** One YES share plus one NO share, fully collateralised with 1 bUSD. Share counts are integers, held in the market's ledger, not tokens.
 

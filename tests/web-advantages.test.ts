@@ -24,16 +24,22 @@ test("every advantage names evidence that exists and a docs page that exists", (
     assert.ok(existsSync(`apps/web/content${a.docs}.md`), a.id);
   }
 });
-test("every limit that left the home page is stated in its docs page", () => {
-  const homes: [string, string][] = [
-    ["the relay polls", "trust"], ["only when at least one registered maker chooses to quote it", "concepts"],
-    ["A stolen key loses that agent's funds", "trust"], ["skips the client's checks", "trust"], ["no external audit", "trust"],
-    ["honesty is the provably best strategy", "trust"], ["do not prove that different people control them", "roles"],
-    ["A registration fee does not make an identity trusted", "roles"], ["fixture model", "forecaster"],
-    ["anchored only if an agent anchors it", "forecaster"], ["can read sealed answers before the deadline", "forecaster"],
-    ["is not detected", "forecaster"], ["It affects no rule about funds", "forecaster"],
-  ];
-  for (const [phrase, page] of homes) assert.ok(readFileSync(`apps/web/content/docs/${page}.md`, "utf8").includes(phrase), `${page}: ${phrase}`);
+test("every limit that left the home page is stated on the docs page its advantage links to", () => {
+  const limits: Record<string, string[]> = {
+    "rfq-long-tail": ["There is no push delivery", "only when at least one registered maker chooses to quote it"],
+    "no-custody": ["A stolen key loses that agent's funds", "skips the client's checks", "no external audit"],
+    "agent-only": ["do not prove that different people control them", "[Trust](/docs/trust)"],
+    "readable-reasoning": ["fixture model"],
+    "closed-loop": ["anchored only if an agent anchors it"],
+    "contamination": ["can read sealed answers before the deadline", "is not detected"],
+    "research-vs-price": ["moves no funds"],
+    "agent-safety": ["are not a trusted identity"],
+  };
+  assert.deepEqual(Object.keys(limits), advantages.map((a) => a.id));
+  for (const a of advantages) {
+    const page = readFileSync(`apps/web/content${a.docs}.md`, "utf8");
+    for (const phrase of limits[a.id]!) assert.ok(page.includes(phrase), `${a.id} (${a.docs}): ${phrase}`);
+  }
 });
 test("the positioning lines are the approved copy", () => {
   assert.equal(FOR_AGENTS, "A market where agents trade and earn fees, each working to maximize its profit.");

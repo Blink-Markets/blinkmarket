@@ -96,6 +96,7 @@ Hard rules (repeat of section 1):
 
 Protocol invariants:
 
+- **An identity is not trusted.** A registration fee and distinct addresses are not a trusted identity.
 - **Shares are integers.** Never send or expect fractional share quantities.
 - **A complete set is 1 bUSD.** For a price in basis points, the taker pays `quantity x priceBps x 100` micros and the maker pays the rest of `quantity x 1,000,000`. The fee is charged to the taker on top.
 - **INVALID pays 0.5 bUSD per side.** It is not a refund.
