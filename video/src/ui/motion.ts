@@ -12,3 +12,7 @@ export function blink(t: number, at: number) {
   const d = Math.abs(t - at);
   return d >= .1 ? 1 : .12 + .88 * d / .1;
 }
+export function shake(t: number, at: number, duration?: number) {
+  if (t < at || t >= at + (duration ?? .8)) return 0;
+  return duration === undefined ? 9 * Math.sin((t - at) * Math.PI * 5) : -9 * Math.sin((t - at) * Math.PI * 4);
+}

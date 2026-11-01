@@ -1,16 +1,16 @@
 import type { CSSProperties } from "react";
 import { screen } from "../script.ts";
 import { ROLES, type RoleId } from "../roles.ts";
-import { blink, hop, popIn } from "./motion.ts";
+import { blink, hop, popIn, shake } from "./motion.ts";
 
-export type Pose = { pop?: number; hop?: number; sway?: number; blinkAt?: readonly number[]; shake?: number; grey?: boolean; scale?: number };
+export type Pose = { pop?: number; hop?: number; sway?: number; blinkAt?: readonly number[]; shake?: number; shakeDuration?: number; grey?: boolean; scale?: number };
 export function Agent({ role, size, x, y, t, pose = {} }: { role: RoleId; size: number; x: number; y: number; t: number; pose?: Pose }) {
   const r = ROLES.find((item) => item.id === role)!;
   const bounce = pose.hop === undefined ? 0 : hop(t, pose.hop);
   const eye = Math.min(1, ...(pose.blinkAt ?? []).map((at) => blink(t, at)));
   const shape: CSSProperties = { position: "absolute", background: r.color };
   return <div style={{ position: "absolute", left: x, top: y, width: size, height: size / r.aspect, opacity: pose.pop !== undefined && t < pose.pop ? 0 : 1, transform: `scale(${(pose.pop === undefined ? 1 : popIn(t, pose.pop)) * (pose.scale ?? 1)})`, transformOrigin: "50% 100%", filter: pose.grey ? "grayscale(1)" : undefined }}>
-    <div style={{ position: "absolute", inset: 0, borderRadius: role === "trader" ? "50%" : role === "maker" ? "24%" : "32%", background: r.color, transform: `translateY(${bounce * 100}%) rotate(${(pose.sway === undefined ? 0 : 4 * Math.sin((t - pose.sway) * Math.PI)) + (pose.shake === undefined ? 0 : 9 * Math.sin((t - pose.shake) * Math.PI * 5) * (t >= pose.shake && t < pose.shake + .8 ? 1 : 0))}deg) scale(${1.1 + bounce * .6}, ${.9 - bounce * .66})`, transformOrigin: "50% 100%" }}>
+    <div style={{ position: "absolute", inset: 0, borderRadius: role === "trader" ? "50%" : role === "maker" ? "24%" : "32%", background: r.color, transform: `translateY(${bounce * 100}%) rotate(${(pose.sway === undefined ? 0 : 4 * Math.sin((t - pose.sway) * Math.PI)) + (pose.shake === undefined ? 0 : shake(t, pose.shake, pose.shakeDuration))}deg) scale(${1.1 + bounce * .6}, ${.9 - bounce * .66})`, transformOrigin: "50% 100%" }}>
       {role === "creator" && <><i style={{ ...shape, left: "46%", top: "-30%", width: "8%", height: "32%", borderRadius: 9 }} /><i style={{ ...shape, left: "36%", top: "-50%", width: "28%", aspectRatio: "1", borderRadius: "50%", background: "#e3a62a" }} /></>}
       {role === "maker" && <><i style={{ ...shape, left: "18%", right: "18%", top: "-22%", height: "14%", borderRadius: 99, opacity: .55 }} /><i style={{ ...shape, left: "30%", right: "30%", top: "-42%", height: "14%", borderRadius: 99, opacity: .3 }} /></>}
       {role === "trader" && <i style={{ ...shape, right: "-16%", top: "-14%", width: "36%", aspectRatio: "1", borderRadius: "50%", background: "#e3a62a", border: `${size * .054}px solid #f4f1ea`, boxSizing: "border-box" }} />}

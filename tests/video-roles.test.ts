@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ROLES } from "../video/src/roles.ts";
 import { shots } from "../video/src/script.ts";
+import { shake } from "../video/src/ui/motion.ts";
 
 test("role looks, pitches and montage order match the cast", () => {
   assert.deepEqual(ROLES.map(({ id, color, accessory, aspect, pitch }) => [id, color, accessory, aspect, pitch]), [
@@ -14,4 +15,13 @@ test("role looks, pitches and montage order match the cast", () => {
     const plural = role.id[0]!.toUpperCase() + role.id.slice(1) + "s";
     assert.ok(shots[1]!.lines[i]!.text.startsWith(`${plural} `));
   }
+});
+
+test("challenge shake lasts three half-second cycles without changing the default", () => {
+  for (const offset of [0, .5, 1]) {
+    assert.ok(Math.abs(shake(1.925 + offset, 1.8, 1.5) + 9) < 1e-9);
+    assert.ok(Math.abs(shake(2.175 + offset, 1.8, 1.5) - 9) < 1e-9);
+  }
+  assert.equal(shake(3.3, 1.8, 1.5), 0);
+  assert.equal(shake(2.7, 1.8), 0);
 });
