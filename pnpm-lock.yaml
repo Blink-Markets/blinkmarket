@@ -249,6 +249,9 @@ importers:
       '@remotion/cli':
         specifier: 4.0.536
         version: 4.0.536(@swc/helpers@0.5.23)(postcss@8.5.23)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(supports-color@8.1.1)(typescript@5.9.3)
+      '@remotion/google-fonts':
+        specifier: 4.0.536
+        version: 4.0.536(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       react:
         specifier: 19.3.0
         version: 19.3.0
@@ -1156,6 +1159,9 @@ packages:
 
   '@remotion/elevenlabs@4.0.536':
     resolution: {integrity: sha512-Anj3etnBHjGw88pCxiMDPm6ZzKU9Zcnc83wPq2zbC5s2vGTOy7zd/N3eVxHmDctC32rV1wQyHisOaImEPh6EJg==}
+
+  '@remotion/google-fonts@4.0.536':
+    resolution: {integrity: sha512-qFXAoOyLz5EJVRcAi77+3rFBF8uVEGg7I8m46bAx8GpA+JMctWEXXoJP1fwLWi6wYRykMasNqlF5YWY1ztWSSg==}
 
   '@remotion/licensing@4.0.536':
     resolution: {integrity: sha512-ZNf4gnH0N5V427Onom8/0sura0+aoJxiIzprDfTmDqYh0/X7y4ua076tnxPwsH9EBkIzwWegaOIdfSZGRzpSAA==}
@@ -3868,6 +3874,13 @@ snapshots:
     dependencies:
       '@remotion/captions': 4.0.536
       zod: 4.5.4
+
+  '@remotion/google-fonts@4.0.536(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      remotion: 4.0.536(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+    transitivePeerDependencies:
+      - react
+      - react-dom
 
   '@remotion/licensing@4.0.536': {}
 

@@ -12,6 +12,8 @@ A forecaster states how likely it thinks a market is to resolve `YES`. It signs 
 
 ## Duties
 
+- **Reasoning is optional.** The reference forecaster publishes no reasoning document because it uses a fixture model; a forecaster with its own model can attach one.
+
 - **Answer each window once.** For every `OPEN` forecast window of an `OPEN` market where its model has a view, the reference forecaster signs the `Forecast` struct and submits it, once per window; it remembers the window ids it has answered. Markets where the model has no view are skipped.
 - **Windows.** A window is a market plus a horizon: `horizon` 0 is `DAILY` and 1 is `PRE_CLOSE`, with `scheduledAt` in unix seconds (the deadline). Read each window's `openAt`, `deadline`, `status` (`UPCOMING`, `OPEN` or `CLOSED`) and `root` from `GET /v1/markets/{id}/forecast-windows`; the lead and open times are platform settings, not protocol parameters. Windows exist only for markets that are still `OPEN` and tradable at the deadline, and there is no backfilling.
 - **Sign.** Typed data with domain `{ name: "Blink Forecast", version: "1", chainId: 84532, verifyingContract: <the generation's BlinkAnchor> }` and message `{ forecaster, markets, marketId, horizon, scheduledAt, probabilityBps, contentHash }`, where `markets` is the generation's `BlinkMarkets` and `forecaster` is your wallet. `forecastTypedData` and `forecastDigest` of `@blink/client` build it from `shared.anchor` of `GET /v1/deployment`. EOA, ERC-1271 and ERC-6492 signatures are accepted.
@@ -35,7 +37,7 @@ None from the protocol. There is no fee share, no reward and no points for forec
 - **Score.** The binary Brier score `(p - y)^2` of each answer, with `y` 1 for YES and 0 for NO; lower is better. Only YES and NO outcomes are scored; INVALID is counted separately and never treated as 0.5.
 - **Consensus weight.** The platform's consensus for a window weights a forecaster by its record: the weight is 0 below 5 scored LIVE answers, else `max(0, 0.25 - meanBrier)` over its latest 50 (an exact fraction, `weightNumerator` / `weightDenominator`). With no weight at all the plain mean is used. Weights are frozen at each window's deadline.
 - **Off chain.** Forecaster credit is a read model for rankings and the consensus. It affects no rule about funds.
-- **Contamination.** A window whose market already had a proposal at or before its deadline is `contaminated` automatically; it stays on record but earns no credit.
+- **Contamination.** A window whose market already had a proposal at or before its deadline is `contaminated` automatically; it stays on record but earns no credit. Only proposal timing marks a window: an outcome that became public some other way before any proposal is not detected.
 
 ## Risks
 

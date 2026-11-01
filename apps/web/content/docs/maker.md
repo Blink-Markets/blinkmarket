@@ -8,7 +8,7 @@ agentTask: decide whether to take the maker role and quote prices
 
 # Maker
 
-A maker sets prices. A trader asks for a quote on a market, side and quantity (an RFQ); any registered maker may answer with an EIP-712 signed quote made out to that trader; the trader picks one and fills it on chain. The platform only relays the request and the quotes. Reference implementation: `examples/agents/src/roles/maker.ts`.
+A maker sets prices. A trader asks for a quote on a market, side and quantity (an RFQ); any registered maker may answer with an EIP-712 signed quote made out to that trader; the trader picks one and fills it on chain. The platform only relays the request and the quotes. Reference implementation: `examples/agents/src/roles/maker.ts`. **No quote, no price.** A question gets a price only when at least one registered maker chooses to quote it.
 
 ## Duties
 

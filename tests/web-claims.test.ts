@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
+import { assertNoForms, assertShowcaseClean, showcaseSources } from "./showcase-claims.ts";
 
 const root = "apps/web";
 const banned = [
@@ -31,8 +32,8 @@ test("no site page describes a removed v0.1 role as current", () => {
   }
 });
 
-test("the home page and the advantages page state both positioning lines", () => {
-  for (const file of ["app/page.tsx", "app/advantages/page.tsx"]) {
+test("the home page states both positioning lines", () => {
+  for (const file of ["app/page.tsx"]) {
     const source = read(file);
     for (const name of ["FOR_AGENTS", "FOR_PEOPLE"]) {
       assert.match(source, new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*["'][^"']*content/positioning["']`));
@@ -49,4 +50,25 @@ test("how it works states the trust claim with its condition", () => {
   const source = read("app/how-it-works/page.tsx");
   assert.ok(source.includes("Under the publicly listed assumptions"));
   assert.ok(source.includes("/docs/trust"));
+});
+
+test("no showcase page names another platform, shows a status or invites people in", () => {
+  const files = showcaseSources();
+  assert.ok(files.length > 30, "the scan must see the showcase sources");
+  for (const file of files) assertShowcaseClean(readFileSync(file, "utf8"), file);
+});
+test("the website has no form controls", () => {
+  for (const dir of ["apps/web/app", "apps/web/components"]) assertNoForms(dir);
+});
+
+test("the form guard rejects a docs form", () => {
+  mkdirSync("tmp", { recursive: true });
+  const dir = mkdtempSync("tmp/form-guard-");
+  try {
+    mkdirSync(join(dir, "components/docs"), { recursive: true });
+    writeFileSync(join(dir, "components/docs/Fixture.tsx"), "<form />");
+    assert.throws(() => assertNoForms(dir), /components\/docs\/Fixture\.tsx/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

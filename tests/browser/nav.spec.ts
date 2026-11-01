@@ -12,7 +12,8 @@ test("docs sidebar details is collapsible on mobile", async ({ page }, info) => 
 test("nav links visible at desktop and mobile widths", async ({ page }) => {
   await page.goto("./");
   const nav = page.getByRole("navigation", { name: "Primary" });
-  for (const name of ["Markets", "How it works", "Advantages", "Docs"]) {
+  await expect(nav.getByRole("link", { name: "Advantages" })).toHaveCount(0);
+  for (const name of ["Markets", "How it works", "Docs"]) {
     await expect(nav.getByRole("link", { name })).toBeVisible();
   }
 });

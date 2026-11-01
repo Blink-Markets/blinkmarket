@@ -36,7 +36,6 @@
     "infra:down": "docker compose -f infra/compose.yaml down",
     "alpha:local": "node scripts/check-contracts.mjs && node --import tsx --test tests/alpha/local-alpha.test.ts",
     "alpha:serve": "node --import tsx scripts/alpha-serve.ts",
-    "video:capture": "node --import tsx scripts/video-capture.ts",
     "alpha:autonomous": "node --import tsx scripts/alpha-autonomous.ts",
     "drill:alerts": "node --import tsx --test tests/postgres/alerts.test.ts",
     "restore:prepare": "node --import tsx scripts/restore-prepare.ts",
@@ -46,9 +45,10 @@
     "test:images": "node --test tests/images.test.mjs",
     "check:cdp-wallet": "node --env-file-if-exists=${BLINK_CDP_ENV:-$HOME/.config/blink/cdp.env} tests/cdp/run.mjs tests/cdp/cdp-wallet.test.ts",
     "images:smoke": "node scripts/check-contracts.mjs && node --import tsx scripts/images-smoke.ts",
+    "video:sfx": "node --import tsx video/scripts/sfx.ts",
     "video:studio": "pnpm --dir video exec remotion studio src/index.ts",
-    "video:render": "pnpm --dir video exec remotion render src/index.ts BlinkIntro ../tmp/video/blink-intro.mp4",
-    "video:still": "pnpm --dir video exec remotion still src/index.ts BlinkIntro ../tmp/video/blink-intro-poster.png"
+    "video:render": "scripts/video-docker.sh 'pnpm exec remotion render src/index.ts BlinkIntro /out/blink-intro.mp4'",
+    "video:still": "scripts/video-docker.sh 'pnpm exec remotion still src/index.ts BlinkIntro /out/blink-intro-poster.png --frame=82'"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

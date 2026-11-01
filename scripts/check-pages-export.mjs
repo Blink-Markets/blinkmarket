@@ -19,7 +19,6 @@ const KEY_FILES = [
   "docs/concepts/index.html",
   "docs/agents/index.html",
   "markets/index.html",
-  "advantages/index.html",
   "markets/sample-01/index.html",
   "how-it-works/index.html",
   "docs.md",

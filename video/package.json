@@ -3,7 +3,18 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "scripts": { "typecheck": "tsc --noEmit" },
-  "dependencies": { "remotion": "4.0.536", "@remotion/cli": "4.0.536", "react": "19.3.0", "react-dom": "19.3.0" },
-  "devDependencies": { "@types/react": "19.3.0", "@types/react-dom": "19.3.0" }
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.536",
+    "@remotion/google-fonts": "4.0.536",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.536"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0"
+  }
 }

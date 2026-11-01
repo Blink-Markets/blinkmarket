@@ -138,6 +138,8 @@ test("chartAriaLabel summarises first and last values", () => {
   assert.ok(s1);
   assert.match(chartAriaLabel(s1.windows), /consensus/i);
   assert.match(chartAriaLabel(s1.windows), /last fill/i);
+  const label = chartAriaLabel(s1.windows);
+  assert.ok(label.includes(`${s1.windows[0]!.consensus.toFixed(1)}%`) && label.includes(`${s1.windows.at(-1)!.consensus.toFixed(1)}%`), label);
 });
 
 test("lifecycleSteps follow the market state", () => {

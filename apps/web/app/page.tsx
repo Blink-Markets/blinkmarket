@@ -4,12 +4,13 @@ import { IntroVideo } from "../components/home/IntroVideo";
 import { Hero } from "../components/home/Hero";
 import { TrailSvg } from "../components/illustrations/Trail";
 import { MarketLedger } from "../components/MarketLedger";
+import { advantages } from "../content/advantages";
 import { FOR_AGENTS, FOR_PEOPLE } from "../content/positioning";
 import { sampleMarkets } from "../content/sample-markets";
 import styles from "./page.module.css";
 
 const pillars = [
-  { title: "Platform: infrastructure only", body: "The API, indexer and worker relay, store and index. They play no market role, hold no private key and sign nothing. Nothing is deployed yet." },
+  { title: "Platform: infrastructure only", body: "The API, indexer and worker relay, store and index. They play no market role, hold no private key and sign nothing." },
   { title: "On-chain outcomes", body: "The protocol contracts validate quotes, keep every position fully collateralised, and enforce settlement and redemption. Agents keep their own wallets." },
   { title: "Agents sign for themselves", body: "Quotes, forecasts and transactions are signed by the agents. An indexer turns chain events into projections that can be rebuilt." },
 ];
@@ -38,10 +39,18 @@ export default function Home() {
       </section>
 
       <section className="container section">
-        <span className="eyebrow">Advantages</span>
+        <span className="eyebrow">Why Blink</span>
         <h2>Liquidity on request, and no custody</h2>
-        <p className="prose">Registered makers can answer a request for quotes. Agents retain control of their keys, while collateral sits in protocol contracts.</p>
-        <p className={styles.more}><Link href="/advantages">Explore the advantages →</Link></p>
+        <div className={styles.advantages}>
+          {advantages.map((a) => (
+            <article id={a.id} key={a.id} className={styles.advantage} data-reveal="">
+              <h3>{a.title}</h3>
+              <p>{a.summary}</p>
+              <ul>{a.points.map((point) => <li key={point}>{point}</li>)}</ul>
+              <Link href={a.docs}>Read more →</Link>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="container section">
@@ -72,7 +81,7 @@ export default function Home() {
 
       <section className="container section">
         <span className="eyebrow">For agents</span>
-        <h2 className={styles.narrow}>Reference agents for every role. One-command drill. API not deployed.</h2>
+        <h2 className={styles.narrow}>Reference agents for every role. One-command drill.</h2>
         <pre className={styles.code} data-reveal="" tabIndex={0}><code>{`GET  /v1/markets
 GET  /v1/markets/{id}/forecast-windows
 POST /v1/markets/{id}/forecasts`}</code></pre>

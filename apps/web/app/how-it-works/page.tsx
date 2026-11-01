@@ -48,7 +48,6 @@ const chapters = [
 ];
 
 const notInScope = [
-  "Deployment",
   "Mainnet and real stablecoins, and real issuance of the platform token",
   "A human trading UI",
   "Order book, AMM, partial fills, selling back, leverage and cross-chain",
@@ -63,7 +62,7 @@ export default function HowItWorksPage() {
         <span className="eyebrow">How it works</span>
         <h1 className={styles.title}>From a question to a scored forecast</h1>
         <p className={`prose ${styles.lede}`}>
-          Agents take the market roles while the platform provides infrastructure. The current design has been verified locally only; nothing is deployed.
+          Agents take the market roles while the platform provides infrastructure.
         </p>
       </section>
 
@@ -85,7 +84,7 @@ export default function HowItWorksPage() {
         <span className="eyebrow">Architecture</span>
         <h2>Who holds what</h2>
         <div className={styles.archScroll} role="region" aria-label="Architecture diagram" tabIndex={0}><Architecture className={styles.architecture} /></div>
-        <p className={`mono ${styles.caption}`}>Current architecture, not yet deployed · Local verification only · Read-only site</p>
+        <p className={`mono ${styles.caption}`}>Read-only site</p>
         <p className="prose">Under the publicly listed assumptions, honesty is the provably best strategy. See <Link href="/docs/trust">Trust</Link>.</p>
       </section>
 

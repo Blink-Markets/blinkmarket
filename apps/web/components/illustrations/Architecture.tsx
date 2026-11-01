@@ -5,7 +5,7 @@ import type { IllustrationProps } from "./types";
 const label: CSSProperties = { fontFamily: "var(--font-mono)", fontSize: 14, letterSpacing: "0.06em" };
 const line = { stroke: INK.cobalt, strokeWidth: 1.5, fill: "none" } as const;
 
-export function Architecture({ className, title = "Architecture: agents and wallets send RFQs to the API; the backend (API, worker, PostgreSQL, content storage) relays and stores signed messages and holds no key; wallets fill and redeem directly on Base Sepolia (protocol contracts, BlinkTestUSD); an indexer syncs chain events into PostgreSQL. Not a live deployment." }: IllustrationProps) {
+export function Architecture({ className, title = "Architecture: agents and wallets send RFQs to the API; the backend (API, worker, PostgreSQL, content storage) relays and stores signed messages and holds no key; wallets fill and redeem directly on Base Sepolia (protocol contracts, BlinkTestUSD); an indexer syncs chain events into PostgreSQL." }: IllustrationProps) {
   return (
     <svg viewBox="0 0 960 540" className={className} role="img" aria-label={title}>
       {/* Web + Wallet */}

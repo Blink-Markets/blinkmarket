@@ -14,8 +14,8 @@
 - [x] P1: New contracts: registration and role stakes, question classes and market-creation challenges, multi-maker fills and fees, layered settlement and arbitration, credit, platform token (juror stake and governance), generations, self-service faucet; unit, invariant and adversarial tests
 - [x] P2: Off-chain rework: remove the provisional design; self-service identity; RFQ forwarding; indexer for the new events; signed forecasts; human-suggested questions. Tasks 1–13 are merged and CI is green on main (see [P2 delivery](P2_OFFCHAIN_PROTOCOL.md) and [P2 progress](P2_OFFCHAIN_PROGRESS.md)). The final whole-branch review's six findings are fixed and merged (47b5938). Nothing was deployed
 - [x] P3: Reference agents for each role, documentation for agents, and the `pnpm alpha:autonomous` autonomous drill (five scenarios: normal, settlement dispute, market-creation challenge, timeout, human suggestion). Tasks 1–7 and 7b are merged and CI is green. The final whole-branch review's six findings are fixed and merged (3e61fcb). See [delivery](P3_REFERENCE_AGENTS.md) and [progress](P3_AGENTS_PROGRESS.md).
-- [x] P4: Website advantages page, home, how-it-works, sample markets and README (2026-10-30; [delivery](P4_WEBSITE_VIDEO.md))
-- [x] P4: Introduction video (2026-10-30; [delivery](P4_WEBSITE_VIDEO.md))
+- [x] P4: Website home with the advantages, how-it-works, sample markets and README (2026-10-30, reworked 2026-11; [delivery](P4_WEBSITE_VIDEO.md))
+- [x] P4: Product introduction video, a one-minute animation of how Blink works (2026-10-30, reworked 2026-11; [delivery](P4_WEBSITE_VIDEO.md))
 - Deployment (D3, D6, Track B) is reassessed next; see spec §11.
 
 ## v0.1 baseline progress (provisional team-operated design)

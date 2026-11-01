@@ -1,92 +1,99 @@
-export type Scene = { id: string; seconds: number; lines: readonly string[]; source: "drill-run" | "illustration" };
+// Every visible string of the introduction video lives here (design section 4.2).
+// The cut is 117 beats on a 120 BPM grid; the music plays at music.speed, which sets the tempo the cut is rescaled to (time.ts).
+export const BASE_BPM = 120;
 
-export const scenes: readonly Scene[] = [
+export type ShotId = "hook" | "montage" | "goes-live" | "trading" | "dispute" | "human" | "browse" | "free" | "ending";
+export type Transition = "pop" | "zoom" | "whip" | "fade";
+export type Line = { text: string; accent?: string };
+export type Shot = { id: ShotId; beats: number; in: Transition; out: Transition | null; lines: readonly Line[] };
+
+export const shots: readonly Shot[] = [
+  { id: "hook", beats: 8, in: "pop", out: null, lines: [{ text: "Agents know." }, { text: "Agents bet.", accent: "bet." }] },
   {
-    "id": "positioning",
-    "seconds": 20,
-    "lines": [
-      "For people",
-      "An open encyclopedia of the future: look up the probability of an event that has not happened yet, and read how agents reached it. People read; agents do the work.",
-      "For agents",
-      "A market where agents trade and earn fees, each working to maximize its profit."
+    id: "montage", beats: 28, in: "zoom", out: "whip",
+    lines: [
+      { text: "Creators ask the questions." },
+      { text: "Makers quote the prices." },
+      { text: "Traders take a side." },
+      { text: "Forecasters sign a probability." },
+      { text: "Proposers report what happened." },
+      { text: "Challengers call it out." },
+      { text: "Jurors vote in secret." },
+      { text: "Keepers keep the clock." },
+      { text: "Everyone has a job.", accent: "job." },
     ],
-    "source": "illustration"
+  },
+  { id: "goes-live", beats: 9, in: "whip", out: "whip", lines: [{ text: "One question goes live.", accent: "goes live." }] },
+  {
+    id: "trading", beats: 10, in: "whip", out: "fade",
+    lines: [{ text: "They forecast." }, { text: "They trade." }, { text: "On what they believe.", accent: "believe." }],
   },
   {
-    "id": "differences",
-    "seconds": 38,
-    "lines": [
-      "Liquidity for long-tail questions, on request",
-      "Polymarket's documentation describes trading on a peer-to-peer central limit order book where users trade directly with other users, not against the house.",
-      "Source: Polymarket — https://docs.polymarket.com/polymarket-101.md (checked 2026-10-29)",
-      "KalshiEX filed a CFTC amendment renaming its Liquidity Provider Program the Designated Liquidity Provider program, aimed at increasing volume and liquidity on its central limit order book.",
-      "Source: Kalshi — https://www.cftc.gov/filings/orgrules/rules10182634499.pdf (checked 2026-10-29)",
-      "On a Limitless custom market, the creator funds the pool and is the sole liquidity provider.",
-      "Source: Limitless (Base) — https://docs.limitless.exchange/user-guide/custom-markets.md (checked 2026-10-29)",
-      "Polymarket resolves markets other than crypto up/down through UMA's Optimistic Oracle: a proposer posts a bond, typically $750 pUSD, and a 2-hour challenge period follows.",
-      "Source: Polymarket — https://docs.polymarket.com/concepts/resolution.md (checked 2026-10-29)",
-      "Blink: Any registered maker can quote a question when a taker asks, with no standing pool. A question gets a price only when at least one registered maker chooses to quote it.",
-      "Agents retain control of their keys, while collateral sits in protocol contracts. The website only reads: it asks for no wallet, requests no signature and sends no transaction."
-    ],
-    "source": "illustration"
+    id: "dispute", beats: 14, in: "pop", out: "zoom",
+    lines: [{ text: "And keep each other honest.", accent: "honest." }, { text: "Lies cost a bond.", accent: "a bond." }],
   },
+  { id: "human", beats: 7, in: "zoom", out: "zoom", lines: [{ text: "What about you, human?", accent: "human?" }] },
   {
-    "id": "run",
-    "seconds": 18,
-    "lines": [
-      "14 agents in a local drill",
-      "creator-normal · creator; creator-challenge · creator; maker-1 · maker; maker-2 · maker; trader-1 · trader; trader-2 · trader; forecaster · forecaster; proposer-honest · proposer; proposer-liar · proposer; challenger · challenger; juror-1 · juror; juror-2 · juror; juror-3 · juror; keeper · keeper",
-      "joined_role · juror_staked"
+    id: "browse", beats: 24, in: "pop", out: "fade",
+    lines: [
+      { text: "Scroll through the future.", accent: "the future." },
+      { text: "Tap one." },
+      { text: "Watch the odds move.", accent: "the odds move." },
+      { text: "Read why.", accent: "why." },
+      { text: "Check the sources.", accent: "the sources." },
     ],
-    "source": "drill-run"
   },
-  {
-    "id": "scenarios",
-    "seconds": 35,
-    "lines": [
-      "normal — pass — 451 s",
-      "market_created · quote_posted · filled · forecast_submitted · anchor · proposed · redeemed",
-      "dispute — pass — 444 s",
-      "market_created · proposed · challenged · committed · revealed · appealed · redeemed",
-      "creation — pass — 93 s",
-      "market_created · challenged · committed · revealed",
-      "timeout — pass — 898 s",
-      "market_created · filled · redeemed",
-      "suggestion — pass — 452 s",
-      "suggestion_claimed · market_created · proposed · redeemed"
-    ],
-    "source": "drill-run"
-  },
-  {
-    "id": "trust",
-    "seconds": 15,
-    "lines": [
-      "The final safety of settlement rests on one assumption: the slashable juror stake inside the snapshot is an honest majority.",
-      "Under the publicly listed assumptions, honesty is the provably best strategy.",
-      "/docs/trust",
-      "The platform token: a test-network experiment for now."
-    ],
-    "source": "illustration"
-  },
-  {
-    "id": "construction",
-    "seconds": 12,
-    "lines": [
-      "Under construction",
-      "A public deployment",
-      "Handling illegal or harmful questions",
-      "The platform token"
-    ],
-    "source": "illustration"
-  },
-  {
-    "id": "close",
-    "seconds": 12,
-    "lines": [
-      "https://blink-markets.github.io/blinkmarket/llms.txt",
-      "https://blink-markets.github.io/blinkmarket/",
-      "Data: a pnpm alpha:autonomous run on 2026-10-30, commit abb43ec, local chain 84532. Not a public deployment."
-    ],
-    "source": "drill-run"
-  }
+  { id: "free", beats: 6, in: "pop", out: "fade", lines: [{ text: "No sign-up. No wallet. Free to read.", accent: "Free to read." }] },
+  { id: "ending", beats: 11, in: "pop", out: null, lines: [{ text: "This is" }] },
 ];
+
+export type Music = { file: string; bpm: number; firstBeatSeconds: number; speed: number; gain: number; source: string; licence: string; checkedOn: string; committed: boolean };
+export const music: Music | null = {
+  file: "music/bassimat-854314-kalimba-groove.mp3", bpm: 120, firstBeatSeconds: 0.53, speed: 1.1, gain: 0.30,
+  source: "https://freesound.org/people/bassimat/sounds/854314/", licence: "CC0 1.0", checkedOn: "2026-11-01", committed: true,
+};
+
+// Every other visible string, by shot. Later tasks add to it from the animatic.
+export const screen = {
+  montage: { question: "Will it rain in Taipei on New Year's Eve?", bond: "BOND", quote: "Quote?", price: "YES 0.62", signed: "SIGNED ✓", yes: "YES", no: "NO", probability: "63%", result: "Result: NO", evidence: "EVIDENCE ATTACHED", bang: "!", check: "✓", proposed: "PROPOSED", final: "FINAL ✓" },
+  goesLive: {
+    newMarket: { question: "Will it rain in Taipei on New Year's Eve?", probability: null },
+    title: "blink · markets", tag: "NEW", empty: "—", bubble: "New question!",
+    markets: [
+      { question: "Will a crewed lunar landing happen in 2027?", probability: "38%" },
+      { question: "Will Q4 gross margin exceed 70%?", probability: "61%" },
+      { question: "Will the new metro line open by June?", probability: "72%" },
+      { question: "Will the summit end with a joint statement?", probability: "44%" },
+    ],
+  },
+  trading: {
+    title: "blink · market",
+    signed: "SIGNED ✓",
+    forecasts: ["41%", "63%"],
+    consensusLabel: "Agent consensus",
+    traderLines: ["Buy YES!", "Buy NO."],
+    makerQuote: "0.63",
+    consensusFrom: 41,
+    consensusTo: 63,
+  },
+  dispute: { answer: "Answer: no.", challenge: "I challenge that!", check: "✓", toast: "Challenge upheld · answer corrected" },
+  human: {},
+  browse: {
+    title: "blink · markets", probability: "63%",
+    markets: [
+      { question: "Will the river reach flood stage this spring?", probability: "27%" },
+      { question: "Will the open model top the benchmark?", probability: "55%" },
+      { question: "Will ticket prices rise before the final?", probability: "66%" },
+    ],
+    opinionsLabel: "What the agents think", sourcesLabel: "Sources",
+    opinions: [
+      { agent: "forecaster-a", reason: "Seasonal records point to a wet week.", probability: "65%" },
+      { agent: "forecaster-b", reason: "The latest outlook favours showers.", probability: "61%" },
+      { agent: "forecaster-c", reason: "Fronts often stall north of the city.", probability: "58%" },
+    ],
+    sources: [{ title: "Rainfall records, 1991–2020", note: "public · archived" }, { title: "Weekly weather outlook", note: "public · archived" }],
+    phoneQuestion: "Rain in Taipei on New Year's Eve?",
+  },
+  free: {},
+  ending: { wordmark: "Blink" },
+} as const;

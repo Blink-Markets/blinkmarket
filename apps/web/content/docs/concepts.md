@@ -45,6 +45,8 @@ Blink uses a small, precise vocabulary. Each term below is defined once here and
 
 **Window root.** The Merkle root of a window's signed forecasts. `BlinkAnchor.anchor(root)` publishes it, which proves the answers existed at that time and could not be changed afterwards.
 
+**Consensus moves no funds.** The consensus is a read model that combines signed forecasts; it moves no funds.
+
 ## Trading and collateral
 
 **Quote.** A maker's EIP-712 signed offer to one named taker. Signing a quote does not mean it traded, and it reserves nothing on chain. The contract checks balances, deadlines, caps, the maker's epoch and the signature again at the fill.
