@@ -11,7 +11,7 @@ scripts/video-docker.sh 'pnpm exec remotion still src/index.ts BlinkIntro /out/f
 scripts/video-docker.sh 'pnpm exec remotion render src/index.ts BlinkIntro /out/blink-intro.mp4'
 ```
 
-The development host (glibc 2.28) cannot run Remotion's browser, which needs glibc 2.31 and libgbm, so the script uses a pinned Debian bookworm (glibc 2.36) container (`node:22.23.1-bookworm-slim`). It copies the repository in rather than installing into the mounted tree, so the host's `node_modules` stays untouched. A named volume, `blink-video-pnpm-store`, holds the pnpm store, so repeat runs reuse downloads. The first run also downloads Chrome Headless Shell.
+The development host (glibc 2.28) cannot run Remotion's browser, which needs glibc 2.31 and libgbm, so the script uses a pinned Debian bookworm (glibc 2.36) container (`node:22.23.1-bookworm-slim`). It copies the repository in rather than installing into the mounted tree, so the host's `node_modules` stays untouched. A named volume, `blink-video-pnpm-store`, holds the pnpm store, so repeat runs reuse downloads. Renders need the network: they fetch the Geist font from fonts.gstatic.com, and Chrome Headless Shell downloads on every run because the container is removed after each run. The files in `tmp/video/` are written by the container, so they are root-owned in a user-owned directory; `rm` still works.
 
 Remotion 4.0.536's renderer sends a usage event only when a license key is set (`@remotion/renderer/dist/render-media.js`); this workspace sets none. Stills and renders make no update check. The interactive `pnpm video:studio` asks registry.npmjs.org for the latest Remotion version (`@remotion/studio-server/dist/get-latest-remotion-version.js`) and fetches known bugs; 4.0.536 has no setting to turn this off, so do not run the Studio where that request is unwanted.
 
@@ -19,8 +19,12 @@ The render settings are H.264 at CRF 30, with AAC audio. The target is 8 MB, wit
 
 ## Progress
 
-Shots 1–9 are implemented. Task 6 verification covers script, roles, boundaries, typecheck and the project checks; visual still review remains with the controller. Music and sound effects are pending Task 7.
+The video has its score and sound effects.
 
 ## Music
 
-To be filled when the track is chosen: source page, licence page, check date and, if the file is not committed, its SHA-256.
+- Track: "Low and High Percussion Loop Groove with Kalimba at 120bpm" by bassimat, https://freesound.org/people/bassimat/sounds/854314/
+- Licence: CC0 1.0, https://creativecommons.org/publicdomain/zero/1.0/ (read on the sound's page, checked 2026-11-01). Attribution is not required; it is credited here anyway.
+- File: `public/music/bassimat-854314-kalimba-groove.mp3`, committed under CC0. It is Freesound's HQ preview MP3 (64.0 s, 1.5 MB), because the original WAV needs a Freesound login and the preview is good enough for an AAC bed. SHA-256: `ccb5ad5848bbd3a9abb676d96614475c288c4cf1aacc919a7d8537ac26c4864c`.
+- Timing: `bpm: 120`, `firstBeatSeconds: 0.53`. A librosa beat fit (start_bpm 120) gave 119.998 BPM, grid phase 0.529 s, residual sd 6.9 ms, so the timeline is not scaled. From 0.53 s the track has 63.5 s left, more than the video's 58.5 s.
+- Level: `gain: 0.17`, under the volume envelope in `src/sound.ts`. Chosen from the render's peaks: the source peaks at -0.3 dBFS, so 0.17 puts the bed's peaks near -15.6 dBFS, 6 dB under the loudest effects (gavel -9.3, stamp -6.8 dBFS). The first render at 0.35 had the bed peaking at -9.4 dBFS, level with them.

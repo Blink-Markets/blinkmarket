@@ -28,7 +28,8 @@ test("every line is in the script doc, and every accent is part of its line", ()
   }
 });
 test("the video copy is true to the protocol", () => {
-  const text = JSON.stringify({ shots, screen, music });
+  // music.source is a credit link in the metadata; it is never drawn, so the no-URL rule skips it.
+  const text = JSON.stringify({ shots, screen, music: music && { ...music, source: "" } });
   assertShowcaseClean(text, "video/src/script.ts");
   assert.doesNotMatch(text, /\bsell/i);
   assert.doesNotMatch(text, /\b(thousands|hundreds|millions) of agents\b|\b\d[\d,]* agents\b|24\/7|around the clock|round-the-clock/i);

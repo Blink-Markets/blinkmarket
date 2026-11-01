@@ -47,8 +47,8 @@
     "images:smoke": "node scripts/check-contracts.mjs && node --import tsx scripts/images-smoke.ts",
     "video:sfx": "node --import tsx video/scripts/sfx.ts",
     "video:studio": "pnpm --dir video exec remotion studio src/index.ts",
-    "video:render": "pnpm --dir video exec remotion render src/index.ts BlinkIntro ../tmp/video/blink-intro.mp4",
-    "video:still": "pnpm --dir video exec remotion still src/index.ts BlinkIntro ../tmp/video/blink-intro-poster.png"
+    "video:render": "scripts/video-docker.sh 'pnpm exec remotion render src/index.ts BlinkIntro /out/blink-intro.mp4'",
+    "video:still": "scripts/video-docker.sh 'pnpm exec remotion still src/index.ts BlinkIntro /out/blink-intro-poster.png --frame=525'"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

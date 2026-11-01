@@ -26,4 +26,6 @@ test('the committed sound files are exactly what the recipes make', () => {
 test('the music envelope follows the design shape', () => {
   assert.equal(musicVolume(1), .5); assert.equal(musicVolume(20), 1); assert.equal(musicVolume(34.9), 1);
   assert.equal(musicVolume(36), 0); assert.equal(musicVolume(45), .6); assert.equal(musicVolume(55), 0);
+  const near = (t: number, v: number) => assert.ok(Math.abs(musicVolume(t) - v) < 1e-9, `${t}: ${musicVolume(t)}`);
+  near(35, 1); near(35.06, .5); near(35.12, 0); near(38, .6); near(53, .6); near(53.25, .3); near(53.5, 0);
 });

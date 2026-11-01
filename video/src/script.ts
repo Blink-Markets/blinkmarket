@@ -48,8 +48,10 @@ export const shots: readonly Shot[] = [
 ];
 
 export type Music = { file: string; bpm: number; firstBeatSeconds: number; gain: number; source: string; licence: string; checkedOn: string; committed: boolean };
-// Task 8 sets the chosen track.
-export const music: Music | null = null;
+export const music: Music | null = {
+  file: "music/bassimat-854314-kalimba-groove.mp3", bpm: 120, firstBeatSeconds: 0.53, gain: 0.17,
+  source: "https://freesound.org/people/bassimat/sounds/854314/", licence: "CC0 1.0", checkedOn: "2026-11-01", committed: true,
+};
 
 // Every other visible string, by shot. Later tasks add to it from the animatic.
 export const screen = {
