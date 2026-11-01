@@ -49,7 +49,7 @@ export const shots: readonly Shot[] = [
 
 export type Music = { file: string; bpm: number; firstBeatSeconds: number; gain: number; source: string; licence: string; checkedOn: string; committed: boolean };
 export const music: Music | null = {
-  file: "music/bassimat-854314-kalimba-groove.mp3", bpm: 120, firstBeatSeconds: 0.53, gain: 0.17,
+  file: "music/bassimat-854314-kalimba-groove.mp3", bpm: 120, firstBeatSeconds: 0.53, gain: 0.30,
   source: "https://freesound.org/people/bassimat/sounds/854314/", licence: "CC0 1.0", checkedOn: "2026-11-01", committed: true,
 };
 

@@ -19,7 +19,7 @@ export function Intro() {
   const bpm = music?.bpm ?? BASE_BPM;
   return (
     <AbsoluteFill style={{ fontFamily: FONT_FAMILY, color: "#1d1c1a", fontWeight: 600, background: "#f4f1ea" }}>
-      {CUES.map((cue, i) => <Sequence key={i} from={Math.round((shotStarts()[shots.findIndex(s => s.id === cue.shot)]! + cue.at) * timeScale(bpm) * fps)}><Html5Audio src={staticFile(`sfx/${cue.sound}.wav`)} volume={.56} /></Sequence>)}
+      {CUES.map((cue, i) => <Sequence key={i} from={Math.round((shotStarts()[shots.findIndex(s => s.id === cue.shot)]! + cue.at) * timeScale(bpm) * fps)}><Html5Audio src={staticFile(`sfx/${cue.sound}.wav`)} volume={1} /></Sequence>)}
       {music && <Html5Audio src={staticFile(music.file)} startFrom={Math.round(music.firstBeatSeconds * fps)} volume={f => musicVolume(f / fps / timeScale(music!.bpm)) * music!.gain} />}
       {shotFrames(fps, bpm).map((f, i) => (
         <Sequence key={f.id} from={f.from} durationInFrames={f.durationInFrames}>
