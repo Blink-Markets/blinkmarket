@@ -5,7 +5,7 @@ import { Agent } from "../ui/Agent.tsx";
 import { clamp, popIn } from "../ui/motion.ts";
 import { Phone } from "../ui/Phone.tsx";
 import { LineSwap } from "../ui/Type.tsx";
-import { ProductWindow } from "../ui/Window.tsx";
+import { ProductWindow, Sketch } from "../ui/Window.tsx";
 
 const paths = ["M0 8 L20 10 L40 9 L60 13 L80 12 L100 14", "M0 14 L20 13 L40 11 L60 10 L80 8 L100 7", "M0 17 L20 16 L40 13 L60 11 L80 8 L100 5", "M0 12 L20 10 L40 9 L60 7 L80 7 L100 6", "M0 9 L20 11 L40 10 L60 12 L80 11 L100 12", "M0 10 L20 12 L40 14 L60 13 L80 15 L100 16", "M0 13 L20 12 L40 12 L60 10 L80 10 L100 9", "M0 15 L20 13 L40 12 L60 9 L80 9 L100 7"];
 export function Browse() {
@@ -17,6 +17,7 @@ export function Browse() {
   const cursor = clamp(t, 2.51, 3.56);
   const detail = clamp(t, 4.25, 4.75);
   return <AbsoluteFill>
+    <Sketch t={t} color="#2148b8" />
     <div style={{ position: "absolute", left: 0, right: 0, top: "8%", textAlign: "center", fontSize: 74.88, lineHeight: 1.02, letterSpacing: "-.045em" }}><LineSwap lines={shots[6]!.lines} at={[.3, 3.7, 4.7, 6.6, 8.5]} /></div>
     <ProductWindow t={t} title={s.title} side="right" browse overlay={<Phone t={t} />}>
       <div style={{ position: "absolute", inset: "40px 0 0", overflow: "hidden" }}>
