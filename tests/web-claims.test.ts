@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
-import { assertShowcaseClean, showcaseSources } from "./showcase-claims.ts";
+import { assertNoForms, assertShowcaseClean, showcaseSources } from "./showcase-claims.ts";
 
 const root = "apps/web";
 const banned = [
@@ -58,6 +58,17 @@ test("no showcase page names another platform, shows a status or invites people 
   for (const file of files) assertShowcaseClean(readFileSync(file, "utf8"), file);
 });
 test("the website has no form controls", () => {
-  for (const file of showcaseSources().filter((f) => f.startsWith("apps/web/app") || f.startsWith("apps/web/components")))
-    assert.doesNotMatch(readFileSync(file, "utf8"), /<form\b|<input\b|<textarea\b|<select\b|onSubmit/, file);
+  for (const dir of ["apps/web/app", "apps/web/components"]) assertNoForms(dir);
+});
+
+test("the form guard rejects a docs form", () => {
+  mkdirSync("tmp", { recursive: true });
+  const dir = mkdtempSync("tmp/form-guard-");
+  try {
+    mkdirSync(join(dir, "components/docs"), { recursive: true });
+    writeFileSync(join(dir, "components/docs/Fixture.tsx"), "<form />");
+    assert.throws(() => assertNoForms(dir), /components\/docs\/Fixture\.tsx/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

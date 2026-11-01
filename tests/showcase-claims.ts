@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const PLATFORM_NAMES = /\b(Polymarket|Kalshi|Limitless|Seer|Olas|UMA|Kleros|Manifold|Augur)\b/;
@@ -8,6 +8,14 @@ export const INVITATIONS = /connect (your )?wallet|\bsign (up|in)\b|\bjoin (as|t
 
 export function assertShowcaseClean(text: string, label: string): void {
   for (const pattern of [PLATFORM_NAMES, STATUS_PHRASES, INVITATIONS]) assert.doesNotMatch(text, pattern, label);
+}
+
+export function assertNoForms(dir: string): void {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) assertNoForms(path);
+    else if (/\.tsx?$/.test(path)) assert.doesNotMatch(readFileSync(path, "utf8"), /<form\b|<input\b|<textarea\b|<select\b|onSubmit/, path);
+  }
 }
 
 export function showcaseSources(): string[] {
