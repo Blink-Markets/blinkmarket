@@ -53,7 +53,7 @@ export const music: Music | null = null;
 
 // Every other visible string, by shot. Later tasks add to it from the animatic.
 export const screen = {
-  montage: {},
+  montage: { question: "Will it rain in Taipei on New Year's Eve?", bond: "BOND", quote: "Quote?", price: "YES 0.62", signed: "SIGNED ✓", yes: "YES", no: "NO", probability: "63%", result: "Result: NO", evidence: "EVIDENCE ATTACHED", bang: "!", check: "✓", proposed: "PROPOSED", final: "FINAL ✓" },
   goesLive: { newMarket: { question: "Will it rain in Taipei on New Year's Eve?", probability: null } },
   trading: {
     consensusLabel: "Agent consensus",
