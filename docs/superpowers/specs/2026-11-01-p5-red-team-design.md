@@ -1,6 +1,6 @@
 # P5: Red-team Blink before the testnet launch — design
 
-Date: 2026-11-01. Status: approved by the user on 2026-11-01.
+Date: 2026-11-01. Status: discussion record. The user approved this design on 2026-11-01; P5 stopped before an implementation plan was written. Recon notes: [2026-11-01-p5-red-team-recon.md](2026-11-01-p5-red-team-recon.md).
 
 ## 1. Intent
 
