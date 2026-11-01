@@ -48,7 +48,7 @@
     "video:sfx": "node --import tsx video/scripts/sfx.ts",
     "video:studio": "pnpm --dir video exec remotion studio src/index.ts",
     "video:render": "scripts/video-docker.sh 'pnpm exec remotion render src/index.ts BlinkIntro /out/blink-intro.mp4'",
-    "video:still": "scripts/video-docker.sh 'pnpm exec remotion still src/index.ts BlinkIntro /out/blink-intro-poster.png --frame=525'"
+    "video:still": "scripts/video-docker.sh 'pnpm exec remotion still src/index.ts BlinkIntro /out/blink-intro-poster.png --frame=82'"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

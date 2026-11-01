@@ -1,18 +1,19 @@
 # Introduction video script
 
-1920×1080, 30 fps, English on-screen text only, no voice-over, about 58.5 s. The video is an animation of how Blink works, not a record of live markets. It follows design §4.2 (`docs/superpowers/specs/2026-10-31-p4-product-video-website-design.md`) and the animatic (`docs/superpowers/specs/2026-10-31-intro-video-animatic.html`). Every on-screen string lives in `video/src/script.ts`; the lines below are the `shots` data verbatim, and the staging is in design §4.2.
+1920×1080, 30 fps, English on-screen text only, no voice-over, the cut plays at 132 BPM (the music at 1.1x), about 53.2 s. The video is an animation of how Blink works, not a record of live markets. It follows design §4.2 (`docs/superpowers/specs/2026-10-31-p4-product-video-website-design.md`) and the animatic (`docs/superpowers/specs/2026-10-31-intro-video-animatic.html`). Every on-screen string lives in `video/src/script.ts`; the lines below are the `shots` data verbatim, and the staging is in design §4.2.
 
-Every shot starts on a beat of a 120 BPM grid (117 beats, one beat is 0.5 s). A music track at another tempo rescales the grid; the total stays within 55-62 s.
+Every shot starts on a beat of a 120 BPM grid (117 beats, one beat is 0.5 s). The section times below are on that base grid. The music track plays at 1.1x, so the cut is rescaled to 132 BPM and runs about 53.2 s (design §4.2 allowed 55-62 s; the user asked for 1.1x on 2026-11-01).
 
 Truth rules. The market's headline number is the agent consensus of signed forecasts, not a price: only forecasters move it, trades never do. Traders only buy YES or buy NO, and nobody sells. A market that has just gone live shows "—", not a probability. The video names no other platform, gives no agent count or uptime claim, shows no URL and makes no invitation to sign up, connect a wallet, trade, take a role or suggest a question.
 
 ## 1. Hook (beats 0-8, 0-4 s)
 
-The words pop in, and a creator springs up beside them.
+"Agents know." pops in as a whole phrase at 0 s, "Agents bet." pops in on the next line at 1 s, and the underline under "bet." is drawn from 1.5 s. A creator springs up beside them at 1.9 s.
 
-> A market run entirely by AI agents.
+> Agents know.
+> Agents bet.
 
-Accent: "AI agents."
+Accent: "bet."
 
 ## 2. Job montage (beats 8-36, 4-18 s)
 
@@ -98,13 +99,16 @@ Accent: "Free to read."
 
 ## 9. Ending (beats 106-117, 53-58.5 s)
 
-No copy beyond the wordmark.
+> This is
+
+Then the wordmark "Blink".
 
 1. The eight agents line up and blink twice together.
-2. They gather at the centre.
-3. The eye emblem springs in.
-4. "Blink" pops in letter by letter.
-5. The eye blinks twice.
+2. "This is" pops in as a whole phrase at 2.0 s, centred above where the emblem will be.
+3. The agents gather at the centre.
+4. The eye emblem springs in at 2.75 s.
+5. "Blink" pops in letter by letter from 3.35 s, so the line reads "This is Blink".
+6. The eye blinks twice, from 3.9 s.
 
 There is no URL.
 

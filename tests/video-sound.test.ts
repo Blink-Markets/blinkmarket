@@ -4,13 +4,13 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { CUES, musicVolume } from '../video/src/sound.ts';
 import { synth, wav } from '../video/scripts/sfx.ts';
 import { shots } from '../video/src/script.ts';
-import { shotFrames, shotStarts, timeScale } from '../video/src/time.ts';
+import { CUT_BPM, shotFrames, shotStarts, timeScale } from '../video/src/time.ts';
 
 test('every cue sits inside its shot at each tempo', () => {
   const len = Object.fromEntries(shots.map((s) => [s.id, s.beats * .5]));
   for (const c of CUES) assert.ok(c.at >= 0 && c.at < len[c.shot]!, `${c.shot} ${c.at} ${c.sound}`);
   assert.ok(CUES.some((c) => c.shot === 'ending' && c.sound === 'logo'));
-  for (const bpm of [115, 125]) for (const c of CUES) {
+  for (const bpm of [115, 125, 132]) for (const c of CUES) {
     const i = shots.findIndex((s) => s.id === c.shot);
     const shot = shotFrames(30, bpm)[i]!;
     const frame = Math.round((shotStarts()[i]! + c.at) * timeScale(bpm) * 30);

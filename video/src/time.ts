@@ -4,6 +4,9 @@ import { BASE_BPM, music, shots, type ShotId } from "./script.ts";
 const BASE_SECONDS_PER_BEAT = 60 / BASE_BPM;
 export const BASE_SECONDS = shots.reduce((sum, s) => sum + s.beats, 0) * BASE_SECONDS_PER_BEAT;
 
+/** The tempo the cut plays at: the track's own BPM times its playback speed (132 for 120 BPM at 1.1x). */
+export const CUT_BPM = (music?.bpm ?? BASE_BPM) * (music?.speed ?? 1);
+
 export function timeScale(bpm: number): number {
   return BASE_BPM / bpm;
 }
@@ -32,5 +35,5 @@ export function totalFrames(fps: number, bpm: number): number {
 export function useShotTime(): number {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  return frame / fps / timeScale(music?.bpm ?? BASE_BPM);
+  return frame / fps / timeScale(CUT_BPM);
 }

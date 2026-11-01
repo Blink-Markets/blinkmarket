@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { shots, screen, music } from "../video/src/script.ts";
-import { shotFrames, totalFrames, BASE_SECONDS, timeScale } from "../video/src/time.ts";
+import { shotFrames, totalFrames, BASE_SECONDS, timeScale, CUT_BPM } from "../video/src/time.ts";
 import { assertShowcaseClean } from "./showcase-claims.ts";
 
 test("the cut is 117 beats on the 120 BPM grid", () => {
@@ -19,6 +19,13 @@ test("a track from 115 to 125 BPM keeps the cut contiguous and within 55-62 s", 
     assert.ok(seconds >= 55 && seconds <= 62, String(seconds));
   }
   assert.equal(timeScale(120), 1);
+});
+test("the cut plays at 132 BPM, the 120 BPM track at 1.1x, and runs 1595 frames", () => {
+  assert.equal(music?.speed, 1.1);
+  assert.ok(Math.abs(CUT_BPM - 132) < 1e-9, String(CUT_BPM));
+  assert.equal(totalFrames(30, CUT_BPM), 1595);
+  const frames = shotFrames(30, CUT_BPM);
+  frames.forEach((f, i) => assert.equal(f.from, i === 0 ? 0 : frames[i - 1]!.from + frames[i - 1]!.durationInFrames));
 });
 test("every line is in the script doc, and every accent is part of its line", () => {
   const doc = readFileSync("docs/INTRO_VIDEO_SCRIPT.md", "utf8");

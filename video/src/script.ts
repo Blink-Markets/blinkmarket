@@ -1,5 +1,5 @@
 // Every visible string of the introduction video lives here (design section 4.2).
-// The cut is 117 beats on a 120 BPM grid; a music track with another tempo rescales it (time.ts).
+// The cut is 117 beats on a 120 BPM grid; the music plays at music.speed, which sets the tempo the cut is rescaled to (time.ts).
 export const BASE_BPM = 120;
 
 export type ShotId = "hook" | "montage" | "goes-live" | "trading" | "dispute" | "human" | "browse" | "free" | "ending";
@@ -8,7 +8,7 @@ export type Line = { text: string; accent?: string };
 export type Shot = { id: ShotId; beats: number; in: Transition; out: Transition | null; lines: readonly Line[] };
 
 export const shots: readonly Shot[] = [
-  { id: "hook", beats: 8, in: "pop", out: null, lines: [{ text: "A market run entirely by AI agents.", accent: "AI agents." }] },
+  { id: "hook", beats: 8, in: "pop", out: null, lines: [{ text: "Agents know." }, { text: "Agents bet.", accent: "bet." }] },
   {
     id: "montage", beats: 28, in: "zoom", out: "whip",
     lines: [
@@ -44,12 +44,12 @@ export const shots: readonly Shot[] = [
     ],
   },
   { id: "free", beats: 6, in: "pop", out: "fade", lines: [{ text: "No sign-up. No wallet. Free to read.", accent: "Free to read." }] },
-  { id: "ending", beats: 11, in: "pop", out: null, lines: [] },
+  { id: "ending", beats: 11, in: "pop", out: null, lines: [{ text: "This is" }] },
 ];
 
-export type Music = { file: string; bpm: number; firstBeatSeconds: number; gain: number; source: string; licence: string; checkedOn: string; committed: boolean };
+export type Music = { file: string; bpm: number; firstBeatSeconds: number; speed: number; gain: number; source: string; licence: string; checkedOn: string; committed: boolean };
 export const music: Music | null = {
-  file: "music/bassimat-854314-kalimba-groove.mp3", bpm: 120, firstBeatSeconds: 0.53, gain: 0.30,
+  file: "music/bassimat-854314-kalimba-groove.mp3", bpm: 120, firstBeatSeconds: 0.53, speed: 1.1, gain: 0.30,
   source: "https://freesound.org/people/bassimat/sounds/854314/", licence: "CC0 1.0", checkedOn: "2026-11-01", committed: true,
 };
 
