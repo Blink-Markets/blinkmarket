@@ -32,6 +32,6 @@ export function Montage() {
   return <AbsoluteFill style={{ background: "#f4f1ea" }}>
     {r && <><div style={{ opacity: life }}><Agent role={r.id} size={r.id === "maker" ? 229.632 : 264.96} x={(r.id === "maker" || r.id === "proposer" || r.id === "juror" ? .13 : .14) * 1920} y={(r.id === "maker" || r.id === "juror" || r.id === "keeper" ? .38 : .36) * 1080} t={local} pose={{ pop: 0, hop: 0, shake: r.id === "challenger" ? .3 : undefined, scale: 1 - .7 * clamp(local, 1.2, 1.5) }} /><Prop index={index} t={local} /><div style={{ position: "absolute", left: "53%", top: "38%", width: "44%", fontSize: 74.88, lineHeight: 1.02, letterSpacing: "-.045em", opacity: clamp(local, 0, .27) }}>{<span style={{ color: r.color }}>{shots[1]!.lines[index]!.text.split(" ")[0]}</span>} {shots[1]!.lines[index]!.text.split(" ").slice(1).join(" ")}</div></div></>}
     {ROLES.map((role, i) => <Agent key={role.id} role={role.id} size={97.152} x={(12 + 10.5 * i) * 19.2} y={885.6} t={t} pose={{ pop: 1.8 + 1.5 * i, sway: 1.8 + 1.5 * i }} />)}
-    <div style={{ position: "absolute", left: 0, right: 0, top: "34%", textAlign: "center", fontSize: 115.2, lineHeight: 1.02, letterSpacing: "-.045em" }}><KineticLine line={shots[1]!.lines[8]!} at={12.5} /></div>
+    <div style={{ position: "absolute", left: 0, right: 0, top: "34%", textAlign: "center", fontSize: 115.2, lineHeight: 1.02, letterSpacing: "-.045em" }}><KineticLine line={shots[1]!.lines[8]!} at={12.5} underlineAt={13.2} /></div>
   </AbsoluteFill>;
 }
