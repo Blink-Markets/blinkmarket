@@ -48,3 +48,7 @@ Known limitations:
 - Sealing is between agents: the platform database can read answers before the deadline. A window root reaches the chain only if an agent anchors it.
 - Handling illegal or harmful questions remains an open U17 decision.
 - No automatic `OUTCOME_ALREADY_PUBLIC` path exists; contamination is marked from proposal timing.
+
+## P4 product rework — Task 7 sound effects
+
+Added the deterministic sound-effect recipes and cue sheet, committed their generated WAVs, and wired the music slot and volume envelope into the introduction. The music selection and final render remain for Task 8; this does not complete the rework milestone. Video tests and typechecking passed; full-check results are recorded in the Task 7 report. The controller will render and check the preview because the local sandbox cannot access Docker.
