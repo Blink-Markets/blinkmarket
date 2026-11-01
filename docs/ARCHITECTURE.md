@@ -106,4 +106,4 @@ A forecaster signs the `Forecast` typed data and submits it before the window de
 
 ## Pages
 
-The Web host provides the documentation site and read-only samples. There is no trading, position or administration UI. The website's advantages page and the human suggestion form on the web belong to P4.
+The Web host provides the documentation site and read-only samples. There is no trading, position or administration UI. The home page's advantages and the human suggestion form on the web belong to P4.

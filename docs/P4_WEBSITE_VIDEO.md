@@ -38,6 +38,8 @@ Embedded the introduction video and poster on the home page with controls and a 
 
 ## Final state
 
+The Rework (2026-11) section at the end of this page supersedes the video details below: the drill-based video, its 150-second length and its size.
+
 P4 delivers the advantages page, rewritten home and how-it-works pages, sample markets and introduction video. Nine advantages are implemented; public deployment, handling illegal or harmful questions and the platform token remain under construction.
 
 The video uses the 2026-10-30 `pnpm alpha:autonomous` drill at commit `abb43ec`, on local chain 84532; it is not a public deployment. The drill passed five scenarios with 14 agents.
@@ -52,3 +54,23 @@ Known limitations:
 ## P4 product rework — Task 7 sound effects
 
 Added the deterministic sound-effect recipes and cue sheet, committed their generated WAVs, and wired the music slot and volume envelope into the introduction. The music selection and final render remain for Task 8; this does not complete the rework milestone. Video tests and typechecking passed; full-check results are recorded in the Task 7 report. The controller will render and check the preview because the local sandbox cannot access Docker.
+
+## Rework (2026-11)
+
+**Scope.** The introduction video is now a one-minute product introduction: minimalist role characters, kinetic type and snappy transitions on a beat grid, with music and sound effects. The advantages are part of the home page; the `/advantages` route is gone and returns 404, and no page, `llms.txt` or footer links to it. The video plays inline on the home page (`preload="none"`, controls, no autoplay), with no transcript or watch page. The showcase pages carry no status labels and no deployment or local-verification statements.
+
+**Drill capture removed.** The rework supersedes the Task 4 entry above, which stays as history: the video no longer uses the autonomous drill. `pnpm video:capture`, its script and its data are removed, and the video is an animation of how Blink works, not a record of live markets.
+
+**Changes from the user's review (2026-11-01).**
+
+- The music plays at 1.1x, so the cut runs at 132 BPM and 53.2 s. This overrides the 55-62 s target in the design.
+- The opening headline is "Agents know. / Agents bet.", replacing the longer line about a market run by AI agents.
+- The ending reads "This is", then "Blink" pops in beside the eye emblem.
+- The poster is the hook headline (frame 82), not the job line-up.
+
+**Branch CI runs.** Tasks 1-7: 41220822960, 41221234757, 41222530726, 41256909775, 41258334980, 41263545503, 41264969175, 41265647241, 41266910552, 41267518352, 41268865529. Task 8: 41274442496 (a12cb12, green); 41274069299 (c42789c, cancelled by the next push); 41276541923 (0069172, final render; the controller records its result in the ledger).
+
+**Verification.** The final `pnpm check` ran 668 tests and passed; `pnpm typecheck` and `pnpm check:boundaries` passed. `pnpm build` cannot run on the development host (glibc 2.28, no native Next.js bindings), so it runs in branch CI. The committed MP4 has an audio track (`tests/web-intro-video.test.ts`).
+
+**Render settings.** The container render (`scripts/video-docker.sh`) uses H.264 at CRF 30 with Remotion's default x264 preset, 1920x1080 at 30 fps, AAC audio at 48 kHz stereo. The result is 53.184 s and 4,111,439 bytes (4.11 MB; target 8 MB, cap 15 MB). The music is the CC0 track `bassimat-854314` at 1.1x with `gain` 0.30, and the effects play at volume 1. The whole-file peak is -4.6 dBFS with no clipped samples. Remotion prints a warning that the workspace's zod (4.6.5) differs from the one it expects (4.5.4); the video uses no `@remotion/zod-types`, so the output is unaffected.
+
