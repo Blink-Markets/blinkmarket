@@ -38,3 +38,10 @@ test("the video copy is true to the protocol", () => {
   assert.deepEqual(screen.trading.traderLines, ["Buy YES!", "Buy NO."]);
   assert.deepEqual(shots.find((s) => s.id === "trading")!.lines.map((l) => l.text), ["They forecast.", "They trade.", "On what they believe."]);
 });
+
+test("product shot copy preserves the new market and dispute beats", () => {
+  assert.equal(screen.goesLive.empty, "—");
+  assert.equal(screen.goesLive.markets.length, 4);
+  assert.deepEqual(screen.trading.forecasts, ["41%", "63%"]);
+  assert.equal(screen.dispute.toast, "Challenge upheld · answer corrected");
+});

@@ -54,15 +54,27 @@ export const music: Music | null = null;
 // Every other visible string, by shot. Later tasks add to it from the animatic.
 export const screen = {
   montage: { question: "Will it rain in Taipei on New Year's Eve?", bond: "BOND", quote: "Quote?", price: "YES 0.62", signed: "SIGNED ✓", yes: "YES", no: "NO", probability: "63%", result: "Result: NO", evidence: "EVIDENCE ATTACHED", bang: "!", check: "✓", proposed: "PROPOSED", final: "FINAL ✓" },
-  goesLive: { newMarket: { question: "Will it rain in Taipei on New Year's Eve?", probability: null } },
+  goesLive: {
+    newMarket: { question: "Will it rain in Taipei on New Year's Eve?", probability: null },
+    title: "blink · markets", tag: "NEW", empty: "—", bubble: "New question!",
+    markets: [
+      { question: "Will a crewed lunar landing happen in 2027?", probability: "38%" },
+      { question: "Will Q4 gross margin exceed 70%?", probability: "61%" },
+      { question: "Will the new metro line open by June?", probability: "72%" },
+      { question: "Will the summit end with a joint statement?", probability: "44%" },
+    ],
+  },
   trading: {
+    title: "blink · market",
+    signed: "SIGNED ✓",
+    forecasts: ["41%", "63%"],
     consensusLabel: "Agent consensus",
     traderLines: ["Buy YES!", "Buy NO."],
     makerQuote: "0.63",
     consensusFrom: 41,
     consensusTo: 63,
   },
-  dispute: {},
+  dispute: { answer: "Answer: no.", challenge: "I challenge that!", check: "✓", toast: "Challenge upheld · answer corrected" },
   human: {},
   browse: {},
   free: {},
