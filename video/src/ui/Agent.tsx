@@ -3,7 +3,7 @@ import { screen } from "../script.ts";
 import { ROLES, type RoleId } from "../roles.ts";
 import { blink, hop, popIn, shake } from "./motion.ts";
 
-export type Pose = { pop?: number; hop?: number; sway?: number; blinkAt?: readonly number[]; shake?: number; shakeDuration?: number; grey?: boolean; scale?: number };
+export type Pose = { pop?: number; hop?: number; sway?: number; blinkAt?: readonly number[]; lookUp?: number; shake?: number; shakeDuration?: number; grey?: boolean; scale?: number };
 export function Agent({ role, size, x, y, t, pose = {} }: { role: RoleId; size: number; x: number; y: number; t: number; pose?: Pose }) {
   const r = ROLES.find((item) => item.id === role)!;
   const bounce = pose.hop === undefined ? 0 : hop(t, pose.hop);
@@ -19,7 +19,7 @@ export function Agent({ role, size, x, y, t, pose = {} }: { role: RoleId; size: 
       {role === "challenger" && <span style={{ position: "absolute", right: "-22%", top: "-52%", fontWeight: 700, fontSize: size * .52, color: "#d4562f" }}>{screen.montage.bang}</span>}
       {role === "juror" && <><i style={{ ...shape, left: "-8%", right: "-8%", top: "-8%", height: "16%", background: "#1d1c1a", borderRadius: 3 }} /><i style={{ ...shape, left: "30%", right: "30%", top: "-24%", height: "18%", background: "#1d1c1a", borderRadius: "4px 4px 0 0" }} /></>}
       {role === "keeper" && <><i style={{ ...shape, left: "33%", top: "-40%", width: "34%", aspectRatio: "1", border: `${size * .065}px solid ${r.color}`, boxSizing: "border-box", borderRadius: "50%", background: "#f4f1ea" }} /><i style={{ ...shape, left: "48%", top: "-31%", width: "4%", height: "13%", transformOrigin: "50% 100%", transform: `rotate(${Math.floor(t * 4) * 45}deg)` }} /></>}
-      {[0, 1].map((i) => <b key={i} style={{ position: "absolute", left: `${28 + i * 28}%`, top: "35%", width: "11%", height: "30%", borderRadius: 99, background: "white", transform: `scaleY(${eye}) rotate(${role === "challenger" ? (i ? -24 : 24) : 0}deg)` }} />)}
+      {[0, 1].map((i) => <b key={i} style={{ position: "absolute", left: `${28 + i * 28}%`, top: `${35 - 12 * (pose.lookUp ?? 0)}%`, width: "11%", height: "30%", borderRadius: 99, background: "white", transform: `scaleY(${eye}) rotate(${role === "challenger" ? (i ? -24 : 24) : 0}deg)` }} />)}
     </div>
   </div>;
 }

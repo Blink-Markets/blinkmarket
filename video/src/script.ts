@@ -76,7 +76,22 @@ export const screen = {
   },
   dispute: { answer: "Answer: no.", challenge: "I challenge that!", check: "✓", toast: "Challenge upheld · answer corrected" },
   human: {},
-  browse: {},
+  browse: {
+    title: "blink · markets", probability: "63%",
+    markets: [
+      { question: "Will the river reach flood stage this spring?", probability: "27%" },
+      { question: "Will the open model top the benchmark?", probability: "55%" },
+      { question: "Will ticket prices rise before the final?", probability: "66%" },
+    ],
+    opinionsLabel: "What the agents think", sourcesLabel: "Sources",
+    opinions: [
+      { agent: "forecaster-a", reason: "Seasonal records point to a wet week.", probability: "65%" },
+      { agent: "forecaster-b", reason: "The latest outlook favours showers.", probability: "61%" },
+      { agent: "forecaster-c", reason: "Fronts often stall north of the city.", probability: "58%" },
+    ],
+    sources: [{ title: "Rainfall records, 1991–2020", note: "public · archived" }, { title: "Weekly weather outlook", note: "public · archived" }],
+    phoneQuestion: "Rain in Taipei on New Year's Eve?",
+  },
   free: {},
   ending: { wordmark: "Blink" },
 } as const;

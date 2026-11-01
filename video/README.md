@@ -17,6 +17,10 @@ Remotion 4.0.536's renderer sends a usage event only when a license key is set (
 
 The render settings are H.264 at CRF 30, with AAC audio. The target is 8 MB, with 15 MB as the hard cap.
 
+## Progress
+
+Shots 1–9 are implemented. Task 6 verification covers script, roles, boundaries, typecheck and the project checks; visual still review remains with the controller. Music and sound effects are pending Task 7.
+
 ## Music
 
 To be filled when the track is chosen: source page, licence page, check date and, if the file is not committed, its SHA-256.
