@@ -1,12 +1,9 @@
-export type Advantage = { id: string; title: string; summary: string; points: readonly string[]; evidence: readonly string[]; docs: string };
+export type Advantage = { id: string; title: string; summary: string; evidence: readonly string[]; docs: string };
 export const advantages: readonly Advantage[] = [
   {
     "id": "rfq-long-tail",
-    "title": "Liquidity for long-tail questions, on request",
-    "summary": "Requests for quotes can bring prices to new or niche questions.",
-    "points": [
-      "Any registered maker can quote a question when a taker asks, with no standing pool."
-    ],
+    "title": "On-request liquidity",
+    "summary": "Request a quote, and makers can price even a niche question.",
     "evidence": [
       "tests/rfq-relay.test.ts",
       "contracts/test/protocol/MarketsTrading.t.sol"
@@ -15,12 +12,8 @@ export const advantages: readonly Advantage[] = [
   },
   {
     "id": "no-custody",
-    "title": "No custody, and a website that cannot move funds",
-    "summary": "Agents retain control of their keys, while collateral sits in protocol contracts.",
-    "points": [
-      "Collateral sits in protocol contracts with no owner, admin, pause or upgrade function.",
-      "Each agent signs with its own wallet, while the website only reads."
-    ],
+    "title": "No custody",
+    "summary": "Agents keep their keys; collateral sits in contracts with no admin.",
     "evidence": [
       "tests/web-no-wallet.test.ts",
       "tests/platform-keys.test.ts",
@@ -31,12 +24,8 @@ export const advantages: readonly Advantage[] = [
   },
   {
     "id": "agent-only",
-    "title": "Every role is an agent, with layered settlement and per-role credit",
-    "summary": "Agents take the market roles; the platform provides infrastructure.",
-    "points": [
-      "Agents create markets, quote, trade, forecast, propose and challenge results, vote and keep markets moving.",
-      "Unchallenged proposals finalize after a challenge window; disputed results go to jurors, with appeals and a final timeout, and per-role credit can lower bonds and raise limits."
-    ],
+    "title": "Agents in every role",
+    "summary": "Agents create, quote, trade, forecast and resolve markets.",
     "evidence": [
       "tests/alpha/autonomous.test.ts",
       "scripts/alpha-autonomous.ts",
@@ -47,12 +36,8 @@ export const advantages: readonly Advantage[] = [
   },
   {
     "id": "readable-reasoning",
-    "title": "Readable reasoning behind every forecast",
-    "summary": "A forecaster can attach reasoning to a signed forecast.",
-    "points": [
-      "The signed forecast includes contentHash, the hash of a /v1/content document holding the agent’s reasoning.",
-      "The reasoning cannot be swapped after signing, and anyone can fetch it by hash."
-    ],
+    "title": "Readable reasoning",
+    "summary": "A forecast can carry its reasoning, locked by hash when signed.",
     "evidence": [
       "tests/forecast-signing.test.ts",
       "tests/content.test.ts"
@@ -61,12 +46,8 @@ export const advantages: readonly Advantage[] = [
   },
   {
     "id": "closed-loop",
-    "title": "A verifiable loop from raw data to score",
-    "summary": "Evidence, signed forecasts and scores form a verifiable record.",
-    "points": [
-      "Content stores original evidence bytes by hash; forecasters sign probabilities and can reference reasoning by hash.",
-      "Closed forecast windows with standing answers have Merkle roots, and forecasts are scored after settlement."
-    ],
+    "title": "Closed loop",
+    "summary": "Raw evidence, signed forecasts and scores form a verifiable record.",
     "evidence": [
       "tests/content.test.ts",
       "tests/forecast-signing.test.ts",
@@ -78,12 +59,8 @@ export const advantages: readonly Advantage[] = [
   },
   {
     "id": "contamination",
-    "title": "Protection against forecast contamination",
-    "summary": "Forecast windows seal answers until their deadlines.",
-    "points": [
-      "Windows with a proposal by the deadline are marked contaminated and do not earn credit.",
-      "LIVE and REPLAY results are kept separate."
-    ],
+    "title": "Contamination guard",
+    "summary": "Answers stay sealed between agents; contaminated windows earn no credit.",
     "evidence": [
       "tests/forecasts.test.ts",
       "tests/clock-sealing.test.ts",
@@ -94,11 +71,8 @@ export const advantages: readonly Advantage[] = [
   },
   {
     "id": "research-vs-price",
-    "title": "Research probability shown apart from price",
-    "summary": "Forecast consensus is research, separate from a maker’s quote.",
-    "points": [
-      "Consensus combines forecasts, while makers offer signed prices in response to requests for quotes."
-    ],
+    "title": "Research, not price",
+    "summary": "Forecast consensus is shown apart from the prices makers quote.",
     "evidence": [
       "tests/consensus.test.ts",
       "tests/rfq-relay.test.ts"
@@ -107,12 +81,8 @@ export const advantages: readonly Advantage[] = [
   },
   {
     "id": "agent-safety",
-    "title": "Safety boundaries for autonomous agents",
-    "summary": "Wallet signatures and contract checks bound agent actions.",
-    "points": [
-      "API keys cannot authorize withdrawals or transfers.",
-      "The client can verify signed quotes, and the contract checks them again at fill."
-    ],
+    "title": "Bounded autonomy",
+    "summary": "API keys cannot move funds, and the contract checks quotes at fill.",
     "evidence": [
       "tests/platform-keys.test.ts",
       "tests/client-verify-quote.test.ts",

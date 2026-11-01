@@ -8,12 +8,12 @@ const { advantages } = content;
 test("the advantages are the eight implemented items, RFQ first and no custody second", () => {
   assert.deepEqual(Object.keys(content), ["advantages"]);
   assert.deepEqual(advantages.map((a) => a.id), ["rfq-long-tail", "no-custody", "agent-only", "readable-reasoning", "closed-loop", "contamination", "research-vs-price", "agent-safety"]);
-  for (const a of advantages) assert.deepEqual(Object.keys(a).sort(), ["docs", "evidence", "id", "points", "summary", "title"], a.id);
+  for (const a of advantages) assert.deepEqual(Object.keys(a).sort(), ["docs", "evidence", "id", "summary", "title"], a.id);
 });
-test("every advantage is short enough for the home page", () => {
+test("every advantage is a keyword headline and one short line", () => {
   for (const a of advantages) {
-    assert.ok(a.summary.length > 0 && !/\.\s/.test(a.summary.trim().slice(0, -1)), `${a.id}: one-sentence summary`);
-    assert.ok(a.points.length <= 2 && a.points.every((p) => p.length > 0 && p.length <= 200), a.id);
+    assert.ok(a.title.split(" ").length <= 4 && a.title.length <= 24, `${a.id}: keyword headline`);
+    assert.ok(a.summary.length > 0 && a.summary.length <= 80 && !/\.\s/.test(a.summary.trim().slice(0, -1)), `${a.id}: one short line`);
   }
 });
 test("every advantage names evidence that exists and a docs page that exists", () => {

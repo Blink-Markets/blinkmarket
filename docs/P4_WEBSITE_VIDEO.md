@@ -73,3 +73,13 @@ Added the deterministic sound-effect recipes and cue sheet, committed their gene
 **Verification.** The final `pnpm check` ran 668 tests and passed; `pnpm typecheck` and `pnpm check:boundaries` passed. `pnpm build` cannot run on the development host (glibc 2.28, no native Next.js bindings), so it runs in branch CI. The committed MP4 has an audio track (`tests/web-intro-video.test.ts`).
 
 **Render settings.** The container render (`scripts/video-docker.sh`) uses H.264 at CRF 30 with Remotion's default x264 preset, 1920x1080 at 30 fps, AAC audio at 48 kHz stereo. The result is 53.184 s and 4,111,439 bytes (4.11 MB; target 8 MB, cap 15 MB). The music is the CC0 track `bassimat-854314` at 1.1x with `gain` 0.30, and the effects play at volume 1. The whole-file peak is -4.6 dBFS with no clipped samples. Remotion prints a warning that the workspace's zod (4.6.5) differs from the one it expects (4.5.4); the video uses no `@remotion/zod-types`, so the output is unaffected.
+
+## Home page refresh (2026-11-02)
+
+**Video.** The home page video now plays muted when at least half of it is in view and pauses when it scrolls away. A viewer's pause, or the end of the video, sticks until the viewer plays it again. It stays manual under reduced motion or data saver. `preload="none"` and the controls stay. This supersedes the "no autoplay" wording in the Rework section above and in the earlier design and plan.
+
+**Advantages.** Each advantage is now a keyword headline and one short line (the `points` field is removed). The limits and caveats stay on the linked docs pages.
+
+**Layout.** The advantages grid is asymmetric and numbered: a 7/5 pair, a row of four, then a 5/7 pair. It uses two columns at 1040px or less and one column at 760px or less.
+
+**Verification.** `pnpm check` ran 669 tests and passed (typecheck, contracts, tests and boundaries). The browser suite and `pnpm build` cannot run on the development host (glibc 2.28, no native Next.js bindings), so they run in branch CI.

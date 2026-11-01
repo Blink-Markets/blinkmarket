@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { advantages } from "../../apps/web/content/advantages.ts";
 import { FOR_AGENTS, FOR_PEOPLE } from "../../apps/web/content/positioning.ts";
 
@@ -31,7 +31,7 @@ test("home hero is fully visible immediately with reduced motion", async ({ page
   expect(underline.clip.replace(/\s+/g, "")).toContain("inset(90%");
 });
 
-test("the video sits inline under the hero: controls, poster, no autoplay, no transcript, fits a phone", async ({ page, request }) => {
+test("the video sits inline under the hero: controls, poster, muted, no transcript, fits a phone", async ({ page, request }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("./");
   const video = page.locator("video");
@@ -40,7 +40,8 @@ test("the video sits inline under the hero: controls, poster, no autoplay, no tr
   await expect(video).toHaveAttribute("controls", "");
   await expect(video).toHaveAttribute("preload", "none");
   await expect(video).toHaveAttribute("poster", /\/video\/blink-intro-poster\.png$/);
-  for (const attr of ["autoplay", "muted", "loop"]) expect(await video.getAttribute(attr)).toBeNull();
+  for (const attr of ["autoplay", "loop"]) expect(await video.getAttribute(attr)).toBeNull();
+  expect(await video.evaluate((v: HTMLVideoElement) => v.muted)).toBe(true);
   const src = await video.evaluate((v: HTMLVideoElement) => v.querySelector("source")?.src ?? v.src);
   expect((await request.get(src)).status()).toBe(200);
   expect((await video.boundingBox())!.width).toBeLessThanOrEqual(375);
@@ -52,6 +53,58 @@ test("the video sits inline under the hero: controls, poster, no autoplay, no tr
   });
   expect(order[0]).toBeLessThan(order[1]!);
   expect(order[1]).toBeLessThan(order[2]!);
+});
+
+// Each engine decodes MP4 differently, so these tests fake playback and check only the scroll logic.
+async function fakePlayback(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const calls: string[] = [];
+    const playing = new WeakSet<HTMLMediaElement>();
+    Object.assign(window, { mediaCalls: calls });
+    Object.defineProperty(HTMLMediaElement.prototype, "paused", { configurable: true, get(this: HTMLMediaElement) { return !playing.has(this); } });
+    HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) { playing.add(this); calls.push("play"); return Promise.resolve(); };
+    HTMLMediaElement.prototype.pause = function (this: HTMLMediaElement) { playing.delete(this); calls.push("pause"); };
+  });
+}
+const mediaCalls = (page: Page) => page.evaluate(() => (window as unknown as { mediaCalls: string[] }).mediaCalls);
+const scrollToEnd = (page: Page) => page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+// Waits until the video has left the viewport, then lets the page's own observer run.
+async function scrollAway(page: Page, video: Locator): Promise<void> {
+  await scrollToEnd(page);
+  await expect(video).not.toBeInViewport();
+  await settle(page);
+}
+// Waits until at least half of the video is in view, then lets the page's own observer run.
+async function scrollTo(page: Page, video: Locator): Promise<void> {
+  await video.scrollIntoViewIfNeeded();
+  await expect(video).toBeInViewport({ ratio: 0.5 });
+  await settle(page);
+}
+const settle = (page: Page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+
+test("the video plays in view, pauses out of view, and a viewer's pause sticks", async ({ page }) => {
+  await fakePlayback(page);
+  await page.goto("./");
+  const video = page.locator("video");
+  await video.scrollIntoViewIfNeeded();
+  await expect.poll(() => mediaCalls(page)).toEqual(["play"]);
+  await scrollToEnd(page);
+  await expect.poll(() => mediaCalls(page)).toEqual(["play", "pause"]);
+  await video.scrollIntoViewIfNeeded();
+  await expect.poll(() => mediaCalls(page)).toEqual(["play", "pause", "play"]);
+  await video.evaluate((v: HTMLVideoElement) => v.pause());
+  await scrollAway(page, video);
+  await scrollTo(page, video);
+  expect(await mediaCalls(page)).toEqual(["play", "pause", "play", "pause"]);
+});
+
+test("with reduced motion the video waits for the viewer", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await fakePlayback(page);
+  await page.goto("./");
+  await expect(page.locator("svg[data-ready]").first()).toBeAttached();
+  await scrollTo(page, page.locator("video"));
+  expect(await mediaCalls(page)).toEqual([]);
 });
 
 test("the advantages continue the home page and /advantages is gone", async ({ page }) => {

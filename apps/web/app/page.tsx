@@ -46,7 +46,6 @@ export default function Home() {
             <article id={a.id} key={a.id} className={styles.advantage} data-reveal="">
               <h3>{a.title}</h3>
               <p>{a.summary}</p>
-              <ul>{a.points.map((point) => <li key={point}>{point}</li>)}</ul>
               <Link href={a.docs}>Read more →</Link>
             </article>
           ))}
