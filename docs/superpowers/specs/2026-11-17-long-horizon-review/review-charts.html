@@ -1,0 +1,593 @@
+<title>Blink 長期題目審查</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* Layout: one reading column of findings; each finding is a claim as heading, a chart drawn to one scale, then the assumptions in small type. */
+:root {
+  --bg: #f3f4f6;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-3: #74736e;
+  --rule: #d9dade;
+  --blue: #2a78d6;
+  --orange: #eb6834;
+  --red: #e34948;
+  --crit: #d03b3b;
+  --warn: #fab219;
+  --quiet: #9a9ca3;
+  --tint-crit: #fbe7e6;
+  --tint-warn: #fdf1cf;
+  --tint-quiet: #e9ebee;
+  --font-text: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111111; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --ink-3: #96958c;
+    --rule: #34342f; --blue: #3987e5; --orange: #d95926; --red: #e66767; --crit: #e66767;
+    --warn: #fab219; --quiet: #77776f; --tint-crit: #3b2020; --tint-warn: #3a3015; --tint-quiet: #262624;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111111; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --ink-3: #96958c;
+  --rule: #34342f; --blue: #3987e5; --orange: #d95926; --red: #e66767; --crit: #e66767;
+  --warn: #fab219; --quiet: #77776f; --tint-crit: #3b2020; --tint-warn: #3a3015; --tint-quiet: #262624;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-text); font-size: 16px; line-height: 1.7;
+  padding-block: 40px 72px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+main { max-width: 860px; margin-inline: auto; display: flex; flex-direction: column; gap: 56px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; line-height: 1.35; }
+h1 { font-size: clamp(1.6rem, 4.4vw, 2.3rem); font-weight: 700; }
+h2 { font-size: 1.35rem; font-weight: 700; padding-top: 20px; border-top: 2px solid var(--ink); }
+h3 { font-size: 1.05rem; font-weight: 700; }
+p { margin: 0; max-width: 40em; }
+a { color: var(--blue); }
+.num, td.num, .val { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.eyebrow { font-size: .8rem; letter-spacing: .08em; color: var(--ink-3); }
+.small { font-size: .85rem; color: var(--ink-2); line-height: 1.6; }
+header { display: flex; flex-direction: column; gap: 16px; }
+.verdicts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; margin: 8px 0 0; padding: 0; list-style: none; }
+@media (max-width: 600px) { .verdicts { grid-template-columns: 1fr; } }
+.verdicts li { padding: 14px 0; border-top: 1px solid var(--rule); min-width: 0; }
+.verdicts strong { display: block; }
+.verdicts span { color: var(--ink-2); font-size: .92rem; }
+section { display: flex; flex-direction: column; gap: 28px; }
+figure { margin: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+figcaption { font-size: .82rem; color: var(--ink-2); line-height: 1.6; }
+.tag { font-family: var(--font-data); font-size: .75rem; color: var(--ink-3); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .82rem; color: var(--ink-2); }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.c-blue { background: var(--blue); } .c-orange { background: var(--orange); } .c-red { background: var(--red); }
+
+/* horizontal bars */
+.bars { display: flex; flex-direction: column; gap: 12px; }
+.bar-row { display: grid; grid-template-columns: 13.5em 1fr; gap: 4px 12px; align-items: center; }
+.bar-label { font-size: .88rem; line-height: 1.45; min-width: 0; }
+.bar-label small { display: block; color: var(--ink-3); font-size: .78rem; }
+.bar-plot { position: relative; margin-inline: 62px; }
+.bar-plot.pos-only { margin-left: 0; margin-right: 76px; }
+.bar-line { position: relative; height: 16px; }
+.bar-line + .bar-line { margin-top: 2px; }
+.bar { position: absolute; top: 0; bottom: 0; min-width: 2px; }
+.bar.pos { background: var(--blue); border-radius: 0 4px 4px 0; }
+.bar.neg { background: var(--red); border-radius: 4px 0 0 4px; }
+.bar.alt { background: var(--orange); border-radius: 0 4px 4px 0; }
+.zero { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--ink-3); }
+.val { position: absolute; top: 50%; font-size: .78rem; white-space: nowrap; color: var(--ink); line-height: 1; }
+.val.r { transform: translate(6px, -50%); }
+.val.l { transform: translate(calc(-100% - 6px), -50%); }
+@media (max-width: 600px) { .bar-row { grid-template-columns: 1fr; } }
+
+/* window columns */
+.cols { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; align-items: end; height: 230px; border-bottom: 1px solid var(--ink-3); }
+.col { display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; height: 100%; min-width: 0; }
+.col b { font-family: var(--font-data); font-weight: 400; font-size: .75rem; text-align: center; color: var(--ink); }
+.seg { border-radius: 0; }
+.seg.top { border-radius: 4px 4px 0 0; }
+.seg.own { background: var(--blue); } .seg.roll { background: var(--orange); }
+.col-x { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; font-size: .78rem; color: var(--ink-2); text-align: center; line-height: 1.4; }
+.col-x strong { display: block; color: var(--ink); font-family: var(--font-data); font-weight: 500; }
+
+/* split bar */
+.split { display: flex; gap: 2px; height: 34px; }
+.split div { display: flex; align-items: center; justify-content: center; min-width: 0; }
+.split .a { background: var(--blue); border-radius: 4px 0 0 4px; }
+.split .b { background: var(--orange); border-radius: 0 4px 4px 0; }
+.split-key { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 24px; font-size: .88rem; }
+.split-key b { font-family: var(--font-data); font-weight: 500; }
+
+/* curve */
+.curve { position: relative; }
+.curve svg { display: block; width: 100%; height: auto; }
+.curve text { font-family: var(--font-data); font-size: 11px; fill: var(--ink-2); }
+.curve .axis-t { font-family: var(--font-text); }
+.curve .grid { stroke: var(--rule); stroke-width: 1; }
+.curve .ln { fill: none; stroke-width: 2; }
+.curve .ln.a { stroke: var(--blue); } .curve .ln.b { stroke: var(--orange); }
+.curve .dot.a { fill: var(--blue); } .curve .dot.b { fill: var(--orange); }
+.curve .dot { stroke: var(--surface); stroke-width: 2; }
+.curve .cross { stroke: var(--ink-3); stroke-width: 1; }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font-size: .78rem; line-height: 1.5; padding: 6px 9px; border-radius: 4px; white-space: nowrap; }
+
+/* decision grid */
+.qgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 6px; }
+.q { font: inherit; text-align: left; border: 1px solid var(--rule); border-radius: 4px; padding: 8px 10px; cursor: pointer; color: var(--ink); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.q .n { font-family: var(--font-data); font-size: .78rem; display: flex; justify-content: space-between; }
+.q .t { font-size: .82rem; line-height: 1.35; }
+.q.s-crit { background: var(--tint-crit); } .q.s-warn { background: var(--tint-warn); } .q.s-quiet { background: var(--tint-quiet); }
+.q:focus-visible, .q[aria-pressed="true"] { outline: 2px solid var(--ink); outline-offset: 1px; }
+.mark { font-family: var(--font-data); font-weight: 500; }
+.s-crit .mark, .k-crit { color: var(--crit); } .s-warn .mark { color: var(--ink); } .s-quiet .mark { color: var(--ink-3); }
+.status-key { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: .85rem; color: var(--ink-2); }
+.status-key span b { font-family: var(--font-data); display: inline-block; min-width: 1.1em; }
+.sw { display: inline-block; width: 12px; height: 12px; border: 1px solid var(--rule); border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.qdetail { border-top: 1px solid var(--rule); padding-top: 14px; display: flex; flex-direction: column; gap: 6px; min-height: 7.5em; }
+.qdetail h4 { margin: 0; font-size: 1rem; }
+.qdetail p { font-size: .9rem; max-width: none; }
+.qdetail .ask { color: var(--ink-2); }
+
+/* tables */
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .86rem; line-height: 1.5; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+thead th { font-weight: 500; color: var(--ink-2); font-size: .78rem; border-bottom: 1px solid var(--ink-3); }
+.matrix { min-width: 720px; }
+.matrix td.g, .matrix th.g { text-align: center; width: 5.2em; }
+.matrix td.g { font-size: 1rem; }
+.matrix tr.self td { background: var(--tint-quiet); font-weight: 500; }
+.cmp { min-width: 640px; }
+.whole { min-width: 780px; }
+.whole tr.grp th { font-weight: 700; font-size: .9rem; color: var(--ink); background: var(--tint-quiet); border-bottom: 1px solid var(--ink-3); }
+.whole td.v { white-space: nowrap; }
+.whole td.v b { font-weight: 700; }
+ul.plain { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; max-width: 42em; }
+ol.plain { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 10px; max-width: 42em; }
+footer { border-top: 1px solid var(--rule); padding-top: 20px; display: flex; flex-direction: column; gap: 8px; }
+</style>
+
+<main>
+<header>
+  <div class="eyebrow">審查日期 2026-11-16 · 對象：Q1–Q26 討論紀錄</div>
+  <h1>審查結論：這套設計還沒有解決原始問題</h1>
+  <p>原始問題是：長期題目要怎麼讓參與者早點進場，而且早期預測準確。獨立審查者坐進每個參與者的位置，用 repo 裡的真實參數試算，結論有四點。</p>
+  <ul class="verdicts">
+    <li><strong>預測者早期進場會賠錢</strong><span>報酬是優勢的平方，質押卻要一比一鎖到結算。</span></li>
+    <li><strong>攻擊者有便宜的獲利路徑</strong><span>拉歪基準線再修正、或拉歪後向 maker 買進，都算得出正報酬。</span></li>
+    <li><strong>獎金的來源撐不起來</strong><span>創建者最多回收 25 bUSD；出資者付的錢八成進了 treasury。</span></li>
+    <li><strong>預測層的差異很薄，整個專案則還有幾處沒找到先例</strong><span>全 agent 市場和密封預測紀錄各自已有人做。開市挑戰、可重算結算、按角色的 credit、鏈上安全上限這四項沒找到相同做法，但各只搜過一次。</span></li>
+  </ul>
+</header>
+
+<section>
+  <h2>預測者實際拿到多少</h2>
+  <p>付款公式是「曝險 ×（自己的分數 − 基準線的分數）」。算出來的期望報酬等於曝險乘上優勢的平方。比基準線準 10 個百分點，只值質押額的 1%。</p>
+
+  <figure>
+    <h3>押 1,000，猜對賺 90、猜錯賠 110，期望只有 +10</h3>
+    <div class="bars" id="chart-payoff"></div>
+    <figcaption>情境：基準線 0.5，預測者認為真實機率是 0.6，曝險 1,000 bUSD。這組數字我親手驗算過。<span class="tag">發現 1 · Q14</span></figcaption>
+  </figure>
+
+  <figure>
+    <h3>優勢越小，質押報酬率掉得越快</h3>
+    <div class="legend"><span><i class="c-blue"></i>現行設計：鎖滿額曝險</span><span><i class="c-orange"></i>審查者建議：只鎖這筆預測的最壞損失</span></div>
+    <div class="curve" id="chart-curve"></div>
+    <figcaption>橫軸是預測者比基準線準幾個百分點，縱軸是期望報酬佔質押的比例。以基準線 0.5 計算。橘線是審查者提的修正，尚未經過攻擊檢驗。<span class="tag">發現 1 · Q14</span></figcaption>
+  </figure>
+
+  <figure>
+    <h3>兩年期題目：五個情境裡四個是負的</h3>
+    <div class="bars" id="chart-scenarios"></div>
+    <figcaption>期望淨值，單位 bUSD，已扣推理成本、入場費和資金成本。假設：總獎金 10,000（最後一列 100,000）、18 個遞減的月視窗、每次推理 1 bUSD、入場費 0.1%、漏揭示機率 0.5%。這些假設值 repo 裡沒有，是審查者設定的。<span class="tag">發現 1 · Q8、Q14、Q7</span></figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>攻擊者怎麼賺</h2>
+  <p>紀錄裡寫「拉歪基準線再修正，無利可圖」。這只在後面視窗的預算不會變大時成立。預算滾存和任何人可加碼，正好讓它變大。</p>
+
+  <figure>
+    <h3>預算滾存讓第 6 視窗可用的曝險變成 3,500</h3>
+    <div class="legend"><span><i class="c-blue"></i>該視窗自己的預算</span><span><i class="c-orange"></i>前面沒用完滾進來的預算</span></div>
+    <div class="cols" id="chart-windows"></div>
+    <div class="col-x" id="chart-windows-x"></div>
+    <figcaption>攻擊者在第 1 視窗用滿額把基準線拉歪，期望賠 240；第 2 到 5 視窗沒人動；第 6 視窗用累積的 3,500 修正，期望賺 840。淨賺 600 bUSD。入場費 0.5% 時仍淨賺 579。<span class="tag">發現 2 · Q14、Q17</span></figcaption>
+  </figure>
+
+  <figure>
+    <h3>拉歪共識再向 maker 買進：成本幾乎看不見</h3>
+    <div class="legend"><span><i class="c-blue"></i>拉歪基準線的期望成本</span><span><i class="c-orange"></i>向跟著共識報價的 maker 買進的期望獲利</span></div>
+    <div class="bars" id="chart-manip"></div>
+    <figcaption>單位 bUSD。使用 repo 的現行上限：每個吃單身分 500 股、整個市場 10,000 對、手續費 1%、註冊費 10 bUSD。吃單者的質押不會因持倉被鎖，所以多開一個身分只要 10 bUSD。<span class="tag">發現 3 · Q19</span></figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>錢流到哪裡</h2>
+
+  <figure>
+    <h3>出資者每付 54，預測者淨得 10，treasury 收走 44</h3>
+    <div class="split" id="chart-split" role="img" aria-label="出資者期望支出 54 bUSD：預測者淨得 10，treasury 收 44"></div>
+    <div class="split-key">
+      <span><i class="sw c-blue"></i>預測者期望淨得 <b>10</b>（19%）</span>
+      <span><i class="sw c-orange"></i>輸家被罰沒、進 treasury <b>44</b>（81%）</span>
+    </div>
+    <figcaption>情境同上：基準線 0.5、真實機率 0.6、曝險 1,000。贏家由出資者全額支付，輸家的錢不回到出資者，也不拿去付贏家。真實機率 0.55 時，進 treasury 的比例是 90%。<span class="tag">發現 4 · Q25</span></figcaption>
+  </figure>
+
+  <figure>
+    <h3>創建者鎖 500，最多拿回 25</h3>
+    <div class="bars" id="chart-creator"></div>
+    <figcaption>單位 bUSD。創建者拿吃單者付款的 1% × 25%。最大市場 10,000 對全部成交、均價 0.5 時是 12.5，絕對上限 25。保證金要鎖到結算。這是審查者讀合約和參數檔得到的。<span class="tag">發現 5 · Q16</span></figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>26 項決策現在的狀態</h2>
+  <p>點任一格看審查者對它的判斷。審查者建議重開 15 項，其中 5 項有具體算例推翻。</p>
+  <figure>
+    <div class="status-key">
+      <span><i class="sw" style="background:var(--tint-crit)"></i><b class="k-crit">✕</b>有算例推翻（5）</span>
+      <span><i class="sw" style="background:var(--tint-warn)"></i><b>!</b>建議重開（10）</span>
+      <span><i class="sw" style="background:var(--tint-quiet)"></i><b>–</b>未被點名重開（11）</span>
+    </div>
+    <div class="qgrid" id="qgrid"></div>
+    <div class="qdetail" id="qdetail" aria-live="polite"></div>
+  </figure>
+
+  <h3>經得起檢驗的部分</h3>
+  <ul class="plain">
+    <li>同一視窗內拆成多個身分不會多賺。審查者做了 20 萬次隨機搜尋，差額最大值是 0。</li>
+    <li>出資者每個視窗最多付出該視窗的預算。</li>
+    <li>只看單一視窗、也不交易時，誠實回報是最佳策略。</li>
+    <li>逾期不揭露罰最大損失時，選擇性揭露得不到好處。</li>
+    <li>抄共識的 credit 為零。</li>
+    <li>撤回跨市場共用獎池是對的；用垃圾題抽乾共用池的攻擊擋不住。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>和現有平台比</h2>
+  <p>連網調查查了已上線的平台。「所有角色都由 agent 擔任」和「密封、可驗證的預測紀錄」各自都有人做了，但沒有找到把兩者合起來、再依計分付款的平台。</p>
+
+  <figure>
+    <h3>整個專案逐面向比對：21 項裡 6 項沒找到相同做法</h3>
+    <p class="small">先前的創新判斷主要針對這次討論的 26 項決策，也就是預測層和獎金。這張表改拿主設計的目標、角色、流程、獎懲、機制來比。</p>
+    <div class="scroll">
+      <table class="whole">
+        <thead><tr><th>Blink 的設計</th><th>最接近的既有做法</th><th>判斷</th><th>依據</th></tr></thead>
+        <tbody>
+          <tr class="grp"><th colspan="4">目標</th></tr>
+          <tr><td>用群體智慧預測未來；人類只讀，不參與市場。</td><td>Metaculus 的社群預測；Moltguess 只有 agent 能參與、人類旁觀，用模擬點數。</td><td class="v">既有</td><td>查證，部分只有搜尋摘要</td></tr>
+          <tr><td>從開市到結算全程沒有平台和人類介入，並以測試證明平台不持有任何角色金鑰。</td><td>Olas Predict 的角色全是 agent，但開市要經核准伺服器；Augur 無管理者，但參與者是人。</td><td class="v">重組</td><td>查證；Augur 為訓練知識</td></tr>
+          <tr><td>冷門題目靠 RFQ 隨問隨報價，不需要常駐流動性。</td><td>Sapience 用拍賣式報價。Polymarket 約 70% 已結束市場成交量低於 1 萬美元，問題確實存在。</td><td class="v">重組</td><td>查證</td></tr>
+          <tr class="grp"><th colspan="4">角色</th></tr>
+          <tr><td>八種角色全部開放給任何有質押的身分。</td><td>Olas 有四種 agent 角色；UMA 有提案者、爭議者、投票者。</td><td class="v">重組</td><td>查證</td></tr>
+          <tr><td>預測者和交易者分開，另有密封的預測視窗。</td><td>Sapience 同時有鏈上預測和市場；Foresight Arena 只有預測。</td><td class="v">既有雛形</td><td>查證</td></tr>
+          <tr><td>人類只能提議題目。</td><td>Polymarket、Kalshi 的使用者也只能提議。</td><td class="v">既有</td><td>搜尋摘要</td></tr>
+          <tr><td>同一市場內由合約禁止利益衝突：提案者不能當陪審，陪審不能持倉。</td><td>UMA 逾 60% 的活躍投票者同時有 Polymarket 帳戶，沒有這類限制。</td><td class="v">重組</td><td>搜尋摘要</td></tr>
+          <tr class="grp"><th colspan="4">流程</th></tr>
+          <tr><td>開市：付保證金就能開，先經挑戰視窗；挑戰成立則保證金歸挑戰者，市場不開放交易。</td><td>Augur 的有效性保證金要到結算判為無效才沒收；Pandora 任何人可開；Olas 靠核准伺服器。</td><td class="v"><b>未見相同做法</b></td><td>補充搜尋一次</td></tr>
+          <tr><td>題目分三類；可計算類用固定解析器，對封存的原始位元組重算結果。</td><td>Polymarket 的漲跌市場用 Chainlink 報價，其餘走 UMA，由公司決定走哪條。</td><td class="v"><b>未見相同做法</b></td><td>補充搜尋一次</td></tr>
+          <tr><td>交易：整筆成交、只能買、不能賣，結算後才贖回。</td><td>主要平台都能賣出。</td><td class="v">既有機制的受限版</td><td>查證</td></tr>
+          <tr><td>結算：樂觀提案、挑戰、質押加權的提交再揭露投票、加倍保證金上訴。</td><td>UMA；Realitio 加 Kleros；Augur。</td><td class="v">既有</td><td>查證</td></tr>
+          <tr><td>最終仲裁全由 agent 擔任，沒有人類後盾。</td><td>Pandora 的 AI 共識失敗時交給代幣持有人；UMA 的 AI 提案機器人還沒上鏈。</td><td class="v"><b>未找到</b></td><td>查證，信心中；也可能是別人認為不安全</td></tr>
+          <tr><td>升級：合約不可改，新世代唯讀匯入舊世代的身分和 credit。</td><td>Augur 的代幣遷移。</td><td class="v">重組</td><td>訓練知識，未查</td></tr>
+          <tr class="grp"><th colspan="4">獎懲</th></tr>
+          <tr><td>手續費在結算時分給 treasury、創建者、結算池、陪審池和保證挑戰獎勵；不以交易量計酬。</td><td>Augur 有創建者費；Polymarket 預告創建者費但未見上線；Kalshi 的交易量獎勵在刷量指控中結束。</td><td class="v">重組</td><td>查證</td></tr>
+          <tr><td>credit 按角色計算、只來自結算結果、只用來放寬上限和降低保證金。</td><td>UMA 的提案者白名單看近期準確率，但名單由 Polymarket 控制；UMA 自稱尚未實作信譽；Augur 的保證金是全系統調整，不看個人。</td><td class="v"><b>未見相同做法</b></td><td>查證加補充搜尋</td></tr>
+          <tr><td>開市時在鏈上檢查「買通仲裁的成本大於最大支付」，不過就拒絕開市。</td><td>只找到部落格提出的比例法則。UMA 的 9 個大戶約佔一半投票權，仍裁決上億美元的市場。</td><td class="v"><b>未見先例</b></td><td>補充搜尋一次</td></tr>
+          <tr><td>不退還的註冊費加角色質押，讓換帳號沒有好處。</td><td>Olas 的 agent 質押是用來發獎勵；ERC-8004 登記逾 130 萬個 agent，多為訊號。</td><td class="v">重組</td><td>查證</td></tr>
+          <tr><td>預測者的報酬：原設計沒有，這次討論加上逐題獎金。</td><td>Numinous 依 Brier 發代幣獎勵；Metaculus 是整季獎金池。</td><td class="v"><b>逐題獎金未找到</b></td><td>查證，信心中</td></tr>
+          <tr class="grp"><th colspan="4">機制</th></tr>
+          <tr><td>全額抵押的成對部位。</td><td>Polymarket。</td><td class="v">既有</td><td>查證</td></tr>
+          <tr><td>平台代幣作為陪審質押和治理；治理只決定下一世代，不碰既有市場。</td><td>UMA、Augur 的代幣投票；Pandora 的代幣持有人。</td><td class="v">既有；治理範圍是重組</td><td>查證加訓練知識</td></tr>
+          <tr><td>共識機率依預測者 credit 加權，和 maker 價格分開顯示。</td><td>Metaculus 的社群預測。</td><td class="v">重組</td><td>訓練知識</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figcaption>「補充搜尋一次」表示只做了一次一般搜尋、沒有找到相同做法，信心偏低，不能當成確定沒有人做。審查者另外指出：鏈上安全上限目前沒有把獎金和預測質押算進去，而且早期代幣市值小，能開的市場也小。</figcaption>
+  </figure>
+
+  <figure>
+    <h3>誰已經做了哪一塊</h3>
+    <div class="status-key">
+      <span><b>●</b>有</span><span><b>◐</b>部分</span><span><b>○</b>沒有或未找到</span><span><b>?</b>未能證實</span>
+    </div>
+    <div class="scroll">
+      <table class="matrix">
+        <thead><tr>
+          <th>平台</th>
+          <th class="g">角色全由 agent</th>
+          <th class="g">無管理者開市</th>
+          <th class="g">獨立於價格的預測層</th>
+          <th class="g">密封可驗證紀錄</th>
+          <th class="g">依計分付款</th>
+          <th class="g">真錢交易</th>
+          <th>備註</th>
+        </tr></thead>
+        <tbody id="matrix"></tbody>
+      </table>
+    </div>
+    <figcaption>查證日 2026-11-16。調查只搜尋了英文來源，沒有查鏈上資料或中文、韓文社群，小型專案可能漏掉。它對「三者合一還沒人做」的信心：已上線且有規模的是中高，正在開發中的是中低。</figcaption>
+  </figure>
+
+  <figure>
+    <h3>審查者的判斷和查證結果對照</h3>
+    <div class="scroll">
+      <table class="cmp">
+        <thead><tr><th>審查者的判斷（依訓練知識）</th><th>連網查到的</th><th>結果</th></tr></thead>
+        <tbody>
+          <tr><td>Olas 的 agent 會開市場和交易，細節不確定。</td><td>Olas Predict 的四種角色（開市、交易、賣預測、結算）都是 agent，累計 1,215 個。但開市要經核准伺服器，交易靠代幣補貼。</td><td>證實。「全 agent」本身不是新東西。</td></tr>
+          <tr><td>密封、不可回填的預測紀錄是 Blink 獨有的資產。</td><td>Foresight Arena 已有 commit-reveal、鏈上 Brier 計分和 ERC-8004 身分。它不付款，實測資料有疑問。Sapience 把預測寫成鏈上 attestation。</td><td>比審查者說的弱。已有雛形。</td></tr>
+          <tr><td>agent 營運者已能在別處跑機器人，沒有理由來 Blink。</td><td>agent 交易普遍虧錢：Olas 在 Omen 的交易報酬是 −4%，含補貼才 +50%；六個前沿模型在 Kalshi 真錢交易全虧。</td><td>證實。U13「靠交易賺」的前提也更站不住。</td></tr>
+          <tr><td>多個 LLM 的觀點高度相關，共識可能約等於一個模型。</td><td>2026 年的研究顯示前沿 LLM 預測高度相關。Metaculus 的 bot 組合約 10 個時最好，再多反而變差。</td><td>證實。Q21 的擔心有根據。</td></tr>
+          <tr><td>出資者贊助是既有做法。</td><td>Metaculus 是整季獎金池，Polymarket 贊助的是流動性。逐題、按計分規則付給密封預測的懸賞沒有找到。</td><td>比審查者說的更有空間。</td></tr>
+          <tr><td>按對共識的邊際貢獻付款，不知道有平台這樣做。</td><td>Allora 自稱獎勵獨特貢獻。預測市場領域沒有找到。</td><td>概念在代幣網路已有。</td></tr>
+          <tr><td>對長期題目，現有平台只補貼資金成本。</td><td>Polymarket 持倉獎勵 3.25%（只限 18 個市場），Kalshi 3.50%。獎勵「早而準」且不需鎖資金的付費機制沒有找到。</td><td>證實。這個位置看起來是空的。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figcaption>查證來源含 <a href="https://olas.network/agent-economies/predict">Olas Predict</a>、<a href="https://arxiv.org/abs/2605.00420">Foresight Arena 論文</a>、<a href="https://arxiv.org/abs/2606.29661">LLM 預測相關性研究</a>、<a href="https://help.polymarket.com/en/articles/13364459-holding-rewards">Polymarket holding rewards</a>、<a href="https://help.kalshi.com/navigating-the-exchange/your-portfolio/apy-on-kalshi">Kalshi APY</a>。Kalshi 六模型全虧和 Allora 的說法只來自搜尋摘要，沒有開原頁。</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>差異化要成立的三個條件</h2>
+  <p>審查者認為下面三件事要同時成立，目前都沒有證據。</p>
+  <ol class="plain">
+    <li>在別處沒有的題目上，共識可量測地勝過單一前沿模型。</li>
+    <li>題目覆蓋量比現有平台高一到兩個數量級。</li>
+    <li>有人為此付錢。</li>
+  </ol>
+  <h3>審查者提的五個方向</h3>
+  <p class="small">都是提議，沒有驗證。最有希望的排前面。</p>
+  <ol class="plain">
+    <li><strong>短期冷門題的機率即服務。</strong>企業、DAO 或其他 agent 對自己的營運問題，幾小時內拿到多個有質押 agent 的密封答案。會改動 Q24 和 Q2。</li>
+    <li><strong>可計算題目工廠。</strong>用模板自動生成大量每週結算的子題，覆蓋別的平台不列的長尾，直接解決回饋延遲。會改動 Q20 和 U13。</li>
+    <li><strong>預測 agent 的實測場。</strong>把結果發生前就密封、有質押的紀錄當成產品，賣給模型實驗室和 agent 開發者。前提是計分搬到鏈上。會改動 Q3。</li>
+    <li><strong>按對共識的邊際貢獻付款。</strong>報酬等於「含他的共識得分」減「不含他的」，獎勵獨立資訊。拆分身分是否有利還要另外證明。會改動 Q14。</li>
+    <li><strong>agent 營運者的避險題目。</strong>推理價格、API 可用性、gas 這類別處不列的題目，帶來非資訊性的需求。會改動 Q6。</li>
+  </ol>
+</section>
+
+<footer>
+  <p class="small">數字的來源：攻擊和現金流的數字來自審查者的計算腳本和它對紀錄文字的解讀（基準線更新公式、滾存的定義都是解讀，紀錄沒有寫明）。我只親手驗算了「+90 / −110 / +10」和「54 / 10 / 44」兩組，其餘沒有重跑。</p>
+  <p class="small">現有平台的資料來自連網調查，部分只有搜尋摘要而沒有開原頁，引用前應核對原文。</p>
+</footer>
+</main>
+
+<script>
+(function () {
+  var fmt = function (v, signed) {
+    var s = Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 1 });
+    if (v < 0) return '−' + s;
+    return (signed && v > 0 ? '+' : '') + s;
+  };
+  var el = function (tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+
+  // Diverging horizontal bars: one scale shared by all rows.
+  function diverging(id, rows) {
+    var host = document.getElementById(id);
+    var neg = Math.max.apply(null, rows.map(function (r) { return r.v < 0 ? -r.v : 0; }));
+    var pos = Math.max.apply(null, rows.map(function (r) { return r.v > 0 ? r.v : 0; }));
+    var span = neg + pos, zero = neg / span * 100;
+    rows.forEach(function (r) {
+      var row = el('div', 'bar-row');
+      row.appendChild(el('div', 'bar-label', r.label + (r.sub ? '<small>' + r.sub + '</small>' : '')));
+      var plot = el('div', 'bar-plot'), line = el('div', 'bar-line');
+      var w = Math.abs(r.v) / span * 100;
+      var bar = el('span', 'bar ' + (r.v < 0 ? 'neg' : 'pos'));
+      bar.style.left = (r.v < 0 ? zero - w : zero) + '%'; bar.style.width = w + '%';
+      bar.title = r.label + '：' + fmt(r.v, true);
+      var val = el('span', 'val ' + (r.v < 0 ? 'l' : 'r'), fmt(r.v, true));
+      val.style.left = (r.v < 0 ? zero - w : zero + w) + '%';
+      var z = el('span', 'zero'); z.style.left = zero + '%';
+      line.appendChild(bar); line.appendChild(val); line.appendChild(z);
+      plot.appendChild(line); row.appendChild(plot); host.appendChild(row);
+    });
+  }
+
+  // Positive-only bars, one or two series per row, one shared scale.
+  function grouped(id, rows, max) {
+    var host = document.getElementById(id);
+    rows.forEach(function (r) {
+      var row = el('div', 'bar-row');
+      row.appendChild(el('div', 'bar-label', r.label + (r.sub ? '<small>' + r.sub + '</small>' : '')));
+      var plot = el('div', 'bar-plot pos-only');
+      r.vals.forEach(function (v, i) {
+        var line = el('div', 'bar-line');
+        var w = v.v / max * 100;
+        var bar = el('span', 'bar ' + (v.alt ? 'alt' : 'pos')); bar.style.left = '0'; bar.style.width = w + '%';
+        bar.title = r.label + ' · ' + v.name + '：' + (v.text || fmt(v.v));
+        var val = el('span', 'val r', v.text || fmt(v.v)); val.style.left = w + '%';
+        line.appendChild(bar); line.appendChild(val); plot.appendChild(line);
+      });
+      row.appendChild(plot); host.appendChild(row);
+    });
+  }
+
+  diverging('chart-payoff', [
+    { label: '結果是 YES', sub: '機率 60%', v: 90 },
+    { label: '結果是 NO', sub: '機率 40%', v: -110 },
+    { label: '期望值', sub: '0.6 × 90 − 0.4 × 110', v: 10 }
+  ]);
+
+  diverging('chart-scenarios', [
+    { label: '公開資訊，優勢 5 點', sub: '抵押品有孳息', v: -37.8 },
+    { label: '公開資訊，優勢 5 點', sub: '抵押品無孳息，年息 5%', v: -190.6 },
+    { label: '公開資訊，優勢 4 點', sub: '自身雜訊 7 點', v: -46.7 },
+    { label: '私有資料，優勢 10 點', sub: '2 個對手', v: -15.2 },
+    { label: '私有資料，獨占', sub: '總獎金 100,000', v: 242 }
+  ]);
+
+  grouped('chart-manip', [
+    { label: '預算 1,000，拉 10 點', sub: '跟隨深度 500 股', vals: [{ name: '成本', v: 10 }, { name: '獲利', v: 22.8, alt: true }] },
+    { label: '預算 1,000，拉 10 點', sub: '跟隨深度 10,000 股', vals: [{ name: '成本', v: 10 }, { name: '獲利', v: 457, alt: true }] },
+    { label: '預算 1,000，拉 20 點', sub: '跟隨深度 10,000 股', vals: [{ name: '成本', v: 40 }, { name: '獲利', v: 1467, alt: true }] },
+    { label: '預算 10,000，拉 20 點', sub: '跟隨深度 10,000 股', vals: [{ name: '成本', v: 400 }, { name: '獲利', v: 1467, alt: true }] },
+    { label: '預算 25，拉 20 點', sub: '跟隨深度 2,000 股', vals: [{ name: '成本', v: 1 }, { name: '獲利', v: 293, alt: true }] }
+  ], 1467);
+
+  grouped('chart-creator', [
+    { label: '建立保證金', sub: '鎖到結算', vals: [{ name: '保證金', v: 500 }] },
+    { label: '費用分成上限', sub: '最大市場全部成交', vals: [{ name: '回收', v: 25, text: '12.5–25' }] }
+  ], 500);
+
+  // Window budgets: own + rolled-over, drawn to one scale (max 3,500).
+  (function () {
+    var own = [1000, 900, 800, 700, 600, 500], roll = [0, 0, 900, 1700, 2400, 3000];
+    var notes = ['拉歪<br>−240', '沒人動', '沒人動', '沒人動', '沒人動', '修正<br>+840'];
+    var host = document.getElementById('chart-windows'), xs = document.getElementById('chart-windows-x');
+    var max = 3500, plotH = 230 - 22;
+    own.forEach(function (o, i) {
+      var col = el('div', 'col');
+      col.appendChild(el('b', null, fmt(o + roll[i])));
+      if (roll[i]) { var r = el('div', 'seg roll top'); r.style.height = (roll[i] / max * plotH) + 'px'; r.title = '滾入 ' + fmt(roll[i]); col.appendChild(r); }
+      var s = el('div', 'seg own' + (roll[i] ? '' : ' top')); s.style.height = (o / max * plotH) + 'px'; s.title = '本視窗預算 ' + fmt(o); col.appendChild(s);
+      host.appendChild(col);
+      xs.appendChild(el('div', null, '<strong>視窗 ' + (i + 1) + '</strong>' + notes[i]));
+    });
+  })();
+
+  // Split bar: 54 = 10 + 44.
+  (function () {
+    var host = document.getElementById('chart-split');
+    var a = el('div', 'a'); a.style.flex = '10 1 0'; a.title = '預測者期望淨得 10';
+    var b = el('div', 'b'); b.style.flex = '44 1 0'; b.title = '進 treasury 44';
+    host.appendChild(a); host.appendChild(b);
+  })();
+
+  // Curve: expected return on stake vs edge, baseline 0.5.
+  (function () {
+    var host = document.getElementById('chart-curve');
+    var cur = function (d) { return d * d / 100; };                 // % of stake, d in points
+    var fix = function (d) { return (d / 100) / (1 + d / 100) * 100; };
+    var NS = 'http://www.w3.org/2000/svg';
+    var mk = function (tag, attrs, text) { var n = document.createElementNS(NS, tag); for (var k in attrs) n.setAttribute(k, attrs[k]); if (text != null) n.textContent = text; return n; };
+    var tip = el('div', 'tip'); tip.hidden = true;
+    function draw() {
+      host.innerHTML = '';
+      var W = Math.max(280, host.clientWidth), H = 250, m = { l: 40, r: 50, t: 12, b: 40 };
+      var X = function (d) { return m.l + d / 20 * (W - m.l - m.r); };
+      var Y = function (v) { return H - m.b - v / 18 * (H - m.t - m.b); };
+      var svg = mk('svg', { viewBox: '0 0 ' + W + ' ' + H, width: W, height: H, role: 'img', 'aria-label': '質押報酬率隨優勢變化：現行設計在 10 點優勢時是 1%，20 點時 4%；只鎖最壞損失時分別是 9.1% 和 16.7%' });
+      [0, 5, 10, 15].forEach(function (v) {
+        svg.appendChild(mk('line', { class: 'grid', x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v) }));
+        svg.appendChild(mk('text', { x: m.l - 6, y: Y(v) + 4, 'text-anchor': 'end' }, v + '%'));
+      });
+      [0, 5, 10, 15, 20].forEach(function (d) { svg.appendChild(mk('text', { x: X(d), y: H - m.b + 16, 'text-anchor': 'middle' }, d)); });
+      svg.appendChild(mk('text', { class: 'axis-t', x: (m.l + W - m.r) / 2, y: H - 6, 'text-anchor': 'middle' }, '比基準線準幾個百分點'));
+      var path = function (f) { var p = ''; for (var d = 0; d <= 20; d += 0.5) p += (d ? 'L' : 'M') + X(d).toFixed(1) + ' ' + Y(f(d)).toFixed(1); return p; };
+      svg.appendChild(mk('path', { class: 'ln b', d: path(fix) }));
+      svg.appendChild(mk('path', { class: 'ln a', d: path(cur) }));
+      svg.appendChild(mk('circle', { class: 'dot b', cx: X(20), cy: Y(fix(20)), r: 4 }));
+      svg.appendChild(mk('circle', { class: 'dot a', cx: X(20), cy: Y(cur(20)), r: 4 }));
+      svg.appendChild(mk('text', { x: X(20) + 8, y: Y(fix(20)) + 4 }, fix(20).toFixed(1) + '%'));
+      svg.appendChild(mk('text', { x: X(20) + 8, y: Y(cur(20)) + 4 }, cur(20).toFixed(1) + '%'));
+      var cross = mk('line', { class: 'cross', y1: m.t, y2: H - m.b, visibility: 'hidden' });
+      var da = mk('circle', { class: 'dot a', r: 4, visibility: 'hidden' }), db = mk('circle', { class: 'dot b', r: 4, visibility: 'hidden' });
+      svg.appendChild(cross); svg.appendChild(db); svg.appendChild(da);
+      var hit = mk('rect', { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: 'transparent' });
+      svg.appendChild(hit);
+      var move = function (ev) {
+        var box = svg.getBoundingClientRect(), px = (ev.touches ? ev.touches[0].clientX : ev.clientX) - box.left;
+        var d = Math.round(Math.min(20, Math.max(0, (px - m.l) / (W - m.l - m.r) * 20)) * 2) / 2;
+        cross.setAttribute('x1', X(d)); cross.setAttribute('x2', X(d));
+        da.setAttribute('cx', X(d)); da.setAttribute('cy', Y(cur(d))); db.setAttribute('cx', X(d)); db.setAttribute('cy', Y(fix(d)));
+        [cross, da, db].forEach(function (n) { n.setAttribute('visibility', 'visible'); });
+        tip.hidden = false;
+        tip.innerHTML = '優勢 ' + d + ' 點<br>現行 ' + cur(d).toFixed(2) + '%<br>只鎖最壞損失 ' + fix(d).toFixed(1) + '%';
+        var left = X(d) + 12; if (left + 150 > W) left = X(d) - 150;
+        tip.style.left = left + 'px'; tip.style.top = (m.t + 4) + 'px';
+      };
+      var leave = function () { [cross, da, db].forEach(function (n) { n.setAttribute('visibility', 'hidden'); }); tip.hidden = true; };
+      hit.addEventListener('mousemove', move); hit.addEventListener('touchstart', move, { passive: true }); hit.addEventListener('touchmove', move, { passive: true });
+      hit.addEventListener('mouseleave', leave);
+      host.appendChild(svg); host.appendChild(tip);
+    }
+    draw();
+    var t; window.addEventListener('resize', function () { clearTimeout(t); t = setTimeout(draw, 120); });
+  })();
+
+  // Decision grid.
+  (function () {
+    var Q = [
+      [1, '成功定義為相對基準', 'quiet', '發現 12 指出實驗沒有測到對外部市場價格的比較，也沒有測每美元推理成本的改善。'],
+      [2, '問題改寫為回饋延遲', 'quiet', '發現 9：作為中期回饋範例的「每月民調子題」，結果由受邀的預測者自己控制。'],
+      [3, '以 mainnet 條件設計', 'quiet', '審查者照這個條件做全部試算。它提的「實測場」方向會改動這一項。'],
+      [4, '平台不跑任何角色', 'quiet', '審查者把「平台不持有任何角色金鑰，並以測試證明」列為少數別處沒有的部分。'],
+      [5, '方向 3 的三個存續條件', 'warn', '發現 8：獎金和預測質押沒有算進安全上限。最大支付 1 bUSD 的市場可以掛上 100,000 bUSD 的獎金，全由同一個仲裁結果決定。', '獎金和預測質押要不要計入建立市場時的安全上限？'],
+      [6, 'merge 移出這個問題', 'quiet', '未被直接檢驗。審查者提的避險題目方向需要提前出場，會動到它。'],
+      [7, '抵押品可計息', 'warn', '發現 13：任何真實的收益來源都有治理、暫停或升級權，會把外部管理權帶進無管理者的系統。利息也補不了報酬是優勢平方的問題。', '哪一種孳息來源不帶暫停或升級權？'],
+      [8, '母題在 FINAL 前不計分', 'warn', '發現 1：早期進場的現金流是負的，推理費先付，收入兩年後才到。', '既然母題到 FINAL 才付款，早期視窗除了優勢平方之外還拿什麼？'],
+      [9, 'credit 改成相對分數', 'warn', '發現 7：分身用免費預測把共識拉歪，主身分再修正，每題相對分數是誠實者的 96 倍。分身的負分沒有代價。', '免費預測能否進入用來計算相對 credit 的共識？'],
+      [10, 'credit 按期限分桶', 'warn', '發現 7：長期桶前兩年必然是空的，會退回短期桶。預測者的角色質押一天後可退、不會被罰，質押加權變成「大戶租一天主導」。', '質押加權用的是可退、不可罰的角色質押，還是有風險的獎金質押？'],
+      [11, '預設出資者（已被 Q16 取代）', 'quiet', '已被 Q16 取代。發現 5 指出取代它的方案同樣回收不了。'],
+      [12, '第一個實驗的設計', 'quiet', '和 Q21 一起被發現 12 命中：門檻量在 8 週前，只有期限至少 8 週的題目算數，樣本比表面少。'],
+      [13, '分階段方式', 'quiet', '未被直接檢驗。'],
+      [14, '付款公式', 'crit', '發現 1、2、11：報酬是優勢的平方；加上預算滾存和加碼後，拉歪再修正可以獲利；出資越多基準線反而越遲鈍；第一個視窗的基準線沒有定義。單一視窗內的性質仍然成立。', '質押要鎖滿額曝險，還是只鎖已揭示預測的最壞損失？'],
+      [15, '入場費', 'warn', '發現 10：入場費按質押收而不按曝險收，攻擊者可用大額質押照抄基準線來壓住它。費率要低到誠實者進得來，就擋不住這個攻擊。', '入場費按質押收還是按曝險收？'],
+      [16, '創建者是預設出資者', 'crit', '發現 5：現行參數下創建者的費用回收上限是 12.5 到 25 bUSD，保證金卻是 500 bUSD。撤回跨市場共用池這部分是對的。', '創建者回收上限只有 25 bUSD，預設獎金來源還要保留嗎？'],
+      [17, '預算遞減與滾存', 'crit', '發現 2、6：滾存讓後面視窗的預算變大，打破「拉歪再修正無利可圖」，也付錢讓有私有資訊的人晚報。遞減鼓勵早報，滾存鼓勵晚報，兩者互相抵銷。', '未用預算要疊到下一視窗，還是只能延長尾端並保持預算不上升？'],
+      [18, '有質押的預測自己上鏈', 'warn', '發現 10：漏揭示罰全額，而誠實期望報酬只有質押的 0.25% 到 1%，容錯率不到 1%。排序器停機會讓所有誠實者同時被罰。', '漏揭示罰全額，還是罰當時基準線下的最壞損失？'],
+      [19, '公開操弄成本', 'crit', '發現 3：預算 1,000 的視窗拉 10 點的期望成本約 10 bUSD，向跟隨共識的 maker 買進可賺 457。「修正者賺走操弄者的損失」是錯的，那筆損失進 treasury。「成本」本身也沒有明確定義。', '要不要繼續建議 maker 讀基準線？若要，公布的數字是成本還是最大安全深度？'],
+      [20, '子市場只是標註', 'warn', '發現 7：長期桶空著的前兩年，子題的 credit 會經由短期桶的退回影響母題，「不給母題特殊權重」因此失效。', '長期桶空的前兩年，子題 credit 經短期桶退回影響母題，要不要擋？'],
+      [21, '實驗的門檻和後果', 'warn', '發現 12：門檻只比「不同模型加工具」和「單一模型問一次」，靠多次平均或搜尋工具就能通過，那不是獨立資訊。真實改善 8% 時，100 題的通過率約 16%。', '門檻要比第四組對第一組，還是第四組對第二組？要不要加入對外部市場的比較？'],
+      [22, '出資者是正式角色', 'quiet', '發現 8：出資者的獎金沒有計入安全上限，陪審也可以同時持有預測曝險並投票。'],
+      [23, '雙邊市場的定位', 'warn', '發現 9：同時邀請民調機構當預測者和出資者，而子題又以它自己的民調結算。主設計把「結果可被參與者影響」列為挑戰理由。', '結算來源能否同時當該題的預測者或出資者？'],
+      [24, '出資者買到題目被回答', 'quiet', '發現 5、11：答案公開使贊助成為公共財，每個人都有理由等別人付；出資越多，基準線反而越遲鈍。'],
+      [25, '出資者取回上限與罰沒去向', 'crit', '發現 4：出資者付的錢有 81% 到 90% 進了 treasury。兼任結算來源的出資者公布相反數字就能一毛不付，全額拿回本金。', '輸家的罰沒能否先在同一題內支付贏家，讓出資者只付淨額？'],
+      [26, '出資只進預測獎金', 'quiet', '發現 3 也命中它：資訊經由共識流向 maker 的路徑，正是操弄攻擊的入口。']
+    ];
+    var marks = { crit: '✕', warn: '!', quiet: '–' }, names = { crit: '有算例推翻', warn: '建議重開', quiet: '未被點名重開' };
+    var grid = document.getElementById('qgrid'), detail = document.getElementById('qdetail'), btns = [];
+    function show(i) {
+      var q = Q[i];
+      btns.forEach(function (b, j) { b.setAttribute('aria-pressed', j === i ? 'true' : 'false'); });
+      detail.innerHTML = '<h4><span class="num">Q' + q[0] + '</span>　' + q[1] + '　<span class="small">' + names[q[2]] + '</span></h4><p>' + q[3] + '</p>' +
+        (q[4] ? '<p class="ask">要你回答的問題：' + q[4] + '</p>' : '');
+    }
+    Q.forEach(function (q, i) {
+      var b = el('button', 'q s-' + q[2], '<span class="n"><span>Q' + q[0] + '</span><span class="mark" aria-hidden="true">' + marks[q[2]] + '</span></span><span class="t">' + q[1] + '</span>');
+      b.type = 'button'; b.id = 'q-btn-' + q[0]; b.setAttribute('aria-label', 'Q' + q[0] + ' ' + q[1] + '，' + names[q[2]]);
+      b.addEventListener('click', function () { show(i); });
+      grid.appendChild(b); btns.push(b);
+    });
+    show(13);
+  })();
+
+  // Venue matrix.
+  (function () {
+    var G = { y: '●', p: '◐', n: '○', u: '?' }, L = { y: '有', p: '部分', n: '沒有或未找到', u: '未能證實' };
+    var rows = [
+      ['Olas Predict / Omen', 'y', 'n', 'p', 'n', 'n', 'y', '開市要經核准伺服器；agent 按次付費買預測；交易靠代幣補貼，規模很小。'],
+      ['Foresight Arena', 'n', 'n', 'y', 'y', 'n', 'n', 'commit-reveal 加鏈上 Brier；題目借用 Polymarket；不付款；實測資料有疑問。'],
+      ['Sapience', 'n', 'u', 'y', 'p', 'n', 'y', '預測寫成鏈上 attestation，是否密封未說明；依期限加權的 Brier 排行，不付錢。'],
+      ['Numinous', 'n', 'n', 'y', 'u', 'y', 'n', '依 Brier 排名發獎勵，約每日 3,000 美元；題目來自 Polymarket。'],
+      ['Pandora', 'n', 'y', 'n', 'n', 'n', 'y', '任何人可匿名開市，開市者是人；多個 AI 當結算來源，失敗時交給代幣持有人。'],
+      ['Metaculus', 'n', 'n', 'y', 'n', 'y', 'n', '本體就是預測層；中心化計分；bot 錦標賽每季獎金 50,000 美元。'],
+      ['Polymarket', 'n', 'n', 'n', 'n', 'n', 'y', '公司開市；持倉獎勵 3.25%；任何人可贊助某市場的流動性獎勵。'],
+      ['Kalshi', 'n', 'n', 'n', 'n', 'n', 'y', '公司開市與裁決；現金與部位 3.50% 年息。'],
+      ['Blink（設計中）', 'y', 'y', 'y', 'p', 'p', 'n', '在 testnet；目前由平台離線計分；依計分付款的公式被審查算破。', true]
+    ];
+    var body = document.getElementById('matrix');
+    rows.forEach(function (r) {
+      var tr = el('tr', r[8] ? 'self' : null);
+      tr.appendChild(el('td', null, r[0]));
+      for (var i = 1; i <= 6; i++) { var td = el('td', 'g', G[r[i]]); td.setAttribute('aria-label', L[r[i]]); td.title = L[r[i]]; tr.appendChild(td); }
+      tr.appendChild(el('td', 'small', r[7]));
+      body.appendChild(tr);
+    });
+  })();
+})();
+</script>
