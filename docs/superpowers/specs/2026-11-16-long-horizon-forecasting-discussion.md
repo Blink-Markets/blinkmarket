@@ -191,7 +191,7 @@ The material for this section is in [2026-11-17-long-horizon-review](2026-11-17-
 - **A review from each participant's seat.** An independent reviewer worked out, with the repository's real parameters, what a self-interested forecaster, maker, taker, creator, sponsor, juror and attacker would do. It produced 13 findings.
 - **Web research** on live prediction markets and agent commerce, with sources.
 - **A primary-source check** of six mechanisms against other protocols' specifications.
-- **Proposals for the 15 reopened decisions**, including one consistent version of the bounty mechanism. They are proposals; the user has not decided on them.
+- **Proposals for the 15 reopened decisions**, including one consistent version of the bounty mechanism. The user decided on them on 2026-11-18 (12.5).
 
 ### 12.2 Status of the 26 decisions
 
@@ -217,8 +217,8 @@ The review's own fixes are disputed in places: the proposals document reproduces
 ### 12.3 Differentiation
 
 - **The forecast layer adds little that is new.** "Every role is an agent" already exists (Olas Predict, with an approval server for market creation and trading that relies on token subsidies). Sealed, verifiable forecast records exist in prototype form (Foresight Arena, which pays nothing). No venue was found that combines a market with no admin, a sealed forecast layer and payment by score.
-- **Checked against the whole design**, after reading other protocols' specifications, two mechanisms have no precedent in the documents read: the on-chain security bound enforced at creation, and deterministic settlement recomputed from archived source bytes. Confidence in both is medium-low.
-  - *Corrected 2026-11-18:* this record first called the bound "per-market". `BlinkMarkets.createMarket` checks the total maximum payout of all open markets, `(openPayoutTotal + payout) × securityMultipleBps ≤ attackCostMicros × 10,000`, so a new market is refused when the total would pass the bound. The protocol therefore knows its total open payout exactly; Augur, by its own account, cannot know its open interest. The per-role credit is a new combination of known properties; the creation challenge window and the generations are recombinations of known components; final arbitration by agents alone is not a differentiator.
+- **Checked against the whole design**, after reading other protocols' specifications, two mechanisms have no precedent in the documents read: the on-chain security bound enforced at creation, and deterministic settlement recomputed from archived source bytes. Confidence in both is medium-low. The per-role credit is a new combination of known properties; the creation challenge window and the generations are recombinations of known components; final arbitration by agents alone is not a differentiator.
+  - *Corrected 2026-11-18:* this record first called the bound "per-market". `BlinkMarkets.createMarket` checks the total maximum payout of all open markets, `(openPayoutTotal + payout) × securityMultipleBps ≤ attackCostMicros × 10,000`, so a new market is refused when the total would pass the bound. The protocol therefore knows its total open payout exactly; Augur, by its own account, cannot know its open interest.
 - **Evidence that bears on the premises.** LLM agents that trade generally lose money, which undermines U13. Forecasts from several frontier LLMs are highly correlated, which is the risk Q21 tests.
 
 ### 12.4 What the user decided on 2026-11-17 [User]
@@ -226,6 +226,43 @@ The review's own fixes are disputed in places: the proposals document reproduces
 - **Innovation is to be checked against the whole design** — roles, flows, rewards and penalties, mechanisms and goals — not only against the 26 decisions.
 - **The knowledge base is a highlight of the project:** the collective intelligence of LLMs, used to forecast and reason about many more questions.
 - **Breadth first, and its early weakness is accepted.** Early on, the knowledge base grows on computable, long-tail questions. Judgment questions, such as elections, get quality only when someone funds them. The user accepts this weakness for the early stage.
-- **The proposals for the reopened decisions are not yet decided.** The user will read them first.
+- **The proposals for the reopened decisions are not yet decided.** The user will read them first. (Decided on 2026-11-18; see 12.5.)
 
-Two suggestions by the assistant remain unanswered: to measure the whole project by its entries (settled probabilities and their calibration) instead of by trading, and to treat the market and the bounty only as means to that end.
+Two suggestions by the assistant remain unanswered: to measure the whole project by its entries (settled probabilities and their calibration) instead of by trading, and to treat the market and the bounty only as means to that end. (Accepted on 2026-11-18 as P1 and P2; see 12.5.)
+
+### 12.5 What the user decided on the reopened items, 2026-11-17 and 2026-11-18 [User]
+
+The user chose on the decision board of the review page: 22 cards, one per reopened decision or suggestion. Each card's options are in [reopened-decisions-proposals.md](2026-11-17-long-horizon-review/reopened-decisions-proposals.md) and in the page source [review-charts.html](2026-11-17-long-horizon-review/review-charts.html).
+
+**How firm these are.** The user picked the recommended option on all 21 decided cards and deferred one (Q6). The user also said that many cards were abstract and hard to follow, and that for now most choices follow the assistant's recommendations ("許多題目的敘述其實有點抽象不好懂……目前大部分都是先依照你的建議去處理"). Treat these as the working direction, open to revision once each mechanism is explained with worked examples. Nothing here is implemented.
+
+**The bounty mechanism: "Mechanism R" is adopted as a whole.**
+
+| Decision | Choice | What it means |
+| --- | --- | --- |
+| Q14 Payout formula | (c) | A forecast locks only its worst-case loss, not its whole exposure. The per-window allowance (B) and the sponsor's escrow (X) are two separate numbers. |
+| Q17 Budget schedule | (c) | The allowance never rises; this is a contract invariant. No rollover; strictly decreasing. |
+| Q25 Where forfeited stakes go | (c) | Within a question, gains and losses are netted, and the net loss goes back to the sponsor, but only on questions whose settlement source no single private party controls. On other questions it is burned. |
+| Q15 Entry fee | (c) | Charged on the requested exposure and paid into that question's pool. The sponsor sets the rate within the protocol's bounds. |
+| Q18 Missed reveal | (b) | Only the escrowed worst-case loss is forfeited, and anyone may reveal on the forecaster's behalf. |
+| Q5 Conditions for direction 3 | (c) | Each forecast position counts toward the security bound as 2 × exposure × deviation. The contract computes the baseline, outside arbitration. Juror conflict-of-interest rules cover forecast positions. Everything is refunded on INVALID. |
+
+**The other nine.**
+
+| Decision | Choice | What it means |
+| --- | --- | --- |
+| Q16 Creator as default sponsor | (b) | The default path in which the creator recovers its bounty from fees is removed. A creator who funds a bounty is a sponsor like any other, and nobody may top up after the first window opens. |
+| Q19 Published cost of manipulation | (c) | A read-only contract query returns the raw numbers: the certain cost when nobody trades against the mover, the cost when someone does, and when the baseline freezes. |
+| Q8 No scoring before the parent settles | (a) | Kept. |
+| Q9 Credit by relative score | (c) | Credit is scored against the paid baseline, and only staked forecasts earn it. It is used only as a threshold, and counts at most one entry per question. |
+| Q10 Buckets and the fallback | (c) | With a bounty, the published consensus is the paid baseline. With no bounty and no qualifying credit, no consensus number is published; the individual forecasts are listed instead. This replaces the plain-mean fallback once built. |
+| Q20 Sub-markets | (b) | The fallback from the long-horizon bucket to the short-horizon bucket is removed. |
+| Q23 Two-sided markets | (c) | "A bountied question's settlement source must not be controlled by a single private party" becomes a ground for a creation challenge. Pollsters take part as forecasters on election-result questions instead. |
+| Q21 The first experiment | (c) | Compare group 4 with group 2, adding external market prices, cost per dollar and marginal contribution. The experiment is an estimate, not a gate: register the smallest useful improvement first, and shelve direction 3 only if the upper end of the confidence interval falls below it. |
+| Q7 Interest-bearing collateral | (b) | A whole generation accounts in one vault share, and interest goes to the share holders. No vault is chosen yet. The user's note: "我們先不討論這種穩定幣被暫停等情況，太極端的狀況了" — the case of a stablecoin issuer pausing or freezing funds is set aside for now as too extreme. |
+
+**The five unflagged decisions.** Q22 (the sponsor only pays), Q26 (funding goes only into forecast bounties), Q24 (sponsors fund only existing markets) and Q2 (the problem restated as feedback delay) are reopened, to be rewritten for Mechanism R. Q6 (merge kept out of this problem) is deferred; it matters only if forecast positions become transferable, which Q8 (a) does not do.
+
+**Positioning.** P1 and P2 are accepted and recorded as U26 and U27 in the [design](2026-10-23-autonomous-market-design.md).
+
+**What does not change yet.** The website describes what is built, so it keeps the plain-mean fallback and "the protocol pays a forecaster nothing" until these are implemented [User U24].

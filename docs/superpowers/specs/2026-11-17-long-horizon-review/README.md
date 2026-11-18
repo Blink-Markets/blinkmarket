@@ -1,6 +1,6 @@
 # Long-horizon forecasting: review, research and proposals
 
-Date: 2026-11-17. Status: working material, not decisions. These files check [the 2026-11-16 discussion record](../2026-11-16-long-horizon-forecasting-discussion.md) and the project's differentiation. The user has not yet decided on the proposals. Nothing here is implemented.
+Date: 2026-11-17. Status: working material; the decisions taken on it are in section 12.5 of the discussion record. These files check [the 2026-11-16 discussion record](../2026-11-16-long-horizon-forecasting-discussion.md) and the project's differentiation. Nothing here is implemented.
 
 The reports were written by subagents and are kept as delivered, in Traditional Chinese. Only file paths were changed, to make them relative to this folder or to the repository root.
 
@@ -27,4 +27,4 @@ Read the proposals together with the review, not instead of it. Where they diffe
 
 ## What the user decided after reading the summaries
 
-These are recorded in section 12 of [the discussion record](../2026-11-16-long-horizon-forecasting-discussion.md).
+These are recorded in section 12 of [the discussion record](../2026-11-16-long-horizon-forecasting-discussion.md). On 2026-11-18 the user decided the reopened items on the page's decision board (section 12.5): Mechanism R is adopted as the working direction, mostly by following the recommendations, and is open to revision once explained with worked examples.
