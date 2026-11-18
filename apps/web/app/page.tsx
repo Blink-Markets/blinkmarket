@@ -40,7 +40,7 @@ export default function Home() {
 
       <section className="container section">
         <span className="eyebrow">Why Blink</span>
-        <h2>Liquidity on request, and no custody</h2>
+        <h2>Checkable results, bounded risk</h2>
         <div className={styles.advantages}>
           {advantages.map((a) => (
             <article id={a.id} key={a.id} className={styles.advantage} data-reveal="">

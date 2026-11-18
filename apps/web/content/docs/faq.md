@@ -12,7 +12,7 @@ Short answers to common questions. Each links to the page with the detail.
 
 ## Can I use Blink now?
 
-Not on a public network. The contracts, the API and the reference agents are implemented and tested on a local chain, but no generation of the contracts is deployed to Base Sepolia and no API host is running. When an operator runs the platform, they give agents the API URL, and the contract addresses come from `GET /v1/deployment`. See [Onboarding](/docs/onboarding).
+Not on a public network. The contracts, the API and the reference agents are implemented and tested on a local chain, but no generation of the current contracts is deployed to Base Sepolia and no API host is running. The old `alpha-2` contracts on Base Sepolia are kept as [history](/docs/deployment) and do not trade. When an operator runs the platform, they give agents the API URL, and the contract addresses come from `GET /v1/deployment`. See [Onboarding](/docs/onboarding).
 
 ## Is this real money?
 

@@ -70,7 +70,7 @@ Direction 3 as first written had three fatal problems:
 
 It continues only under three conditions: the payment baseline is separate from the displayed consensus; the baseline counts only staked forecasts; and anyone can recompute the baseline and dispute it through the existing challenge and arbitration layer.
 
-> **[Review]** Finding 8: the bounty and the forecast stake are not counted in the per-market security bound, which checks only `maxPairs × 1 bUSD`. A market with a maximum payout of 1 bUSD could carry a bounty of 100,000 bUSD decided by the same arbitration result. A dispute about the baseline is a question about a number, which the existing arbitration (YES or NO) cannot answer. What happens to a bounty when the market ends INVALID is not defined, and a juror may hold forecast exposure in a market they vote on.
+> **[Review]** Finding 8: the bounty and the forecast stake are not counted in the security bound, which adds up only each open market's `maxPairs × 1 bUSD` (`openPayoutTotal`, the total across all open markets). A market with a maximum payout of 1 bUSD could carry a bounty of 100,000 bUSD decided by the same arbitration result. A dispute about the baseline is a question about a number, which the existing arbitration (YES or NO) cannot answer. What happens to a bounty when the market ends INVALID is not defined, and a juror may hold forecast exposure in a market they vote on.
 
 ### 6.2 Payment formula (Q14) [Accepted]
 
@@ -217,7 +217,8 @@ The review's own fixes are disputed in places: the proposals document reproduces
 ### 12.3 Differentiation
 
 - **The forecast layer adds little that is new.** "Every role is an agent" already exists (Olas Predict, with an approval server for market creation and trading that relies on token subsidies). Sealed, verifiable forecast records exist in prototype form (Foresight Arena, which pays nothing). No venue was found that combines a market with no admin, a sealed forecast layer and payment by score.
-- **Checked against the whole design**, after reading other protocols' specifications, two mechanisms have no precedent in the documents read: the on-chain per-market security bound enforced at creation, and deterministic settlement recomputed from archived source bytes. Confidence in both is medium-low. The per-role credit is a new combination of known properties; the creation challenge window and the generations are recombinations of known components; final arbitration by agents alone is not a differentiator.
+- **Checked against the whole design**, after reading other protocols' specifications, two mechanisms have no precedent in the documents read: the on-chain security bound enforced at creation, and deterministic settlement recomputed from archived source bytes. Confidence in both is medium-low.
+  - *Corrected 2026-11-18:* this record first called the bound "per-market". `BlinkMarkets.createMarket` checks the total maximum payout of all open markets, `(openPayoutTotal + payout) × securityMultipleBps ≤ attackCostMicros × 10,000`, so a new market is refused when the total would pass the bound. The protocol therefore knows its total open payout exactly; Augur, by its own account, cannot know its open interest. The per-role credit is a new combination of known properties; the creation challenge window and the generations are recombinations of known components; final arbitration by agents alone is not a differentiator.
 - **Evidence that bears on the premises.** LLM agents that trade generally lose money, which undermines U13. Forecasts from several frontier LLMs are highly correlated, which is the risk Q21 tests.
 
 ### 12.4 What the user decided on 2026-11-17 [User]

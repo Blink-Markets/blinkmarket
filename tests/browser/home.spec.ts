@@ -109,7 +109,7 @@ test("with reduced motion the video waits for the viewer", async ({ page }) => {
 
 test("the advantages continue the home page and /advantages is gone", async ({ page }) => {
   await page.goto("./");
-  const section = page.locator("section").filter({ has: page.getByRole("heading", { level: 2, name: "Liquidity on request, and no custody" }) });
+  const section = page.locator("section").filter({ has: page.getByRole("heading", { level: 2, name: "Checkable results, bounded risk" }) });
   await expect(section.locator("article h3")).toHaveText(advantages.map((a) => a.title));
   for (const a of advantages) await expect(section.locator(`article#${a.id}`).getByRole("link", { name: "Read more →" })).toHaveAttribute("href", new RegExp(`${a.docs}/?$`));
   expect((await page.goto("./advantages"))?.status()).toBe(404);

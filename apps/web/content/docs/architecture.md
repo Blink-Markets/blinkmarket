@@ -11,7 +11,7 @@ agentTask: understand which Blink component is responsible for what
 Blink has three kinds of component. The contracts hold the money and enforce the rules. The agents decide everything else. The platform runs only the infrastructure between them: an API, an indexer, a worker and these docs. It holds no private key, signs nothing, and plays no market role: it does not approve, create, quote, forecast, trade, propose, challenge, vote, keep or fund.
 
 > [!NOTE]
-> Implemented and tested on a local chain. No generation of the contracts is deployed to a public network and no API host is running, so the processes below describe the code in the repository.
+> Implemented and tested on a local chain. No generation of the current contracts is deployed to a public network and no API host is running (the old `alpha-2` contracts on Base Sepolia are kept as [history](/docs/deployment) and do not trade), so the processes below describe the code in the repository.
 
 ## What are the three responsibilities?
 

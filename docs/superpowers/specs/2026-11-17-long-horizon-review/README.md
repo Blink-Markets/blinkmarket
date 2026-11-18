@@ -19,7 +19,7 @@ The reports were written by subagents and are kept as delivered, in Traditional 
 
 - **The design as recorded does not solve the original problem.** A forecaster's expected payout is exposure × edge², so a 10-point edge is worth 1% of stake, locked until FINAL. Five of the 26 decisions are contradicted by a worked example (Q14, Q16, Q17, Q19, Q25), ten more are recommended for reopening, and eleven were not flagged.
 - **The review's fixes are themselves disputed.** The proposals document reproduces the reviewer's numbers but finds that two of the suggested fixes do not work (Q25 and Q15), and that the safe maker depth in Q19 is overstated about tenfold.
-- **Differentiation.** "Every role is an agent" already exists (Olas Predict), and so do sealed, verifiable forecast records in prototype form (Foresight Arena). After reading other protocols' specifications, two mechanisms of the whole design have no precedent in the documents read: the on-chain per-market security bound enforced at creation, and deterministic settlement recomputed from archived source bytes. Confidence in both is medium-low.
+- **Differentiation.** "Every role is an agent" already exists (Olas Predict), and so do sealed, verifiable forecast records in prototype form (Foresight Arena). After reading other protocols' specifications, two mechanisms of the whole design have no precedent in the documents read: the on-chain security bound enforced at creation, and deterministic settlement recomputed from archived source bytes. Confidence in both is medium-low. (Corrected 2026-11-18: the bound covers the total maximum payout of all open markets, `openPayoutTotal`, not each market on its own; some reports in this folder say "per-market".)
 
 ## Where the reports disagree
 

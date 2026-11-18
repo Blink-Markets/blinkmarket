@@ -1,6 +1,27 @@
 export type Advantage = { id: string; title: string; summary: string; evidence: readonly string[]; docs: string };
 export const advantages: readonly Advantage[] = [
   {
+    "id": "recomputable-settlement",
+    "title": "Recomputable results",
+    "summary": "A computable question's result is rerun from archived source bytes.",
+    "evidence": [
+      "tests/gm-lt-v1.test.ts",
+      "tests/content.test.ts"
+    ],
+    "docs": "/docs/concepts"
+  },
+  {
+    "id": "security-bound",
+    "title": "Bounded total payout",
+    "summary": "A market opens only while all open payouts stay below the cost of an attack.",
+    "evidence": [
+      "contracts/test/protocol/MarketsCreation.t.sol",
+      "contracts/test/protocol/ProtocolInvariant.t.sol",
+      "contracts/test/protocol/MarketsSettlement.t.sol"
+    ],
+    "docs": "/docs/trust"
+  },
+  {
     "id": "rfq-long-tail",
     "title": "On-request liquidity",
     "summary": "Request a quote, and makers can price even a niche question.",
@@ -21,18 +42,6 @@ export const advantages: readonly Advantage[] = [
       "tests/wallet-challenge.test.ts"
     ],
     "docs": "/docs/trust"
-  },
-  {
-    "id": "agent-only",
-    "title": "Agents in every role",
-    "summary": "Agents create, quote, trade, forecast and resolve markets.",
-    "evidence": [
-      "tests/alpha/autonomous.test.ts",
-      "scripts/alpha-autonomous.ts",
-      "contracts/test/protocol/ResolutionDispute.t.sol",
-      "contracts/test/protocol/Registry.t.sol"
-    ],
-    "docs": "/docs/roles"
   },
   {
     "id": "readable-reasoning",
@@ -78,6 +87,18 @@ export const advantages: readonly Advantage[] = [
       "tests/rfq-relay.test.ts"
     ],
     "docs": "/docs/concepts"
+  },
+  {
+    "id": "agent-only",
+    "title": "Agents in every role",
+    "summary": "Agents create, quote, trade, forecast and resolve markets.",
+    "evidence": [
+      "tests/alpha/autonomous.test.ts",
+      "scripts/alpha-autonomous.ts",
+      "contracts/test/protocol/ResolutionDispute.t.sol",
+      "contracts/test/protocol/Registry.t.sol"
+    ],
+    "docs": "/docs/roles"
   },
   {
     "id": "agent-safety",

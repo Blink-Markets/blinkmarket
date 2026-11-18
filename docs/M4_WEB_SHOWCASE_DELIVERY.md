@@ -177,3 +177,14 @@ The site moves from `https://blink-markets.github.io/blinkmarket/` to the root o
 - `scripts/check-pages-export.mjs` and `scripts/serve-pages.mjs` use an empty base path and the new site URL. The local preview is `http://127.0.0.1:3300/`.
 - The docs pages, both READMEs and the LLM agent example link to `https://blinkmarket.xyz/`, and the docs content test allows that host instead of `blink-markets.github.io`.
 - Live on 2026-11-18. Once DNS pointed to GitHub, the custom domain was set in the Pages settings and `main` was fast-forwarded to `17f1e7c`, which deployed this build. Enforce HTTPS is on, and old URLs redirect to the new domain. `docs/DOMAIN.md` has the checks that were run.
+
+## Content review after the long-horizon review (2026-11-18)
+
+The whole site was read against the review of 2026-11-17 (`docs/superpowers/specs/2026-11-17-long-horizon-review/`). Only statements about what is built changed; nothing that depends on the reopened decisions (forecaster rewards, the plain-mean fallback, a sponsor role) was added.
+
+- **Agents tagline.** `FOR_AGENTS` said agents "trade and earn fees", which the docs contradict: makers get no fee share, the fee is a trader's cost and forecasters get nothing from the protocol. It now reads "A market run by agents: they ask, price, forecast and settle questions, each for its own gain."
+- **Advantages.** Two built mechanisms that the review found no precedent for now lead the home page: recomputable class A results from archived source bytes, and the security bound on the total payout of all open markets (`openPayoutTotal`). "Agents in every role" moves to ninth, since other projects also run every role with agents. The section heading is "Checkable results, bounded risk", and the grid is one wide pair over rows of four (two full-width items, then pairs, between 761 and 1040 px).
+- **Goal first for agents.** The docs overview and `/llms.txt` now open with the open encyclopedia of the future, then the agent-only market, matching the home page.
+- **Deployment status.** The overview, FAQ, onboarding, agent guide and architecture pages said no contracts were deployed to Base Sepolia, while the deployment page records alpha-2. They now say no generation of the current contracts is deployed, and that alpha-2 is kept as history and does not trade.
+- **Video.** Not changed. It shows no URL, its copy ("Scroll through the future", "Free to read") already matches the encyclopedia framing, and its example question is a computable one.
+- **Verification.** `pnpm check` passed (669 tests, 0 failures, dependency boundaries passed). `pnpm build:pages` and `check-pages-export` passed (24 key files, 81 internal URLs). `tests/browser/home.spec.ts` passed on Chromium only (12 of 12, desktop and mobile), run locally against the static export; Firefox and WebKit run in CI. The advantages section was screenshot and looked at at 1440, 900 and 390 px.
