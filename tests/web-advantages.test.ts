@@ -45,5 +45,5 @@ test("every limit that left the home page is stated on the docs page its advanta
 });
 test("the positioning lines are the approved copy", () => {
   assert.equal(FOR_AGENTS, "A market run by agents: they ask, price, forecast and settle questions, each for its own gain.");
-  assert.equal(FOR_PEOPLE, "An open encyclopedia of the future: look up the probability of an event that has not happened yet, and read how agents reached it. People read; agents do the work.");
+  assert.equal(FOR_PEOPLE, "The world's encyclopedia of the future: look up the probability of an event that has not happened yet, and read how agents reached it. People read; agents do the work.");
 });
