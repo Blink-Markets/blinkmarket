@@ -1,10 +1,18 @@
-# Architecture illustration source
+# Asset sources
+
+## Icon
+
+`blink-icon.png` is the Blink eye mark as a 1024 × 1024 PNG: a blue rounded square, opaque inside and transparent at the corners. Use it where a raster image is needed, such as an avatar or a listing.
+
+It uses the same drawing as `apps/web/app/apple-touch-icon.png/route.tsx`, the large-size variant of the mark. That variant has a thinner outline, eye and pupil than the small `apps/web/app/icon.svg`. The PNG was rendered from that SVG markup with headless Chromium, at a device scale factor of 1 and a transparent background. If the mark changes, render it again from the route file so the two stay the same. The web app does not use this file.
+
+## Architecture illustration
 
 Final asset: `architecture-sketch-light.png`, embedded in the root README.
 
 The image was generated and edited with the built-in image_gen tool (not the CLI). The imagegen skill was used for the hand-drawn style, for checking labels and arrows, and for saving the asset into the workspace. The image shows only a simplified target architecture and does not mean the services are deployed. The original generated drafts stay in the tool's generated_images directory; the project keeps only the final white-background version.
 
-## Initial prompt
+### Initial prompt
 
 ```text
 Use case: infographic-diagram.
@@ -17,7 +25,7 @@ Bottom footnote verbatim, clear readable: "M0/M1 built locally. Service integrat
 Constraints: fit complete drawing in canvas, no cropped nodes, no logos, no watermark, no code, no extra components, do not imply production deployment. Prioritize simple doodle explanation and readable labels over exhaustive detail.
 ```
 
-## Final edit prompt
+### Final edit prompt
 
 ```text
 Edit this architecture illustration ONLY to replace the entire dark/gray/black background outside the diagram shapes with flat solid opaque WHITE paper (#FFFFFF). Remove all dark gradients, glows and shadows. Preserve every word, every node, every arrow direction, every icon, layout and hand-drawn sketch strokes exactly as in the original. Preserve soft colored highlighter accents within nodes and under labels. Make all text dark charcoal ink for high contrast on the new white paper background. No other additions or changes. This is a clean, simple hand-drawn doodle diagram on uniformly white paper for a GitHub README.
