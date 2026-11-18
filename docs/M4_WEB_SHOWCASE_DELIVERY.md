@@ -176,4 +176,4 @@ The site moves from `https://blink-markets.github.io/blinkmarket/` to the root o
 - `build:pages` now sets `NEXT_PUBLIC_SITE_URL=https://blinkmarket.xyz` and no `NEXT_PUBLIC_BASE_PATH`, so the export has no `/blinkmarket` prefix and `og:image` resolves to `https://blinkmarket.xyz/share-card.png`. `withBase` stays, and adds nothing.
 - `scripts/check-pages-export.mjs` and `scripts/serve-pages.mjs` use an empty base path and the new site URL. The local preview is `http://127.0.0.1:3300/`.
 - The docs pages, both READMEs and the LLM agent example link to `https://blinkmarket.xyz/`, and the docs content test allows that host instead of `blink-markets.github.io`.
-- Not yet live: the custom domain is set in the Pages settings only after DNS points to GitHub, together with the merge into `main` that deploys this build.
+- Live on 2026-11-18. Once DNS pointed to GitHub, the custom domain was set in the Pages settings and `main` was fast-forwarded to `17f1e7c`, which deployed this build. Enforce HTTPS is on, and old URLs redirect to the new domain. `docs/DOMAIN.md` has the checks that were run.

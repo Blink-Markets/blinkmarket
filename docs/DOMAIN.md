@@ -6,7 +6,7 @@
 
 | Service | Address | State |
 | --- | --- | --- |
-| Website and docs | `https://blinkmarket.xyz/`, at the root of the domain | Moving from `https://blink-markets.github.io/blinkmarket/`. See the cutover below. |
+| Website and docs | `https://blinkmarket.xyz/`, at the root of the domain | Live since 2026-11-18. It replaced `https://blink-markets.github.io/blinkmarket/`. |
 | `www` | `www.blinkmarket.xyz` | Redirects to the root domain. GitHub Pages does this once `www` has the CNAME record below. |
 | API and other public services | On this domain | Not deployed. Hostnames are chosen when each service is deployed and recorded here. |
 
@@ -52,4 +52,11 @@ Order matters, because setting the custom domain makes GitHub redirect the old a
 3. Enforce HTTPS once the certificate is issued.
 4. Check `https://blinkmarket.xyz/`, `https://www.blinkmarket.xyz/` and an old URL under `blink-markets.github.io/blinkmarket/`.
 
-State on 2026-11-18: the repository change is ready on the branch `web/custom-domain`, and the domain does not yet resolve to GitHub's addresses.
+### Done on 2026-11-18
+
+- **DNS.** The domain's DNS is hosted on Cloudflare. All nine records above are set to "DNS only", with no proxying, because GitHub must see its own addresses to check the domain and issue the certificate. The registrar's parking records were removed, including a wildcard (`*`) record.
+- **Kept records.** The Porkbun MX records for email forwarding, one SPF record and an unrelated `77667683` CNAME were kept.
+- **Cutover.** The custom domain was set through the Pages API, and `main` was fast-forwarded to `17f1e7c`, which deployed the build with no base path. CI passed on that commit before the merge, browser tests included.
+- **HTTPS.** GitHub approved the certificate for `blinkmarket.xyz` and `www.blinkmarket.xyz`, and Enforce HTTPS is on. About two minutes after it was turned on, `http://blinkmarket.xyz/` returned 301 to `https://blinkmarket.xyz/`. The redirects from `www` and the old address point to the `http://` form, so they reach HTTPS in a second hop.
+- **Checks after the deploy.** The home page, docs, Markdown pages, `llms.txt`, the share card, a market page and the `/_next` assets return 200 at `https://blinkmarket.xyz/`, and an unknown path returns 404. `og:image` is `https://blinkmarket.xyz/share-card.png`. `www` and old URLs under `blink-markets.github.io/blinkmarket/` return 301 to the same path on the new domain.
+- **Not done.** The domain has not been verified for the organization.
