@@ -1,0 +1,52 @@
+<!doctype html>
+<!-- Source of docs/assets/x-header.png (1500 x 500). Same palette, type and landscape as apps/web/app/share-card.png/route.tsx.
+     Render: put Geist 800/400 TTFs in ./fonts, then
+     chromium --headless=new --hide-scrollbars --force-device-scale-factor=1 --window-size=1500,500 --screenshot=x-header.png x-header.html -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "Geist"; src: url("fonts/geist-800.ttf") format("truetype"); font-weight: 800; }
+  @font-face { font-family: "Geist"; src: url("fonts/geist-400.ttf") format("truetype"); font-weight: 400; }
+  html, body { margin: 0; padding: 0; }
+  .card { position: relative; width: 1500px; height: 500px; overflow: hidden; background: #FAFAF7; color: #242321; font-family: "Geist", sans-serif; }
+  .headline { position: absolute; left: 96px; top: 60px; font-weight: 800; font-size: 108px; letter-spacing: -0.055em; line-height: 0.92; }
+  .headline div { white-space: nowrap; }
+  .trail { color: #C65F38; text-decoration: underline 10px #C65F38; text-underline-offset: 12px; text-decoration-skip-ink: none; }
+  .sub { position: absolute; left: 100px; top: 284px; font-weight: 400; font-size: 31px; color: #242321B3; letter-spacing: -0.005em; }
+  svg { position: absolute; left: 0; top: 0; }
+</style>
+</head>
+<body>
+<div class="card">
+  <svg id="land" width="1500" height="500" viewBox="0 0 1500 500" aria-hidden="true"></svg>
+  <div class="headline">
+    <div>every forecast</div>
+    <div>leaves a <span class="trail">trail</span></div>
+  </div>
+  <div class="sub">Prediction research for agents · Base Sepolia testnet</div>
+</div>
+<script>
+  // Ridge with a hill at HILL_X. The marker sits on the hill, clear of the profile picture at bottom left.
+  var PAPER = "#FAFAF7", COBALT = "#2148B8", TERRACOTTA = "#C65F38", HILL_X = 1190;
+  function ridge(x) {
+    return 400 - 24 * Math.sin(x * 0.0036 + 0.6) - 11 * Math.sin(x * 0.0098 + 2.1) - 66 * Math.exp(-Math.pow((x - HILL_X) / 125, 2));
+  }
+  var ridgeTop = [];
+  for (var x = 0; x <= 1500; x += 6) ridgeTop.push(x + " " + ridge(x).toFixed(1));
+  var out = '<path d="M0 500 L' + ridgeTop.join(" L") + ' L1500 500 Z" fill="' + COBALT + '"/>';
+  for (var k = 1; k < 15; k++) {
+    var row = [];
+    for (var x2 = 0; x2 <= 1500; x2 += 8) row.push(x2 + " " + (ridge(x2) + k * 7 + Math.sin(x2 * 0.05 + k)).toFixed(1));
+    out += '<path d="M' + row.join(" L") + '" fill="none" stroke="' + PAPER + '" stroke-width="1.2" opacity="' + (0.55 - k * 0.03).toFixed(2) + '" stroke-dasharray="' + (34 + k * 7) + " " + (7 + k) + '"/>';
+  }
+  // The marker sits inside the hill, like the share card's, and the trail runs under the ridge to reach it.
+  var hy = ridge(HILL_X), my = hy + 38;
+  out += '<path d="M380 500 C 720 500, 1010 476, ' + (HILL_X - 27) + " " + my.toFixed(1) + '" fill="none" stroke="' + TERRACOTTA + '" stroke-width="5" stroke-linecap="round"/>';
+  out += '<circle cx="' + HILL_X + '" cy="' + my.toFixed(1) + '" r="27" fill="' + PAPER + '"/>';
+  out += '<path d="M' + (HILL_X - 17) + " " + my.toFixed(1) + " Q" + HILL_X + " " + (my - 14).toFixed(1) + " " + (HILL_X + 17) + " " + my.toFixed(1) + " Q" + HILL_X + " " + (my + 14).toFixed(1) + " " + (HILL_X - 17) + " " + my.toFixed(1) + ' Z" fill="none" stroke="' + COBALT + '" stroke-width="2.8" stroke-linejoin="round"/>';
+  out += '<circle cx="' + HILL_X + '" cy="' + my.toFixed(1) + '" r="5.5" fill="' + COBALT + '"/>';
+  document.getElementById("land").innerHTML = out;
+</script>
+</body>
+</html>

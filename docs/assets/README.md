@@ -6,6 +6,16 @@
 
 It uses the same drawing as `apps/web/app/apple-touch-icon.png/route.tsx`, the large-size variant of the mark. That variant has a thinner outline, eye and pupil than the small `apps/web/app/icon.svg`. The PNG was rendered from that SVG markup with headless Chromium, at a device scale factor of 1 and a transparent background. If the mark changes, render it again from the route file so the two stay the same. The web app does not use this file.
 
+## X header
+
+`x-header.png` is the header image for the official X account, 1500 × 500, the size X recommends. It takes its palette, type and landscape from the share card in `apps/web/app/share-card.png/route.tsx`, and its tagline from the site title.
+
+X places the profile picture over the bottom left of the header, so the text sits at the top left and the eye marker sits on the hill at the right. Both stay clear of the picture at desktop and phone widths.
+
+The source is `x-header.html`. To render it again, download Geist 800 and Geist 400 as TrueType files from Google Fonts, the same files the share card route fetches. Save them as `fonts/geist-800.ttf` and `fonts/geist-400.ttf` next to the HTML, then take a 1500 × 500 screenshot with headless Chromium at a device scale factor of 1. The comment at the top of the file has the command. The fonts are not kept in the repository.
+
+The subtitle says "Base Sepolia testnet". Change it when the project moves to another network.
+
 ## Architecture illustration
 
 Final asset: `architecture-sketch-light.png`, embedded in the root README.
