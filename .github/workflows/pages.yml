@@ -1,4 +1,5 @@
-# Publishes the static web showcase (apps/web) to GitHub Pages at https://blink-markets.github.io/blinkmarket/.
+# Publishes the static web showcase (apps/web) to GitHub Pages at https://blinkmarket.xyz/, the custom domain set in
+# the repository's Pages settings. The build has no base path; see docs/DOMAIN.md.
 # Only the static site is deployed; there is no API, chain or wallet backend behind it.
 name: Deploy web to GitHub Pages
 on:

@@ -21,10 +21,10 @@
 </p>
 
 <p align="center">
-  <a href="https://blink-markets.github.io/blinkmarket/">Website</a> ·
-  <a href="https://blink-markets.github.io/blinkmarket/docs/">Docs</a> ·
-  <a href="https://blink-markets.github.io/blinkmarket/docs/agents/">Agent guide</a> ·
-  <a href="https://blink-markets.github.io/blinkmarket/llms.txt">llms.txt</a>
+  <a href="https://blinkmarket.xyz/">Website</a> ·
+  <a href="https://blinkmarket.xyz/docs/">Docs</a> ·
+  <a href="https://blinkmarket.xyz/docs/agents/">Agent guide</a> ·
+  <a href="https://blinkmarket.xyz/llms.txt">llms.txt</a>
 </p>
 
 ---
@@ -138,7 +138,7 @@ tests/         unit, contract-protocol, PostgreSQL, Anvil, local-alpha and brows
 
 ## Documentation
 
-- **[Docs site](https://blink-markets.github.io/blinkmarket/docs/)**: concepts, lifecycle, API reference and a guide for agents. Every page is also available as Markdown. The role pages describe the current agent roles.
+- **[Docs site](https://blinkmarket.xyz/docs/)**: concepts, lifecycle, API reference and a guide for agents. Every page is also available as Markdown. The role pages describe the current agent roles.
 - **Current design and delivery:** [Autonomous market design](docs/superpowers/specs/2026-10-23-autonomous-market-design.md) · [P1 protocol contracts](docs/P1_PROTOCOL_CONTRACTS.md) · [P2 off-chain protocol](docs/P2_OFFCHAIN_PROTOCOL.md) · [P2 progress](docs/P2_OFFCHAIN_PROGRESS.md) · [P3 delivery](docs/P3_REFERENCE_AGENTS.md) · [Roadmap](docs/ROADMAP.md) · [Domain terminology](CONTEXT.md)
 - [Architecture](docs/ARCHITECTURE.md) · [Data model](docs/DATA_MODEL.md) · [Development](docs/DEVELOPMENT.md) · [Operations](docs/OPERATIONS.md) · [Verification](docs/VERIFICATION.md) · [Acceptance matrix](docs/ACCEPTANCE_MATRIX.md) · [Example agent](examples/agents/README.md)
 - **History (v0.1, team-operated design, historical):** [Architecture diagrams](docs/ARCHITECTURE_GUIDE.md) · [Detailed design](docs/design/README.md) · [Architecture decisions](docs/adr/0001-platform.md) · delivery records `docs/M0_M1_DELIVERY.md`, `docs/M2_*.md`, `docs/M3_*.md`, `docs/M4_*.md` and `docs/M5_*.md` · [Deployment manifest `alpha-2`](deployments/base-sepolia/alpha-2.manifest.json) · [Original MVP specification](Blink_MVP_v0.1_Base_Sepolia_Spec.md)
@@ -147,7 +147,7 @@ Internal documents in `docs/` are written in English.
 
 ## Contributing
 
-Issues and pull requests are limited to collaborators. Everyone can read the code, the [docs](https://blink-markets.github.io/blinkmarket/docs/) and existing discussions.
+Issues and pull requests are limited to collaborators. Everyone can read the code, the [docs](https://blinkmarket.xyz/docs/) and existing discussions.
 
 ## License
 

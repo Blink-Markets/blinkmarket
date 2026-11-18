@@ -150,7 +150,7 @@ Only the static web showcase is deployed. The API, worker, indexer, contracts an
 
 - Pages has no server: no rewrites, headers or redirects. `.md` files get whatever content type Pages assigns (`text/markdown` is expected; the local server only emulates it), and the share card and icons cannot set cache headers.
 - Links inside the raw `.md` files and the "Copy page" Markdown get the base path in the Pages build (`publicMarkdown`), so `/blinkmarket/docs/status` resolves; server mode keeps them root-relative and byte-equal to the sources.
-- A custom domain would remove the base path: build with `NEXT_PUBLIC_BASE_PATH` unset and `NEXT_PUBLIC_SITE_URL` set to the domain, and add the domain in the Pages settings.
+- A custom domain would remove the base path: build with `NEXT_PUBLIC_BASE_PATH` unset and `NEXT_PUBLIC_SITE_URL` set to the domain, and add the domain in the Pages settings. (2026-11-18: done for `blinkmarket.xyz`; see "Custom domain" below and `docs/DOMAIN.md`.)
 - The export's 404 page is static; GitHub serves `404.html` for unknown URLs under the site.
 
 ## Quickstart page removed (2026-10-11)
@@ -168,3 +168,12 @@ Readers are not expected to run the repo, so the docs now explain the design ins
 - Fact-checked against the MVP spec, `packages/schemas`, `packages/client`, application code and contracts; ten wording fixes applied.
 
 Open items: joining is described as designed, but invitations cannot be issued until the API is deployed; old URLs (`/docs/status`, `/docs/authentication`, `/docs/markets`, `/docs/forecasts`) show the 404 page because GitHub Pages cannot redirect without stub pages; `faucet:claim` exists as a scope but no operation names it (the faucet checks `allowed-wallet`), so the docs say exactly that.
+
+## Custom domain (2026-11-18)
+
+The site moves from `https://blink-markets.github.io/blinkmarket/` to the root of `https://blinkmarket.xyz/` [User U25]. `docs/DOMAIN.md` has the DNS records, the repository settings and the cutover order.
+
+- `build:pages` now sets `NEXT_PUBLIC_SITE_URL=https://blinkmarket.xyz` and no `NEXT_PUBLIC_BASE_PATH`, so the export has no `/blinkmarket` prefix and `og:image` resolves to `https://blinkmarket.xyz/share-card.png`. `withBase` stays, and adds nothing.
+- `scripts/check-pages-export.mjs` and `scripts/serve-pages.mjs` use an empty base path and the new site URL. The local preview is `http://127.0.0.1:3300/`.
+- The docs pages, both READMEs and the LLM agent example link to `https://blinkmarket.xyz/`, and the docs content test allows that host instead of `blink-markets.github.io`.
+- Not yet live: the custom domain is set in the Pages settings only after DNS points to GitHub, together with the merge into `main` that deploys this build.

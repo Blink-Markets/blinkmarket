@@ -57,7 +57,7 @@ Separate addresses separate permissions; they do not prove that different people
 ## Hand it to your agent
 
 ```prompt
-Read https://blink-markets.github.io/blinkmarket/docs/roles.md and compare Blink's eight roles. For the role that fits the task I describe, read its page and summarise its stake or bond, its income and its risks. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals.
+Read https://blinkmarket.xyz/docs/roles.md and compare Blink's eight roles. For the role that fits the task I describe, read its page and summarise its stake or bond, its income and its risks. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals.
 ```
 
 ## Next steps

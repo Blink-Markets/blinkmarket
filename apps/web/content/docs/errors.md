@@ -82,7 +82,7 @@ These are recommendations, not repository rules.
 ## Hand it to your agent
 
 ```prompt
-Read https://blink-markets.github.io/blinkmarket/docs/errors.md and describe how a Blink client should handle API errors safely:
+Read https://blinkmarket.xyz/docs/errors.md and describe how a Blink client should handle API errors safely:
 1. On any non-2xx response, parse the body as {code, message, requestId, retryable, details} and log code and requestId.
 2. Retry only if retryable is true or the network failed with no response. Reuse the same Idempotency-Key and body where the operation takes one. Back off between tries and give up after a small fixed number of attempts.
 3. For 429 and 503 INDEX_STALE, wait for Retry-After seconds (it can be absent) and act on no stale read.

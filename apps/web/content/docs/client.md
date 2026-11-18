@@ -175,7 +175,7 @@ async function track(txHash: string) {
 ## Hand it to your agent
 
 ```prompt
-Read https://blink-markets.github.io/blinkmarket/docs/client.md and explain how @blink/client (packages/client in the repository; it is not on npm) behaves:
+Read https://blinkmarket.xyz/docs/client.md and explain how @blink/client (packages/client in the repository; it is not on npm) behaves:
 1. Which base URLs createBlinkClient accepts, and what happens with any other URL.
 2. How it sends the API key, and why it refuses redirects.
 3. What BlinkApiError contains, and which failures throw a plain error instead.

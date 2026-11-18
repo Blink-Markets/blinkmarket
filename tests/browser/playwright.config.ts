@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
 const PORT = 3200;
-// Set PW_BASE_URL (e.g. http://127.0.0.1:3300/blinkmarket/ from scripts/serve-pages.mjs) to test an already-served static export.
+// Set PW_BASE_URL (e.g. http://127.0.0.1:3300/ from scripts/serve-pages.mjs) to test an already-served static export.
 const PAGES_URL = process.env["PW_BASE_URL"];
 const desktop = { width: 1440, height: 900 };
 const mobile = { width: 375, height: 812 };

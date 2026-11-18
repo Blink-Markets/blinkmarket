@@ -1,14 +1,16 @@
 // Checks the GitHub Pages export in apps/web/out (run after `pnpm build:pages`):
 // 1. key files exist; 2. every root-relative href/src in the exported HTML, every url(/...) in exported CSS and every
-// link in llms.txt carries the /blinkmarket base path and resolves to a file without a redirect, using GitHub Pages
-// rules ("/x/" -> x/index.html, "/x" -> x or x.html); 3. og:image/twitter:image are absolute URLs under the site URL.
-// With PAGES_URL (e.g. http://127.0.0.1:3300, see scripts/serve-pages.mjs) every URL is also fetched and must return 200.
+// link in llms.txt carries the base path (BASE; empty on the custom domain) and resolves to a file without a redirect,
+// using GitHub Pages rules ("/x/" -> x/index.html, "/x" -> x or x.html); 3. og:image/twitter:image are absolute URLs
+// under the site URL. With PAGES_URL (e.g. http://127.0.0.1:3300, see scripts/serve-pages.mjs) every URL is also
+// fetched and must return 200.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const OUT = join(import.meta.dirname, "../apps/web/out");
-const BASE = "/blinkmarket";
-const SITE = "https://blink-markets.github.io/blinkmarket/";
+// Must match NEXT_PUBLIC_BASE_PATH and NEXT_PUBLIC_SITE_URL in the build:pages script of apps/web/package.json.
+const BASE = "";
+const SITE = "https://blinkmarket.xyz/";
 const KEY_FILES = [
   ".nojekyll",
   "index.html",

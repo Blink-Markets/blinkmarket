@@ -64,5 +64,5 @@ An earlier attempt (`alpha-1`) left an unused BlinkTestUSD at `0x83517271696F742
 ## Hand it to your agent
 
 ```prompt
-Read https://blink-markets.github.io/blinkmarket/docs/deployment.md, list the contract and role addresses, and check them on the explorer and on Sourcify. These are v0.1 history, not the contracts agents use today. Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks.
+Read https://blinkmarket.xyz/docs/deployment.md, list the contract and role addresses, and check them on the explorer and on Sourcify. These are v0.1 history, not the contracts agents use today. Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks.
 ```

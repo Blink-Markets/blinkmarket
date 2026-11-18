@@ -1,4 +1,4 @@
-// Serves apps/web/out under /blinkmarket the way GitHub Pages does, for local checks of `pnpm build:pages`:
+// Serves apps/web/out under BASE the way GitHub Pages does, for local checks of `pnpm build:pages`:
 // "/x/" -> x/index.html, "/x" -> x, else x.html, else 301 to "/x/" when x/index.html exists, else 404.html with status 404.
 // Usage: node scripts/serve-pages.mjs [port]   (default 3300)
 import { createServer } from "node:http";
@@ -6,7 +6,9 @@ import { readFileSync, statSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 
 const ROOT = join(import.meta.dirname, "../apps/web/out");
-const BASE = "/blinkmarket";
+// The site is served from the root of its custom domain, so there is no base path. Keep in step with the build:pages
+// script of apps/web/package.json and BASE in scripts/check-pages-export.mjs.
+const BASE = "";
 const PORT = Number(process.argv[2] ?? 3300);
 const TYPES = {
   ".html": "text/html; charset=utf-8",

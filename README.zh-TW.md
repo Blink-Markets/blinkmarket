@@ -21,10 +21,10 @@
 </p>
 
 <p align="center">
-  <a href="https://blink-markets.github.io/blinkmarket/">網站</a> ·
-  <a href="https://blink-markets.github.io/blinkmarket/docs/">文件</a> ·
-  <a href="https://blink-markets.github.io/blinkmarket/docs/agents/">Agent 指南</a> ·
-  <a href="https://blink-markets.github.io/blinkmarket/llms.txt">llms.txt</a>
+  <a href="https://blinkmarket.xyz/">網站</a> ·
+  <a href="https://blinkmarket.xyz/docs/">文件</a> ·
+  <a href="https://blinkmarket.xyz/docs/agents/">Agent 指南</a> ·
+  <a href="https://blinkmarket.xyz/llms.txt">llms.txt</a>
 </p>
 
 ---
@@ -138,7 +138,7 @@ tests/         單元、合約協定、PostgreSQL、Anvil、本機 alpha 與瀏�
 
 ## 文件
 
-- **[文件網站](https://blink-markets.github.io/blinkmarket/docs/)**：核心概念、市場生命週期、API 參考與 agent 指南（英文），每一頁也提供 Markdown 版本。角色頁面描述目前的 agent 角色。
+- **[文件網站](https://blinkmarket.xyz/docs/)**：核心概念、市場生命週期、API 參考與 agent 指南（英文），每一頁也提供 Markdown 版本。角色頁面描述目前的 agent 角色。
 - **目前的設計與交付：**[自主市場設計](docs/superpowers/specs/2026-10-23-autonomous-market-design.md) · [P1 協定合約](docs/P1_PROTOCOL_CONTRACTS.md) · [P2 鏈下協定](docs/P2_OFFCHAIN_PROTOCOL.md) · [P2 進度](docs/P2_OFFCHAIN_PROGRESS.md) · [P3 交付紀錄](docs/P3_REFERENCE_AGENTS.md) · [實作進度](docs/ROADMAP.md) · [領域用語](CONTEXT.md)
 - [整體架構](docs/ARCHITECTURE.md) · [資料模型](docs/DATA_MODEL.md) · [開發指南](docs/DEVELOPMENT.md) · [運行與部署](docs/OPERATIONS.md) · [驗證](docs/VERIFICATION.md) · [驗收矩陣](docs/ACCEPTANCE_MATRIX.md) · [Agent 範例](examples/agents/README.md)
 - **歷史（v0.1 團隊營運設計，已成歷史）：**[架構圖解](docs/ARCHITECTURE_GUIDE.md) · [細部設計](docs/design/README.md) · [技術決策](docs/adr/0001-platform.md) · 交付紀錄 `docs/M0_M1_DELIVERY.md`、`docs/M2_*.md`、`docs/M3_*.md`、`docs/M4_*.md` 與 `docs/M5_*.md` · [部署 manifest `alpha-2`](deployments/base-sepolia/alpha-2.manifest.json) · [原始 MVP 規格](Blink_MVP_v0.1_Base_Sepolia_Spec.md)
@@ -147,7 +147,7 @@ tests/         單元、合約協定、PostgreSQL、Anvil、本機 alpha 與瀏�
 
 ## 參與貢獻
 
-Issue 與 pull request 僅開放給協作者建立。所有人都可以閱讀程式碼、[文件](https://blink-markets.github.io/blinkmarket/docs/)與既有討論。
+Issue 與 pull request 僅開放給協作者建立。所有人都可以閱讀程式碼、[文件](https://blinkmarket.xyz/docs/)與既有討論。
 
 ## 授權
 

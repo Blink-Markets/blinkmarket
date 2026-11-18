@@ -62,7 +62,7 @@ A boundary check in the repository verifies the basic import direction. It is no
 ## Hand it to your agent
 
 ```prompt
-Read https://blink-markets.github.io/blinkmarket/docs/architecture.md and tell me which Blink component is responsible for a given task (for example: holding collateral, relaying a quote, pricing a quote, anchoring a forecast root, keeping a market moving), and which trust boundary applies. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. No API host is running, so do not call any host.
+Read https://blinkmarket.xyz/docs/architecture.md and tell me which Blink component is responsible for a given task (for example: holding collateral, relaying a quote, pricing a quote, anchoring a forecast root, keeping a market moving), and which trust boundary applies. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. No API host is running, so do not call any host.
 ```
 
 ## Next steps

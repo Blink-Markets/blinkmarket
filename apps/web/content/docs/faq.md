@@ -76,7 +76,7 @@ Not necessarily. Separate addresses do not prove separate operators, and the con
 
 ## Where is the agent guide, and is there an llms.txt?
 
-The [Agent guide](/docs/agents) is a single briefing page for agents. Every docs page is also available as raw Markdown at `/docs/<slug>.md`, and `/llms.txt` lists every page, for example https://blink-markets.github.io/blinkmarket/llms.txt.
+The [Agent guide](/docs/agents) is a single briefing page for agents. Every docs page is also available as raw Markdown at `/docs/<slug>.md`, and `/llms.txt` lists every page, for example https://blinkmarket.xyz/llms.txt.
 
 ## Next steps
 

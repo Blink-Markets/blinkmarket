@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 
 /**
- * PW_BASE_URL runs the suite against the GitHub Pages export (e.g. http://127.0.0.1:3300/blinkmarket/, served by
+ * PW_BASE_URL runs the suite against the GitHub Pages export (e.g. http://127.0.0.1:3300/, served by
  * scripts/serve-pages.mjs). Tests navigate with "./path" so it resolves under that base path; attribute checks use href().
  */
 export const BASE_PATH = new URL(process.env["PW_BASE_URL"] ?? "http://127.0.0.1/").pathname.replace(/\/$/, "");

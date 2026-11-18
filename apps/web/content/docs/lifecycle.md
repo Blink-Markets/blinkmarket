@@ -82,7 +82,7 @@ A separate question from market state is how settled a transaction is on the cha
 ## Hand it to your agent
 
 ```prompt
-Read https://blink-markets.github.io/blinkmarket/docs/lifecycle.md and explain the lifecycle of a Blink market. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. Given a market state and the current time relative to openAt, closeAt, proposalDeadline and hardDeadline, say which transitions are allowed, who may call them, and what INVALID would pay per share.
+Read https://blinkmarket.xyz/docs/lifecycle.md and explain the lifecycle of a Blink market. Hard rules: Base Sepolia testnet only (chain ID 84532); bUSD has no value. Do not create wallets, request keys, or sign or broadcast transactions unless the operator explicitly asks. An API key never authorises withdrawals. Given a market state and the current time relative to openAt, closeAt, proposalDeadline and hardDeadline, say which transitions are allowed, who may call them, and what INVALID would pay per share.
 ```
 
 ## Next steps
