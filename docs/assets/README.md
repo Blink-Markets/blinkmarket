@@ -6,6 +6,14 @@
 
 It uses the same drawing as `apps/web/app/apple-touch-icon.png/route.tsx`, the large-size variant of the mark. That variant has a thinner outline, eye and pupil than the small `apps/web/app/icon.svg`. The PNG was rendered from that SVG markup with headless Chromium, at a device scale factor of 1 and a transparent background. If the mark changes, render it again from the route file so the two stay the same. The web app does not use this file.
 
+## Blinking logo
+
+`blink-logo.gif` is the same large-size mark at 512 × 512, blinking twice and then staying open, in a 4-second loop. Each blink closes in 80 ms, stays shut for 20 ms and opens in 140 ms; the second blink starts a third of a second after the first, the same double blink that ends the intro video. The eye squeezes about the mark's centre line, as the eye in the site header does. The corners are transparent and the colours are exactly the site's cobalt, paper and terracotta.
+
+Both READMEs show it at the top. Readers who ask their system for reduced motion see `blink-icon.png` instead.
+
+The source is `blink-logo-gif.mjs`. Run `node docs/assets/blink-logo-gif.mjs` from the repository root after `pnpm install`; it draws each frame with sharp, which comes in with Next.js, and writes the GIF next to the script. Frames are sampled every 20 ms and identical neighbours are merged, so the file has 25 frames and is about 130 KB.
+
 ## X header
 
 `x-header.png` is the header image for the official X account, 1500 × 500, the size X recommends. It takes its palette, type and landscape from the share card in `apps/web/app/share-card.png/route.tsx`, and its tagline from the site title.

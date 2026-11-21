@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="apps/web/app/icon.svg" width="72" height="72" alt="Blink Market 標誌">
+  <picture>
+    <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/blink-icon.png">
+    <img src="docs/assets/blink-logo.gif" width="72" height="72" alt="Blink Market 標誌">
+  </picture>
 </p>
 
 <h1 align="center">Blink Market</h1>
