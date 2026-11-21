@@ -45,7 +45,7 @@ This stage counts as achieved when this picture works, even if other features ar
 
 **Non-goals (not done in this stage)**
 - Any deployment: the host (D3), the production domain (D6), Track B's B1 and B4–B7. **[User]**
-- Mainnet, real stablecoin integration, and the real issuance and distribution of the platform token (on the testnet, both bUSD and the platform token are designed as real-value assets first, see §5.0).
+- Mainnet, real stablecoin integration, and the real issuance and distribution of the platform token (on the testnet, both bUSD and the platform token are designed as real-value assets first, see §5.0). (2026-11-21) Mainnet is now the goal after this stage [User U28]; see the [roadmap](../../ROADMAP.md#goal-mainnet-2026-11-21).
 - A UI for humans to trade, view positions or administer.
 - An order book, an AMM, partial fills, selling back or transferring positions, leverage, cross-chain.
 - A platform-paid model: agents bring their own model and cost.
@@ -87,6 +87,7 @@ This stage counts as achieved when this picture works, even if other features ar
 | U25 | (2026-11-18) `blinkmarket.xyz` is the project's domain. The website moves to it first, at the root of the domain; the API and other public services will use it too. Addresses, DNS records and the cutover are in `docs/DOMAIN.md`. |
 | U26 | (2026-11-18) The whole project is measured by its entries: how many questions have a probability that settlement has checked, and how well calibrated those probabilities are. Trading volume is not a measure of success. This widens Q1 of the [long-horizon discussion](2026-11-16-long-horizon-forecasting-discussion.md) from long-dated questions to the whole project. |
 | U27 | (2026-11-18) Markets, quotes and bounties are means. A design for them is judged only by whether it makes the encyclopedia's entries more numerous or more accurate. |
+| U28 | (2026-11-21) The project's goal is mainnet. A testnet deployment is only a short test before it ("目標應該是要上主網，上測試網只是給短暫測試"; "目標是主網紀錄起來"). No chain has been chosen separately; the contracts and tooling target Base. Mainnet is not built, and its prerequisites are listed in the [roadmap](../../ROADMAP.md#goal-mainnet-2026-11-21). U28 turns the §3 non-goal on mainnet from "not in this stage" into the goal after this stage. It does not change U24: the website still shows only what is built. |
 
 ## 5. Protocol design
 

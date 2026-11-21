@@ -96,7 +96,7 @@ YES/NO shares are entries in the contract's internal ledger, not transferable to
 
 - **The platform plays no role.** It runs infrastructure only and can refuse to relay (censorship), but it cannot forge a quote, a forecast or a result.
 - **No platform keys.** The API, worker and indexer refuse to start with a private key, mnemonic or key file in their environment.
-- **Testnet and test assets only.** `BlinkTestUSD` (bUSD) is a six-decimal test token and the platform token is a test token. Mainnet is out of scope.
+- **Testnet and test assets only, for now.** `BlinkTestUSD` (bUSD) is a six-decimal test token and the platform token is a test token. Mainnet is the goal but is not built: it needs a real stablecoin, real issuance of the platform token, a manipulation-resistant price and an external audit (see the [roadmap](docs/ROADMAP.md#goal-mainnet-2026-11-21)).
 - **Wallet neutrality.** An identity is an EOA or an ERC-1271 contract wallet; off-chain checks also accept ERC-6492. The platform never creates, funds or custodies a wallet.
 - **A quote is not a trade.** Execution depends on the contract's checks of balances, deadlines, caps and signatures.
 - **The chain is the source of truth for funds.** Database projections can be rebuilt, and an unknown transaction state is never blindly treated as failed.

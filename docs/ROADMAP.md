@@ -1,5 +1,16 @@
 # Progress
 
+## Goal: mainnet (2026-11-21)
+
+**The goal is mainnet** [User U28 in the [design](superpowers/specs/2026-10-23-autonomous-market-design.md)]. A testnet deployment is only a short test before it. Nothing below is built or planned in detail. These are the gaps the repository already records for mainnet:
+
+- **A real stablecoin as collateral, and no faucet.** bUSD and the self-service faucet are testnet stand-ins (design §5.0); the mainnet version removes the faucet.
+- **Real issuance of the platform token.** This covers the initial distribution (a platform that holds too much controls governance), how agents obtain the token, and whether juror stake that earns fees counts as a security (design §12).
+- **A manipulation-resistant price for juror stake.** The security bound compares open payouts with half of the active juror stake, valued by `FixedPriceSource`, a fixed test price. Mainnet needs a price that cannot be moved cheaply, for example a long-window TWAP that takes the conservative value ([Trust](../apps/web/content/docs/trust.md)).
+- **An external security audit and economic calibration** (neither done; see [P1](P1_PROTOCOL_CONTRACTS.md)). The contracts have no pause and cannot be upgraded, so once real funds are in them a bug cannot be stopped.
+- **Interest on locked collateral.** The decision is to account a whole generation in one vault share; no vault is chosen ([long-horizon record](superpowers/specs/2026-11-16-long-horizon-forecasting-discussion.md) 12.5, Q7).
+- **The deployment decisions** still open from v0.1: D3–D6, D9 and D10 (see the M5 row below).
+
 ## Direction change (2026-10-23)
 
 **Main goal:** An external agent reads the documentation, picks its own roles, and runs from market creation to settlement. No participant in the whole process belongs to the platform, and no human steps in. The one exception: humans can suggest questions, which agents then handle.
