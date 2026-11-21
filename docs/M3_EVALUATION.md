@@ -25,8 +25,8 @@ The brief's `probability_millionths INTEGER` cannot represent an odd ensemble su
 - `node --import tsx --test tests/evaluation.test.ts`: passed (4 integration tests).
 - `pnpm check`: passed; TypeScript, contracts, all 258 tests (0 failures/skips), and package boundaries.
 - `pnpm build:services && pnpm test:service-build`: passed; service/tool bundles and 3 isolation/startup tests.
-- `pnpm build`: attempted, blocked by the existing web app's Google Fonts fetches (Geist, Geist Mono, Kalam) in this restricted environment. No frontend files were changed.
-- `NEXT_FONT_GOOGLE_MOCKED_RESPONSES=/tmp/t12-font-mocks.cjs pnpm --filter @blink/web exec next build --experimental-build-mode compile`: passed with temporary CSS fixtures using local Arial and sandbox escalation for Turbopack's local subprocess port. This verifies compilation/source-export resolution, not production fonts, prerendering or share-card generation. Temporary fixtures were not committed.
+- `pnpm build`: attempted, blocked by the existing web app's Google Fonts fetches (Geist, Geist Mono, Kalam). No frontend files were changed.
+- `NEXT_FONT_GOOGLE_MOCKED_RESPONSES=<font-mocks.cjs> pnpm --filter @blink/web exec next build --experimental-build-mode compile`: passed with temporary CSS fixtures using local Arial. This verifies compilation/source-export resolution, not production fonts, prerendering or share-card generation. Temporary fixtures were not committed.
 - `git diff --check`: passed.
 - Real PostgreSQL and Anvil suites: not applicable to added tests; no new race or chain integration test was introduced.
 

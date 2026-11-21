@@ -44,7 +44,7 @@
 - Every new dependency is pinned to an exact version at least two weeks old. Every `@remotion/*` package uses the same version as `remotion`.
 - `apps/web/AGENTS.md`: read the relevant guide in `apps/web/node_modules/next/dist/docs/` before writing Next code.
 - Every root-relative `src` or `href` that Next does not rewrite goes through `withBase` (`apps/web/lib/base-path.ts`), and `scripts/check-pages-export.mjs` must pass.
-- `pnpm build`, `pnpm build:pages` and `pnpm test:browsers` cannot run on this development host (glibc 2.28), so they run in branch CI. A web task is verified only when its branch CI is green.
+- `pnpm build`, `pnpm build:pages` and `pnpm test:browsers` are not run locally; they run in branch CI. A web task is verified only when its branch CI is green.
 - Merging to main publishes the site through `.github/workflows/pages.yml`. Nothing else is deployed, and no paid service is used (`AGENTS.md`).
 - English for code comments, docs and commit messages. Every commit ends with its implementer's `Co-Authored-By` line.
 
@@ -63,7 +63,7 @@
 - **No suggestion form, and no invitation to suggest (U19, U21).** The protocol's suggestion channel (U9) stays as built. The drill still runs its suggestion scenario, and the video may show that scenario as a fact of the run. The site neither offers nor promotes the channel to people.
 - **Comparison facts are fixed in this plan.** They come from the controller's research of 2026-10-29 (`.superpowers/research/reports/`, git-ignored). The implementer copies them verbatim and does not research further. A reviewer may check a source URL, but never changes a fact without a new source and date.
 - **Video data is real, and the illustrations are labeled.** Scenes that show agents, markets or events read `video/data/drill-run.json`. Any other visual carries an on-screen "Illustration" label.
-- **Rendering needs a browser download and a newer glibc.** Remotion downloads Chrome Headless Shell, and its compositor may need a newer glibc than this host's 2.28. `pnpm video:render` runs on the host if it can. Otherwise it runs in the `node:22-bookworm` container command recorded in `video/README.md`. CI never renders.
+- **Rendering needs a browser download and a newer glibc.** Remotion downloads Chrome Headless Shell, and its compositor needs glibc 2.31 or newer. `pnpm video:render` runs on the host when its glibc is 2.31 or newer, and otherwise in the `node:22-bookworm` container command recorded in `video/README.md`; the container makes a render reproducible on any host. CI never renders.
 
 ---
 

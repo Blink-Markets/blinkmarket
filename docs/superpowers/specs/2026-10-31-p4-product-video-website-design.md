@@ -49,7 +49,7 @@ Anti-goals: any of these makes the work a failure, even if it renders and the te
 - **No suggestion form (U21).** The site builds none and invites no suggestion. The platform token no longer appears on the showcase pages: it was only an under-construction item, and status items are removed.
 - **Smaller attack surface (U22).** It stays a headline advantage. U22's comparison clause is superseded (§6).
 - **Remotion.** Remotion 4.0.536 stays pinned under the Free License (user decision 2026-10-29). The `video/` workspace stays separate, and neither the website nor the services depend on it.
-- **Rendering.** Renders run in the `node:22.23.1-bookworm-slim` container described in `video/README.md`, because the host has glibc 2.28. CI never renders.
+- **Rendering.** Renders run in the `node:22.23.1-bookworm-slim` container described in `video/README.md`, so a render is reproducible on any host. CI never renders.
 - **Language.** Site copy is in English and `README.zh-TW.md` stays in Traditional Chinese. Internal docs are in English.
 - **Process (`AGENTS.md`).** Commit and push each verified stage. `pnpm build` runs in CI.
 

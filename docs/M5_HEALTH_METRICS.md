@@ -70,7 +70,6 @@ Verified locally on 2026-10-15:
   all referenced existing test files existed; the Alpha harness was pending at that checkpoint and is now integrated (see [Local Alpha](M5_LOCAL_ALPHA.md)).
 - `git diff --check`: passed.
 
-HTTP/PostgreSQL/Anvil tests and Turbopack used local-loopback sandbox escalation.
 The first full check found the new metrics contract missing from the architecture
 route registry; the registry was corrected, the targeted five tests passed and
 the complete check then passed.

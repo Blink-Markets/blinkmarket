@@ -68,7 +68,7 @@ The first trackable transaction must exist and match the intent; an entirely unk
 
 ## Verification and remaining scope
 
-Local verification on 2026-10-07: `pnpm check` passed with 37 Node tests, type/boundary checks and Solidity compilation. All 24 contract tests, both extra invariant seeds, Web build, service bundle build, both bundle tests and OpenAPI generation passed. The three isolated Anvil replay scenarios additionally validate this receipt reader against actual MarketCreated logs (IDs 1, 2 and 3). The initial sandboxed replay was blocked from opening localhost; its approved local-only rerun passed.
+Local verification on 2026-10-07: `pnpm check` passed with 37 Node tests, type/boundary checks and Solidity compilation. All 24 contract tests, both extra invariant seeds, Web build, service bundle build, both bundle tests and OpenAPI generation passed. The three isolated Anvil replay scenarios additionally validate this receipt reader against actual MarketCreated logs (IDs 1, 2 and 3). The local replay passed.
 
 Tests cover inclusion, the 12-block threshold, IDs above 2^53, reorg withdrawal and same-hash re-inclusion, wrong chain/sender/target/value/calldata/event/code, missing/reverted receipts, RPC failures, changing block anchors, regressed heads, API permissions, immutable history, stale-writer rejection and audit-failure rollback. The real PostgreSQL suite also races two independent indexer sessions against the same projection version; only one observation/outbox event may commit. RPC in these tests is a deterministic fixture, not an actual network.
 

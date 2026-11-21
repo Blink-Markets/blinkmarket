@@ -110,7 +110,7 @@ The hunt starts from the attacker's goal, not from a checklist (R7). Two goals: 
 
 The structure follows Cloudflare's security-audit method (MIT): reconnaissance produces the attack-surface map, the trust-edge map and a coverage ledger; hunters work one ledger unit (a component or a trust edge) each; every candidate goes to a fresh verifier whose job is to disprove it; results are recorded as `confirmed`, `needs_validation` or `rejected`; a final pass rechecks the record against the code. A hunter never verifies its own finding.
 
-Roles follow this project's practice: Codex Terra hunts and fixes, Codex Astra verifies and reviews, Haiku agents do read-only reconnaissance in parallel, Sonnet stands in when Codex is out of budget. Docker-based tools run where Docker is available (the controller or a Sonnet agent), because the Codex sandbox has no Docker or sockets.
+Roles follow this project's practice: Codex Terra hunts and fixes, Codex Astra verifies and reviews, Haiku agents do read-only reconnaissance in parallel, Sonnet stands in when Codex is out of budget. Docker-based tools run where Docker is available (the controller or a Sonnet agent), because an implementer's environment may have no Docker or sockets.
 
 ### 8.2 Findings format
 
@@ -144,10 +144,9 @@ Measured locally against the real services: queries and CPU per request for the 
 ## 11. Constraints
 
 - Local only: Anvil, local PostgreSQL, Docker. No public-chain transaction, no paid service, no live LLM demo.
-- Never read `~/.blink-keys/**`, `~/.config/blink/**` or the shell profile's secrets; tests use fixture keys.
+- Never read key material or secret env files outside the repository (including the file `BLINK_CDP_ENV` points at) or the shell profile's secrets; tests use fixture keys.
 - Docs and commits in English; commit and push each verified stage (AGENTS.md).
 - Pace the work to the Codex budget; independent work continues on Claude agents when Codex is at its limit.
-- The development host has glibc 2.28: browser, Next and some tools run in Docker or CI.
 
 ## 12. Author's calls (please check)
 

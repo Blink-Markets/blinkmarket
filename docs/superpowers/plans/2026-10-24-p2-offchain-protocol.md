@@ -48,8 +48,8 @@
 - **No deployment:** no paid service, no real-key signing, no broadcast to a public network (U1, AGENTS.md). Use Anvil only.
 - **Verification gates:**
   - Each task updates the `tests/postgres` and `tests/anvil` suites its change touches.
-  - This host has no PostgreSQL, so real-PostgreSQL suites run in CI on push; a red CI run on `main` blocks the next wave. `tests/anvil` suites run locally.
-- **Commits:** authored by the repo-local Brian Huang identity, ending with the Claude or Codex trailer; push after each merged task (AGENTS.md).
+  - Real-PostgreSQL suites are not run locally; they run in CI on push, and a red CI run on `main` blocks the next wave. `tests/anvil` suites run locally.
+- **Commits:** authored by the maintainer's GitHub identity, ending with the Claude or Codex trailer; push after each merged task (AGENTS.md).
 
 ## Review Focus
 
@@ -852,7 +852,7 @@ Spec §2.1.3. P3 adds `pnpm alpha:autonomous` with independent role agents; this
   - known limitations:
     - a contract wallet's ERC-1271 answer can change after a check; the platform records the block it checked at
     - polling relay
-    - real-PostgreSQL suites CI-only on this host
+    - real-PostgreSQL suites not run locally (CI only)
     - web role pages still v0.1 until P3/P4
   - test commands with measured counts
 - [ ] **Step 2: Update** the listed docs and the web notices, then run `pnpm check && pnpm build && pnpm build:pages`. Expected: PASS.

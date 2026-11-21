@@ -32,7 +32,7 @@
 - Docs state the trust assumption as "**Under the publicly listed assumptions**, honesty is the provably best strategy", and say that the drill uses a fixed test price (§5.12).
 - Chain 84532 only, on local Anvil. No deployment, no paid service and no broadcast to a public network (`AGENTS.md`).
 - English for all code comments, docs and commit messages. Every commit ends with its implementer's `Co-Authored-By` line.
-- Web-consumed changes run `pnpm build` in CI, because this host cannot run Turbopack.
+- Web-consumed changes run `pnpm build` in CI, not locally.
 
 ## Review Focus
 

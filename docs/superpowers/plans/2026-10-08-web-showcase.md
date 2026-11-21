@@ -881,7 +881,7 @@ Run: `grep -n "opacity: 0\|clip-path: inset(50%\|ellipse(60% 0.4%\|ellipse(70% 0
 
 Start from the approved mockup (`docs/superpowers/specs/assets/2026-10-08-web-showcase-mockup.html`): its inline SVGs for Evidence, Forecast, Quote and Resolution are the approved baseline. Port them to JSX first (`stroke-width` → `strokeWidth`, hex literals → `INK.*`), then refine within the rules below without changing their overall composition. Evaluation and Architecture are new; match the same density and gesture style.
 
-Rules for every specimen (from the mono-color skill, `~/.claude/skills/mono-color/SKILL.md` "Visual DNA"; read it first):
+Rules for every specimen (from the mono-color skill's "Visual DNA"; read it first):
 - Use only `INK.cobalt`, `INK.terracotta`, `INK.paper` and the halftone or hatch patterns. Do not use `INK.ink` except for `<text>` in Architecture.
 - One dominant object fills 45–80% of the 240×240 box. Crop it decisively at an edge or corner when that adds tension.
 - Paper cuts through the object: at least one `INK.paper` knockout shape on top of a cobalt mass.

@@ -30,7 +30,7 @@ Scope: the code every later P3 task imports. No contract, migration, API or serv
 - `node --import tsx --test tests/client-agent-kit.test.ts tests/gm-lt-v1.test.ts`: 29 passed, 0 failed.
 - `tests/client.test.ts`, `tests/client-verify-quote.test.ts` and the two Anvil taker-agent suites (which run `examples/agent/run.ts`): 57 passed, 0 failed.
 - `pnpm typecheck` and `pnpm check:boundaries` pass; `client` still depends on `schemas` only.
-- `pnpm build` and `pnpm build:pages` cannot run on this host; CI runs them.
+- `pnpm build` and `pnpm build:pages` were not run locally; CI runs them.
 
 ## Task 2 — `examples/agents` runtime, the trader tick and the import boundary (2026-10-27)
 
@@ -56,7 +56,7 @@ Scope: the shared runtime every reference agent uses, the existing taker example
 
 ### Verification
 
-See `.superpowers/sdd/2026-10-25-p3-reference-agents-drill/task-2-report.md` for the commands and counts. `pnpm build` and `pnpm build:pages` cannot run on this host; CI runs them.
+See `.superpowers/sdd/2026-10-25-p3-reference-agents-drill/task-2-report.md` for the commands and counts. `pnpm build` and `pnpm build:pages` were not run locally; CI runs them.
 
 ## Task 4 — resolution-side reference agents: proposer, challenger, juror, keeper (2026-10-27)
 
@@ -85,7 +85,7 @@ Scope: the four roles that settle a market, as ticks of the Task 2 runtime. The 
 
 ### Verification
 
-See `.superpowers/sdd/2026-10-25-p3-reference-agents-drill/task-4-report.md` for the commands and counts. `pnpm build` and `pnpm build:pages` cannot run on this host; CI runs them.
+See `.superpowers/sdd/2026-10-25-p3-reference-agents-drill/task-4-report.md` for the commands and counts. `pnpm build` and `pnpm build:pages` were not run locally; CI runs them.
 
 ## Task 3 — market-side reference agents: creator, maker, trader, forecaster (2026-10-27)
 
@@ -133,7 +133,7 @@ Scope: the docs site only (`apps/web/content/docs`, `apps/web/lib/docs`) and the
 - `node --import tsx --test tests/agent-docs-coverage.test.ts tests/web-docs-content.test.ts`: 21/21 pass.
 - `pnpm typecheck`: exit 0. `pnpm check`: 610/610 pass, on `2cda065`.
 - Branch CI run 40647144776 on `2cda065`: check (with `pnpm build`), browsers (with `pnpm build:pages`) and contracts all pass. The browser `docs copy actions` test now uses `/docs/client`, because the rewritten `forecaster` page has no code block.
-- Not run locally: `pnpm build`, `pnpm build:pages` and Playwright. This host cannot run them, so CI is the evidence.
+- Not run locally: `pnpm build`, `pnpm build:pages` and Playwright. CI is the evidence.
 - The postgres, drill, alpha, Anvil and Foundry suites were not rerun for this task, because it changes no code they load. The compiled-contract tests in `pnpm check` need `contracts/artifacts` (gitignored), which this worktree had to copy from the main checkout.
 
 ## Task 6 — one-command autonomous reference-agent drill (2026-10-28)

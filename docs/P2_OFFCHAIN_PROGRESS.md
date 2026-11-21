@@ -30,9 +30,8 @@ run serially because historical migrations create the cluster-wide roles that
   the instruction to run full verification once.
 - Final `pnpm build:services` and `pnpm test:service-build` passed: four bundle
   checks, no signer or trading-admin output.
-- `pnpm build` reached the native Turbopack loader and failed because the host
-  lacks GLIBC_2.29. The production Webpack fallback passed, including TypeScript
-  checking and all 37 static pages.
+- `pnpm build` with Turbopack was not verified locally. The production Webpack
+  fallback passed, including TypeScript checking and all 37 static pages.
 - PostgreSQL suites, Docker image smoke, restore drill, and remaining Anvil suites
   were not run locally. Their affected tests/configuration were updated for CI.
 
@@ -83,10 +82,10 @@ and cost fields; the list loses the `entity` filter.
   the boundary check all passed.
 - `pnpm build:services` and `pnpm test:service-build` passed (4 bundle checks).
 - `node --import tsx --test tests/anvil/*.test.ts`: 34 passed, 0 failed.
-- `pnpm build` cannot run on this host (Turbopack needs a newer glibc); the web
+- `pnpm build` was not run locally; CI runs it. The web
   typecheck passed.
 - PostgreSQL suites (`tests/postgres/*`), Docker image smoke and the restore
-  drill need services this host lacks. Their sources were updated for the new
+  drill need services that were not available locally. Their sources were updated for the new
   schema and typecheck, but they were not executed locally; CI must run them.
 - An earlier full unit run exposed 12 stale expectations (API modes, removed
   routes, budget health gate, retired job names). They were corrected and the
@@ -145,8 +144,8 @@ parameter; Task 6 owns consuming it for identity authorization when merged.
   The first complete unit run found one reference to the deleted interface;
   it was changed to IBlinkMarkets.sol, then the full unit suite was rerun.
 - PostgreSQL concurrency suites and Docker smoke were updated but were not run
-  locally. `pnpm build` cannot run on this host because Turbopack requires a
-  newer glibc; web typechecking passed.
+  locally. `pnpm build` was not run locally (CI runs it); web
+  typechecking passed.
 
 ### Credit-clock ruling (resolved in Task 5 fix round 1)
 
@@ -191,13 +190,13 @@ Verification for fix round 1:
 - Foundry: 238 passed; invariant seeds 0x01 and 0x02 each passed all 4 tests.
 - The single literal `pnpm check` stopped at private-field access in the new test
   helper. After switching to existing public fake-chain accessors, every check
-  constituent passed. The complete constituent pipeline was rerun after a host
-  reboot: root/web TypeScript, contract artifacts/EIP-170, 428 unit tests and
-  dependency boundaries all passed, with no skipped tests.
+  constituent passed. The complete constituent pipeline was rerun: root/web
+  TypeScript, contract artifacts/EIP-170, 428 unit tests and dependency
+  boundaries all passed, with no skipped tests.
 - `pnpm build:services && pnpm test:service-build`: passed; all 4 bundle checks passed.
 - `git diff --check`: passed. PostgreSQL fixture INSERTs/counts were checked
   statically against migrations 0001–0029; real PostgreSQL and Docker smoke/restore
-  were not run. `pnpm build` cannot run on this host's older glibc; web TypeScript passed.
+  were not run. `pnpm build` was not run locally (CI runs it); web TypeScript passed.
 - The journal membership audit still scans/refolds history locally each batch.
   A `shortcut:` comment records when to replace it with an independent inventory.
 This is the Task 5 slice only; P2 is not marked complete. No push, merge, rebase,
@@ -270,13 +269,13 @@ after revoking its grants.
   `pnpm test` then passed 459 of 459. Typecheck (root and web) and the boundary
   check were rerun and passed.
 - `pnpm build:services` and `pnpm test:service-build`: 4 passed.
-- Not run locally: `tests/postgres/*` (no PostgreSQL on this host). Task 6 rewrote
+- Not run locally: `tests/postgres/*` (no PostgreSQL available locally). Task 6 rewrote
   `tests/postgres/identity.test.ts` (eight concurrent verifications of one
   challenge issue exactly one key; a five-way race for the last key slots; a new
   address racing three keys gets one agent; `blink_api` cannot INSERT into
   `identity.api_keys`) and edited `runtime-roles` and `runtime-functions` for the
   dropped role. CI must run them.
-- `pnpm build` cannot run on this host (Turbopack needs a newer glibc).
+- `pnpm build` was not run locally; CI runs it.
 
 Fix round 1 (review): verification is now bounded before the signature check, by
 60 attempts per hour per client IP and 5 attempts per challenge (`attempts`
@@ -376,8 +375,8 @@ templates) as public, key-less, paged reads.
 ### Verification
 
 See `.superpowers/sdd/2026-10-24-p2-offchain-protocol/task-7-report.md`. Not run
-locally: `tests/postgres/*` (no PostgreSQL here) and `pnpm build` (Turbopack needs a
-newer glibc). This covers only the Task 7 scope, not the P2 milestone.
+locally: `tests/postgres/*` (no PostgreSQL here) and `pnpm build` (runs in
+CI). This covers only the Task 7 scope, not the P2 milestone.
 
 ## Task 8 — content store and human suggestions (2026-10-25)
 
@@ -419,8 +418,8 @@ Task 5 check: `ws/p2-t5:0029_protocol_index.sql` references none of `evidence.*`
 
 See `.superpowers/sdd/2026-10-24-p2-offchain-protocol/task-8-report.md`. Not run
 locally: `tests/postgres/*` (no PostgreSQL here), including the new
-`tests/postgres/content-suggestions.test.ts`; `pnpm build` (Turbopack needs a newer
-glibc). This covers only the Task 8 scope, not the P2 milestone.
+`tests/postgres/content-suggestions.test.ts`; `pnpm build` (runs in
+CI). This covers only the Task 8 scope, not the P2 milestone.
 
 ### Task 8 fix round 1
 
@@ -526,7 +525,7 @@ dependency are gone, and `POST /v1/transactions` belongs to the tx-tracking serv
 
 See `.superpowers/sdd/2026-10-24-p2-offchain-protocol/task-9-report.md`. Not run locally:
 `tests/postgres/*` (no PostgreSQL here), including the new
-`tests/postgres/rfq-relay.test.ts`; `pnpm build` (Turbopack needs a newer glibc). This
+`tests/postgres/rfq-relay.test.ts`; `pnpm build` (runs in CI). This
 covers only the Task 9 scope, not the P2 milestone.
 
 ## Task 10: signed forecasts, window roots, automatic contamination and consensus
@@ -602,7 +601,7 @@ between agents, not against the platform operator.
 
 See `.superpowers/sdd/2026-10-24-p2-offchain-protocol/task-10-report.md`. Not run locally:
 `tests/postgres/*` (no PostgreSQL here), including the rewritten `tests/postgres/forecasts.test.ts`;
-`pnpm build` (Turbopack needs a newer glibc).
+`pnpm build` (runs in CI).
 
 ## Task 11: infrastructure-only local alpha and platform-key absence
 
@@ -680,8 +679,7 @@ Scope: slice of P2, not the milestone.
 Verification (Task 11, local; PostgreSQL 17.6 at 127.0.0.1:55432): the platform-keys test, the local alpha
 (`pnpm alpha:local`, 320 s), `pnpm test`, `pnpm test:postgres` (including the worker-role `fees_undistributed`
 case), `pnpm drill:restore:test`, `pnpm test:anvil`, `pnpm check`, `pnpm build:services` and
-`pnpm test:service-build` all pass. `pnpm build` (Turbopack) cannot run on the development host because of its
-glibc, so it runs in CI only, as do the `contracts` job and the CI timing of the `check` job.
+`pnpm test:service-build` all pass. `pnpm build` (Turbopack) was not run locally, so it runs in CI only, as do the `contracts` job and the CI timing of the `check` job.
 
 ## Task 12: P2 delivery docs
 
@@ -691,7 +689,7 @@ Scope: documentation, plus web copy: the first commit (`15163ba`) changed docume
 - **Rewritten to the P2 state:** `README.md`, `README.zh-TW.md` (status, architecture, how it works, principles, layout, links), `CONTEXT.md` (P1/P2 glossary; the v0.1 terms moved to a history section), `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md` (from migrations 0001–0034), `docs/DEVELOPMENT.md`, `docs/OPERATIONS.md`, `contracts/README.md`, `packages/adapters/migrations/README.md`; `docs/ROADMAP.md` ticks P2 (Tasks 1–11 and 13 merged, the final whole-branch review pending, P3 next).
 - **Historical notices** (one blockquote under the title, saying what replaced the content): `ARCHITECTURE_GUIDE`, `VERIFICATION`, `ACCEPTANCE_MATRIX`, `DEPLOYMENT_RUNBOOK`, `M2_CHAIN_INDEXER`, `M2_PUBLIC_READS` and every v0.1 delivery doc that did not have one (`M0_M1`, `M2_*`, `M3_*`, `M4`, `M5_*`). `M2_IDENTITY_DELIVERY` and `M3_FORECASTS` already had one.
 - **Web docs:** every page under `apps/web/content/docs/` carries a notice naming what is v0.1 and what is current (`forecaster` is current in part: signed forecasts; `errors` in part: the envelope and retry rules; `api` is generated from the schemas), and `apps/web/app/how-it-works/page.tsx` says it describes v0.1. A new test in `tests/web-docs-content.test.ts` requires the notice. A follow-up commit removed the claims about the removed signer, the old local Alpha harness and the deployed contracts from the home page, the hero, the footer, the markets page, the how-it-works lede and caption, and the architecture illustration (the signer box and its arrows are gone); it redesigns nothing, and the how-it-works chapters stay under their v0.1 notice until P4. Fix round 1 then made the markets page describe its sample forecast without attributing it to platform forecasters, took the diagram out of the how-it-works v0.1 notice (it is captioned as the current, not yet deployed, architecture) and added the design link to every web notice.
-- Verification is in `docs/P2_OFFCHAIN_PROTOCOL.md#verification`. `pnpm build` and `pnpm build:pages` cannot run on this host (Turbopack needs a newer glibc); CI runs them. The real-PostgreSQL suites run locally in a Docker `postgres:17.6` container.
+- Verification is in `docs/P2_OFFCHAIN_PROTOCOL.md#verification`. `pnpm build` and `pnpm build:pages` were not run locally; CI runs them. The real-PostgreSQL suites run locally in a Docker `postgres:17.6` container.
 
 ## Parked items
 
@@ -725,7 +723,7 @@ The final whole-branch review findings are addressed in this branch. Regression 
 - **Clock boundary:** production `blink.now()` uses `clock_timestamp()` only; test helpers apply the offset overlay after migrations. Added PGlite and PostgreSQL tests for worker access to open-window forecasts and digests.
 - **Sparse reorg recovery:** batches retain the finalized header and recovery treats a finality conflict as a stored hash mismatch at or below finality. Added shallow-reorg and finalized-mismatch regressions.
 - **Canonical forecast scoring:** score reads count entries only when their outcome matches the market's current FINAL outcome; corrected results are appended while superseded rows remain. For historical deadline weights, a correction may replace the original score only when that original score existed by the requested deadline; no evidence first created later is admitted. See the scoring query comment and its regression tests.
-- **Image smoke:** unauthenticated RFQ creation must return 401; the retired faucet route remains 404. Docker smoke is not available on this host.
+- **Image smoke:** unauthenticated RFQ creation must return 401; the retired faucet route remains 404. Docker smoke was not run locally.
 - **Replay start verification:** v2 verification rejects future replay bounds and requires no code at the preceding block for every indexed shared and generation contract. Added Anvil cases; existing valid generation manifests remain checked.
 - **Verifier wording:** documented named immutable substitution followed by byte-for-byte runtime comparison.
 
@@ -736,7 +734,7 @@ The final whole-branch review findings are addressed in this branch. Regression 
 - `pnpm test:anvil` — 41 passed, 0 failed or skipped (256.803 s).
 - `pnpm build:services` — 8 bundles built (4 service and 4 tool bundles); `pnpm test:service-build` — 4 passed.
 - `pnpm exec tsc --noEmit` — passed after the final fixture edits.
-- Not run: Docker `images:smoke` (unavailable on this host, as anticipated by the dispatch), `pnpm build` and `pnpm build:pages` (host glibc limitation; CI runs the web builds).
+- Not run: Docker `images:smoke` (not run locally, as anticipated by the dispatch), `pnpm build` and `pnpm build:pages` (CI runs the web builds).
 - Independent review and follow-up found no actionable findings.
 
 This section records the P2 review fixes only; it does not mark later milestones complete.

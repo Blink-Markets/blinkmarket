@@ -47,7 +47,7 @@ Local verification on 2026-10-09:
 - `CI=true pnpm build` passed with Turbopack.
 - `CI=true pnpm build:services` and `CI=true pnpm test:service-build` passed; both bundle smoke tests passed.
 - `CI=true pnpm test:contracts` passed all 24 Foundry tests.
-- `CI=true pnpm replay` passed the normal, dispute, and timeout local Anvil receipt/payout scenarios. The sandbox initially denied the loopback listener; the same local-only command passed when run with listener permission.
+- `CI=true pnpm replay` passed the normal, dispute, and timeout local Anvil receipt/payout scenarios.
 - Focused poller, receipt-reader, tracker, and cancellation tests passed, including empty claims preserving failures, readiness following durable schedule health, timeout plus parent cancellation, and late-reader save fencing.
 
 At the time of this slice, the real PostgreSQL multi-session test remained pending: `TEST_POSTGRES_ADMIN_URL` was unset and the Docker daemon was unavailable. CI was expected to run `pnpm test:postgres` against its dedicated PostgreSQL service to verify the migration, two-pool lease competition, stale fencing, and durable schedule behavior. No remote CI result was claimed for that run. This verification covers M2.3b only and does not mark M2 complete.

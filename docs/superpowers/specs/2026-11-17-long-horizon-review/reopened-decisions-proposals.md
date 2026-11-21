@@ -379,4 +379,4 @@
 - **只有推理、沒有模擬的:** 搶量競賽的均衡(用的是對稱尋租模型的公式);帶寬宣告洩漏多少資訊;分批加碼的設計;蜜罐在建立挑戰下的成功率;按資本比例成交的替代方案。
 - **沒有做的:** 多代理模擬;任何合約層的實作檢查(gas、捨入);鏈上或網路查證。
 
-腳本:`scripts/reopen_mechanism.py`、`scripts/reopen_cashflow.py`,以 `python3 -I <檔名>` 執行,不需要網路或額外套件。沒有修改 `/data/home/blinkmarket` 下的任何檔案,也沒有執行會改變狀態的 git 指令。
+腳本:`scripts/reopen_mechanism.py`、`scripts/reopen_cashflow.py`,以 `python3 -I <檔名>` 執行,不需要網路或額外套件。沒有修改 repo 內的任何檔案,也沒有執行會改變狀態的 git 指令。

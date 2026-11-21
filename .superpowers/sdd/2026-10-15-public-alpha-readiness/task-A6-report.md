@@ -28,7 +28,7 @@ Status: **DONE_WITH_CONCERNS**
 
 ## Verification
 
-- `pnpm check` — typecheck and Solidity contract checks passed; unit suite completed with 619 passed and 71 failed. The visible failures were loopback-listener `listen EPERM` errors from the restricted sandbox. The dispatch explicitly says not to work around blocked local ports. The final boundary phase was therefore run separately.
+- `pnpm check` — typecheck and Solidity contract checks passed; unit suite completed with 619 passed and 71 failed. The visible failures were tests that could not open loopback listeners locally (`listen EPERM`). The dispatch explicitly says not to work around blocked local ports. The final boundary phase was therefore run separately.
 - `pnpm check:boundaries` — passed.
 - `pnpm build:services && pnpm test:service-build` — passed; 6/6 service-bundle checks.
 - `git diff --check` — passed.
@@ -39,7 +39,7 @@ Status: **DONE_WITH_CONCERNS**
 - The preflight never prints env values or key paths; only a rule code and variable name are reported on rejection. Test output confirms fake credentials do not appear.
 - Key paths are checked locally with filesystem metadata; the preflight cannot verify remote mounts, key contents, host reachability, service grants, provider credentials, or webhook delivery. The runbook assigns webhook acceptance to a post-start user-approved action.
 - The service parser calls are configuration-only and offline. Setup-command values are inventoried but their remote/database effects are intentionally not attempted by preflight.
-- Full `pnpm check` remains limited by sandbox loopback restrictions (71 tests failed with `EPERM`); no escalation or workaround was attempted.
+- Full `pnpm check` remains limited locally by tests that could not open loopback listeners (71 tests failed with `EPERM`); no workaround was attempted.
 
 ## Fix round 1
 

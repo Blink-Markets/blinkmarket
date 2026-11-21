@@ -27,7 +27,7 @@ Verification: capture tests, `pnpm typecheck`, and `pnpm check`; see the Task 4 
 
 ## Task 5 — Introduction video workspace
 
-Added the independent Remotion workspace, timeline, script and local-drill scenes. The MP4, poster, website embedding and visual verification remain for Task 6; this milestone is still in progress. The development host could not launch Chrome for the still because `libgbm.so.1` is missing and its glibc is 2.28. See the Task 5 report for verification and the container rendering instructions in `video/README.md`.
+Added the independent Remotion workspace, timeline, script and local-drill scenes. The MP4, poster, website embedding and visual verification remain for Task 6; this milestone is still in progress. The still was not rendered locally. See the Task 5 report for verification and the container rendering instructions in `video/README.md`.
 
 Verification: Task 5 local checks passed (`pnpm check`: 663 tests), and branch CI passed. The controller rendered in the container using the steps in `video/README.md`: from `ws/p4-t5` commit `d79c26b`, the MP4 is 150.000000 seconds and 1,240,426 bytes (1.24 MB). The controller checked scene stills against the script; a Remotion zod version warning had no effect on output.
 
@@ -53,7 +53,7 @@ Known limitations:
 
 ## P4 product rework — Task 7 sound effects
 
-Added the deterministic sound-effect recipes and cue sheet, committed their generated WAVs, and wired the music slot and volume envelope into the introduction. The music selection and final render remain for Task 8; this does not complete the rework milestone. Video tests and typechecking passed; full-check results are recorded in the Task 7 report. The controller will render and check the preview because the local sandbox cannot access Docker.
+Added the deterministic sound-effect recipes and cue sheet, committed their generated WAVs, and wired the music slot and volume envelope into the introduction. The music selection and final render remain for Task 8; this does not complete the rework milestone. Video tests and typechecking passed; full-check results are recorded in the Task 7 report. The controller will render and check the preview.
 
 ## Rework (2026-11)
 
@@ -70,7 +70,7 @@ Added the deterministic sound-effect recipes and cue sheet, committed their gene
 
 **Branch CI runs.** Tasks 1-7: 41220822960, 41221234757, 41222530726, 41256909775, 41258334980, 41263545503, 41264969175, 41265647241, 41266910552, 41267518352, 41268865529. Task 8: 41274442496 (a12cb12, green); 41274069299 (c42789c, cancelled by the next push); 41276541923 (0069172, final render; the controller records its result in the ledger).
 
-**Verification.** The final `pnpm check` ran 668 tests and passed; `pnpm typecheck` and `pnpm check:boundaries` passed. `pnpm build` cannot run on the development host (glibc 2.28, no native Next.js bindings), so it runs in branch CI. The committed MP4 has an audio track (`tests/web-intro-video.test.ts`).
+**Verification.** The final `pnpm check` ran 668 tests and passed; `pnpm typecheck` and `pnpm check:boundaries` passed. `pnpm build` was not run locally, so it runs in branch CI. The committed MP4 has an audio track (`tests/web-intro-video.test.ts`).
 
 **Render settings.** The container render (`scripts/video-docker.sh`) uses H.264 at CRF 30 with Remotion's default x264 preset, 1920x1080 at 30 fps, AAC audio at 48 kHz stereo. The result is 53.184 s and 4,111,439 bytes (4.11 MB; target 8 MB, cap 15 MB). The music is the CC0 track `bassimat-854314` at 1.1x with `gain` 0.30, and the effects play at volume 1. The whole-file peak is -4.6 dBFS with no clipped samples. Remotion prints a warning that the workspace's zod (4.6.5) differs from the one it expects (4.5.4); the video uses no `@remotion/zod-types`, so the output is unaffected.
 
@@ -82,4 +82,4 @@ Added the deterministic sound-effect recipes and cue sheet, committed their gene
 
 **Layout.** The advantages grid is asymmetric and numbered: a 7/5 pair, a row of four, then a 5/7 pair. It uses two columns at 1040px or less and one column at 760px or less.
 
-**Verification.** `pnpm check` ran 669 tests and passed (typecheck, contracts, tests and boundaries). The browser suite and `pnpm build` cannot run on the development host (glibc 2.28, no native Next.js bindings), so they run in branch CI.
+**Verification.** `pnpm check` ran 669 tests and passed (typecheck, contracts, tests and boundaries). The browser suite and `pnpm build` were not run locally, so they run in branch CI.

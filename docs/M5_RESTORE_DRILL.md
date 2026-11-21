@@ -161,5 +161,5 @@ Run on 2026-10-18 against PostgreSQL 17.6 on port 55415 (see the task report for
   after the dump (ACCOUNTED) and a reorg after restore are covered by the RFQ and indexer
   tests, not by this drill.
 - Tool containers need Docker and the `postgres:17.6` image; an image digest is not pinned
-  here (see the image tasks). Only the Docker Desktop (macOS) network path ran locally; the
+  here (see the image tasks). Only the Docker Desktop network path ran locally; the
   Linux `--network host` path is for CI.

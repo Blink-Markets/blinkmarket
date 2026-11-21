@@ -294,7 +294,7 @@ The user asked for free or the cheapest options while the project is experimenta
 
 Cheapest paid fallback if a free tier fails: a small VPS per host. Secondary sources (not the provider's page) put Hetzner's smallest shared plans at about €5.49–5.99 per month after a June 2026 increase; confirm on the provider's page before choosing.
 
-Consequence for Track A: Oracle's free A1 is arm64, so the A1 images must build and run on linux/arm64 (the build machine is arm64 today).
+Consequence for Track A: Oracle's free A1 is arm64, so the A1 images must build and run on linux/arm64.
 
 ## Track C — functional web UI (only if D1 = b)
 

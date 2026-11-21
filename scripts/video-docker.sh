@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Runs a command in video/ inside a pinned Debian bookworm container (glibc 2.36), because the
-# development host's glibc is too old for Remotion's browser. The repository is copied in so the
-# host's node_modules stays untouched; tmp/video is mounted at /out for the results.
+# Runs a command in video/ inside a pinned Debian bookworm container (glibc 2.36), because
+# Remotion's browser needs glibc 2.31 or newer and libgbm, and the render is then the same on any
+# host with Docker. The repository is copied in so the host's node_modules stays untouched;
+# tmp/video is mounted at /out for the results.
 #   scripts/video-docker.sh 'pnpm exec remotion still src/index.ts BlinkIntro /out/poster.png --frame=60'
 set -euo pipefail
 [ $# -ge 1 ] || { echo "usage: $0 <command to run in video/>" >&2; exit 2; }

@@ -194,7 +194,7 @@ Local results after the 2026-10-24 R39–R41 fixes. The focused run passed 7 sui
 | --- | --- |
 | `pnpm test:contracts` | 17 suites, 247/247 tests pass, 0 fail/skip; v0.1 24, P1 223, of which 8 are new in this round |
 | `pnpm test:contracts:seeds` | Ledger and Protocol each run with 0x01 and 0x02; four runs, 12/12 tests pass. Each invariant runs 128 runs × 64 calls with 0 reverts; the eight invariant campaigns total 65,536 calls |
-| `node --import tsx --test tests/protocol-artifacts.test.ts` | 1/1 test file passes. It contains two named checks: compilation/EIP-170 and ABI privileged names. This host runner counts per file |
+| `node --import tsx --test tests/protocol-artifacts.test.ts` | 1/1 test file passes. It contains two named checks: compilation/EIP-170 and ABI privileged names. Node's test runner counts it per file |
 | `pnpm check:contracts` | Passes. All eight concrete P1 runtimes are under 24,576 bytes; the largest is `BlinkResolution` at 20,528 bytes (`BlinkMarkets` 18,394) |
 
 The final verification baseline is main `c500389`, after the R39–R41 fixes merged. The contract commands above gave the same results, and the full `pnpm check` passed 714/714.

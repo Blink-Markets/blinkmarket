@@ -203,7 +203,7 @@ Local alpha and tooling
 - A deployment on chain 31337 fails, because every constructor reverts `WrongChain` off 84532, so local nodes must use chain ID 84532. Task 4 report (`.superpowers/sdd/2026-10-24-p2-offchain-protocol/task-4-report.md`).
 - Verification substitutes each named immutable reference in the artifact template with its expected value, then compares every runtime byte. It also checks the runtime hash and on-chain cross-links. Task 4 report.
 - The restore drill checks infrastructure rows, schema, grants and cursor lease recovery of a real `pg_dump` and restore against a quiescent database. The old trading and contract round trip was retired with the v0.1 alpha harness and has no replacement. Progress, Task 1.
-- `pnpm build` and `pnpm build:pages` (Turbopack) cannot run on the development host, because they need a newer glibc than RHEL 8's 2.28. They run in CI only. The real-PostgreSQL suites do run locally, in a Docker `postgres:17.6` container, the same image as CI.
+- `pnpm build` and `pnpm build:pages` (Turbopack) were not run locally. They run in CI only. The real-PostgreSQL suites do run locally, in a Docker `postgres:17.6` container, the same image as CI.
 
 Documentation
 - The web role pages (`apps/web/content/docs/`) still describe the v0.1 roles. They carry a notice and are rewritten in P3 (agent docs) and P4 (website). Until then they must not be read as current role guidance.
@@ -212,7 +212,7 @@ Documentation
 
 ## Verification
 
-Measured on 2026-10-26 on the Task 12 branch, which is main `4b52d12` (the merge of Task 11) plus the documentation commit `15163ba`. That commit changed documents, the web notices (Markdown and one page's text) and one docs test, and no contract, migration, API or service code, so the contract, database and service suites below ran on the same code as `4b52d12`. Two later commits changed only web copy, the architecture illustration and tests (`d7ea6fd` and fix round 1); after each, `pnpm check` was run again, and no other suite was repeated because none of them reads that code. Host: Linux (RHEL 8), Node 22, PostgreSQL 17.6 in the Docker container `blink-test-pg` (the CI image), Foundry 1.7.1 through `scripts/foundry.mjs`. Counts are what each runner printed.
+Measured on 2026-10-26 on the Task 12 branch, which is main `4b52d12` (the merge of Task 11) plus the documentation commit `15163ba`. That commit changed documents, the web notices (Markdown and one page's text) and one docs test, and no contract, migration, API or service code, so the contract, database and service suites below ran on the same code as `4b52d12`. Two later commits changed only web copy, the architecture illustration and tests (`d7ea6fd` and fix round 1); after each, `pnpm check` was run again, and no other suite was repeated because none of them reads that code. Toolchain: Node 22, PostgreSQL 17.6 (the CI image), Foundry 1.7.1 through `scripts/foundry.mjs`. Counts are what each runner printed.
 
 | Command | Result |
 | --- | --- |
@@ -224,7 +224,7 @@ Measured on 2026-10-26 on the Task 12 branch, which is main `4b52d12` (the merge
 | `pnpm alpha:local` | 1 of 1 test pass: the test took 322.3 s, the whole command (contract check, harness start-up, scenario, cleanup) 373 s |
 | `pnpm test:images` | 12 of 12 tests pass, 0 fail, 0 skipped (154 s) |
 
-Not run on this host: `pnpm build` and `pnpm build:pages` (Turbopack needs a newer glibc than RHEL 8's 2.28; they run in CI), `pnpm test:contracts:seeds`, `pnpm build:services` and `pnpm test:service-build`, and the browser tests. The real-PostgreSQL suites do run locally.
+Not run locally: `pnpm build` and `pnpm build:pages` (they run in CI), `pnpm test:contracts:seeds`, `pnpm build:services` and `pnpm test:service-build`, and the browser tests. The real-PostgreSQL suites do run locally.
 
 The forge count differs from the 255 recorded for Task 13 in [P1](P1_PROTOCOL_CONTRACTS.md) because Task 5 deleted the v0.1 contract suites (24 tests in P1's count) and later tasks added tests (for example `Anchor`, `ForecastMerkle` and the credit-clock regressions). The 240 here is the current total.
 

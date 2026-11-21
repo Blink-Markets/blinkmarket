@@ -6,7 +6,7 @@ User decisions so far: P5 = pre-testnet self-review by AI agents + open-source t
 
 ## Cloudflare security-audit-skill (MIT)
 - 6 phases; artifacts architecture.md, coverage-ledger.json, findings.json (report-schema.json: confirmed / needs_validation / rejected; confirmed needs root_cause, trace, evidence, execution, remediation, severity, confidence), REPORT.md etc. Validators validate-findings.cjs, validate-coverage-ledger.cjs (fs/path only).
-- Default output ~/security-audit-skill/<repo>/run-N (outside target). Hunters = general subagents; no model selection. Requires OS sandbox to execute target code; no installs; no network.
+- Default output: a run directory outside the target. Hunters = general subagents; no model selection. Requires OS sandbox to execute target code; no installs; no network.
 - Classes: injection, access control, resources/files, crypto/secrets, business logic, feature abuse/leakage, chained trust, AI-AND-LLM.md, client-side, supply chain/CI, cloud, protocols/RPC/queues, resource exhaustion, data isolation, desktop/IPC, memory safety. NO Solidity/EVM/oracle/MEV.
 - Use: method + schema + validators + AI-AND-LLM / business-logic / data-isolation / resource-exhaustion / supply-chain checklists for off-chain + agents. Not install as-is (writes to ~/, generic subagents).
 

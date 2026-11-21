@@ -26,7 +26,7 @@ Each task passed its review and CI, which includes `test:postgres` and `alpha:lo
 
 **Spec:** No separate spec. The requirements are the parked items in `docs/superpowers/plans/2026-10-15-public-alpha-readiness.md` (Open Items 6 and 9, entry A1) and the measurement below.
 
-**Finality measurement (2026-10-21, public RPC `https://sepolia.base.org`):** the gap between the `latest` and `finalized` block timestamps was sampled every 30 s: 90 samples over about 100 minutes of wall-clock time, with one gap while the laptop slept.
+**Finality measurement (2026-10-21, public RPC `https://sepolia.base.org`):** the gap between the `latest` and `finalized` block timestamps was sampled every 30 s: 90 samples over about 100 minutes of wall-clock time, with one gap in the samples.
 
 - Lag ranged from 836 s to 1968 s (14 to 33 minutes) in a sawtooth pattern.
 - Today's `tx.dispatch` budget is 10 attempts with backoff of 5 s doubling to 300 s, which totals 1215 s (about 20 minutes). That is shorter than most of the lags observed.
@@ -37,7 +37,7 @@ Each task passed its review and CI, which includes `test:postgres` and `alpha:lo
 - Applied migrations are immutable. Add new files only. This plan owns `0023_tx_dispatch_attempts.sql` (Task 1) and `0024_operations_retention.sql` (Task 3).
 - `packages/domain` is consumed by the web app. A task that changes it runs `pnpm build` and `node --test tests/service-build.test.mjs` as well as `pnpm check`.
 - Every SQL time comparison uses `blink.now()`, never `now()` or `clock_timestamp()`, so test clocks keep working.
-- Never read `~/.blink-keys/**`, and never print tokens or keys. Tests use fixture tokens only.
+- Never read key files outside the repository, and never print tokens or keys. Tests use fixture tokens only.
 - Match the surrounding code: naming, comment density, and error codes as `UPPER_SNAKE` strings thrown as `new Error(CODE)`.
 - Run Prettier on every file you touch: `pnpm exec prettier --write <files>`.
 - Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.

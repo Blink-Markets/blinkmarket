@@ -68,7 +68,7 @@ The final-review fix tree at `969eb38` was measured on 2026-10-30; these are rec
 | `forge test --root contracts` | 240/240 passed in 17 suites, 0 skipped (203 s) |
 | `tests/alpha/autonomous.test.ts` on local PostgreSQL | 3/3 passed (1080 s) |
 
-`pnpm test:browsers`, `pnpm build` and `pnpm build:pages` run in CI because the development host cannot run Turbopack. The check, contracts, browsers and autonomous CI jobs were green on `61fc27f`.
+`pnpm test:browsers`, `pnpm build` and `pnpm build:pages` run in CI. The check, contracts, browsers and autonomous CI jobs were green on `61fc27f`.
 
 ## Implementation rulings
 

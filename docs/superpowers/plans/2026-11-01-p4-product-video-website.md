@@ -31,7 +31,7 @@
 - Remotion motion is frame-driven: every animated value is a function of `useCurrentFrame()`. No CSS `animation`, `transition` or `@keyframes` in `video/src`, because Remotion renders frames out of order.
 - `video/src` imports only `remotion`, `@remotion/*`, `react` and its own files. Nothing under `apps/`, `packages/` or `examples/` imports from `video/`.
 - `apps/web/AGENTS.md`: read the relevant guide in `apps/web/node_modules/next/dist/docs/` before writing Next code. Every root-relative `src` or `href` that Next does not rewrite goes through `withBase` (`apps/web/lib/base-path.ts`).
-- Host limits: glibc 2.28. `pnpm build`, `pnpm build:pages`, `pnpm test:browsers` and every Remotion render run in branch CI or the container only. Local checks: `pnpm check`, `pnpm typecheck`, `pnpm check:boundaries` and `node --import tsx --test <files>`, with node 22 on PATH. A web task is verified only when its branch CI is green.
+- Not run locally: `pnpm build`, `pnpm build:pages`, `pnpm test:browsers` and every Remotion render. They run in branch CI or the container. Local checks: `pnpm check`, `pnpm typecheck`, `pnpm check:boundaries` and `node --import tsx --test <files>`, with node 22 on PATH. A web task is verified only when its branch CI is green.
 - Nothing merges to main before the user approves the final render (Task 8). Merging to main publishes the site through `.github/workflows/pages.yml`. No deployment, paid service or signing (`AGENTS.md`).
 - English for code, comments, docs and commits. Commits are authored as `Brian Huang <66238110+BrianHuang813@users.noreply.github.com>` and end with the implementer's `Co-Authored-By` line.
 

@@ -48,4 +48,4 @@ Verification results:
 - `pnpm test:anvil`: passed with local-network permission, 50 tests.
 - `pnpm test:postgres`: the concurrent run passed A3 but hit 3 existing timeout/lifecycle failures; a full sequential rerun passed all 54 tests. The historical-approval regression also passed separately. Cleanup audit found no remaining test databases or temporary login roles on the dedicated test server.
 - `pnpm build`: blocked by Google Fonts fetch failures for existing Geist, Geist Mono and Kalam imports. The controller must rerun the web build where those fonts are reachable.
-- `pnpm check`: typecheck and Solidity compilation passed; the sandbox unit run encountered an existing local-port EPERM. The full unit suite is rerun with local-network permission and two test files at a time; its final result is recorded below.
+- `pnpm check`: typecheck and Solidity compilation passed; the first local unit run could not open a local port (`EPERM`). The full unit suite is rerun two test files at a time; its final result is recorded below.

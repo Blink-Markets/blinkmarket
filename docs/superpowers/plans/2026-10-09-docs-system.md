@@ -679,7 +679,7 @@ Shared rules for every content task:
   - `/docs/api.md` contains a generated table row for `GET` `/v1/markets`.
   - `/llms.txt` lists all 12 `.md` URLs.
   - `/docs/nope` returns 404.
-- [ ] **Step 3: Screenshots and behaviour** with the CDP script (`…/scratchpad/shots/tool/cdp.mjs`):
+- [ ] **Step 3: Screenshots and behaviour** with a CDP screenshot script:
   - Pages: `/docs`, `/docs/quickstart`, `/docs/agents`, `/docs/api`.
   - Sizes 1440×900 and 375×812, light and dark (dark via `localStorage.setItem('blink-theme','dark')` then reload).
   - Check `/` stays light with `blink-theme=dark` set.
