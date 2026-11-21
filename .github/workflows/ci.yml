@@ -97,12 +97,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
+      # Playwright downloads browser builds per OS release, and ubuntu-latest moves between
+      # releases (24.04 -> 26.04 in November 2026). A key without the release restored the
+      # 24.04 WebKit onto 26.04, where it fails to load libicudata.so.74.
+      - name: Read the OS release
+        id: os
+        run: echo "release=$(. /etc/os-release && echo "${ID}-${VERSION_ID}")" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         id: pw-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          key: playwright-${{ runner.os }}-${{ steps.os.outputs.release }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright browsers
         if: steps.pw-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium firefox webkit
