@@ -67,6 +67,10 @@ A task is done only when all of these hold:
    (see Stage checkpoints), and the relevant suites from `docs/DEVELOPMENT.md`
    (contracts, Postgres, Anvil, browsers) when that area changed. Report the
    real output; a skipped suite is reported as skipped, with the reason.
+   A change whose files all match the `paths-ignore` patterns in
+   `.github/workflows/ci.yml` may skip `pnpm check`, since CI skips such a
+   change too. Report the skip and that reason. The review in item 3 still
+   applies.
 3. A reviewer has approved the diff with no unresolved Critical or High findings.
    Fixes go back to an implementer and are reviewed again.
 4. The controller has read the final diff itself and confirmed it matches the
