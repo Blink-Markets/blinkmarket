@@ -5,6 +5,8 @@ name: Deploy web to GitHub Pages
 on:
   push:
     branches: [main]
+    # The paths ci.yml ignores; the web build reads none of them. Keep the two lists in step.
+    paths-ignore: ["docs/superpowers/**", "docs/*_PROGRESS.md", "docs/ROADMAP.md", "AGENTS.md"]
   workflow_dispatch:
 permissions:
   contents: read

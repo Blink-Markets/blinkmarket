@@ -62,20 +62,37 @@ A task is done only when all of these hold:
 
 1. New behavior or a bug fix has a test that failed before the change and passes
    after it (TDD: red, green, refactor). Bug fixes address the root cause.
-2. The verification for the touched area passes, at minimum `pnpm check`. Add
-   `pnpm build` and the service bundle checks for web-consumed shared packages
-   (see Stage checkpoints), and the relevant suites from `docs/DEVELOPMENT.md`
-   (contracts, Postgres, Anvil, browsers) when that area changed. Report the
-   real output; a skipped suite is reported as skipped, with the reason.
-   A change whose files all match the `paths-ignore` patterns in
-   `.github/workflows/ci.yml` may skip `pnpm check`, since CI skips such a
-   change too. Report the skip and that reason. The review in item 3 still
-   applies.
+2. The verification for the touched area passes, run with the pinned toolchain
+   (Node from `.nvmrc`, pnpm from `packageManager`). Every change runs
+   `pnpm check`, except a change whose files all match the `paths-ignore`
+   patterns in `.github/workflows/ci.yml`: it may skip `pnpm check`, since CI
+   skips such a change too. Report the skip and that reason; the review in
+   item 3 still applies. Add the rows for the areas the change touches:
+
+   | Area touched | Commands | CI job |
+   | --- | --- | --- |
+   | Web app, or a shared package the web consumes | `pnpm build`, `pnpm test:browsers`, `pnpm build:pages && node scripts/check-pages-export.mjs` | check, browsers |
+   | API, worker or indexer, or a package they bundle | `pnpm build:services`, then `pnpm test:service-build` | check |
+   | Contracts, or code that talks to the chain (deployment, indexer, RFQ relay, signatures, wallets, client and example agents) | `pnpm test:contracts`, `pnpm test:anvil`, `pnpm test:contracts:seeds` | contracts |
+   | Migrations, or code that runs against PostgreSQL (adapters, runtime roles and functions, jobs, alerts), and backup and restore | `pnpm test:postgres`, `pnpm drill:restore:test` | postgres |
+   | Flows across the API, worker and indexer | `pnpm alpha:local` | alpha-local |
+   | Reference agents, or the full market lifecycle (creation, disputes, timeouts, suggestions) | `node --import tsx --test tests/alpha/autonomous.test.ts` (about 18 minutes; needs `TEST_POSTGRES_ADMIN_URL`) | autonomous (nightly, not per push) |
+   | Container images or Compose files | `pnpm test:images`, `pnpm images:smoke` | none |
+
+   Report the real output. When a command cannot run on your host (for example
+   no Docker, PostgreSQL or Playwright browsers; see `docs/DEVELOPMENT.md` for
+   what each command needs), report it as not run, with the reason, and rely
+   on its CI job after the push. The autonomous drill runs only nightly: until
+   a run after the push passes, report that row as pending. The images row has
+   no CI job: run it on a host with Docker, or report the change as unverified.
 3. A reviewer has approved the diff with no unresolved Critical or High findings.
    Fixes go back to an implementer and are reviewed again.
 4. The controller has read the final diff itself and confirmed it matches the
    brief, with no secrets, debug output or unrelated edits.
 5. The stage checkpoint above is done: docs updated, committed, pushed.
+6. If the push triggers CI (it touches more than the paths `ci.yml` ignores),
+   the CI run for the pushed commit is green. If it fails, fix it in a new
+   commit; do not rewrite the pushed one.
 
 ## Cleanup
 

@@ -1,12 +1,13 @@
 name: Blink checks
-# Planning and progress notes do not trigger a run. Docs that tests or the web build read
-# (INTRO_VIDEO_SCRIPT, DEPLOYMENT_RUNBOOK, the READMEs, ...) still do. The autonomous drill runs
-# nightly in autonomous.yml, because it waits on real market and dispute windows (~18 minutes).
+# Planning and progress notes and the agent instructions (AGENTS.md) do not trigger a run, and
+# pages.yml skips the same paths. Docs that tests or the web build read (INTRO_VIDEO_SCRIPT,
+# DEPLOYMENT_RUNBOOK, the READMEs, ...) still do. The autonomous drill runs nightly in
+# autonomous.yml, because it waits on real market and dispute windows (~18 minutes).
 on:
   push:
-    paths-ignore: ["docs/superpowers/**", "docs/*_PROGRESS.md", "docs/ROADMAP.md"]
+    paths-ignore: ["docs/superpowers/**", "docs/*_PROGRESS.md", "docs/ROADMAP.md", "AGENTS.md"]
   pull_request:
-    paths-ignore: ["docs/superpowers/**", "docs/*_PROGRESS.md", "docs/ROADMAP.md"]
+    paths-ignore: ["docs/superpowers/**", "docs/*_PROGRESS.md", "docs/ROADMAP.md", "AGENTS.md"]
 permissions:
   contents: read
 # A newer push to the same branch cancels the older run there; other branches keep theirs.

@@ -43,18 +43,19 @@ Standalone backend bundles: `pnpm build:services` (API, worker and indexer). To 
 
 | Command | What it checks |
 | --- | --- |
-| `pnpm check` | Two TypeScript typechecks, contract compilation and EIP-170 sizes, the unit and integration tests (PGlite), and package boundaries |
+| `pnpm check` | Three TypeScript typechecks (the root, `apps/web` and `video`), contract compilation and EIP-170 sizes, the unit and integration tests (PGlite), and package boundaries |
 | `pnpm test:contracts`, `pnpm test:contracts:seeds` | Foundry unit, fuzz and invariant tests |
 | `pnpm test:postgres` | Real PostgreSQL concurrency suites, serially. Needs `TEST_POSTGRES_ADMIN_URL` |
 | `pnpm test:anvil` | Suites that start a local Anvil on chain ID 84532 |
 | `pnpm alpha:local` | The infrastructure-only local alpha: real API, indexer and worker, independent actors, one full market. Needs `TEST_POSTGRES_ADMIN_URL`; about five and a half minutes |
 | `pnpm drill:restore:test` | The `pg_dump` and restore drill. Needs `TEST_POSTGRES_ADMIN_URL` and Docker |
-| `pnpm build`, `pnpm build:pages` | The Web build. Turbopack needs a newer glibc than RHEL 8's 2.28, so these run in CI on that kind of host |
-| `pnpm test:images`, `pnpm images:smoke` | The container images and a Compose smoke. Need Docker |
+| `pnpm build`, `pnpm build:pages` | The Web build. After `build:pages`, `node scripts/check-pages-export.mjs` checks the export's files and links |
+| `pnpm test:browsers` | Playwright suites for the Web in Chromium, Firefox and WebKit, at desktop and mobile sizes. It builds the Web first. Needs the Playwright browsers (`pnpm exec playwright install`) |
+| `pnpm test:images`, `pnpm images:smoke` | The container images and a Compose smoke. Need Docker. No CI workflow runs them |
 
 A PostgreSQL 17.6 container (the same image as CI) is enough for the PostgreSQL suites; point `TEST_POSTGRES_ADMIN_URL` at an administrator login with CREATEDB and CREATEROLE. The PostgreSQL suites run serially because historical migrations create cluster-wide roles that migration 0025 drops. Measured results are in [P2 off-chain protocol](P2_OFFCHAIN_PROTOCOL.md#verification).
 
-CI (`.github/workflows/ci.yml`) runs `check`, `postgres`, `alpha-local`, `contracts` and `browsers` as parallel jobs on every push and pull request. Pushes that only touch `docs/superpowers/**`, `docs/*_PROGRESS.md` or `docs/ROADMAP.md` skip CI. A newer push to the same branch cancels the older run. The autonomous drill (`tests/alpha/autonomous.test.ts`, about 18 minutes of real market and dispute windows) runs nightly on main and on demand through `.github/workflows/autonomous.yml`. `scripts/check-contracts.mjs` writes `contracts/artifacts/.inputs.sha256` after a passing compile and skips solc while its inputs are unchanged. Delete that file to force a recompile.
+CI (`.github/workflows/ci.yml`) runs `check`, `postgres`, `alpha-local`, `contracts` and `browsers` as parallel jobs on every push and pull request. Pushes that only touch `docs/superpowers/**`, `docs/*_PROGRESS.md`, `docs/ROADMAP.md` or `AGENTS.md` skip CI and the Pages deploy (`.github/workflows/pages.yml`). A newer push to the same branch cancels the older run. The autonomous drill (`tests/alpha/autonomous.test.ts`, about 18 minutes of real market and dispute windows) runs nightly on main and on demand through `.github/workflows/autonomous.yml`. `scripts/check-contracts.mjs` writes `contracts/artifacts/.inputs.sha256` after a passing compile and skips solc while its inputs are unchanged. Delete that file to force a recompile.
 
 ## Optional local infrastructure
 
