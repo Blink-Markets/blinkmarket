@@ -283,7 +283,7 @@ The assistant explained Mechanism R with a worked example, a rain question with 
 
 **What is left.** With these answers every decision on Mechanism R is made; the user confirmed burning after seeing its cost. Q22, Q26, Q24 and Q2 are rewritten in 12.7, and the user approved the wording. Q6 stays deferred. The mainnet prerequisites are in the [roadmap](../../ROADMAP.md).
 
-### 12.7 Q2, Q22, Q24 and Q26 rewritten for Mechanism R, 2026-11-21 [User]
+### 12.7 Q2, Q22, Q24 and Q26 rewritten for Mechanism R, 2026-11-21 [Accepted]
 
 12.5 reopened these four decisions so that their wording matches Mechanism R. The rewrite follows section 4 of [the proposals](2026-11-17-long-horizon-review/reopened-decisions-proposals.md) and the changes in 12.6. The assistant wrote this wording, and the user approved it on 2026-11-21 after reading a summary of the four changes ("可以"). Nothing in it is implemented.
 
