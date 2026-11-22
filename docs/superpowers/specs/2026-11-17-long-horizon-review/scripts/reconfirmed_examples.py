@@ -10,11 +10,15 @@ Round 2 (discussion record 12.9, 2026-11-22):
 Round 3 (discussion record 12.10, 2026-11-22):
   Q19 - the certain cost of dragging the paid baseline and dragging it back, the cost when someone
         else corrects it, and how deep a maker that quotes off the baseline can safely follow.
+Round 4 (discussion record 12.11, 2026-11-22):
+  Q21 - why arm 4 is compared with arm 2, why a 10% improvement is nearly out of reach, and what 100, 300
+        and 1,000 questions can tell, under the proposals' model with a fixed seed and a normal approximation.
 Binomial sums are computed in log space, so a large n does not overflow.
 Run from this folder: python3 -I reconfirmed_examples.py
 """
 from decimal import ROUND_HALF_UP, Decimal
-from math import exp, lgamma, log, sqrt
+from math import erf, exp, lgamma, log, sqrt
+from random import Random
 from statistics import median
 
 
@@ -151,3 +155,58 @@ print("  the proposals charge both entry fees at this window's allowance:")
 for B in (bt, big):
     alt = certain_cost(B, d) + PHI * (B - next_allowance(B))
     print(f"    allowance {B:,.0f}: certain cost {alt:.1f}")
+
+print("\n== Q21 (round 4): which arms to compare, and what 100 questions can tell ==")
+Q = 0.70  # one question's true probability
+print(f"  forecast p on a question whose true probability is {Q:.0%}: expected error = (p - {Q})^2 + {Q * (1 - Q):.2f}")
+ARMS = {1: 0.12, 2: 0.07, 4: 0.05}  # assumed typical distance from the true probability (root mean square), per arm
+err = {arm: off ** 2 + Q * (1 - Q) for arm, off in ARMS.items()}
+for arm, off in ARMS.items():
+    print(f"  arm {arm}: {off * 100:.0f} points off -> expected error {err[arm]:.4f}")
+for better, worse in ((4, 1), (2, 1), (4, 2)):
+    print(f"  arm {better} against arm {worse}: {(err[worse] - err[better]) / err[worse]:.1%} better")
+for off in (0.10, 0.15):
+    print(f"  a perfect forecast against one {off * 100:.0f} points off: "
+          f"{off ** 2 / (Q * (1 - Q) + off ** 2):.1%} better")
+
+
+def norm_cdf(x):  # standard normal distribution function
+    return 0.5 * (1 + erf(x / sqrt(2)))
+
+
+def clip(x):
+    return min(0.99, max(0.01, x))
+
+
+def arms_2_and_4(sd2, sd4, draws=400_000, seed=21, corr=0.5):
+    """The proposals' model: true probabilities spread over 0.05 to 0.95, and normal forecast errors, with
+    arm 4's error correlated `corr` with arm 2's. Returns arm 2's mean error, and the mean and standard
+    deviation of arm 2's error minus arm 4's on one question."""
+    rng = Random(seed)
+    total2 = total = total_sq = 0.0
+    for _ in range(draws):
+        q = min(0.95, max(0.05, rng.betavariate(1.2, 1.2)))
+        y = 1 if rng.random() < q else 0
+        z = rng.gauss(0, 1)
+        e4 = sd4 * (corr * z + sqrt(1 - corr ** 2) * rng.gauss(0, 1))
+        b2, b4 = (clip(q + sd2 * z) - y) ** 2, (clip(q + e4) - y) ** 2
+        total2 += b2
+        total += b2 - b4
+        total_sq += (b2 - b4) ** 2
+    mean = total / draws
+    return total2 / draws, mean, sqrt(total_sq / draws - mean ** 2)
+
+
+MIN_USEFUL = 0.02  # an example of the smallest useful improvement, as a share of arm 2's error
+for label, sd4 in (("arm 4 is better", 0.05), ("arm 4 is no better", 0.10)):
+    error2, improvement, sd_diff = arms_2_and_4(0.10, sd4)
+    print(f"  {label} (arm 2 is 10 points off, arm 4 {sd4 * 100:.0f}, errors correlated 0.5): "
+          f"true improvement {improvement / error2:.1%} of arm 2's error {error2:.4f}")
+    for n in (100, 300, 1_000):
+        se = sd_diff / sqrt(n)
+        # an interval centred on the true improvement; a real experiment's interval moves around it
+        low, high = (improvement - 1.96 * se) / error2, (improvement + 1.96 * se) / error2
+        proven = norm_cdf(improvement / se - 1.96)  # the whole interval is above zero
+        shelved_c = norm_cdf((MIN_USEFUL * error2 - improvement) / se - 1.96)  # the upper end is below the threshold
+        print(f"    {n:>5,} questions: typical interval {low:+.1%} to {high:+.1%}; improvement proven {proven:.0%}; "
+              f"shelved by a gate {1 - proven:.0%}, by rule (c) {shelved_c:.0%}")

@@ -2,7 +2,7 @@
 
 [繁體中文](reconfirmed-decisions-worked-examples.zh-TW.md)
 
-Most of the 21 cards chosen on the decision board on 2026-11-18 were chosen by following the assistant's recommendations. Section 12.5 of the record keeps them as the working direction, to be confirmed once each mechanism is explained with a worked example. This document collects those examples, one round at a time. Each section holds what the user saw before choosing: the example, the recommendation and the cost. The outcome is recorded in section 12.8 and later sections of [the discussion record](../2026-11-16-long-horizon-forecasting-discussion.md). The numbers come from [`scripts/reconfirmed_examples.py`](scripts/reconfirmed_examples.py), and the terms follow [the Mechanism R example](mechanism-r-worked-example.md). Nothing here is implemented.
+Most of the 21 cards chosen on the decision board on 2026-11-18 were chosen by following the assistant's recommendations. Section 12.5 of the record keeps them as the working direction, to be confirmed once each mechanism is explained with a worked example. This document collects those examples, one round at a time. Each section holds what the user saw before choosing: the example, the recommendation and the cost. The outcome is recorded in section 12.8 and later sections of [the discussion record](../2026-11-16-long-horizon-forecasting-discussion.md). The numbers come from [`scripts/reconfirmed_examples.py`](scripts/reconfirmed_examples.py), except figures quoted from the review or the proposals; the terms follow [the Mechanism R example](mechanism-r-worked-example.md). Nothing here is implemented.
 
 ## Round 1, 2026-11-22: Q9 and Q16
 
@@ -177,3 +177,95 @@ A maker cannot know in advance whether anyone will correct the next window, so i
 **What would change this:** if, once deployed, several independent forecasters reliably correct every window, the cost with a counterparty becomes the reasonable basis. Fake identities can make it look as if there are many, so relying on it is not recommended for now.
 
 **How these numbers differ from the proposals:** Q19 in [the proposals](reopened-decisions-proposals.md) gives a certain cost of 1.0 at an allowance of 1,000, and 38.2 (about 580 shares) at 40,000, because it charges both entry fees at the first window's allowance. This example charges the second fee at the next window's allowance (944.4 and 37,777.8), which gives 0.94 and 37.78 (about 575 shares). The conclusions do not change.
+
+## Round 4, 2026-11-22: Q21 and Q12
+
+The first experiment (section 8 of the record) asks one thing: do several agents forecasting together beat one model? If they all use the same model and read the same news, the consensus is one model's answer, and the bounty of direction 3 (Mechanism R) pays for what a sponsor could get by running one model itself.
+
+### Terms
+
+- **Error**: (forecast − outcome)², lower is better (defined in round 1).
+- **The four arms**: the same questions, forecast four ways.
+  - Arm 1: one model, asked once.
+  - Arm 2: the same model asked several times, averaged.
+  - Arm 3: several different models, each asked once, averaged.
+  - Arm 4: several different models, each with its own tools and data.
+- **Independent information**: what one agent knows and the others do not, such as its own data source. Only the part by which arm 4 beats arm 2 counts as its contribution.
+- **95% interval**: the range, worked out from the data, in which the true improvement most likely lies. More questions make it narrower.
+- **Power**: the chance that the experiment proves a real improvement, meaning that the whole interval is above zero.
+- **Smallest useful improvement**: a number registered before the experiment starts. An improvement smaller than it would not make direction 3 worth building.
+- **Gate**: a pass-or-fail rule; if the experiment fails it, direction 3 is shelved.
+
+**The rule recorded in section 8:** 8 weeks before resolution, arm 4's error must be at least 10% smaller than arm 1's, with an interval that excludes zero; if not, direction 3 is shelved.
+
+### Example 1: against arm 1, the experiment mostly measures asking more than once
+
+On a question whose true probability is 70%, a forecast p has an expected error of (p − 0.7)² + 0.21. The 0.21 comes from the question's own uncertainty, and nobody can remove it.
+
+Assume the three arms do this well:
+
+| Arm | Typical distance from the true probability | Expected error |
+| --- | --- | --- |
+| Arm 1: asked once | 12 points | 0.2244 |
+| Arm 2: one model, averaged over runs | 7 points (the run-to-run noise cancels; the model's own bias stays) | 0.2149 |
+| Arm 4: different models with their own data | 5 points (part of the different models' biases cancels too) | 0.2125 |
+
+- Arm 4 beats arm 1 by 5.3%.
+- Arm 2 adds no information, only more runs, and already beats arm 1 by 4.2%.
+- The contribution of independent information is arm 4 against arm 2: 1.1%.
+
+### Example 2: 10% is nearly out of reach
+
+On the same question, a perfect forecaster who says 70% has an expected error of 0.21, and a model 10 points off, saying 80%, has 0.22. Even a perfect forecast is only 4.5% better. To be 10% better, the single model must be about 15 points off and arm 4 perfect (9.7%). The review's simulation over many questions (`scripts/q21.py`) agrees: with a single model 10 points off, the most anyone can improve is 4.8%.
+
+### Example 3: 100 questions cannot tell "3.6% better" from "no better"
+
+The proposals' assumptions: arm 2 is 10 points off, arm 4 is 5 points off, and their errors partly move together (a correlation of 0.5: when arm 2 is too high, arm 4 often is too), for example because both read the same wrong news. Arm 4 is then truly 3.6% better than arm 2.
+
+| Questions | Typical 95% interval when arm 4 is 3.6% better | Chance the improvement is proven | Typical 95% interval when arm 4 is no better |
+| --- | --- | --- | --- |
+| 100 | −4.0% to +11.2% | 15% | −8.8% to +8.8% |
+| 300 | −0.8% to +8.0% | 36% | −5.1% to +5.1% |
+| 1,000 | +1.2% to +6.0% | 84% | −2.8% to +2.8% |
+
+Each interval in the table is centred on the true improvement. A real experiment's interval is about as wide, but its centre moves from run to run, in 95 runs of 100 by less than half the width. So even at 1,000 questions with a true 3.6% improvement, a real interval includes zero 16% of the time, which is why the improvement is proven only 84% of the time.
+
+At 100 questions the two cases give almost the same interval. The sample is also smaller than it looks: the main comparison is measured 8 weeks before resolution, and a question with a shorter horizon has not opened by then. With horizons spread evenly over 4 to 12 weeks, only about half of 100 questions count.
+
+### What each rule does
+
+| Rule | Arm 4 truly 3.6% better | Arm 4 no better |
+| --- | --- | --- |
+| (b) The review's: 100 questions, arm 4 against arm 2, passed only if the whole interval is above zero | shelved 85% of the time, wrongly | shelved 97% |
+| (c) 100 questions; a smallest useful improvement registered first (2% here, as an example); shelved only if the interval's upper end is below it | shelved 1% | shelved 6% (so mostly kept, wrongly) |
+| (d) Wait for 1,000 questions, then use (b)'s gate | shelved 16% | shelved 97% |
+
+(a) keeps the current rule. Examples 1 and 2 show its problems: it compares the wrong arms, and 10% is nearly out of reach. In the review's simulation, even a true 8% improvement over arm 1 passes only 16% of the time with 100 questions.
+
+With 100 questions, (b) and (c) mostly apply a default when the data cannot decide: (b) defaults to shelving, (c) to keeping. Only (d) actually separates the two cases.
+
+### Q21: what the experiment compares and how its result is read
+
+**Decision (the user accepted the recommendation):** (c).
+
+- Main comparison: arm 4 against arm 2.
+- Also reported: external market prices at the same time, the improvement per unit of inference cost, and how much the consensus worsens when one agent is left out (Mechanism R pays for exactly that).
+- The experiment is an estimate, not a gate: the smallest useful improvement is registered first, and direction 3 is shelved only if the interval's upper end falls below it. The number is set when the experiment is scheduled; the 2% above is only an example.
+
+Against arm 2 the experiment measures independent information, not more runs. At 100 questions nothing can separate 3.6% from 0; (b) would then shelve direction 3 by default, while (c) leaves it standing. Whether direction 3 enters the next contract generation also depends on the attack-scenario simulation of Q13.
+
+**Costs stated before the choice:**
+
+1. With 100 questions the experiment almost never shelves anything: even if arm 4 is no better, it shelves direction 3 only 6% of the time, and 28% of the time at 1,000 questions with a 2% threshold. It gives a rough number, not a verdict.
+2. Q13's simulation tests attacks, not whether agents carry independent information. That premise may stay unknown until launch.
+3. More arms cost more inference.
+
+**What would change this:** if 1,000 questions are affordable, use (d) as a real verdict: with a true 3.6% improvement it passes 84% of the time, and with none it wrongly passes about 3%. (c) also allows adding questions later; more questions make the interval narrower.
+
+### Q12: the experiment's main questions take only horizons of 8 to 12 weeks
+
+**Decision (the user accepted the recommendation):** every main question in the experiment has a horizon of 8 to 12 weeks, so each one counts at the 8-week mark. A question with a shorter horizon has not opened 8 weeks before resolution. With 8 to 12 weeks all 100 main questions count, at no extra inference cost, and the main comparison still ends within 12 weeks. The few long questions with an external market price (section 8 of the record) were not part of this question and stay.
+
+**Cost stated before the choice:** fewer candidate questions, since those of 4 to 8 weeks cannot be used. The errors 4 weeks and 1 week before resolution are still measured.
+
+**How these numbers differ from what the user saw:** the conversation showed four of the figures above, from a smaller random simulation, as 98%, about 35%, about 7% and about 30%. The script computes them from a fixed seed as 97%, 36%, 6% and 28%. With no improvement, a 95% interval lies wholly above zero 2.5% of the time, so a gate shelves about 97.5% of the time; the conversation showed it as 98% and the script as 97%. The conversation also rounded the intervals to whole percents. The conclusions do not change.
