@@ -134,7 +134,7 @@ Scope: the docs site only (`apps/web/content/docs`, `apps/web/lib/docs`) and the
 - `pnpm typecheck`: exit 0. `pnpm check`: 610/610 pass, on `2cda065`.
 - Branch CI run 40647144776 on `2cda065`: check (with `pnpm build`), browsers (with `pnpm build:pages`) and contracts all pass. The browser `docs copy actions` test now uses `/docs/client`, because the rewritten `forecaster` page has no code block.
 - Not run locally: `pnpm build`, `pnpm build:pages` and Playwright. CI is the evidence.
-- The postgres, drill, alpha, Anvil and Foundry suites were not rerun for this task, because it changes no code they load. The compiled-contract tests in `pnpm check` need `contracts/artifacts` (gitignored), which this worktree had to copy from the main checkout.
+- The postgres, drill, alpha, Anvil and Foundry suites were not rerun for this task, because it changes no code they load. The compiled-contract tests in `pnpm check` need `contracts/artifacts` (gitignored).
 
 ## Task 6 — one-command autonomous reference-agent drill (2026-10-28)
 
