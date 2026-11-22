@@ -88,7 +88,7 @@ import { createTestDatabase } from "../../tests/helpers/database.ts";
 const repository = fileURLToPath(new URL("../..", import.meta.url));
 const CHAIN_ID = 84532;
 const DEPLOYMENT_ID = "local-alpha";
-const HEARTBEAT_MS = 1000;
+export const HEARTBEAT_MS = 1000;
 const READY_TIMEOUT_MS = 90_000;
 const LOG_LINES = 120;
 const INDEXER_POLL_MS = 500;
@@ -125,6 +125,41 @@ export interface PlatformProcess {
   /** The last lines the process printed (codes, never secrets), for diagnosing a failed run. */
   logs(): string[];
   exited(): boolean;
+}
+
+export interface Heartbeat {
+  stop(): void;
+  /** Resolves once no heartbeat block is being mined and none will be until `resume`. */
+  pause(): Promise<void>;
+  resume(): void;
+}
+
+/**
+ * Mines one block per `HEARTBEAT_MS`. A test that turns automine off to hold a transaction
+ * pending pauses it first, since `anvil_mine` also mines whatever sits in the pool.
+ */
+function startHeartbeat(anvil: Anvil): Heartbeat {
+  let paused = false;
+  let mining: Promise<unknown> | undefined;
+  const timer = setInterval(() => {
+    if (!paused && !mining)
+      mining = anvil
+        .mine(1)
+        .catch(() => undefined)
+        .finally(() => {
+          mining = undefined;
+        });
+  }, HEARTBEAT_MS);
+  return {
+    stop: () => clearInterval(timer),
+    pause: async () => {
+      paused = true;
+      await mining;
+    },
+    resume: () => {
+      paused = false;
+    },
+  };
 }
 
 /**
@@ -331,12 +366,12 @@ async function startPostgresPlatform(
     pools.push(created);
     return created;
   };
-  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let heartbeat: Heartbeat | undefined;
   const processes: ReturnType<typeof startProcess>[] = [];
   let stopping: Promise<void> | undefined;
   const stop = () =>
     (stopping ??= (async () => {
-      clearInterval(heartbeat);
+      heartbeat?.stop();
       await runCleanup([
         ...processes.map((p) => ["process " + p.name, () => p.stop()] as const),
         ...pools.map((p, index) => ["pool " + index, () => p.end()] as const),
@@ -361,7 +396,7 @@ async function startPostgresPlatform(
     // Chain: the alpha generation, deployed by a key that is not one of the actors.
     const anvil: Anvil = await startAnvil({ chainId: CHAIN_ID, ...(options.accountCount === undefined ? {} : { accountCount: options.accountCount }) });
     cleanups.push(() => anvil.stop());
-    heartbeat = setInterval(() => void anvil.mine(1).catch(() => undefined), HEARTBEAT_MS);
+    heartbeat = startHeartbeat(anvil);
     const { accounts } = anvil;
     const plan = await planProtocolDeployment({
       deployer: accounts.trader.address,
@@ -440,6 +475,7 @@ async function startPostgresPlatform(
       indexerPool: pool("indexer"),
       logReader: protocolLogReader(anvil.publicClient as PublicClient, deployment),
       failureLogs,
+      heartbeat,
       stop,
     };
   } catch (error) {
@@ -480,17 +516,17 @@ async function startPglitePlatform(
 ) {
   const schedule = options.forecastSchedule ?? ALPHA_FORECAST_SCHEDULE;
   const cleanups: (readonly [string, () => Promise<unknown>])[] = [];
-  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let heartbeat: Heartbeat | undefined;
   let stopping: Promise<void> | undefined;
   const stop = () =>
     (stopping ??= (async () => {
-      clearInterval(heartbeat);
+      heartbeat?.stop();
       await runCleanup([...cleanups].reverse());
     })());
   try {
     const anvil = await startAnvil({ chainId: CHAIN_ID, ...(options.accountCount === undefined ? {} : { accountCount: options.accountCount }) });
     cleanups.push(["anvil", () => anvil.stop()]);
-    heartbeat = setInterval(() => void anvil.mine(1).catch(() => undefined), HEARTBEAT_MS);
+    heartbeat = startHeartbeat(anvil);
     const database = await createTestDatabase();
     cleanups.push(["database", () => database.close()]);
     const { pool } = database;
@@ -637,6 +673,7 @@ async function startPglitePlatform(
       deploymentId: DEPLOYMENT_ID,
       indexerPool: pool,
       logReader: logs,
+      heartbeat,
       stop,
     };
   } catch (error) {
@@ -651,6 +688,7 @@ export type AlphaPlatform = {
   /** The web app is optional for a drill and neither backend starts it. */
   webUrl?: string | undefined;
   deploymentId: string;
+  heartbeat: Heartbeat;
   stop(): Promise<void>;
   /** The local node, its funded public test accounts and the deployed generation, for the harness. */
   anvil: Anvil;

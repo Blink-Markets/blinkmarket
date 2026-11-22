@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { after, before, test } from "node:test";
 import { bytesToHex, decodeEventLog, keccak256, type Abi, type Hex, type HDAccount, type LocalAccount } from "viem";
 import {
@@ -25,7 +26,7 @@ import { creator } from "../../examples/agents/src/roles/creator.ts";
 import { forecaster } from "../../examples/agents/src/roles/forecaster.ts";
 import { maker, makerStop } from "../../examples/agents/src/roles/maker.ts";
 import { createTrader } from "../../examples/agents/src/roles/trader.ts";
-import { startAlphaPlatform, waitFor, type AlphaPlatform } from "../../scripts/alpha/platform.ts";
+import { HEARTBEAT_MS, startAlphaPlatform, waitFor, type AlphaPlatform } from "../../scripts/alpha/platform.ts";
 import type { RoleTick } from "../../examples/agents/src/lib/loop.ts";
 
 // One platform for the file. Agents run their ticks in process, on the wall clock of the platform:
@@ -401,12 +402,15 @@ test("a maker whose deposit is still unmined sends it again with the same nonce,
     }
     // Mining stops, the deposit is broadcast and the answer never arrives.
     lost = true;
+    await platform.heartbeat.pause();
     await rpc("evm_setAutomine", [false]);
     await send(request);
     throw new Error("request timed out");
   };
   try {
     await assert.rejects(() => maker(makerA.ctx), /request timed out/);
+    // Long enough for the heartbeat to have mined a block, had it not been paused.
+    await sleep(HEARTBEAT_MS * 1.5);
     assert.equal(await depositsOf(accounts.maker.address), 0, "the deposit is not mined");
     const saved = await loadState(makerA.stateDir);
     const attempt = JSON.parse(saved.acted["maker.deposit-attempt"]![0]!) as { nonce: number; hash?: string };
@@ -423,7 +427,11 @@ test("a maker whose deposit is still unmined sends it again with the same nonce,
     await rpc("evm_mine", []);
     await second;
   } finally {
-    await rpc("evm_setAutomine", [true]);
+    try {
+      await rpc("evm_setAutomine", [true]);
+    } finally {
+      platform.heartbeat.resume();
+    }
   }
   assert.deepEqual(nonces, [nonces[0], nonces[0]], "the second send reuses the nonce");
   assert.equal(await depositsOf(accounts.maker.address), 1, "exactly one deposit");
