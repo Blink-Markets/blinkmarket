@@ -65,3 +65,39 @@ Unfunded questions
 **Decision (the user answered "yes"):** a creator that wants to pay a bounty is a sponsor like any other and deposits the whole escrow before the first window opens.
 
 **Costs stated before the choice:** a question with no sponsor has no bounty, and there may be many such questions. If mainnet raises the per-market pair cap a hundredfold, the most a creator can recover becomes 1,250 to 2,500 bUSD, and the decision will be revisited then.
+
+## Round 2, 2026-11-22: Q10 for unfunded questions, and Q20
+
+### Two terms
+
+- **Buckets**: credit is kept separately by question length, for example questions that settle within weeks and questions that take months or years. Being good at short questions does not show skill at long ones.
+- **Sub-market**: a short question under a long one. Under the parent "who wins the 2028 election?", for example, a sub-market could ask "will this pollster's November average exceed 45%?"
+
+### Q10: what an unfunded question shows
+
+An unfunded question receives seven forecasts. Three agents that have done the work report 62%, 58% and 60%. Someone also opens four new identities that report 5% each, at a cost of 40 bUSD in registration fees plus 400 bUSD of deposits that come back later.
+
+| What is shown | The number on the website |
+| --- | --- |
+| The plain mean of all forecasts (the current code) | (62 + 58 + 60 + 4 × 5) ÷ 7 = 28.6% |
+| The median of all forecasts | 5% (four of the seven are 5%) |
+| Qualified forecasters only (the three agents have credit, the new identities do not) | 60%, labelled "unstaked" |
+| Nobody qualifies (common during cold start) | No number; the seven forecasts are listed |
+
+So 40 bUSD moves the plain mean from 60% to 28.6%.
+
+**Decision (the user answered "yes"):** when someone qualifies, show the median of the qualified forecasters, labelled "unstaked", meaning that no money stands behind the number. When nobody qualifies, show no number, only the list. The website then never shows a number that looks credible but can be moved for 40 bUSD. The label stays because, by cost 3 of Q9 in round 1, qualifying can also be bought, only more slowly.
+
+**Cost stated before the choice:** during cold start most unfunded questions have no number, only a list of forecasts, so the knowledge base will look empty at first. The other option was to show the plain mean on every question, with a clear label: unstaked, unweighted, and movable by fake identities. That option suits someone who values "every question has a number" over "the number cannot be bought cheaply".
+
+### Q20: a long question does not borrow credit from short ones
+
+Creator C has ties to a pollster and knows its monthly numbers in advance.
+
+1. C opens the sub-market "will this pollster's November average exceed 45%?", funds a small bounty itself, sets the starting baseline to 50%, and forecasts the right answer with several identities of its own. After settlement each of these identities has a positive relative score and qualifies in the short bucket. C pays little more than the registration fees: the bounty its identities collect and the entry fees they pay all move between C's own accounts. The bounty is far larger than the fees, so what is left in the pool is less than C's escrow and returns to C, the sponsor, in full; nothing is burned.
+2. With borrowing: the parent "who wins the 2028 election?" is a long question, and nobody has long-bucket credit yet, so the short bucket is used instead. C's identities then count as qualified forecasters on the parent and can steer the median it shows.
+3. Without borrowing: the credit C earned on the short question does not count on the parent, and the path is closed.
+
+**Decision (the user answered "yes"):** a long question counts only credit earned on long questions; the rule that borrows short-bucket credit when the long bucket has no qualified forecaster is removed. Sub-markets can still be opened and still show their prices and results; they no longer affect the parent's number in any way. The Q2 wording approved in section 12.7 of the record already assumes this.
+
+**Cost stated before the choice:** a long question has qualified forecasters only after other long questions settle and someone builds long-bucket credit. Until then, possibly for years, unfunded long questions show no number (given the answer to Q10). Funded long questions are unaffected, because they show the paid baseline.

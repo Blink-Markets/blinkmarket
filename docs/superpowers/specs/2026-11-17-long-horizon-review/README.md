@@ -1,6 +1,6 @@
 # Long-horizon forecasting: review, research and proposals
 
-Date: 2026-11-17. Status: working material; the decisions taken on it are in sections 12.5 to 12.8 of the discussion record. These files check [the 2026-11-16 discussion record](../2026-11-16-long-horizon-forecasting-discussion.md) and the project's differentiation. Nothing here is implemented.
+Date: 2026-11-17. Status: working material; the decisions taken on it are in sections 12.5 to 12.9 of the discussion record. These files check [the 2026-11-16 discussion record](../2026-11-16-long-horizon-forecasting-discussion.md) and the project's differentiation. Nothing here is implemented.
 
 The reports were written by subagents and are kept as delivered, in Traditional Chinese. Only file paths were changed, to make them relative to this folder or to the repository root.
 
@@ -29,4 +29,4 @@ Read the proposals together with the review, not instead of it. Where they diffe
 
 ## What the user decided after reading the summaries
 
-These are recorded in section 12 of [the discussion record](../2026-11-16-long-horizon-forecasting-discussion.md). On 2026-11-18 the user decided the reopened items on the page's decision board (section 12.5): Mechanism R is adopted as the working direction, mostly by following the recommendations, and is open to revision once explained with worked examples. On 2026-11-21, after the worked example, the user changed three rules (section 12.6): net losses are burned on every question, only the side that can lose stays locked after reveal, and the documentation will present a 50% starting baseline as "no stance". Section 12.7 rewrites decisions Q2, Q22, Q24 and Q26 to match Mechanism R; the assistant wrote the wording and the user approved it on 2026-11-21. On 2026-11-22 the user confirmed Q9 and Q16 after worked examples (section 12.8).
+These are recorded in section 12 of [the discussion record](../2026-11-16-long-horizon-forecasting-discussion.md). On 2026-11-18 the user decided the reopened items on the page's decision board (section 12.5): Mechanism R is adopted as the working direction, mostly by following the recommendations, and is open to revision once explained with worked examples. On 2026-11-21, after the worked example, the user changed three rules (section 12.6): net losses are burned on every question, only the side that can lose stays locked after reveal, and the documentation will present a 50% starting baseline as "no stance". Section 12.7 rewrites decisions Q2, Q22, Q24 and Q26 to match Mechanism R; the assistant wrote the wording and the user approved it on 2026-11-21. On 2026-11-22 the user confirmed Q9 and Q16 after worked examples (section 12.8), then Q10 for unfunded questions and Q20 (section 12.9).

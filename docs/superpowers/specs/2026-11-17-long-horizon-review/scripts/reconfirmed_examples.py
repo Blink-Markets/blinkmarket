@@ -4,11 +4,15 @@ Round 1 of the re-confirmation (discussion record 12.8, 2026-11-22):
   Q9  - why credit is a pass-or-fail threshold and not a weight, and why it is scored against
         a paid baseline (the free-consensus sybil example).
   Q16 - what a creator can recover from fees, and what an escrow of that size supports.
+Round 2 (discussion record 12.9, 2026-11-22):
+  Q10 - what an unfunded question shows: plain mean, median, and the qualified median.
+  Q20 has no numbers.
 Binomial sums are computed in log space, so a large n does not overflow.
 Run from this folder: python3 -I reconfirmed_examples.py
 """
 from decimal import ROUND_HALF_UP, Decimal
 from math import exp, lgamma, log, sqrt
+from statistics import median
 
 
 def m(x, sign=False):  # an amount in bUSD, rounded half up to cents once float noise is removed
@@ -73,3 +77,14 @@ print(f"  escrow {m(X)} supports a first-window allowance of {m(X)} / 0.25 = {m(
 for edge in (0.10, 0.05):
     print(f"  edge {edge * 100:.0f} points, whole allowance taken: expects {allowance:.0f} x {edge}^2 = "
           f"{allowance * edge ** 2:.3f} per window")
+
+print("\n== Q10 (round 2): an unfunded question with three agents and four new identities ==")
+agents = [0.62, 0.58, 0.60]
+sybils = [0.05] * 4
+everyone = agents + sybils
+REGISTRATION, DEPOSIT = 10, 100  # bUSD per identity; the deposit is refundable
+print(f"  four new identities cost {len(sybils) * REGISTRATION} bUSD in registration fees "
+      f"plus {len(sybils) * DEPOSIT} bUSD of refundable deposits")
+print(f"  plain mean of all seven: {sum(everyone) / len(everyone):.1%}")
+print(f"  median of all seven: {median(everyone):.0%}")
+print(f"  median of the three qualified agents: {median(agents):.0%}")
