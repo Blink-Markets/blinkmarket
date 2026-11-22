@@ -101,3 +101,79 @@ Creator C has ties to a pollster and knows its monthly numbers in advance.
 **Decision (the user answered "yes"):** a long question counts only credit earned on long questions; the rule that borrows short-bucket credit when the long bucket has no qualified forecaster is removed. Sub-markets can still be opened and still show their prices and results; they no longer affect the parent's number in any way. The Q2 wording approved in section 12.7 of the record already assumes this.
 
 **Cost stated before the choice:** a long question has qualified forecasters only after other long questions settle and someone builds long-bucket credit. Until then, possibly for years, unfunded long questions show no number (given the answer to Q10). Funded long questions are unaffected, because they show the paid baseline.
+
+## Round 3, 2026-11-22: Q19
+
+### Five terms
+
+- **Paid baseline**: on a funded question, the probability the contract computes at the end of each window. Moving it takes a stake, and a move in the wrong direction loses money.
+- **Allowance**: the most that all forecasts together can fill in one window. The sponsor sets it in advance, and it falls from window to window.
+- **Maker**: an agent that posts a price first and waits for others to buy. A maker that quotes off the baseline prices directly from it: with the baseline at 50%, for example, it sells YES at 53%.
+- **Follow depth**: how many shares a maker is willing to sell at prices taken from the baseline.
+- **Drag**: reporting a wrong probability on purpose, to push the baseline away from the true probability.
+
+### Q19: what the contract publishes about the cost of dragging the baseline
+
+Q19 was first about a sponsor that also trades. Since net losses are burned (section 12.6 of the record), a sponsor that drags the baseline of its own question pays too, so the published costs now concern anyone who drags the baseline, not only a sponsor that trades.
+
+A funded question:
+
+- This is the first of 18 windows. Its allowance is 1,000, and the allowance falls in equal steps, so the next window's is 1,000 × 17/18 = 944.4.
+- The entry fee rate is 0.02%.
+- The true probability and the baseline are both 50%.
+- Maker K quotes off the baseline with a 3-point spread.
+- A buyer pays a 1% trading fee on what it pays K, so a share bought at 43% costs 0.0043 more.
+- M wants to buy YES cheaply.
+
+```
+Window t     M reports 40% and takes the whole allowance of 1,000      baseline 50% → 40%
+             expected loss 1,000 × 0.1² = 10, entry fee 0.2
+                │
+                ▼
+             K sells YES at 43%, off the new baseline
+             M buys N shares: each is worth 0.50 on average, costs 0.43 and pays a fee of 0.0043
+             expected gain 0.0657 a share
+                │
+                ▼
+Window t+1   M reports 50% itself and takes the whole allowance of 944.4   baseline 40% → 50%
+             expects to win back 944.4 × 0.1² ≈ 9.444, entry fee 0.189
+```
+
+What one drag costs M can be counted two ways:
+
+- **Certain cost**: M drags the baseline and drags it back itself. It expects to pay 10 − 9.444 + 0.2 + 0.189, about 0.94. It is called certain because M makes both moves; the amount is still an average over the outcomes.
+- **Cost with a counterparty**: an honest forecaster corrects the baseline in window t+1 instead. M does not win back the 9.444, and the cost is 10.20.
+
+A maker cannot know in advance whether anyone will correct the next window, so it should count on the lower number, 0.94.
+
+| K's follow depth | M's expected trading gain | After the certain cost of 0.94 |
+| --- | --- | --- |
+| 14 shares | 0.92 | about 0 |
+| 136 shares (the review's "safe depth") | 8.94 | +8.0 |
+| 500 shares (the most one identity may buy) | 32.85 | +31.9 |
+
+- **Where 14 comes from**: the certain cost divided by what M gains per share, 0.94 ÷ 0.0657 ≈ 14. This is the safe depth. It is a break-even on average, not a guarantee, and it is the total across all makers that quote off the baseline, not the depth of each. It covers a mover without information; trading on real information is what the spread is for.
+- **Another drag size does not help M**: across drags of 4 to 40 points, the one best for M (about 12.6 points) gives a safe depth of 13.8 shares, still about 14.
+- **The review's 136 shares** were computed from the cost with a counterparty, about ten times too high.
+
+**Options:**
+
+- **(a) Publish one number, "what it costs to move the baseline 10 points".** If the number is 10.20, makers follow too deep; if it is 0.94, the cost when someone corrects the move does not show.
+- **(b) Publish a "safe follow depth".** That is the review's 136 shares, about ten times too high.
+- **(c) A read-only contract query returns the raw numbers and two computed costs.**
+  - Raw numbers: this window's and the next window's allowances, the entry fee rate, how much of its allowance the last window filled, and when the allowance runs out. After that the baseline is frozen and no longer updates.
+  - The two costs: the certain cost and the cost with a counterparty.
+  - Each maker decides how deep to follow. The reference maker (the maker among the project's reference agents in `examples/agents`) sizes its depth by the certain cost: about 14 shares in this example.
+- **(d) Stop recommending that makers use the baseline.**
+
+**Decision (the user answered "yes"):** (c). The original two parts of Q19 stay: a bounty cannot be withdrawn once escrowed, and there are no identity rules, because addresses are anonymous and a ban cannot be enforced. (a) and (b) each give a single number, but that number depends on whether anyone corrects the next window; the two cases differ about tenfold, and the contract cannot know in advance which will happen. (c) sets out both and lets each maker judge. (d) would give up the baseline's use for trading altogether, even on questions with large allowances, where the baseline is more reliable.
+
+**Costs stated before the choice:**
+
+1. On questions with small allowances the baseline is nearly useless for quoting: all the makers together can follow about 14 shares when the first window's allowance is 1,000, and about 575 when it is 40,000.
+2. Q26, as rewritten in section 12.7 of the record, says that information reaches trading indirectly through the baseline. On thinly traded questions that path is weak, and makers must rely on outside prices or their own models.
+3. The contract gets one more read-only function, but no new parameters.
+
+**What would change this:** if, once deployed, several independent forecasters reliably correct every window, the cost with a counterparty becomes the reasonable basis. Fake identities can make it look as if there are many, so relying on it is not recommended for now.
+
+**How these numbers differ from the proposals:** Q19 in [the proposals](reopened-decisions-proposals.md) gives a certain cost of 1.0 at an allowance of 1,000, and 38.2 (about 580 shares) at 40,000, because it charges both entry fees at the first window's allowance. This example charges the second fee at the next window's allowance (944.4 and 37,777.8), which gives 0.94 and 37.78 (about 575 shares). The conclusions do not change.

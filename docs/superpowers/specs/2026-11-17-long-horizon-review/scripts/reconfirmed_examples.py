@@ -7,6 +7,9 @@ Round 1 of the re-confirmation (discussion record 12.8, 2026-11-22):
 Round 2 (discussion record 12.9, 2026-11-22):
   Q10 - what an unfunded question shows: plain mean, median, and the qualified median.
   Q20 has no numbers.
+Round 3 (discussion record 12.10, 2026-11-22):
+  Q19 - the certain cost of dragging the paid baseline and dragging it back, the cost when someone
+        else corrects it, and how deep a maker that quotes off the baseline can safely follow.
 Binomial sums are computed in log space, so a large n does not overflow.
 Run from this folder: python3 -I reconfirmed_examples.py
 """
@@ -88,3 +91,63 @@ print(f"  four new identities cost {len(sybils) * REGISTRATION} bUSD in registra
 print(f"  plain mean of all seven: {sum(everyone) / len(everyone):.1%}")
 print(f"  median of all seven: {median(everyone):.0%}")
 print(f"  median of the three qualified agents: {median(agents):.0%}")
+
+print("\n== Q19 (round 3): drag the paid baseline, buy from a maker that quotes off it, drag it back ==")
+WINDOWS = 18  # the allowance falls in equal steps over 18 windows
+PHI = 0.0002  # entry fee rate, charged on the requested exposure
+SPREAD, TRADE_FEE = 0.03, 0.01  # maker K's spread off the baseline; the taker's 1% trading fee
+BASE, TRUE_P = 0.5, 0.5  # the baseline before the drag, and the true probability
+
+
+# bt is the first window's allowance; with equal steps the second window gets (WINDOWS - 1) / WINDOWS of it
+def next_allowance(bt):
+    return bt * (WINDOWS - 1) / WINDOWS
+
+
+def expected_relative(b, p, q):  # expected relative score per unit of exposure when the true probability is q
+    return q * relative(b, p, 1) + (1 - q) * relative(b, p, 0)
+
+
+def gain_per_share(d):  # M's expected gain on each YES share bought from K after a drag of d
+    price = BASE - d + SPREAD
+    return TRUE_P - price - TRADE_FEE * price
+
+
+def certain_cost(bt, d):  # M drags the baseline in window t and drags it back itself in window t+1
+    bn = next_allowance(bt)
+    drag = bt * expected_relative(BASE, BASE - d, TRUE_P)
+    back = bn * expected_relative(BASE - d, BASE, TRUE_P)
+    return -(drag + back) + PHI * (bt + bn)
+
+
+def contested_cost(bt, d):  # someone else drags it back in window t+1
+    return -bt * expected_relative(BASE, BASE - d, TRUE_P) + PHI * bt
+
+
+bt, d = 1_000.0, 0.10
+bn = next_allowance(bt)
+print(f"  allowance {bt:,.1f} in the first window and {bn:,.1f} in the second; drag {d * 100:.0f} points")
+print(f"  window t:   M reports {BASE - d:.0%}, expected loss {-bt * expected_relative(BASE, BASE - d, TRUE_P):.3f}, "
+      f"entry fee {PHI * bt:.3f}")
+print(f"  window t+1: M reports {BASE:.0%}, expected gain {bn * expected_relative(BASE - d, BASE, TRUE_P):.3f}, "
+      f"entry fee {PHI * bn:.3f}")
+per = gain_per_share(d)
+print(f"  K sells YES at {BASE - d + SPREAD:.2f}; M expects {per:.4f} a share")
+certain = certain_cost(bt, d)
+print(f"  certain cost {certain:.4f}; cost with a counterparty {contested_cost(bt, d):.4f}")
+for n, label in ((round(certain / per), "certain cost / gain per share"), (136, "the review's safe depth"),
+                 (500, "the cap per identity")):
+    print(f"  {n:>3} shares ({label}): gain {m(n * per)}, after the certain cost {m(n * per - certain, True)}")
+print(f"  safe depth, the total across all makers that quote off the baseline: {certain:.4f} / {per:.4f} = "
+      f"{certain / per:.1f} shares")
+drags = [i / 1000 for i in range(40, 401)]
+best = min(drags, key=lambda x: certain_cost(bt, x) / gain_per_share(x))
+print(f"  smallest safe depth over drags of 4 to 40 points: {certain_cost(bt, best) / gain_per_share(best):.1f} shares "
+      f"(at {best * 100:.1f} points)")
+big = 40_000.0
+print(f"  first-window allowance {big:,.0f}: certain cost {certain_cost(big, d):.2f}, "
+      f"safe depth {certain_cost(big, d) / per:.0f} shares")
+print("  the proposals charge both entry fees at this window's allowance:")
+for B in (bt, big):
+    alt = certain_cost(B, d) + PHI * (B - next_allowance(B))
+    print(f"    allowance {B:,.0f}: certain cost {alt:.1f}")
