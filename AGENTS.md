@@ -23,6 +23,22 @@ this instruction.
 - This authorization covers source-control checkpoints only; it does not authorize
   deployment, paid services, signing, or broadcasting blockchain transactions.
 
+## Project conventions
+
+- Internal docs (`docs/`, specs, plans, ADRs, delivery and operations docs,
+  package READMEs) are written in English only. Exceptions: `README.zh-TW.md`
+  and other `*.zh-TW.md` companions stay Chinese; quoted user words stay in the
+  original language with an English gloss; literal zh-TW product copy (UI
+  strings, fixtures) stays as is.
+- Tracked files never describe a particular machine or account: no OS or
+  library versions of a dev host, absolute or home paths, hand-made container
+  names, local tool setups or agent-sandbox limits. Record verification limits
+  as facts ("not run locally; CI ran it").
+- The website and the intro video introduce the product: no project-status
+  labels, no competitor comparisons, and media shown inline.
+- Commit with your own identity linked to your GitHub account; never rewrite
+  pushed history to fix authorship.
+
 ## Agent roles and delegation
 
 These rules apply to any coding agent working in this repo, whatever the tool or
@@ -48,7 +64,8 @@ Dispatching:
 - A brief states the goal, the files in scope, the constraints, the
   verification commands to run, and what to report back. Point at plan or spec
   files instead of pasting them.
-- Tell every agent that internal docs are written in English.
+- Tell every agent the project conventions above, especially that internal docs
+  are written in English.
 - The controller owns collection: wait for every dispatched agent, read its
   report, and integrate the result before reporting. A dispatched task is not a
   finished task.

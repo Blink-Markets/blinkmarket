@@ -4,7 +4,7 @@ For the project introduction, see the [README](../README.md). This page holds th
 
 ## Local startup
 
-Requirements: Node.js 22.23.1 and pnpm 11.20.0. The versions are written in .nvmrc / packageManager. Use existing tools whose versions match. Contract tests use the pinned Foundry through `scripts/foundry.mjs`; Docker is needed for the PostgreSQL suites on a host without a local PostgreSQL.
+Requirements: Node.js 22.23.1 and pnpm 11.20.0. The versions are written in .nvmrc / packageManager. A Node version manager that reads `.nvmrc` (for example `nvm install` or `fnm use`) provides Node 22.23.1, and `corepack enable` provides the pnpm version from `packageManager`. Contract tests use the pinned Foundry through `scripts/foundry.mjs`; Docker is needed for the PostgreSQL suites on a host without a local PostgreSQL.
 
 ```sh
 pnpm install --frozen-lockfile
