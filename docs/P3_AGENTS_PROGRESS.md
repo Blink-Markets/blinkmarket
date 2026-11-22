@@ -199,3 +199,19 @@ Tasks 1–7 and 7b are merged; CI is green. The whole-branch P3 review remains o
 This fix round adds wallet-challenge validation against the API origin and requested operation, proposer appeal reconciliation, maker redemption of positions from fills, and independently enforced scenario deadlines. Agent guides now distinguish protocol Unix seconds from ISO-8601 timestamps and list all eight roles. The uncertain-fill timeout and CDP masking limitations remain as recorded above. On `969eb38`, `pnpm typecheck` and `pnpm check:boundaries` passed, `pnpm check` passed 641/641, `pnpm test:postgres` 37/37, `pnpm test:anvil` 73/73, `forge test --root contracts` 240/240, and the PostgreSQL autonomous test 3/3 in 1080 s.
 
 The scoped re-review found all six findings addressed and one wording regression, since fixed. The fixes merged to main as `3e61fcb` with CI green, which closes the P3 review.
+
+## Flaky maker-deposit test — 2026-11-22
+
+The `tests/anvil/agents-market-roles.test.ts` test "a maker whose deposit is still unmined sends it again with the same nonce, and exactly one deposit lands" failed once in CI (run 45004554067 on `03e1b65`, first attempt) and passed on the rerun. The fix merged as `39c97c3`.
+
+- **Cause.** The alpha platform's heartbeat calls `anvil_mine` every second. `anvil_mine` also mines the pending pool while automine is off, so the test's "not mined" assertion passed only when it ran before the next tick.
+- **Fix.**
+  - `scripts/alpha/platform.ts` starts the heartbeat through `startHeartbeat`, which returns `stop`, `pause` and `resume`.
+  - A tick is skipped while the heartbeat is paused or a block is still being mined. `pause()` waits for that block, so no heartbeat block lands until `resume()`.
+  - The test pauses the heartbeat before it turns automine off, and resumes it in a nested `finally` once automine is back on. It waits 1.5 heartbeat intervals before the assertion, so the race would show every time if it came back. The assertion is unchanged.
+  - A test that turns automine off to hold a transaction pending must pause the heartbeat first.
+- **Verification.**
+  - Before the fix, a block forced into that window, and the real heartbeat with the pause removed, both failed the assertion.
+  - After the fix: `pnpm check` 669/669, `pnpm test:anvil` 73/73, and the test file 10/10 three times.
+  - `pnpm alpha:local` was not run locally. CI run 45019282161 on `39c97c3` passed every job: check, contracts, postgres, browsers and alpha-local.
+  - The nightly autonomous drill uses the same platform. It is pending until its first run after the fix.
