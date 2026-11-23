@@ -150,7 +150,7 @@ The attack behind Q25: a sponsor who is also the resolution source (a child mark
   - **Measured:** Brier at 8, 4 and 1 weeks before resolution, and the inference cost of each arm.
   - **Threshold, fixed in advance:** the "different models with their own tools" arm must beat "one model asked once" by at least 10% in Brier at 8 weeks, with a confidence interval that excludes zero. The 10% is the assistant's starting figure; the user may change it before seeing results. *Replaced by Q21 (c) (12.5), confirmed in 12.11: arm 4 is compared with arm 2, and the experiment is an estimate, not a gate; direction 3 is shelved only if the upper end of the 95% interval falls below the smallest useful improvement registered before the experiment.*
   - **If it fails:** direction 3 is shelved, together with the bounty part of the sponsor role. Directions 1 and 2 and the credit changes of Q9 and Q10 remain. *Under Q21 (c) (12.11), it fails only if the upper end of the 95% interval falls below the smallest useful improvement registered before the experiment.*
-- **Staging (Q13) [Accepted].** Direction 1 is built as planned. Direction 2 is tried on one question that has real intermediate events. Direction 3 is written as a full specification and run through attack scenarios in an agent simulation (in the manner of Maresca); it enters the next deployment generation only after passing. The contracts cannot be upgraded, so an error in direction 3 can be caught only before deployment.
+- **Staging (Q13) [Accepted].** Direction 1 is built as planned. Direction 2 is tried on one question that has real intermediate events. Direction 3 is written as a full specification and run through attack scenarios in an agent simulation (in the manner of Maresca); it enters the next deployment generation only after passing. The contracts cannot be upgraded, so an error in direction 3 can be caught only before deployment. *Decided on 2026-11-23: the simulation uses both scripted strategies and LLM participants that look for profitable strategies within the rules. The simulation plan estimates the cost of the LLM runs, and the user approves it before they run.*
 
 > **[Review]** The experiment's threshold compares the wrong arms (finding 12). Arm 4 against arm 1 can pass through averaging or a search tool alone, which is not independent information; arm 4 against arms 2 and 3 tests that. Only questions with a horizon of at least 8 weeks count at the 8-week mark. Under the reviewer's assumptions, a true improvement of about 8% would pass roughly 16% of the time with 100 questions. The comparison with external market prices (Q1b) is left untested.
 
@@ -259,7 +259,7 @@ The user chose on the decision board of the review page: 22 cards, one per reope
 | Q20 Sub-markets | (b) | The fallback from the long-horizon bucket to the short-horizon bucket is removed. *Confirmed on 2026-11-22 after a worked example (12.9).* |
 | Q23 Two-sided markets | (c) | "A bountied question's settlement source must not be controlled by a single private party" becomes a ground for a creation challenge. Pollsters take part as forecasters on election-result questions instead. *The challenge ground was withdrawn on 2026-11-21 (12.6); the part about pollsters stays.* |
 | Q21 The first experiment | (c) | Compare group 4 with group 2, adding external market prices, cost per dollar and marginal contribution. The experiment is an estimate, not a gate: register the smallest useful improvement first, and shelve direction 3 only if the upper end of the confidence interval falls below it. *Confirmed on 2026-11-22 after a worked example (12.11).* |
-| Q7 Interest-bearing collateral | (b) | A whole generation accounts in one vault share, and interest goes to the share holders. No vault is chosen yet. The user's note: "我們先不討論這種穩定幣被暫停等情況，太極端的狀況了" — the case of a stablecoin issuer pausing or freezing funds is set aside for now as too extreme. *Confirmed on 2026-11-22 after a worked example, with a fallback to (c) if no candidate vault has acceptable permissions (12.12).* |
+| Q7 Interest-bearing collateral | (b) | A whole generation accounts in one vault share, and interest goes to the share holders. No vault is chosen yet. The user's note: "我們先不討論這種穩定幣被暫停等情況，太極端的狀況了" — the case of a stablecoin issuer pausing or freezing funds is set aside for now as too extreme. *Confirmed on 2026-11-22 after a worked example, with a fallback to (c) if no candidate vault has acceptable permissions (12.12).* *Kept on 2026-11-23 after the vault survey (12.13).* |
 
 **The five unflagged decisions.** Q22 (the sponsor only pays), Q26 (funding goes only into forecast bounties), Q24 (sponsors fund only existing markets) and Q2 (the problem restated as feedback delay) are reopened, to be rewritten for Mechanism R (done in 12.7). Q6 (merge kept out of this problem) is deferred; it matters only if forecast positions become transferable, which Q8 (a) does not do.
 
@@ -381,3 +381,34 @@ Round 5 asked whether collateral should earn interest (Q7), the last provisional
 - The proposals put the drift at about a tenth over two years, which fits about 5% a year, and say the check is not redone. At 4% the drift is 8.2%, and the bound is checked again whenever a juror requests to unstake.
 
 **What is left.** Every provisional decision of 12.5 is now confirmed; Q6 stays deferred. The vault is still to be chosen, starting with reading each candidate vault contract's permissions. On 2026-11-23 the user chose to go one stage at a time ("q1依照建議一步步處理比較保險 q2是 q3是", "Q1: as recommended, one step at a time is safer; Q2: yes; Q3: yes"): first the vault survey and a design spec for the next contract generation, then the attack simulation of Q13, an implementation plan and the code; direction 1 in parallel; P5 after the next generation is written. See the [roadmap](../../ROADMAP.md).
+
+### 12.13 The vault survey, 2026-11-23 [User]
+
+12.12 kept Q7 (b) provided that at least one candidate vault has acceptable permissions. A survey on 2026-11-23 read the interest-bearing USDC vaults on Base. It assumed Base mainnet and native USDC, because the testnet runs on Base Sepolia; the mainnet chain and stablecoin are not decided. The survey is in [vault-permissions-survey.md](2026-11-17-long-horizon-review/vault-permissions-survey.md). The user kept (b) ("V1 - Q7 維持 (b)", "V1, Q7: keep (b)"; V1 was that day's question number).
+
+- **What the survey found.**
+  - Only Morpho vaults (MetaMorpho V1 and Morpho Vault V2) meet the strictest of its three levels, with caveats:
+    - the vault cannot be upgraded;
+    - no role can pause or gate withdrawals;
+    - no function sends deposits to an arbitrary address;
+    - enabling a new lending market or raising a cap waits in a public timelock of at least three days; the owner's instant powers, listed under the costs below, are the caveat.
+  - A Morpho vault has a curator, who decides which lending markets the money may go to, and allocators, who move it among those markets within caps.
+  - Aave (through its ERC-4626 wrapper), Fluid, Spark and Euler fail that level, because they can be upgraded or can pause withdrawals. Compound v3 has no ERC-4626 interface on Base.
+- **The decision.**
+  - Q7 stays (b); the fallback to (c) is not needed.
+  - The design assumes the strictest level.
+  - Payouts and refunds are paid in vault shares, so the generation never has to redeem shares and does not depend on the vault's liquidity.
+  - A fall in the share price is shared by all holders in proportion to their shares. Q25's rule that a sponsor gets back no more than it deposited still counts shares, as 12.12 decided.
+  - The testnet uses a mock vault.
+  - The vault is chosen right before the mainnet generation, after a fresh survey.
+- **Costs stated before the choice.**
+  - Principal can still be lost. Bad debt in a market the curator enabled lowers the share price, and every holder in the generation bears it.
+    - In November 2025 some USDC vaults lost about 3.5% to 12% (Stream xUSD).
+    - In March 2026 about 6.2 million dollars of bad debt was left across 11 vaults (Resolv).
+    - These figures come from news reports and were not checked on-chain.
+  - The vault's owner can, without delay, replace the curator and the allocators and raise the fee to at most 50% of the interest. No role can send deposits to an arbitrary address, but the owner can appoint a new allocator at once (on some V2 vaults only after a delay), and an allocator can at once move funds among the markets already enabled, within their caps. *The question put to the user said that the owner could not touch principal; the assistant corrected this to the user the same day.*
+  - When the vault's markets are fully borrowed, holders wait for repayments before they can redeem shares for USDC.
+  - A generation cannot change its vault; changing it takes a new generation.
+  - The stablecoin's issuer can upgrade the token contract, pause transfers and freeze any address. This layer was set aside in 12.5.
+  - The survey must be repeated before mainnet, because vaults and their risks change quickly.
+- **Still open.** Whether to add a circuit breaker that anyone can trigger on an on-chain condition when the vault becomes unsafe, and which condition would avoid false triggers. A condition that fires on any pending change may fire often. The next-generation design spec checks this and puts the question to the user.

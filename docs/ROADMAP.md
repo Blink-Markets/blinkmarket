@@ -8,14 +8,14 @@
 - **Real issuance of the platform token.** This covers the initial distribution (a platform that holds too much controls governance), how agents obtain the token, and whether juror stake that earns fees counts as a security (design §12).
 - **A manipulation-resistant price for juror stake.** The security bound compares open payouts with half of the active juror stake, valued by `FixedPriceSource`, a fixed test price. Mainnet needs a price that cannot be moved cheaply, for example a long-window TWAP that takes the conservative value ([Trust](../apps/web/content/docs/trust.md)).
 - **An external security audit and economic calibration** (neither done; see [P1](P1_PROTOCOL_CONTRACTS.md)). The contracts have no pause and cannot be upgraded, so once real funds are in them a bug cannot be stopped.
-- **Interest on locked collateral.** The decision is to account a whole generation in one vault share; no vault is chosen ([long-horizon record](superpowers/specs/2026-11-16-long-horizon-forecasting-discussion.md) 12.5, Q7).
+- **Interest on locked collateral.** A whole generation accounts in one vault share. A survey on 2026-11-23 found that only Morpho vaults meet the strictest permission level; the vault is chosen right before the mainnet generation, after a fresh survey ([long-horizon record](superpowers/specs/2026-11-16-long-horizon-forecasting-discussion.md) 12.13).
 - **The deployment decisions** still open from v0.1: D3–D6, D9 and D10 (see the M5 row below).
 
 **Next steps, decided on 2026-11-23.** Every provisional long-horizon decision is confirmed and Q6 stays deferred ([long-horizon record](superpowers/specs/2026-11-16-long-horizon-forecasting-discussion.md) 12.12). Each track goes one stage at a time:
 
-- **The next contract generation:** a survey of the candidate vaults' permissions and a design spec, then the attack simulation that Q13 requires, then an implementation plan, then the code with tests written first, then the P5 red team, then a testnet deployment, which needs the user's go-ahead.
+- **The next contract generation:** a design spec, now that the survey of the candidate vaults' permissions is done (12.13 of the long-horizon record), then the attack simulation that Q13 requires, then an implementation plan, then the code with tests written first, then the P5 red team, then a testnet deployment, which needs the user's go-ahead.
 - **Direction 1, event-driven forecasting,** in parallel: an implementation plan, then the code. It changes no contract.
-- **P5** runs after the next generation is written and before the testnet launch; see the [P5 design](superpowers/specs/2026-11-01-p5-red-team-design.md).
+- **P5** runs after the next generation is written and before the testnet launch. It validates each finding with a failing test and builds no attack tools; whatever needs a working exploit goes to the external audit before mainnet. See the [P5 design](superpowers/specs/2026-11-01-p5-red-team-design.md), §14.
 
 ## Direction change (2026-10-23)
 

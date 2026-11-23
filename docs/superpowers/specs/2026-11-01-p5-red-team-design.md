@@ -1,6 +1,6 @@
 # P5: Red-team Blink before the testnet launch — design
 
-Date: 2026-11-01. Status: discussion record. The user approved this design on 2026-11-01; P5 stopped before an implementation plan was written. On 2026-11-23 the user scheduled P5 after the next contract generation is written and before the testnet launch, so that it attacks the new contracts as well as the rest of the scope in §4. Recon notes: [2026-11-01-p5-red-team-recon.md](2026-11-01-p5-red-team-recon.md).
+Date: 2026-11-01. Status: discussion record. The user approved this design on 2026-11-01; P5 stopped before an implementation plan was written. On 2026-11-23 the user scheduled P5 after the next contract generation is written and before the testnet launch, so that it covers the new contracts as well as the rest of the scope in §4; §14 records how its method changed on that day. Recon notes: [2026-11-01-p5-red-team-recon.md](2026-11-01-p5-red-team-recon.md).
 
 ## 1. Intent
 
@@ -15,7 +15,7 @@ P5 is the red-team phase that sits between the finished vision (P1–P4) and the
 | R1 | P5 is a self-review before the testnet launch, done by AI agents with open-source tools. A formal external audit before mainnet is a separate later step ("對，這樣切沒問題"). |
 | R2 | Done means: every attack that has happened before and every common attack is covered, and each is covered by a test guarantee, a mechanism guarantee or a mathematical guarantee ("紅隊測試完起碼要有發生過以及常見的漏洞或攻擊都測試過，無論是測試保證或是機制保證甚至是數學上保證"). |
 | R3 | No human steps in. Humans jumping in to shut down an agents-only market would be wrong ("全agents自主交易的市場由人為跳下去關機也有點奇怪"). Responses are mechanisms written in advance. A circuit breaker triggered by an on-chain condition, which anyone can trigger, is acceptable because it is a rule, not a person. |
-| R4 | The scope in §4, including spam and resource-exhaustion attacks, and per-unit capacity measurement (§9) in the same phase ("沒問題，這樣可以"). |
+| R4 | The scope in §4, including spam and resource-exhaustion attacks, and per-unit capacity measurement (§9) in the same phase ("沒問題，這樣可以"). *Changed on 2026-11-23 (§14): spam and resource exhaustion are checked through the limits and the capacity model, with no standalone load-generation tool; load stays local and bounded.* |
 | R5 | Changes to the protocol's mechanisms or economics (circuit breakers, the quorum rule, the tie stall, sybil limits) are gathered into one proposal; the user approves it before any of it is built. Plain bugs, where the code does not do what the design says, are fixed directly. The plan has a user gate between the findings and the mechanism changes. |
 | R6 | Launch gate: every confirmed Critical and Important finding is fixed. A known limitation that cannot be removed may pass with a proven maximum loss and an entry in the public residual-risk register. The red team computes recommended market caps from the economic numbers; the user approves them. |
 | R7 | The red team thinks like a malicious user whose aim is profit or taking the service down, and hunts the hidden holes that appear where the parts of a complex architecture reference each other: a chain of steps across contracts, services and agents, each harmless alone ("以惡意使用者的角度，以獲利、癱瘓服務為出發點，針對複雜架構下彼此引用產生的隱藏漏洞攻擊"). The matrix (§5) is the floor; attacker goals and cross-component chains (§8.1) are the main hunt. |
@@ -110,7 +110,7 @@ The hunt starts from the attacker's goal, not from a checklist (R7). Two goals: 
 
 The structure follows Cloudflare's security-audit method (MIT): reconnaissance produces the attack-surface map, the trust-edge map and a coverage ledger; hunters work one ledger unit (a component or a trust edge) each; every candidate goes to a fresh verifier whose job is to disprove it; results are recorded as `confirmed`, `needs_validation` or `rejected`; a final pass rechecks the record against the code. A hunter never verifies its own finding.
 
-Roles follow this project's practice: Codex Terra hunts and fixes, Codex Astra verifies and reviews, Haiku agents do read-only reconnaissance in parallel, Sonnet stands in when Codex is out of budget. Docker-based tools run where Docker is available (the controller or a Sonnet agent), because an implementer's environment may have no Docker or sockets.
+Roles follow the agent roles in `AGENTS.md`: implementers hunt and fix, a different agent verifies and reviews, and explorers do read-only reconnaissance in parallel. Tools that need Docker run on a host that has it; where none is available, the run is reported as not run (`AGENTS.md`, "Definition of done").
 
 ### 8.2 Findings format
 
@@ -126,7 +126,7 @@ Reuse Cloudflare's `report-schema.json` and its two validators (`validate-findin
 
 ## 9. Capacity measurement
 
-Measured locally against the real services: queries and CPU per request for the main read and write paths, indexer catch-up at 10× and 100× synthetic event volume, database growth per market, and the journal membership audit that P2 left unmeasured. The output is a capacity model ("one vCPU serves about N agents at this mix") and recommended rate limits and alert thresholds. After a deployment, one light test on the chosen host calibrates the model; that test is not part of P5.
+Measured locally against the real services, with bounded load: queries and CPU per request for the main read and write paths, indexer catch-up at 10× and 100× synthetic event volume, database growth per market, and the journal membership audit that P2 left unmeasured. The output is a capacity model ("one vCPU serves about N agents at this mix") and recommended rate limits and alert thresholds. After a deployment, one light test on the chosen host calibrates the model; that test is not part of P5.
 
 ## 10. Deliverables
 
@@ -146,7 +146,7 @@ Measured locally against the real services: queries and CPU per request for the 
 - Local only: Anvil, local PostgreSQL, Docker. No public-chain transaction, no paid service, no live LLM demo.
 - Never read key material or secret env files outside the repository (including the file `BLINK_CDP_ENV` points at) or the shell profile's secrets; tests use fixture keys.
 - Docs and commits in English; commit and push each verified stage (AGENTS.md).
-- Pace the work to the Codex budget; independent work continues on Claude agents when Codex is at its limit.
+- If an agent stops on a usage limit, the same agent finishes the task when it can, and independent work continues meanwhile (`AGENTS.md`).
 
 ## 12. Author's calls (please check)
 
@@ -165,3 +165,15 @@ Measured locally against the real services: queries and CPU per request for the 
 - How the prompt-injection tests are built (fixture LLM responses or a recorded transcript; no paid model).
 - Whether the standing suite runs per push or nightly, within CI time.
 - Whether the copied Cloudflare files live under `security/` or `docs/`.
+
+## 14. Changes on 2026-11-23 [User]
+
+The user scheduled P5 after the next contract generation is written and before the testnet launch, and agreed to the changes to its method listed below ("Q4Q5是 Q6是，會交給外部稽核去處理", "yes to Q4, Q5 and Q6; the external audit will handle it"). These were the numbers of that day's questions, not decisions Q4 to Q6 of the long-horizon record: Q4 was the method of the Q13 attack simulation (long-horizon record, section 8), Q5 was P5's schedule, and Q6 was the method that follows:
+
+- **P5 is a defensive review.** It finds, validates and fixes. Each finding is validated by a minimal failing test that reproduces the broken state. An example is a Foundry test that calls commit, reveal and settlement in order and then asserts that a sponsor gets back no more than it deposited. The test fails before the fix and stays as a regression test. P5 builds no standalone attack tools or working exploits. The test guarantee of §6 and the end-to-end chain tests of §8.1 stay: they are tests in the repository, reduced to the smallest failing case, not standalone tools.
+- **Whatever needs a working exploit goes to the external audit.** A finding that cannot be confirmed without one is recorded as `needs_validation` and handed to the external audit before mainnet (R1).
+- **Spam and resource exhaustion** (R4, area 3, and the matrix row of that name) are checked through the limits (rate limits, caps, gas bounds), each with a bounded local test, and through the capacity model of §9, which is measured only locally, with bounded load. P5 builds no standalone load-generation or denial-of-service tool.
+- **Prompt injection against the project's own reference agents** stays in scope, as §12 describes.
+- **Third-party contracts are only read.** Any vault that the next generation's collateral uses, and the stablecoin, are read but not tested. Their admin powers (pausing, a loss, a replaced implementation) are simulated with a mock vault, or with a local fork that broadcasts no transaction.
+
+Not a decision of that day: the roles in §8.1 and the pacing rule in §11 were rewritten to follow `AGENTS.md` instead of naming particular agents and tool budgets.
