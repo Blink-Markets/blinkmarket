@@ -1,12 +1,15 @@
 # Publishes the static web showcase (apps/web) to GitHub Pages at https://blinkmarket.xyz/, the custom domain set in
 # the repository's Pages settings. The build has no base path; see docs/DOMAIN.md.
 # Only the static site is deployed; there is no API, chain or wallet backend behind it.
+# It deploys only after the CI workflow "Blink checks" passes for a push to main, and builds that exact commit.
+# A push that CI skips (see its paths-ignore) starts no CI run, so it starts no deploy either.
 name: Deploy web to GitHub Pages
 on:
-  push:
+  workflow_run:
+    workflows: ["Blink checks"]
+    types: [completed]
     branches: [main]
-    # The paths ci.yml ignores; the web build reads none of them. Keep the two lists in step.
-    paths-ignore: ["docs/superpowers/**", "docs/*_PROGRESS.md", "docs/ROADMAP.md", "AGENTS.md"]
+  # Manual deploy of the dispatched ref.
   workflow_dispatch:
 permissions:
   contents: read
@@ -17,9 +20,14 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
+    # Only a green push run of CI deploys; a pull request from a branch named main must not.
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The commit CI tested (workflow_run runs on the default branch's latest commit otherwise).
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: 11.20.0
