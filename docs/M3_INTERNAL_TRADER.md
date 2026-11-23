@@ -96,7 +96,7 @@ Before it can trade, an operator must arrange, all outside this code:
 
 ## Verification
 
-Run on 2026-10-15 (first version) and 2026-10-16 (fix round 1, whose numbers are below) in the task worktree against local PostgreSQL 17 and a local Anvil with chain ID 84532. No network, real key, deployment or paid service was used.
+Run on 2026-10-15 (first version) and 2026-10-16 (fix round 1, whose numbers are below) against local PostgreSQL 17 and a local Anvil with chain ID 84532. No network, real key, deployment or paid service was used.
 
 - `pnpm check`: exit 0, 524 Node tests, typecheck, contract compilation and package boundaries.
 - `pnpm build`: exit 0.

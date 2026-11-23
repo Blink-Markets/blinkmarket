@@ -63,9 +63,8 @@ Verified locally on 2026-10-15:
   31 tests including real-role observability grants and percentile calculations.
 - `pnpm test:anvil`: passed, 44 tests on local chain ID 84532.
 - `pnpm build:services && pnpm test:service-build`: passed, 5 bundle tests.
-- `pnpm build`: the first run was blocked by Google Fonts access and passed with
-  temporary offline font fixtures as described below; the ordinary run passed
-  in the fix round.
+- `pnpm build`: at first only a build with mocked font responses was verified,
+  as described below; the ordinary build passed in the 2026-10-15 fix round.
 - Acceptance matrix validation: all 27 required cases appear exactly once and
   all referenced existing test files existed; the Alpha harness was pending at that checkpoint and is now integrated (see [Local Alpha](M5_LOCAL_ALPHA.md)).
 - `git diff --check`: passed.
@@ -73,10 +72,9 @@ Verified locally on 2026-10-15:
 The first full check found the new metrics contract missing from the architecture
 route registry; the registry was corrected, the targeted five tests passed and
 the complete check then passed.
-The ordinary web build needs external Google Fonts downloads, which this task
-does not authorize. An additional full build with temporary CSS fixtures serving
-installed local font bytes verifies Turbopack source exports and prerendering;
-it does not verify production font downloads or appearance.
+The ordinary web build downloads Google Fonts. A full build with mocked font
+responses verifies Turbopack source exports and prerendering; it does not verify
+production font downloads or appearance.
 
 ## Remaining work
 
@@ -114,6 +112,5 @@ schemas; owner sessions using SET ROLE are refused.
 Verification: `pnpm check` passed (598 tests); `pnpm test:postgres` passed (50);
 `pnpm test:anvil` passed (50); `pnpm build:services && pnpm test:service-build`
 passed (5). A final `pnpm typecheck` and `git diff --check` also passed.
-The ordinary web build could not fetch Geist, Geist Mono and Kalam from Google
-Fonts. This slice does not claim deployment or completion of the remaining
-milestone work.
+The ordinary web build was not verified locally in this fix. This slice does
+not claim deployment or completion of the remaining milestone work.

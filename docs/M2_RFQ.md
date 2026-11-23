@@ -74,11 +74,11 @@ M1–M5 are addressed: signed-only GET documentation, payload conflicts under ad
 
 The dedicated pool is the smaller safe change: it preserves the admission transaction and collateral lock ordering while preventing slow chain RPC from exhausting the pool used by other API routes. RFQ authentication and snapshot reads use that pool too; readiness stays on the general pool.
 
-Follow-up verification (2026-10-15): `pnpm check` passes all 498 tests plus contracts, types and package boundaries; `pnpm build:services && pnpm test:service-build` passes all 5 bundle tests; `pnpm test:anvil` passes 44 tests; the PostgreSQL suite on the dedicated local server passes all 33 tests with none skipped. The ordinary `pnpm build` is blocked by existing Google Fonts downloads under the restricted-network constraint; the full build passes with temporary `NEXT_FONT_GOOGLE_MOCKED_RESPONSES` and installed font bytes served over loopback (all 36 static pages). This validates compilation and source exports, not production font downloads or appearance. No tracked font configuration or generated artifacts changed.
+Follow-up verification (2026-10-15): `pnpm check` passes all 498 tests plus contracts, types and package boundaries; `pnpm build:services && pnpm test:service-build` passes all 5 bundle tests; `pnpm test:anvil` passes 44 tests; the PostgreSQL suite on the dedicated local server passes all 33 tests with none skipped. The ordinary `pnpm build` was not verified locally; a full build with temporary mocked Google Fonts responses (`NEXT_FONT_GOOGLE_MOCKED_RESPONSES`) passes, with all 36 static pages. This validates compilation and source exports, not production font downloads or appearance. No tracked font configuration or generated artifacts changed.
 
 ## Verification (original Task 9)
 
-Run on 2026-10-15 in the task worktree against local PostgreSQL 17 and a local Anvil with chain ID 84532.
+Run on 2026-10-15 against local PostgreSQL 17 and a local Anvil with chain ID 84532.
 
 - `pnpm check`: exit 0, 484 Node tests, package boundaries pass.
 - `pnpm build`: exit 0.

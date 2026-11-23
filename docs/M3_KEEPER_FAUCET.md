@@ -32,7 +32,7 @@ Admission uses `pg_advisory_xact_lock(hashtextextended(...))` over a JSON-encode
 Fix round 1 addresses all three Important review findings; the results below include the fix-round verification.
 
 - `pnpm check`: passed, 447 unit/integration tests, typechecks, contract compilation and package boundaries.
-- `pnpm build`: ordinary build blocked by existing Google Fonts downloads under the no-external-network constraint. The same Turbopack build passed with `NEXT_FONT_GOOGLE_MOCKED_RESPONSES` and installed local font bytes served on loopback. This verifies source exports and application compilation, not production font downloads or font appearance.
+- `pnpm build`: the ordinary build was not verified locally. The same Turbopack build passed with mocked Google Fonts responses (`NEXT_FONT_GOOGLE_MOCKED_RESPONSES`). This verifies source exports and application compilation, not production font downloads or font appearance.
 - `pnpm build:services && pnpm test:service-build`: passed, all five bundle smoke tests.
 - `pnpm test:anvil`: passed, 41 tests. Task 13 exercises the real API, signer HTTP service, dispatcher and indexer; successful mint, mint reorg, signer outage, proposal finalization, late unchallenged revert, timeout finalization, reverted mint, same-intent dead-job recovery, allocated-plan signing recovery after another caller finalizes, and both terminal faucet outcomes after ten failed settlement attempts.
 - `TEST_POSTGRES_ADMIN_URL=... pnpm test:postgres`: passed, 27 tests, including API guard-key UPDATE denial and five concurrent claims with two API keys sharing a wallet producing exactly one 202 and four FAUCET_PENDING responses.

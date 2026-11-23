@@ -59,7 +59,7 @@ Mutation checks (temporary, reverted): removing each of nine checks from `verify
 
 ## Verification
 
-Run on 2026-10-15 in the task worktree against a local Anvil with chain ID 84532. No network beyond loopback, no real key, no deployment.
+Run on 2026-10-15 against a local Anvil with chain ID 84532. No network beyond loopback, no real key, no deployment.
 
 - `pnpm check`: exit 0, 537 Node tests (42 new: 13 in `client-verify-quote`, 29 in `client`), typecheck of the repository and the web app (now including `examples/`), contract compilation, package boundaries.
 - `pnpm build`: exit 0 (the client's `viem` and `ox` dependencies and the `@blink/schemas` type additions are compatible with the web build).
@@ -113,4 +113,4 @@ mainnet values combined with deployment mismatches.
 Verification: `pnpm check` passed (598 tests); `pnpm test:postgres` passed (50);
 `pnpm test:anvil` passed (50); `pnpm build:services && pnpm test:service-build`
 passed (5). A final `pnpm typecheck` and `git diff --check` also passed. The ordinary web
-build was blocked by Google Fonts downloads.
+build was not verified locally.

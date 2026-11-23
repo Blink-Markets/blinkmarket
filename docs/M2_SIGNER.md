@@ -91,7 +91,7 @@ The handler returns only for `FINALIZED` and `REVERTED`; every other result thro
 
 ## Verification
 
-Run on 2026-10-14 in the task worktree against a local PostgreSQL 17 and a local Anvil with chain ID 84532, after the review fixes (fix rounds 1 and 2).
+Run on 2026-10-14 against a local PostgreSQL 17 and a local Anvil with chain ID 84532, after the review fixes (fix rounds 1 and 2).
 
 - `pnpm check`: exit 0, 189 Node tests (129 before this slice), package boundaries pass.
 - `pnpm build`: exit 0.
@@ -132,4 +132,4 @@ local harness clock opt-in changed.
 Verification: `pnpm check` passed (598 tests); `pnpm test:postgres` passed (50);
 `pnpm test:anvil` passed (50); `pnpm build:services && pnpm test:service-build`
 passed (5). A final `pnpm typecheck` and `git diff --check` also passed. The web build
-was blocked by Google Fonts access.
+was not verified locally.

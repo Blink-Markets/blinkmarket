@@ -33,7 +33,7 @@ Other roles are `FORECASTER_B` and `BASELINE`; other annotation kinds are `OUTCO
 
 ## Verification
 
-Run on 2026-10-14 in the task worktree.
+Run on 2026-10-14.
 
 - `pnpm check`: exit 0. TypeScript (including the web typecheck), contract compilation, 137 Node tests (129 foundation plus 8 new) and package boundaries.
 - `pnpm build`: exit 0 (Turbopack web build; the shared-package source exports resolve).

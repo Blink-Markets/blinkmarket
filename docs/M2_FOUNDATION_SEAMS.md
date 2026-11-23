@@ -24,7 +24,7 @@ This slice lands the shared seams that later M2/M3 workstreams build on in paral
 
 ## Verification
 
-Run on 2026-10-14 in the task worktree.
+Run on 2026-10-14.
 
 - `pnpm check`: exit 0. TypeScript (including the web typecheck), contract compilation, 129 Node tests (102 existing plus 27 new) and package boundaries.
 - `pnpm build`: exit 0.

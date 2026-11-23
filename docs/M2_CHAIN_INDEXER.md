@@ -50,7 +50,7 @@ Startup order: runtime role check (the same non-privileged `blink_indexer` check
 
 ## Verification
 
-Run on 2026-10-14 in the task worktree, PostgreSQL at `127.0.0.1:55405`.
+Run on 2026-10-14 against a local PostgreSQL.
 
 - `pnpm check`: exit 0. TypeScript including the web typecheck, contract compilation, 181 Node tests (129 before this slice, 52 new) and package boundaries.
 - `pnpm build`: exit 0.

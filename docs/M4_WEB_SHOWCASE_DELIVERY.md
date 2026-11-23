@@ -34,9 +34,7 @@ Out of scope: trading, wallets, approvals, positions, live API data. Read-only m
 - `apps/web/content/sample-markets.ts`
 - Tests: `tests/web-sample-markets.test.ts`, `tests/web-openapi-index.test.ts`, `tests/web-trail-geometry.test.ts`, `tests/web-docs-lib.test.ts`, `tests/web-docs-content.test.ts`
 
-## Verification (HEAD bd209f6, clean worktree)
-
-The shared working tree held unrelated uncommitted M2 creation-tracking work, so the controller verified in a clean worktree.
+## Verification (HEAD bd209f6)
 
 - `pnpm check`: exit 0; 51 tests pass, 0 fail; package boundaries and contract checks pass.
 - `pnpm build`: static routes `/`, `/docs`, `/docs/api`, `/how-it-works`, `/markets` (plus `/_not-found`).
@@ -67,11 +65,11 @@ Design: [spec](superpowers/specs/2026-10-09-docs-system-design.md), [plan](super
 
 ### Verification
 
-- Clean-worktree `pnpm check` at 2924e5e: exit 0; 65 tests pass. `pnpm build` succeeds.
+- `pnpm check` at 2924e5e: exit 0; 65 tests pass. `pnpm build` succeeds.
 - `next start` route checks: each `.md` route is byte-equal to its source file; `/llms.txt` lists every page.
 - Headless Chromium (CDP script, not in the repo): screenshots of `/docs/quickstart`, `/docs/agents` and `/docs/api` in light and dark at 1440 and 375 wide (dark at 2924e5e; light, API index TOC, active audience switch and closed mobile menu re-shot after the final fix wave at 2466208), plus DOM checks for overflow, docs-only dark scope and clipboard payloads.
 - Clipboard payload checks with a stubbed `navigator.clipboard` (page Markdown, prompt text, code and prompt blocks).
-- Final-review fix wave: `node --import tsx --test tests/web-docs-lib.test.ts tests/web-docs-content.test.ts tests/web-openapi-index.test.ts` and `pnpm --filter @blink/web typecheck` pass on the working tree; the full clean-worktree `pnpm check` and `pnpm build` were not re-run after the fix wave.
+- Final-review fix wave: `node --import tsx --test tests/web-docs-lib.test.ts tests/web-docs-content.test.ts tests/web-openapi-index.test.ts` and `pnpm --filter @blink/web typecheck` pass; the full `pnpm check` and `pnpm build` were not re-run after the fix wave.
 
 ### Limitations
 
@@ -84,7 +82,7 @@ Design: [spec](superpowers/specs/2026-10-09-docs-system-design.md), [plan](super
 
 - **Syntax highlighting:** docs code fences (shell, json, ts/js, http) are highlighted at build time with Shiki 4.4.3 (`apps/web/lib/docs/highlight.ts`), using a CSS-variables theme mapped to Blink tokens (cobalt for keywords and commands, lighter cobalt for strings and constants, faint ink italic for comments). No client JavaScript is added, dark mode follows the tokens, and copied text is unchanged. `text` and `prompt` fences stay plain.
 - **Cross-browser suite:** `pnpm test:browsers` (Playwright 1.63.0, `tests/browser/`) builds the site, runs `next start` on 127.0.0.1:3200 and checks Chromium, Firefox and WebKit at 1440×900 and 375×812: seven routes (200, no console or page errors, no horizontal overflow by element rects), hero trail measurement and reduced-motion final frame, no reveal left hidden after scrolling, the `/how-it-works` spine fully drawn, docs copy payloads, docs-only dark theme, and the mobile/desktop docs nav.
-- **Result on the merged code (clean worktree):** 87 passed, 9 skipped by design (features absent at that viewport), 0 failed. Firefox used the IntersectionObserver reveal fallback and still drew the spine fully; Chromium and WebKit used scroll-driven animations. `pnpm check`: 80 tests pass.
+- **Result on the merged code:** 87 passed, 9 skipped by design (features absent at that viewport), 0 failed. Firefox used the IntersectionObserver reveal fallback and still drew the spine fully; Chromium and WebKit used scroll-driven animations. `pnpm check`: 80 tests pass.
 
 ### Engraved landscape footer (2026-10-09)
 

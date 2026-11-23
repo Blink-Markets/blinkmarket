@@ -45,7 +45,7 @@ Verification results:
 - `pnpm install --frozen-lockfile`: passed, lockfile unchanged.
 - `pnpm typecheck`, `pnpm check:contracts`, `pnpm check:boundaries`: passed.
 - `pnpm build:services && pnpm test:service-build`: passed, 5 smoke tests.
-- `pnpm test:anvil`: passed with local-network permission, 50 tests.
+- `pnpm test:anvil`: passed, 50 tests.
 - `pnpm test:postgres`: the concurrent run passed A3 but hit 3 existing timeout/lifecycle failures; a full sequential rerun passed all 54 tests. The historical-approval regression also passed separately. Cleanup audit found no remaining test databases or temporary login roles on the dedicated test server.
-- `pnpm build`: blocked by Google Fonts fetch failures for existing Geist, Geist Mono and Kalam imports. The controller must rerun the web build where those fonts are reachable.
-- `pnpm check`: typecheck and Solidity compilation passed; the first local unit run could not open a local port (`EPERM`). The full unit suite is rerun two test files at a time; its final result is recorded below.
+- `pnpm build`: not verified locally.
+- `pnpm check`: typecheck and Solidity compilation passed; the first local unit run did not complete, and the result of the rerun was not recorded.

@@ -65,7 +65,7 @@ Everything is off without its variables, and a worker that runs other jobs is un
 
 ## Verification
 
-Run on 2026-10-14 in the task worktree.
+Run on 2026-10-14.
 
 - `pnpm check`: exit 0 (TypeScript including the web typecheck, contract compilation, 293 Node tests, package boundaries).
 - `pnpm build`: exit 0.

@@ -43,7 +43,7 @@ A mismatch sets `reject_reason` and the row leaves the tracking set. FILL and RE
 
 ## Verification
 
-Run on 2026-10-14 in the task worktree (PGlite for database tests).
+Run on 2026-10-14, with PGlite for the database tests.
 
 - `pnpm check`: exit 0 (TypeScript including the web typecheck, contract compilation, 144 Node tests, package boundaries).
 - `pnpm build`: exit 0.
