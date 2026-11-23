@@ -214,4 +214,4 @@ The `tests/anvil/agents-market-roles.test.ts` test "a maker whose deposit is sti
   - Before the fix, a block forced into that window, and the real heartbeat with the pause removed, both failed the assertion.
   - After the fix: `pnpm check` 669/669, `pnpm test:anvil` 73/73, and the test file 10/10 three times.
   - `pnpm alpha:local` was not run locally. CI run 45019282161 on `39c97c3` passed every job: check, contracts, postgres, browsers and alpha-local.
-  - The nightly autonomous drill uses the same platform. It is pending until its first run after the fix.
+  - The nightly autonomous drill uses the same platform. Its first run after the fix, run 45083560141 on `951de97` (2026-11-22), passed.
