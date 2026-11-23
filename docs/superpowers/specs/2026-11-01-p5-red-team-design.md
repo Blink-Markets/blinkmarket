@@ -1,6 +1,6 @@
 # P5: Red-team Blink before the testnet launch — design
 
-Date: 2026-11-01. Status: discussion record. The user approved this design on 2026-11-01; P5 stopped before an implementation plan was written. Recon notes: [2026-11-01-p5-red-team-recon.md](2026-11-01-p5-red-team-recon.md).
+Date: 2026-11-01. Status: discussion record. The user approved this design on 2026-11-01; P5 stopped before an implementation plan was written. On 2026-11-23 the user scheduled P5 after the next contract generation is written and before the testnet launch, so that it attacks the new contracts as well as the rest of the scope in §4. Recon notes: [2026-11-01-p5-red-team-recon.md](2026-11-01-p5-red-team-recon.md).
 
 ## 1. Intent
 

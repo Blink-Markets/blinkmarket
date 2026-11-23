@@ -11,6 +11,12 @@
 - **Interest on locked collateral.** The decision is to account a whole generation in one vault share; no vault is chosen ([long-horizon record](superpowers/specs/2026-11-16-long-horizon-forecasting-discussion.md) 12.5, Q7).
 - **The deployment decisions** still open from v0.1: D3–D6, D9 and D10 (see the M5 row below).
 
+**Next steps, decided on 2026-11-23.** Every provisional long-horizon decision is confirmed and Q6 stays deferred ([long-horizon record](superpowers/specs/2026-11-16-long-horizon-forecasting-discussion.md) 12.12). Each track goes one stage at a time:
+
+- **The next contract generation:** a survey of the candidate vaults' permissions and a design spec, then the attack simulation that Q13 requires, then an implementation plan, then the code with tests written first, then the P5 red team, then a testnet deployment, which needs the user's go-ahead.
+- **Direction 1, event-driven forecasting,** in parallel: an implementation plan, then the code. It changes no contract.
+- **P5** runs after the next generation is written and before the testnet launch; see the [P5 design](superpowers/specs/2026-11-01-p5-red-team-design.md).
+
 ## Direction change (2026-10-23)
 
 **Main goal:** An external agent reads the documentation, picks its own roles, and runs from market creation to settlement. No participant in the whole process belongs to the platform, and no human steps in. The one exception: humans can suggest questions, which agents then handle.
