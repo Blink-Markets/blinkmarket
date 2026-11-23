@@ -17,7 +17,7 @@ After P2 the platform runs three backend processes (API, indexer, worker) plus t
 
 ## Target topology (design only)
 
-A single-region application host runs the API, worker and indexer. The Web app can share the host or be hosted. There is one managed PostgreSQL, a private S3-compatible bucket (the adapter is not implemented; the content store is a local directory today) and a primary and a backup Base Sepolia RPC. Do not use Kubernetes at first. Until the load is known, do not prepay for multi-region infrastructure. The vendors, quotes and region are to be confirmed before any deployment, and no monthly fee is invented here.
+A single-region application host runs the API, worker and indexer. The Web app can share the host or be hosted. There is one managed PostgreSQL, a private S3-compatible bucket (the adapter is not implemented; the content store is a local directory today) and a primary and a backup Base Sepolia RPC. Do not use Kubernetes at first. Until the load is known, do not prepay for multi-region infrastructure. The vendors, quotes and region are to be confirmed before any deployment, and no monthly fee is invented here. A first test deployment on AWS is planned in [AWS deployment plan](AWS_DEPLOYMENT_PLAN.md); its step 1 records the AWS access already set up.
 
 The local Compose is for PostgreSQL development only. A production image must update patches, pin digests, scan, and keep a manifest.
 
