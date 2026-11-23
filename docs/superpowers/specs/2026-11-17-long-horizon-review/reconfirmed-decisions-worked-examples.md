@@ -269,3 +269,87 @@ Against arm 2 the experiment measures independent information, not more runs. At
 **Cost stated before the choice:** fewer candidate questions, since those of 4 to 8 weeks cannot be used. The errors 4 weeks and 1 week before resolution are still measured.
 
 **How these numbers differ from what the user saw:** the conversation showed four of the figures above, from a smaller random simulation, as 98%, about 35%, about 7% and about 30%. The script computes them from a fixed seed as 97%, 36%, 6% and 28%. With no improvement, a 95% interval lies wholly above zero 2.5% of the time, so a gate shelves about 97.5% of the time; the conversation showed it as 98% and the script as 97%. The conversation also rounded the intervals to whole percents. The conclusions do not change.
+
+## Round 5, 2026-11-22: Q7
+
+Q7 asks whether collateral should earn interest. A long question locks money until it resolves, and the locked money earns nothing. The same money held elsewhere would earn interest.
+
+### Terms
+
+- **Collateral**: money locked in the contract until the question resolves. A forecaster that moves the baseline locks what it could lose; a sponsor deposits escrow.
+- **Vault share**: what a vault that earns interest gives back for a stablecoin deposit. The number of shares stays the same, but each share redeems for more stablecoins as interest accrues. At 4% a year, a share worth 1.00 is worth 1.0816 after two years.
+- **Generation**: the contracts cannot be upgraded, and their parameters are fixed at deployment, so a change means deploying a new generation.
+- **Security bound**: the open payouts of all markets, times a security multiple of 2, may not exceed the cost of buying half the jurors' stake, which is half the jurors' staked value. Open payouts are therefore at most a quarter of that value. The contract checks the bound when a market is created and when a juror requests to unstake.
+
+### Example: on a two-year question, interest decides whether forecasting pays
+
+The example assumes 4% a year. The web research of 2026-11-16 ([prediction-markets-and-agent-commerce.md](prediction-markets-and-agent-commerce.md)) found that Polymarket's holding rewards pay 3.25% on designated markets and that Kalshi pays 3.50% a year on cash and positions; the script also shows both rates.
+
+A question resolves in two years. The baseline is 50% and the true probability 60%. F reports 60% on the first window's whole allowance of 1,000:
+
+```
+F's expected payout   1,000 × 0.1² = 10
+F locks               110 (what F loses if the answer is NO), until resolution in two years
+Entry fee             0.20
+
+No interest           the 110 would earn 8.98 elsewhere in two years → F keeps 10 − 0.20 − 8.98 = 0.82
+Interest, (b)         the locked 110 is itself vault shares and keeps earning → F keeps 9.80, counted in shares
+```
+
+- The forgone interest is 90% of the expected payout. Without interest, F keeps 2.53 at 3.25% and 1.97 at 3.50%.
+- With a 5-point edge (true probability and report both 55%), F expects 2.50, locks 52.50 and would earn 4.28 elsewhere. Without interest, F loses 1.98; with collateral in vault shares, it keeps 2.30.
+
+### With vault shares, the security bound drifts
+
+Payouts are counted in shares, and in stablecoins a share grows 8.2% over two years. The jurors stake a different token, whose value does not grow with it. So a market exactly at the bound when it is created is 8.2% over the bound two years later.
+
+The contract checks the bound only when a market is created and when a juror requests to unstake. Open markets are not checked again between those events. By the next check, interest has used up part of the room:
+- new markets are refused sooner;
+- a juror is more likely to be unable to unstake.
+
+### Q7: whether collateral earns interest
+
+**Options:**
+
+- **(a) No interest.** In the example F keeps 0.82, and with a 5-point edge it loses money. Long questions do not pay forecasters.
+- **(b) The whole generation accounts in one vault share.**
+  - Forecaster collateral, sponsor escrow, payouts and the security bound are all counted in shares.
+  - Interest goes to the share holders: returned escrow carries interest, and so does a winner's payout.
+  - The rule that a sponsor gets back no more than it deposited (Q25) counts shares. The extra stablecoins a sponsor receives are its own deposit's interest, not money taken from forecasters.
+- **(c) No interest, but forecast positions can be transferred** (Q8's option c): a forecaster that wants out early sells its position.
+- **(d) Each market chooses its collateral.** Payouts in different collateral cannot be added up, so the security bound cannot be computed.
+
+**Decision (the user accepted the recommendation):** (b).
+- The vault is chosen later.
+- If none of the candidate vault contracts has acceptable permissions, the decision falls back to (c). That fallback makes forecast positions transferable, which Q8 (a) does not do, so it would reopen Q8 and make Q6 (merge) relevant again (section 12.5 of the record).
+
+Why the other options were not chosen:
+- Long questions are where this whole discussion started, and (a) gives them up.
+- (c)'s exit needs a buyer, and thin long questions have none.
+- (d) leaves the security bound uncomputable.
+
+**Costs stated before the choice:**
+
+1. "No external authority" cannot be met. The vault itself may be pausable or upgradable. If it is paused, the whole generation's funds are stuck, and the contracts have no admin to act. The user set aside a stablecoin issuer freezing funds as too extreme (section 12.5 of the record); a vault adds another layer of the same kind of risk.
+2. A generation cannot change its collateral; changing it takes a new generation.
+3. The security bound changes.
+   - At creation it reserves room for the interest over the market's horizon, about 8% for two years.
+   - It compares the juror token's value and the payouts in one unit.
+   - Since the bound is also checked when a juror requests to unstake, the drift can block an unstake.
+4. The testnet's bUSD earns nothing. The testnet can simulate interest with a mock vault that receives bUSD from time to time, but there is no real source of interest.
+5. No vault is chosen yet. Reading each candidate vault contract's permissions comes later and can go to a subagent.
+
+**Confidence:** low, as in the proposals.
+
+**What would change this:** if no candidate vault has acceptable permissions, the decision falls back to (c).
+
+**What was corrected before the user answered:** the presentation first said three things that were wrong:
+- that the bound is checked only at creation;
+- that open payouts must stay below half the jurors' staked value, leaving out the security multiple of 2 (the limit is a quarter);
+- that the testnet could test the interface only with a zero-rate vault.
+
+All three were corrected in the conversation before the user chose; the correction message counted the first two as one. The text above is the corrected version.
+
+**What this document corrects:** the presentation gave the platforms' rates as about 3.25% to 4%. The web research of 2026-11-16 gives 3.25% and 3.50%. The example keeps 4% as an assumption, and at both of those rates F still keeps little without interest.
+
+**How these numbers differ from the proposals:** the proposals say that a market that passes the check at creation is about a tenth over the bound two years later, which fits about 5% a year. At 4% it is 8.2%. The proposals also say the check is not redone; it is, whenever a juror requests to unstake.

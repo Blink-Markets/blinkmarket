@@ -13,6 +13,9 @@ Round 3 (discussion record 12.10, 2026-11-22):
 Round 4 (discussion record 12.11, 2026-11-22):
   Q21 - why arm 4 is compared with arm 2, why a 10% improvement is nearly out of reach, and what 100, 300
         and 1,000 questions can tell, under the proposals' model with a fixed seed and a normal approximation.
+Round 5 (discussion record 12.12, 2026-11-22):
+  Q7  - what interest on collateral is worth to a forecaster on a two-year question, and how far a market at
+        the security bound drifts when payouts are counted in vault shares.
 Binomial sums are computed in log space, so a large n does not overflow.
 Run from this folder: python3 -I reconfirmed_examples.py
 """
@@ -210,3 +213,34 @@ for label, sd4 in (("arm 4 is better", 0.05), ("arm 4 is no better", 0.10)):
         shelved_c = norm_cdf((MIN_USEFUL * error2 - improvement) / se - 1.96)  # the upper end is below the threshold
         print(f"    {n:>5,} questions: typical interval {low:+.1%} to {high:+.1%}; improvement proven {proven:.0%}; "
               f"shelved by a gate {1 - proven:.0%}, by rule (c) {shelved_c:.0%}")
+
+print("\n== Q7 (round 5): what interest on collateral is worth on a two-year question ==")
+RATE, YEARS = 0.04, 2  # an assumed yearly rate, and the years until the question resolves
+EXPOSURE = 1_000.0  # F takes the first window's whole allowance
+growth = (1 + RATE) ** YEARS  # what one vault share worth 1 today is worth at resolution
+print(f"  one vault share after {YEARS} years at {RATE:.0%}: {growth:.4f}")
+
+
+def held_to_resolution(edge, rate=RATE):  # F reports the true probability, edge above a 50% baseline
+    fair = 0.5 + edge
+    payout = EXPOSURE * expected_relative(0.5, fair, fair)
+    locked = -EXPOSURE * relative(0.5, fair, 0)  # what F loses on NO, locked until resolution
+    forgone = locked * ((1 + rate) ** YEARS - 1)  # what the locked stake would earn elsewhere
+    return payout, locked, forgone
+
+
+fee = PHI * EXPOSURE
+for edge in (0.10, 0.05):
+    payout, locked, forgone = held_to_resolution(edge)
+    print(f"  F reports the true probability {0.5 + edge:.0%} against a 50% baseline: expected payout "
+          f"{m(payout)}, locked {m(locked)}, entry fee {m(fee)}")
+    print(f"    the locked stake would earn {m(forgone)} elsewhere; F keeps {m(payout - fee - forgone, True)} "
+          f"without interest and {m(payout - fee, True)} with collateral in vault shares")
+payout, locked, forgone = held_to_resolution(0.10)
+print(f"  forgone interest as a share of the expected payout: {forgone / payout:.0%}")
+for rate in (0.0325, 0.035):  # Polymarket's holding rewards and Kalshi's rate in the 2026-11-16 web research
+    forgone_at = held_to_resolution(0.10, rate)[2]
+    print(f"  at {rate:.2%} a year: forgone {m(forgone_at)}, F keeps {m(payout - fee - forgone_at, True)} "
+          f"without interest")
+print(f"  payouts in vault shares grow {growth - 1:.1%} in stablecoin terms over {YEARS} years, and the jurors' "
+      f"stake does not: a market exactly at the security bound at creation is that much over it at resolution")

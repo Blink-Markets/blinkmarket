@@ -259,7 +259,7 @@ The user chose on the decision board of the review page: 22 cards, one per reope
 | Q20 Sub-markets | (b) | The fallback from the long-horizon bucket to the short-horizon bucket is removed. *Confirmed on 2026-11-22 after a worked example (12.9).* |
 | Q23 Two-sided markets | (c) | "A bountied question's settlement source must not be controlled by a single private party" becomes a ground for a creation challenge. Pollsters take part as forecasters on election-result questions instead. *The challenge ground was withdrawn on 2026-11-21 (12.6); the part about pollsters stays.* |
 | Q21 The first experiment | (c) | Compare group 4 with group 2, adding external market prices, cost per dollar and marginal contribution. The experiment is an estimate, not a gate: register the smallest useful improvement first, and shelve direction 3 only if the upper end of the confidence interval falls below it. *Confirmed on 2026-11-22 after a worked example (12.11).* |
-| Q7 Interest-bearing collateral | (b) | A whole generation accounts in one vault share, and interest goes to the share holders. No vault is chosen yet. The user's note: "我們先不討論這種穩定幣被暫停等情況，太極端的狀況了" — the case of a stablecoin issuer pausing or freezing funds is set aside for now as too extreme. |
+| Q7 Interest-bearing collateral | (b) | A whole generation accounts in one vault share, and interest goes to the share holders. No vault is chosen yet. The user's note: "我們先不討論這種穩定幣被暫停等情況，太極端的狀況了" — the case of a stablecoin issuer pausing or freezing funds is set aside for now as too extreme. *Confirmed on 2026-11-22 after a worked example, with a fallback to (c) if no candidate vault has acceptable permissions (12.12).* |
 
 **The five unflagged decisions.** Q22 (the sponsor only pays), Q26 (funding goes only into forecast bounties), Q24 (sponsors fund only existing markets) and Q2 (the problem restated as feedback delay) are reopened, to be rewritten for Mechanism R (done in 12.7). Q6 (merge kept out of this problem) is deferred; it matters only if forecast positions become transferable, which Q8 (a) does not do.
 
@@ -337,3 +337,47 @@ Round 4 asked what the first experiment (section 8) should compare and how its r
 The numbers come from `reconfirmed_examples.py`, which computes them from a fixed seed. Four of them were shown in the conversation from a smaller random simulation as 98%, about 35%, about 7% and about 30%; the script gives 97%, 36%, 6% and 28%. With no improvement, a 95% interval lies wholly above zero 2.5% of the time, so a gate shelves about 97.5% of the time; the conversation showed it as 98% and the script as 97%. The conclusions do not change.
 
 **What is left.** Q7. Q6 stays deferred.
+
+### 12.12 Re-confirming the provisional decisions with worked examples, round 5, 2026-11-22 [Accepted]
+
+Round 5 asked whether collateral should earn interest (Q7), the last provisional decision of 12.5. The example is in the round 5 section of [reconfirmed-decisions-worked-examples.md](2026-11-17-long-horizon-review/reconfirmed-decisions-worked-examples.md) ([繁體中文](2026-11-17-long-horizon-review/reconfirmed-decisions-worked-examples.zh-TW.md)). As in the earlier rounds, the assistant defined the terms and stated the costs before the user chose. The user accepted the recommendation ("q7是，依照建議", "Q7: yes, as recommended"). Nothing here is implemented.
+
+1. **Q7 (b) confirmed.**
+   - The decision.
+     - A whole generation accounts in one interest-bearing vault share: forecaster collateral, sponsor escrow, payouts and the security bound.
+     - Interest goes to the share holders, so returned escrow and a winner's payout carry it.
+     - Q25's rule that a sponsor gets back no more than it deposited counts shares. The extra stablecoins a sponsor receives are its own deposit's interest.
+     - The vault is chosen later. If none of the candidate vault contracts has acceptable permissions, the decision falls back to (c): no interest, with transferable forecast positions (Q8's option c). That fallback makes forecast positions transferable, which Q8 (a) does not do, so it would reopen Q8 and make Q6 (merge) relevant again (12.5).
+   - The example.
+     - At an assumed 4% a year, a vault share worth 1 grows to 1.0816 in two years.
+     - A two-year question has a 50% baseline and a true probability of 60%. F reports 60% on the first window's whole allowance of 1,000. It expects 10, pays an entry fee of 0.20, and locks 110 (its loss on NO) until resolution.
+     - Without interest, that 110 would earn 8.98 elsewhere, so F keeps 0.82: the forgone interest is 90% of the expected payout. With collateral in vault shares, F keeps 9.80, counted in shares.
+     - At the rates found by the web research of 2026-11-16, 3.25% a year for Polymarket's holding rewards and 3.50% for Kalshi, F keeps 2.53 and 1.97 without interest.
+     - With a 5-point edge, F expects 2.50, locks 52.50 and would earn 4.28 elsewhere, so without interest it loses 1.98.
+   - Why not the others.
+     - (a) gives up the long questions this whole discussion started from.
+     - (c) offers an exit only where there is a buyer, and thin long questions have none.
+     - (d), collateral chosen per market, cannot add up payouts across collateral types, so the security bound cannot be computed.
+   - Costs stated before the choice.
+     - "No external authority" cannot be met. A vault may be pausable or upgradable, and if it is paused the whole generation's funds are stuck, with no admin to act. The user set aside a stablecoin issuer freezing funds as too extreme (12.5); a vault adds another layer of the same kind of risk.
+     - A generation cannot change its collateral; changing it takes a new generation.
+     - The security bound changes.
+       - Payouts in shares grow 8.2% in stablecoin terms over two years, while the jurors' stake does not. A market exactly at the bound at creation is therefore that much over it at resolution.
+       - The bound therefore reserves room for the interest over a market's horizon, and it compares the juror token's value and the payouts in one unit.
+       - Since the bound is also checked when a juror requests to unstake, the drift can block an unstake.
+     - The testnet's bUSD earns nothing. The testnet can simulate interest with a mock vault that receives bUSD from time to time, but there is no real source of interest.
+     - No vault is chosen yet. Reading each candidate's permissions can go to a subagent.
+   - Confidence is low, as in the proposals. What would change this: if no candidate vault has acceptable permissions, the decision falls back to (c).
+
+**The security bound, stated exactly.** The open payouts of all markets, times the security multiple of 2, may not exceed the cost of buying half the jurors' stake, which is half the jurors' staked value. Open payouts are therefore at most a quarter of that value. The contract checks this when a market is created and when a juror requests to unstake (`requestUnstake` in `BlinkJurors.sol`).
+
+**Corrections.**
+- Before the user answered, the assistant corrected three points of the presentation:
+  - the bound is checked when a juror requests to unstake as well as at creation;
+  - the bound includes the security multiple of 2, so open payouts are at most a quarter of the jurors' staked value, not a half;
+  - the testnet can simulate interest with a mock vault, rather than only test the interface at a zero rate.
+- The correction message counted the first two points as one. The text above is the corrected version.
+- When this was recorded, the platforms' rates, given in the presentation as about 3.25% to 4%, were corrected to 3.25% and 3.50%. The conclusion does not change.
+- The proposals put the drift at about a tenth over two years, which fits about 5% a year, and say the check is not redone. At 4% the drift is 8.2%, and the bound is checked again whenever a juror requests to unstake.
+
+**What is left.** Every provisional decision of 12.5 is now confirmed; Q6 stays deferred. The vault is still to be chosen, starting with reading each candidate vault contract's permissions.
