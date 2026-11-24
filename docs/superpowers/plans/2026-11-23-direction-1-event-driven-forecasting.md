@@ -342,7 +342,9 @@ A market opens 90 days before its close, so it has 91 windows (90 daily and one 
 
 Each question lists its options, the cost of each and a recommendation. Nothing in these options changes a contract: `BlinkAnchor` only stores window roots (`BlinkAnchor.sol:18`) and the forecast type is checked off chain. The plan implements the recommendation unless the user answers otherwise. The tasks that change with each answer are named. Plain terms: a **conditional GET** is defined in section 2.1; **CORS** is the browser rule that a web page may read another site's data only if that site's server sends headers that allow it.
 
-**OQ1. Where is "what evidence changed" recorded?**
+**Decided on 2026-11-24 [User].** The user accepted every recommendation, so OQ1 to OQ15 are all (a). The first round (OQ1, OQ3, OQ4, OQ5, OQ6, OQ8, OQ9, OQ11 and OQ12) was answered "都依照建議" ("all as recommended"), and the second round (OQ2, OQ7, OQ10, OQ13, OQ14 and OQ15) "全部依照建議" ("all as recommended"). The tasks in section 5 implement these options. The other options stay below as the record of what was weighed.
+
+**OQ1. Where is "what evidence changed" recorded?** *Decided on 2026-11-24: (a).*
 - **(a) In a note document, referenced by the existing `contentHash`. Recommended.** The signed type, the submission body, the verifier, every existing agent and the Merkle leaves stay as they are. Cost: the note is optional and self-declared; the platform does not check it (OQ2); each forecast needs one extra upload, so one extra API call per window per market; agents that already attach their own reasoning document must use this format for the site to read it.
 - **(b) New fields in the signed `Forecast` type** (for example `evidenceHash` and `priorDigest`). **This changes the EIP-712 type hash, so every agent that signs forecasts breaks until it is updated.** The files and parties that break:
   - agents: the reference forecaster (`examples/agents/src/roles/forecaster.ts`), the LLM demo's typed-data tool (`examples/llm-agent/src/tools.ts`, which signs whatever the model passes), any outside agent built from the docs or from `forecastTypedData`, and the CDP wallet check (`tests/cdp/cdp-wallet.test.ts`);
@@ -352,69 +354,69 @@ Each question lists its options, the cost of each and a recommendation. Nothing 
   Old signed answers cannot be verified under the new type unless the platform accepts both, which means a second domain version and a dual-verification path. No contract changes. Benefit: the platform could index evidence fields without fetching a document. Cost: a breaking change for every signer, a migration of stored rows, and a flag day.
 - **(c) A separate signed evidence log**, a new write route and table (for example `POST /v1/markets/:id/evidence-notes`) that agents call whenever they see a change, not only inside windows. Benefit: changes are dated when seen, not when a window opens. Cost: a new write surface (scopes, rate limits, abuse), a migration, a second thing to keep consistent with the forecasts, and tests on the PostgreSQL row.
 
-**OQ2. Does the platform check the note when a forecast is submitted?**
+**OQ2. Does the platform check the note when a forecast is submitted?** *Decided on 2026-11-24: (a).*
 - **(a) No check, as today. Recommended.** Readers validate (section 2.6). Cost: a forecast can point to a missing or malformed note; the site shows "no readable note".
 - **(b) Refuse a forecast whose `contentHash` is not an uploaded, valid note.** Benefit: every shown note exists. Cost: a behaviour change that refuses agents that attach other reasoning documents today; the submit path reads the content store (new dependency of `createForecastService`); an outage of the content store would block forecasting.
 - **(c) Accept, but have the API report a `noteStatus` on each answer.** Benefit: one definition of "readable". Cost: the API parses agent-supplied JSON on read; a new field in `ForecastView`, the OpenAPI document and the client.
 
-**OQ3. In a window with no news, does the agent carry forward or stay silent?**
+**OQ3. In a window with no news, does the agent carry forward or stay silent?** *Decided on 2026-11-24: (a).*
 - **(a) Carry forward: re-sign the last probability every window. Recommended.** The consensus is computed per window from that window's answers only (section 1.3), so silence removes the agent from that window's mean and makes the series jump. Cost: one signature, one note upload and one POST per window per market; and the credit effect in section 2.9.
 - **(b) Stay silent when nothing changed.** Cost: fewer rows and uploads, but the consensus of a quiet window is computed from the few agents that updated, and "fresh" would mean "someone had news".
 - **(c) Change the platform so that the consensus uses each forecaster's latest answer from the last K windows.** Benefit: silence is safe. Cost: it changes the meaning of the consensus and of scoring, which belongs with the consensus and credit redesign of the next generation, so it is out of scope now.
 
-**OQ4. When in the open window does the agent submit?** (A two-step plan, "carry forward at the open and correct later", is not an option: there is one answer per window and a withdrawal does not free the slot, section 1.3.)
+**OQ4. When in the open window does the agent submit?** (A two-step plan, "carry forward at the open and correct later", is not an option: there is one answer per window and a withdrawal does not free the slot, section 1.3.) *Decided on 2026-11-24: (a).*
 - **(a) As soon as the window opens. Recommended.** It matches today's behaviour, keeps the existing tests' timing, and the loss is small: a daily window is open for 30 minutes, so at most 30 minutes of news are missed. Cost: news inside the open period waits for the next window.
 - **(b) A fixed lead before the deadline** (for example the last 20 percent of the window, at least 60 seconds). Benefit: the freshest evidence. Cost: a missed deadline if the API answers `503 INDEX_STALE`, and the alpha windows are only 80 seconds long, which leaves no room to retry.
 
-**OQ5. How long may an agent go without an analysis when no source changed (the heartbeat)?**
+**OQ5. How long may an agent go without an analysis when no source changed (the heartbeat)?** *Decided on 2026-11-24: (a).*
 - **(a) A fixed limit, default 14 days, set by the operator with `BLINK_FORECAST_HEARTBEAT_HOURS`. Recommended.** Bounds how long the agent can miss news the watch list cannot see; 8.8 percent of the model calls in the example of section 2.8. Cost: one analysis every two weeks per market even if nothing happened.
 - **(b) No heartbeat (pure event-driven).** Cheapest (5.5 percent in the example). Cost: an agent whose watch list is only `spec.sources` could stay on a stale probability for the market's whole life, because a resolution source usually changes only when the outcome is published (an expectation from how class A sources are defined, not a measurement).
 - **(c) A limit that shrinks toward the close** (for example a quarter of the time left). Benefit: more care when it matters, and it softens the bias of OQ14. Cost: more parameters, harder to explain on the site and in the docs.
 
-**OQ6. How deep is the cheap check?**
+**OQ6. How deep is the cheap check?** *Decided on 2026-11-24: (a).*
 - **(a) Conditional GET plus a normalised-text fingerprint. Recommended.** No model call; removes most noise (Review Focus 3). Cost: a page that rewrites its text on every load still looks changed.
 - **(b) (a) plus a cheap-model triage** ("is this change material?") before the full analysis. Benefit: fewer false analyses. Cost: a second model with its own price and failure modes, and extra design that this plan does not build unless this option is chosen: a `Model.material(m, changes)` hook (optional, no default); a way to record a change that was judged immaterial, namely a per-item flag `judged: "immaterial"` that a `carry_forward` note may carry on a `CHANGED` item (today a carry-forward may not list `CHANGED`); and the rule that the new fingerprints are committed in that case, so the same change is not triaged again in every later window. Tasks 1 and 3 grow by that flag, that hook and their tests.
 - **(c) A hash of the raw bytes.** Cheapest to write. Cost: dynamic pages trigger an analysis every window.
 
-**OQ7. Does the agent archive the changed page, or only its hash?**
+**OQ7. Does the agent archive the changed page, or only its hash?** *Decided on 2026-11-24: (a).*
 - **(a) Archive the raw bytes of a changed source in `/v1/content`, only when its media type is one of the five the store accepts and it is at most 1 MiB, and only on windows where an analysis ran. Recommended.** The reader can check the hash and see exactly what the agent read, which follows the archived-bytes precedent for class A (section 1.4). A source that fails the media-type or size rule, or is refused by the store (for example RSS or Atom feeds get `415`), is recorded with `snapshot: null` and a log line, and never blocks the answer. Cost: storage grows by up to 1 MiB per changed source per agent; the platform serves third-party page bytes (sandboxed, never rendered inline); two agents seldom upload identical bytes; common feed formats cannot be archived.
 - **(b) Hash only.** Cost: the evidence cannot be checked after the page changes again; the site can show only "a source changed".
 - **(c) Archive a short excerpt.** Benefit: small. Cost: an excerpt chosen by the forecaster proves little and needs a format.
 
-**OQ8. How is freshness labelled, and where are the thresholds?**
+**OQ8. How is freshness labelled, and where are the thresholds?** *Decided on 2026-11-24: (a).*
 - **(a) Windows first, time second; `CURRENT` at 0 windows behind, `AGING` at 1-2, `STALE` at 3 or more. Recommended.** The unit follows the platform's cadence. Cost: three arbitrary constants; "2 windows" means about 2 days on a daily market, because the daily window times are fixed; only the pre-close window's times are an operator setting.
 - **(b) Clock time only** (for example "last forecast 31 hours ago"). Cost: a market whose windows come every few minutes (the pre-close window of a short market) and one with daily windows need different thresholds.
 - **(c) No label, only the numbers.** Cost: a reader must judge for themselves.
 
-**OQ9. What data does the market page read?**
+**OQ9. What data does the market page read?** *Decided on 2026-11-24: (a).*
 - **(a) Sample data only in this stage, through a data adapter that a live reader can replace later. Recommended.** The site stays static, offline-safe and free of status claims (U24); the new views are reviewed and tested now. Cost: the website does not yet show a real market's freshness; it shows a labelled sample.
 - **(b) A browser-side reader of the public API.** Needs a deployed API (`docs/DOMAIN.md:11` records none), CORS headers (none were found in `apps/api/src`), a configured API address, and loading and error states. It breaks the static export's "no live API calls" scope (`docs/M4_WEB_SHOWCASE_DELIVERY.md`). Benefit: real data. Cost: all of that, and a client-side fan-out (OQ10).
 - **(c) A snapshot read at `build:pages` time.** Cost: the page says "fresh" about a time that is already past when it is read, which defeats the purpose. Not recommended.
 
-**OQ10. Where is freshness computed for readers?**
+**OQ10. Where is freshness computed for readers?** *Decided on 2026-11-24: (a).*
 - **(a) In `@blink/client`, composed from the existing routes. Recommended.** No new API surface. Cost, with a worked number: for one market read cold, with 30 windows and 5 forecasters, a reader makes about 2 requests to page to the latest windows (more on a long market: pages hold 100 windows, oldest first, so a 730-window market needs about 8 requests per list) + 30 `listForecasts` + 150 `getContent` = about 182 requests, and about 632 at the cap of 20 notes per window. Notes never change, so a reader that caches them by hash pays only for new answers afterwards (about 2 + the new answers), and the reader accepts a cache. A market list sorted by freshness would need one such composition per market, so the `/markets` ledger shows no freshness in this stage.
 - **(b) A new read-only route** such as `GET /v1/markets/:id/freshness`, computed from the store. Benefit: one definition, one request, ledger rows possible. Cost: a new route in `packages/schemas/src/http.ts`, `apps/api/src/routes.ts`, the OpenAPI index and the client; an adapter query joining submissions and content (so the PostgreSQL verification row applies); the API parses agent-supplied notes. If chosen, Task 4 is replaced by Task 4B (outlined in the task list).
 
-**OQ11. Where does the source fetcher's address guard live?**
+**OQ11. Where does the source fetcher's address guard live?** *Decided on 2026-11-24: (a).*
 - **(a) In `examples/agents/src/lib/fetcher.ts`, with its own copy of the address rules and tests. Recommended.** The examples may not import `packages/` (`scripts/check-boundaries.mjs`). Cost: the same rules exist twice (`packages/domain/src/network-policy.ts` is the platform's); a drift test imports the platform's `isPublicAddress` and compares both over a list of addresses.
 - **(b) Move the pure rules into `@blink/schemas`** and have both the platform (`domain` may import only `schemas`) and `@blink/client` (which may import only `schemas`) use them. Benefit: one copy. Cost: `@blink/schemas` is shipped to the web bundle and is the wrong home for network rules; the platform's fetcher is not called by anything today (`docs/M3_EVIDENCE_FETCHER.md`), so the refactor buys little now.
 
-**OQ12. May the reference agent process fetch from the network at all?** (New: the agents docs promise API-only agents.)
+**OQ12. May the reference agent process fetch from the network at all?** (New: the agents docs promise API-only agents.) *Decided on 2026-11-24: (a).*
 - **(a) No. `main.ts` always builds the fixture fetcher; `httpsFetcher` is exported for operators who embed the agent code with their own model and decide to fetch. Recommended for this stage.** Keeps `examples/agents/README.md` line 3 and `agents.md` true, keeps every test and the drill off the network. Cost: `node main.ts` cannot watch real sources; only a fixture world or an embedding operator can.
 - **(b) An explicit opt-in switch, for example `BLINK_SOURCE_FETCHER=https` (default `fixture`).** Benefit: a runnable agent that watches real URLs. Cost: the process can now reach outside URLs, so the docs and the boundary wording change from "the public API and nothing else" to "and the sources you opt into"; the fetcher's safety (section 2.2) is then a security boundary of a shipped example. Adds one env variable and one test to Task 3.
 - **(c) Network by default.** Not recommended: it breaks the "API only" promise and puts the nightly drill on the internet.
 
-**OQ13. When are the note and its snapshots uploaded?** (New: finding on sealing. A hash lookup in `/v1/content` is public.)
+**OQ13. When are the note and its snapshots uploaded?** (New: finding on sealing. A hash lookup in `/v1/content` is public.) *Decided on 2026-11-24: (a).*
 - **(a) The salted note is uploaded before the answer is submitted; the snapshots are uploaded after the window's deadline. Recommended.** The salt makes the note's hash unguessable, so its existence reveals nothing; a snapshot's hash can be computed by anyone who fetches the same page, so uploading it before the deadline would show that some agent ran an analysis, and it waits. Cost: a second pass per answered window and snapshot files kept in the state directory until the deadline passes; if the agent never comes back, the note names a snapshot hash that never resolves.
 - **(b) Upload the note and the snapshots after the deadline.** Benefit: nothing is public early, and no salt is needed. Cost: if the agent dies or forgets, the signed hash points to nothing and the answer has no readable note, and every note upload needs the same return pass.
 - **(c) Upload everything before the submit, as in the first draft, and state the leak.** Cost: anyone can test guesses about a sealed answer. Not recommended.
 
-**OQ14. What does a carry-forward sign?** (New: a carried probability is stale on deadline questions.)
+**OQ14. What does a carry-forward sign?** (New: a carried probability is stale on deadline questions.) *Decided on 2026-11-24: (a).*
 - **(a) The same number. Recommended for this stage.** Cheapest and simplest; its bias on deadline questions is stated (section 2.9) and the heartbeat bounds it.
 - **(b) An optional cheap hook `Model.carry(m, prior, now)`** that returns an adjusted probability without the expensive model call (for example a time decay the operator chooses). The note's kind stays `carry_forward`. Cost: a rule per question type that is a forecasting decision, not a platform one; one more optional method and its tests.
 - **(c) Rely on a heartbeat that shrinks toward the close** (OQ5 c). Cost: more analyses near the close, which is when most questions are decided.
 
-**OQ15. Is freshness shown per market only, or also per forecaster?** (New: the brief says "how fresh each forecast is".)
+**OQ15. Is freshness shown per market only, or also per forecaster?** (New: the brief says "how fresh each forecast is".) *Decided on 2026-11-24: (a).*
 - **(a) Per market and per window, as designed. Recommended for this stage.** The consensus card and the chart show how recent the window and its answers are, which covers each window's forecast.
 - **(b) Also a per-forecaster age** in "How agents reasoned" (for example "last analysis 9 days ago, reported"), following each answer's `prior` chain back to its last analysis. Cost: the reader fetches one more window's answers and notes per forecaster, which raises the request count of OQ10 (a); more to show and to label as reported.
 
