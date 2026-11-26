@@ -42,8 +42,17 @@ this instruction.
 ## Agent roles and delegation
 
 These rules apply to any coding agent working in this repo, whatever the tool or
-model. Pick models by role, not by name: a strong coding model for writing and
-judging code, a cheaper fast model for read-only lookups.
+model. Pick models by role: a strong coding model for writing and judging code,
+a cheaper fast model for read-only lookups. Name the model every time an agent
+is dispatched, so that no agent silently inherits the controller's model. With
+Claude models:
+
+| Role | Model |
+| --- | --- |
+| Controller | Opus |
+| Implementer | Sonnet |
+| Reviewer | Sonnet; Opus for the adversarial review of a risky or security-relevant change |
+| Explorer | Haiku; Sonnet for web research |
 
 - **Controller** (the main session): reads, plans, writes briefs, integrates
   results, verifies, commits and pushes. It does not edit project code or tests
