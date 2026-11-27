@@ -334,6 +334,30 @@ export const forecastDigest = (input: { anchor: string; message: ForecastMessage
 /** The leaf of a digest in the window tree: keccak256(keccak256(digest)), what BlinkAnchor may anchor. */
 export const forecastLeaf = (digest: string): Hex =>
   keccak256(keccak256(digest as Hex));
+/**
+ * The forecast note that a forecast's contentHash names, and the freshness a reader builds from
+ * notes. Re-exported so that an agent writes and reads notes without importing the schemas package.
+ */
+export {
+  FORECAST_NOTE_MAX_BYTES,
+  FORECAST_NOTE_MAX_EVIDENCE,
+  FORECAST_NOTE_MAX_ITEM_NOTE_CHARS,
+  FORECAST_NOTE_MAX_SUMMARY_CHARS,
+  FORECAST_NOTE_MAX_URL_CHARS,
+  FORECAST_NOTE_SCHEMA,
+  computeFreshness,
+  noteBelongsTo,
+  parseForecastNote,
+  summarizeWindow,
+  type EvidenceChange,
+  type ForecastNote,
+  type ForecastNoteItem,
+  type FreshnessView,
+  type NoteSubject,
+  type ParsedForecastNote,
+  type WindowAnswer,
+  type WindowSummary,
+} from "@blink/schemas";
 export {
   DEFAULT_MIN_VALIDITY_SECONDS,
   QuoteVerificationError,

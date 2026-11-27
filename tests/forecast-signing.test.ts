@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { hashTypedData } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { forecastDigest } from "../packages/client/src/index.ts";
+import {
+  forecastTypedData,
+  forecastTypes,
+  type ForecastMessage,
+} from "../packages/schemas/src/index.ts";
 import { testAccounts } from "./helpers/protocol-fixture.ts";
 import {
   ANCHOR,
@@ -22,6 +29,40 @@ async function setup() {
   const window = await f.addWindow(600);
   return { f, window };
 }
+
+// Every agent signs this type, and a forecast note rides on contentHash instead of a new field, so
+// the type must never change by accident. The literals below are the current type string and the
+// digest of one fixed message; an edit to forecastTypes, the domain or the field order fails here.
+test("the Forecast typed data and a fixed digest are unchanged", () => {
+  const anchor = "0x3333333333333333333333333333333333333333";
+  const message: ForecastMessage = {
+    forecaster: "0x1111111111111111111111111111111111111111",
+    markets: "0x2222222222222222222222222222222222222222",
+    marketId: "7",
+    horizon: 1,
+    scheduledAt: 1796083200,
+    probabilityBps: 6800,
+    contentHash: "0x" + "ab".repeat(32),
+  };
+  // EIP-712 encodeType: the struct has no nested types, so it is its fields in order.
+  assert.deepEqual(Object.keys(forecastTypes), ["Forecast"]);
+  assert.equal(
+    `Forecast(${forecastTypes.Forecast.map((f) => `${f.type} ${f.name}`).join(",")})`,
+    "Forecast(address forecaster,address markets,uint256 marketId,uint8 horizon,uint64 scheduledAt,uint16 probabilityBps,bytes32 contentHash)",
+  );
+  const typed = forecastTypedData({ anchor, message });
+  assert.equal(typed.primaryType, "Forecast");
+  assert.deepEqual(typed.domain, {
+    name: "Blink Forecast",
+    version: "1",
+    chainId: 84532,
+    verifyingContract: anchor,
+  });
+  const digest = "0x1e7f3e56fd5458ff39716caa95593140243af419d5519e5c631e12440c1e62e6";
+  assert.equal(hashTypedData(typed), digest);
+  // What agents call, through the client.
+  assert.equal(forecastDigest({ anchor, message }), digest);
+});
 
 test("rejects forecast signed for another window", async () => {
   const { f, window } = await setup();

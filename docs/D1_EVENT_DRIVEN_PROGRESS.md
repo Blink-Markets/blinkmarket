@@ -6,7 +6,29 @@ Each task's section is filled at that task's checkpoint, in checkpoint order: th
 
 ## Task 1 — the forecast note schema and the freshness functions
 
-Not started.
+**Scope.** `packages/schemas/src/forecast-note.ts` adds the forecast note, `blink.forecast-note/0.1`, as a strict zod schema of at most 65,536 bytes, with four pure functions:
+- `parseForecastNote` refuses a BOM, invalid UTF-8, JSON that is not an object, more than 64 KiB, an unknown key, a missing or malformed salt, a non-canonical `marketId`, a bad URL, more than 20 evidence items, and the time and kind contradictions of plan section 2.6. It never serialises a note again.
+- `noteBelongsTo` compares the five fields that identify the signed answer.
+- `summarizeWindow` counts analysed, carried, no-note and unfetched answers, and merges `CHANGED` items by URL with one witness per answer.
+- `computeFreshness` returns CURRENT, AGING (1 or 2 windows behind), STALE (3 or more) or NONE, and takes `evidenceChangedAt` from analysis notes only.
+
+`@blink/schemas` exports the module, and `@blink/client` re-exports it for the agents and the website. The signed `Forecast` type and its domain are unchanged. A new test pins the type string and the digest of one fixed message.
+
+**Rulings during the task.** Plan section 2.6 notes them.
+- An evidence item's `fingerprint` may be null only on an `UNREACHABLE` item, for a source that has never been fetched successfully.
+- A `carry_forward` note must name its prior answer; `prior: null` is refused.
+- The note limits are exported for the note builder: `FORECAST_NOTE_MAX_EVIDENCE`, `FORECAST_NOTE_MAX_URL_CHARS`, `FORECAST_NOTE_MAX_ITEM_NOTE_CHARS` and `FORECAST_NOTE_MAX_SUMMARY_CHARS`.
+- A URL must start with a literal `https://` followed by a host character, and may not contain a backslash, a space or a control character. Character limits count code points.
+- A refusal reason is capped at 200 characters per part, because the name of an unknown key comes from the sender.
+
+**Verification**, with the pinned Node and pnpm:
+- `node --import tsx --test tests/forecast-note.test.ts tests/forecast-signing.test.ts`: 30 tests, 30 pass. Before the module existed, the note tests failed at load (`ERR_MODULE_NOT_FOUND`) and the pin test passed.
+- `pnpm check`: 690 tests pass, and the typechecks and package boundaries pass.
+- `pnpm build`, `pnpm build:pages && node scripts/check-pages-export.mjs` (24 key files and 81 internal URLs in 266 exported files), `pnpm build:services` and `pnpm test:service-build` (4 of 4) pass.
+- Not run locally: `pnpm test:browsers`, `pnpm test:contracts`, `pnpm test:anvil` and `pnpm test:contracts:seeds`. CI runs them for the pushed commit.
+- The nightly drill is pending until a nightly run after the push passes.
+
+**Review.** Approved after two fix rounds. The first applied the three rulings above. The second fixed four Low findings: the URL prefix, the length of refusal reasons, a tie between windows with the same time, and two missing order tests. No Critical, High or Medium finding remained.
 
 ## Task 2 — the source watcher in the reference agents
 
