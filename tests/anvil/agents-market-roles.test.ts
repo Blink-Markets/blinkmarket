@@ -18,6 +18,7 @@ import {
 import { createContext, type AgentContext } from "../../examples/agents/src/lib/env.ts";
 import { createLogger } from "../../examples/agents/src/lib/log.ts";
 import { runAgent } from "../../examples/agents/src/lib/loop.ts";
+import { fixtureFetcher } from "../../examples/agents/src/lib/fetcher.ts";
 import { fixtureModel } from "../../examples/agents/src/lib/model.ts";
 import { onboard } from "../../examples/agents/src/lib/session.ts";
 import { loadState, saveState } from "../../examples/agents/src/lib/state.ts";
@@ -117,6 +118,7 @@ async function startAgent(label: string, modelName: string, account: HDAccount, 
     { name: label, roles, apiUrl: platform.apiUrl, rpcUrl: platform.rpcUrl, key, worldPath: "", stateDir },
     {
       model: fixtureModel(world, modelName),
+      fetcher: fixtureFetcher(world),
       log: createLogger(label, [key], (line) => lines.push(JSON.parse(line) as Line)),
       pollingIntervalMs: 100,
     },

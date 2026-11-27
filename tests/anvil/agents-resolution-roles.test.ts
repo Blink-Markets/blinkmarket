@@ -17,6 +17,7 @@ import {
 import { createContext, type AgentContext, type AgentEnv, type RoleName } from "../../examples/agents/src/lib/env.ts";
 import { createLogger } from "../../examples/agents/src/lib/log.ts";
 import type { RoleTick } from "../../examples/agents/src/lib/loop.ts";
+import { fixtureFetcher } from "../../examples/agents/src/lib/fetcher.ts";
 import { fixtureModel, type Model } from "../../examples/agents/src/lib/model.ts";
 import { onboard } from "../../examples/agents/src/lib/session.ts";
 import { parseWorld, type World } from "../../examples/agents/src/lib/world.ts";
@@ -178,7 +179,7 @@ async function startAgent(
   };
   const lines: Line[] = [];
   const log = createLogger(name, [key], (line) => lines.push(JSON.parse(line) as Line));
-  const ctx = await createContext(env, { model: options.model ?? fixtureModel(world, name), log, pollingIntervalMs: 100 });
+  const ctx = await createContext(env, { model: options.model ?? fixtureModel(world, name), fetcher: fixtureFetcher(world), log, pollingIntervalMs: 100 });
   if (options.join !== false) await onboard(ctx);
   return { name, ctx, lines, env, account };
 }

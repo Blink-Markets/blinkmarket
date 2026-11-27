@@ -14,6 +14,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import type { Log } from "./log.ts";
 import { createLogger } from "./log.ts";
+import type { SourceFetcher } from "./fetcher.ts";
 import type { Model } from "./model.ts";
 import { loadState, saveState, type AgentState } from "./state.ts";
 
@@ -65,6 +66,8 @@ export type AgentContext = {
   /** The generation the API serves; nothing is read from a file. */
   deployment: AgentDeployment;
   model: Model;
+  /** How a role reads a source page. There is no default: whoever builds the context chooses (see fetcher.ts). */
+  fetcher: SourceFetcher;
   state: StateHandle;
   log: Log;
 };
@@ -117,7 +120,7 @@ export async function loadAgentEnv(env: Record<string, string | undefined>): Pro
  */
 export async function createContext(
   env: AgentEnv,
-  options: { model: Model; log?: Log; pollingIntervalMs?: number },
+  options: { model: Model; fetcher: SourceFetcher; log?: Log; pollingIntervalMs?: number },
 ): Promise<AgentContext> {
   const log = options.log ?? createLogger(env.name, [env.key]);
   log.redact(env.key);
@@ -151,6 +154,7 @@ export async function createContext(
     account,
     deployment,
     model: options.model,
+    fetcher: options.fetcher,
     state: { data, save: () => saveState(env.stateDir, data) },
     log,
   };

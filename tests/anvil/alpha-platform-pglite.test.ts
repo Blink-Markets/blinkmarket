@@ -7,9 +7,13 @@ import { bytesToHex } from "viem";
 import { BlinkApiError, createBlinkClient } from "../../packages/client/src/index.ts";
 import { createContext, type AgentEnv } from "../../examples/agents/src/lib/env.ts";
 import { createLogger } from "../../examples/agents/src/lib/log.ts";
+import type { SourceFetcher } from "../../examples/agents/src/lib/fetcher.ts";
 import type { Model } from "../../examples/agents/src/lib/model.ts";
 import { onboard } from "../../examples/agents/src/lib/session.ts";
 import { startAlphaPlatform } from "../../scripts/alpha/platform.ts";
+
+/** No source is reachable: these tests do not read pages. */
+const noSources: SourceFetcher = async () => ({ status: "error", code: "NOT_IN_WORLD" });
 
 const silentModel: Model = {
   questions: async () => [],
@@ -46,7 +50,7 @@ test(
       const start = async () => {
         const lines: { event: string; [field: string]: unknown }[] = [];
         const log = createLogger(env.name, [key], (line) => lines.push(JSON.parse(line)));
-        const ctx = await createContext(env, { model: silentModel, log, pollingIntervalMs: 100 });
+        const ctx = await createContext(env, { model: silentModel, fetcher: noSources, log, pollingIntervalMs: 100 });
         await onboard(ctx);
         return { ctx, lines };
       };

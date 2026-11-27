@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { bytesToHex } from "viem";
 import { createContext } from "../../examples/agents/src/lib/env.ts";
 import { createLogger } from "../../examples/agents/src/lib/log.ts";
+import type { SourceFetcher } from "../../examples/agents/src/lib/fetcher.ts";
 import type { Model } from "../../examples/agents/src/lib/model.ts";
 import { onboard } from "../../examples/agents/src/lib/session.ts";
 import { createTrader } from "../../examples/agents/src/roles/trader.ts";
@@ -76,6 +77,8 @@ test(
 
       // One trader identity for all three cases. Its view is set by the case.
       let view: number | null = null;
+      /** No source is reachable: this test does not read pages. */
+      const noSources: SourceFetcher = async () => ({ status: "error", code: "NOT_IN_WORLD" });
       const model: Model = {
         questions: async () => [],
         fromSuggestion: async () => null,
@@ -88,7 +91,7 @@ test(
       const lines: Line[] = [];
       const ctx = await createContext(
         { name: "trader", roles: ["trader"], apiUrl: stack.apiUrl, rpcUrl: stack.anvil.url, key, worldPath: "", stateDir },
-        { model, log: createLogger("trader", [key], (line) => lines.push(JSON.parse(line) as Line)), pollingIntervalMs: POLL_MS },
+        { model, fetcher: noSources, log: createLogger("trader", [key], (line) => lines.push(JSON.parse(line) as Line)), pollingIntervalMs: POLL_MS },
       );
       await onboard(ctx);
       const trade = createTrader({ pollMs: POLL_MS, waitMs: { quotes: 20_000, receipt: 30_000, settle: 30_000, grace: 500 } });

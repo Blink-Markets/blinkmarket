@@ -32,7 +32,61 @@ Each task's section is filled at that task's checkpoint, in checkpoint order: th
 
 ## Task 2 — the source watcher in the reference agents
 
-Not started.
+**Scope.** The reference agents can check whether the pages a market names have changed, with no model call. Nothing in the reference process touches the network.
+- `examples/agents/src/lib/fetcher.ts` adds the fetchers and the rules they share:
+  - `httpsFetcher` reads a URL over https and nothing else. It judges the URL before any lookup, judges every address the name resolves to before any connection, connects to the judged address, checks that the socket ended there, and judges every redirect again (at most 3). One 10 s deadline covers the whole read, and the decoded body is capped at 4 MiB. It never throws once built; a failure is `{ status: "error", code }`.
+  - `fixtureFetcher` serves the world file's source files with a media type from the file extension, and answers `NOT_IN_WORLD` for any other URL.
+  - The address rules (`isPublicAddress`, the local-subnet check and `extraBlockedRanges`) live in the file, so an outside developer who copies the example gets its own copy. A test compares them with the platform's.
+  - The shared URL and media-type rules: `isCanonicalHttpsUrl`, `jsonBytes`, `isMediaType`, `mediaTypeOf`, `isEtag` and `isLastModified`.
+- `examples/agents/src/lib/watch.ts` adds the cheap check:
+  - `normalizeForFingerprint` and `fingerprint` turn a body into text that ignores noise, then into a keccak256 hash;
+  - `watchableUrl` builds the form of a URL that the watcher accepts, saves and puts into a note;
+  - `checkSources` reads every URL once, at most five at a time, and returns the items (`NEW`, `CHANGED`, `UNCHANGED`, `UNREACHABLE`) and the `next` sources table. It does not change the record;
+  - `decideUpdate` turns the items into `analyse` (`cold_start`, `change` or `heartbeat`) or `carry_forward`.
+- `examples/agents/src/lib/state.ts` adds the `watch` part of the agent state (`WatchRecord`, by market id). `loadState` accepts an older file without it, and refuses a malformed record, a source key that is not a canonical https URL, a validator or final URL or media type that is not in the stored shape, and a probability outside 1 to 9999, all as `STATE_CORRUPT`.
+- `AgentContext` has a `fetcher`, and `createContext` takes it as a required option with no default. `main.ts` passes `fixtureFetcher(world)`. The test files that build a context pass the fixture fetcher or a stub.
+- World-file source keys must be canonical https URLs, and the error names the canonical form.
+- The platform's `isPublicAddress` (`packages/domain/src/network-policy.ts`) now admits only global unicast IPv6 (`2000::/3`), with the registry's globally reachable exceptions inside `2001::/23`. It no longer judges the rest by a list of refused ranges.
+
+**Rulings during the task.** Plan section 2.2 notes the main ones. Each is a departure from the plan as first written.
+- The default resolver is c-ares (`dns.Resolver`), not `dns.lookup`: it can be cancelled, it cannot exhaust the thread pool, and it reads no `/etc/hosts` and applies no search domains.
+- A and AAAA are queried together. A failure of one does not fail the lookup, and the lookup stops waiting 300 ms after the first non-empty answer (RFC 8305's resolution delay).
+- The request asks for `identity`. A gzip or deflate body is still decoded, and both the wire size and the decoded size are capped. `br` is refused (`UNSUPPORTED_ENCODING`).
+- Validators (`ETag`, `Last-Modified`) go only on the request for the final URL they were saved for, never on another hop. A 304 counts only when a conditional header was sent.
+- An empty body is `UNREACHABLE` (`EMPTY_BODY`).
+- JSON nested deeper than 256 levels, or with more than 100,000 structural tokens, is compared as whitespace-collapsed text. Numbers are kept as written.
+- A text body is decoded with its declared charset (UTF-8 when none). An unknown label or bytes that do not decode fall back to windows-1252. Only a type that is not text is hashed as `raw:` bytes.
+- The local-subnet refusal: an address inside a subnet of one of the machine's interfaces is refused, as is one in `extraBlockedRanges`. It covers the IPv4-mapped, NAT64 and IPv4-compatible forms of an IPv6 address. A range written as `::ffff:a.b.c.d/n` is converted to the IPv4 range it maps to.
+- No `User-Agent` and no cookie is sent.
+- Any of five proxy variables (`HTTPS_PROXY`, `https_proxy`, `HTTP_PROXY`, `http_proxy`, `NODE_USE_ENV_PROXY`) makes `httpsFetcher` throw `PROXY_CONFIGURED` at construction, unless `direct: true` is passed.
+- A source URL, a stored final URL and a world-file key are canonical (`new URL(u).href`) and take at most 2,048 bytes once JSON-encoded (`SOURCE_URL_NOT_CANONICAL`).
+- Only values that `loadState` accepts are stored: validators, final URLs and media types. A validator or final URL that fails the shape is not stored, and an invalid media type becomes `application/octet-stream`.
+- `checkSources` throws a `RangeError` on input the caller should have filtered: a `now` that is not whole seconds, more than 20 URLs once repeats are removed, a non-https or non-canonical URL, or one over 2,048 bytes. Build the list with `watchableUrl`.
+- `next` holds only the URLs of this check. A URL whose first check failed gets no entry, so its first success is `NEW`. `SourceCheck.fingerprint` is null only for that case.
+- `decideUpdate` throws on a heartbeat that is not finite and positive, and counts a prior analysis dated after `now` as due.
+- The check yields to the event loop between sources, so timers and socket callbacks are not held up. It does not run another role's tick: `runAgent` runs one tick at a time, so the other roles wait for the whole check.
+- The linkability limits are stated in the `fetcher.ts` header and in plan section 2.9: a per-request token reaches the fingerprint and the public snapshot, and validators let a server recognise the agent across windows and IP changes. Unlinkability needs a tunnel.
+
+**Verification**, with the pinned Node and pnpm:
+- `node --import tsx --test tests/agents-watch.test.ts tests/network-policy.test.ts tests/agents-runtime.test.ts`: 97 tests, 97 pass. Each fix round added its tests first and saw them fail before the change.
+- `pnpm check`: 771 tests pass, and the typechecks and package boundaries pass.
+- `pnpm build`, `pnpm build:pages && node scripts/check-pages-export.mjs` (24 key files and 81 internal URLs in 266 exported files), `pnpm build:services` and `pnpm test:service-build` (4 of 4) pass.
+- Not run locally: `pnpm test:browsers`, `pnpm test:contracts`, `pnpm test:anvil` and `pnpm test:contracts:seeds`. CI runs them for the pushed commit.
+- The nightly drill is pending until a nightly run after the push passes.
+
+**Review.** A conformance review approved with findings. An adversarial review ran four rounds:
+- round 1 found 2 High, 3 Medium, 13 Low and 1 nit;
+- round 2 closed all of them and found one regression (a JSON body that cost seconds of CPU and hundreds of MiB) and six Low findings;
+- round 3 closed those and found five Low findings;
+- round 4 closed those and found one Low finding and one nit, both fixed.
+
+No Critical, High or Medium finding remains.
+
+**Follow-ups outside this task.** These are gaps found in the platform's own fetcher. This task does not fix them. The platform's allowlist limits its exposure.
+- Its `br` decoder (`packages/adapters/src/allowlist-fetcher.ts:175`) has the cost that the agent's fetcher avoids by refusing `br`.
+- An internal host with a public-looking address is not caught.
+- Whoever wires its resolver must avoid `dns.lookup`, for the reasons in the first ruling above.
+- It misses NAT64 under a network-specific prefix.
 
 ## Task 3 — the event-driven forecaster
 

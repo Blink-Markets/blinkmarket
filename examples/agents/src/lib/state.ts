@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Hex } from "viem";
+import { isCanonicalHttpsUrl, isEtag, isLastModified, isMediaType } from "./fetcher.ts";
 
 /** A fill that was sent and whose outcome this agent has not learned yet (see roles/trader.ts). */
 export type PendingFill = { digest: Hex; expiresAt: string; txHash?: Hex };
@@ -17,6 +18,26 @@ export type CreateIntent = {
 };
 
 /**
+ * What the forecaster remembers of one market: what each followed source looked like at the last
+ * successful check, and the record of its own answers (see roles/forecaster.ts).
+ */
+export type WatchRecord = {
+  /**
+   * By source URL: the fingerprint of its normalised text, its validators and the URL they belong to
+   * (where the redirects ended), and when it was checked (unix seconds).
+   */
+  sources: Record<string, { fingerprint: Hex; etag?: string; lastModified?: string; finalUrl?: string; checkedAt: number }>;
+  /** A cursor the server issued for the windows list; never built by the agent. Absent for the first page. */
+  windowsCursor?: string;
+  /** The agent's last answer: the digest it signed, its window, when it last ran the model, and the probability. */
+  prior?: { digest: Hex; windowId: string; analysedAt: number; answeredAt: number; probabilityBps: number };
+  /** An answer decided and saved before anything was uploaded, so that a restart resends identical bytes. */
+  intent?: { windowId: string; kind: "analysis" | "carry_forward"; noteBytes: string; probabilityBps: number };
+  /** Raw source bytes to archive once their window has closed. */
+  pendingSnapshots?: { hash: Hex; mediaType: string; windowId: string }[];
+};
+
+/**
  * What an agent must remember across restarts. The API secret is not here: it is issued again at
  * every start, and only the id of the key is kept so that the old key can be revoked.
  */
@@ -30,6 +51,8 @@ export type AgentState = {
   fills: Record<string, PendingFill>;
   /** Markets a creator chose and has not finished, by `draft:<key>` or `suggestion:<id>`. */
   intents?: Record<string, CreateIntent>;
+  /** What the forecaster watches and has answered, by market id. */
+  watch?: Record<string, WatchRecord>;
 };
 
 const FILE = "state.json";
@@ -38,6 +61,60 @@ export const emptyState = (): AgentState => ({ salts: {}, acted: {}, fills: {} }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
+const isHash = (v: unknown): boolean => typeof v === "string" && /^0x[0-9a-fA-F]{64}$/.test(v);
+const isTime = (v: unknown): boolean => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+const isString = (v: unknown): boolean => typeof v === "string";
+const isOptionalString = (v: unknown): boolean => v === undefined || typeof v === "string";
+// A forecast is 1 to 9999 basis points, as the API takes it.
+const isBps = (v: unknown): boolean => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 9999;
+
+function validWatchRecord(v: unknown): boolean {
+  if (!isRecord(v) || !isRecord(v.sources) || !isOptionalString(v.windowsCursor)) return false;
+  for (const [url, entry] of Object.entries(v.sources))
+    if (
+      !isCanonicalHttpsUrl(url) ||
+      !isRecord(entry) ||
+      !isHash(entry.fingerprint) ||
+      !isTime(entry.checkedAt) ||
+      !(entry.etag === undefined || isEtag(entry.etag)) ||
+      !(entry.lastModified === undefined || isLastModified(entry.lastModified)) ||
+      !(entry.finalUrl === undefined || isCanonicalHttpsUrl(entry.finalUrl))
+    )
+      return false;
+  const { prior, intent, pendingSnapshots } = v;
+  if (
+    prior !== undefined &&
+    !(
+      isRecord(prior) &&
+      isHash(prior.digest) &&
+      isString(prior.windowId) &&
+      isTime(prior.analysedAt) &&
+      isTime(prior.answeredAt) &&
+      isBps(prior.probabilityBps)
+    )
+  )
+    return false;
+  if (
+    intent !== undefined &&
+    !(
+      isRecord(intent) &&
+      isString(intent.windowId) &&
+      (intent.kind === "analysis" || intent.kind === "carry_forward") &&
+      isString(intent.noteBytes) &&
+      isBps(intent.probabilityBps)
+    )
+  )
+    return false;
+  if (
+    pendingSnapshots !== undefined &&
+    !(
+      Array.isArray(pendingSnapshots) &&
+      pendingSnapshots.every((s) => isRecord(s) && isHash(s.hash) && isMediaType(s.mediaType) && isString(s.windowId))
+    )
+  )
+    return false;
+  return true;
+}
 
 /** The state in `dir`, or an empty one when there is none yet. A damaged file is an error, never reset. */
 export async function loadState(dir: string): Promise<AgentState> {
@@ -60,6 +137,7 @@ export async function loadState(dir: string): Promise<AgentState> {
     !isRecord(parsed.acted) ||
     !isRecord(parsed.fills) ||
     (parsed.intents !== undefined && !isRecord(parsed.intents)) ||
+    (parsed.watch !== undefined && !(isRecord(parsed.watch) && Object.values(parsed.watch).every(validWatchRecord))) ||
     (parsed.apiKeyId !== undefined && typeof parsed.apiKeyId !== "string")
   )
     throw new Error("STATE_CORRUPT");

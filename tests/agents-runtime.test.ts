@@ -465,6 +465,16 @@ test("a world file is validated strictly", () => {
     broken((w) => void ((w.questions.margin as Record<string, unknown>).sources = { "https://x.test/a": "../secret" })),
     /outside the world directory/,
   );
+  // A source key is a canonical https URL, so that what the watcher looks up is what the world serves.
+  const keyed = (key: string) => broken((w) => void ((w.questions.margin as Record<string, unknown>).sources = { [key]: "page.txt" }));
+  assert.throws(keyed("https://stats.example"), /key must be a canonical https URL \(https:\/\/stats\.example\/\)/);
+  assert.throws(keyed("https://One.example/"), /canonical https URL \(https:\/\/one\.example\/\)/);
+  assert.throws(keyed("http://stats.example/"), /canonical https URL/);
+  assert.doesNotThrow(keyed("https://stats.example/"));
+  // A canonical key that is too long names the byte limit, not itself as the expected form.
+  const tooLong = "https://stats.example/" + "a".repeat(2100);
+  assert.throws(keyed(tooLong), /canonical https URL \(at most 2048 bytes once JSON-encoded\)/);
+  assert.throws(keyed(tooLong), (e: Error) => !e.message.includes(`(${tooLong})`));
   assert.throws(broken((w) => void (w.agents.alice.roles = ["wizard"] as never)), /roles/);
   assert.throws(broken((w) => void (w.suggestions["Will it rain?"] = "missing")), /unknown question/);
   assert.throws(

@@ -8,6 +8,7 @@
 // SIGTERM (or SIGINT) stops it after the tick that is running.
 import { pathToFileURL } from "node:url";
 import { createContext, loadAgentEnv, type AgentContext, type RoleName } from "./lib/env.ts";
+import { fixtureFetcher } from "./lib/fetcher.ts";
 import { createLogger } from "./lib/log.ts";
 import { runAgent, type RoleTick } from "./lib/loop.ts";
 import { fixtureModel } from "./lib/model.ts";
@@ -42,10 +43,9 @@ export const ROLE_STOPS: Partial<Record<RoleName, (ctx: AgentContext) => Promise
 async function main() {
   const env = await loadAgentEnv(process.env);
   const log = createLogger(env.name, [env.key]);
-  const ctx = await createContext(env, {
-    model: fixtureModel(await loadWorld(env.worldPath), env.name),
-    log,
-  });
+  const world = await loadWorld(env.worldPath);
+  // Sources are read from the world file's fixtures: this process never fetches from the network.
+  const ctx = await createContext(env, { model: fixtureModel(world, env.name), fetcher: fixtureFetcher(world), log });
   await onboard(ctx);
   const ticks = ctx.roles.flatMap((role) => ROLE_TICKS[role] ?? []);
   const stop = new AbortController();

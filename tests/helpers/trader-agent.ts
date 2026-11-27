@@ -5,6 +5,7 @@ import type { Hex } from "viem";
 import { createContext, type AgentContext, type AgentEnv } from "../../examples/agents/src/lib/env.ts";
 import { createLogger } from "../../examples/agents/src/lib/log.ts";
 import { runAgent } from "../../examples/agents/src/lib/loop.ts";
+import type { SourceFetcher } from "../../examples/agents/src/lib/fetcher.ts";
 import type { Model } from "../../examples/agents/src/lib/model.ts";
 import { onboard } from "../../examples/agents/src/lib/session.ts";
 import { createTrader, type TraderOptions } from "../../examples/agents/src/roles/trader.ts";
@@ -21,6 +22,9 @@ export type TraderRun = {
 
 /** What the model thinks of every market it is asked about: well above the 4000 bps the makers quote. */
 const VIEW_BPS = 7000;
+/** No source is reachable: these tests do not read pages. */
+const noSources: SourceFetcher = async () => ({ status: "error", code: "NOT_IN_WORLD" });
+
 /** The trader asks its model for a view of a market and nothing else; the rest answer null. */
 const silentModel: Model = {
   questions: async () => [],
@@ -86,6 +90,7 @@ export async function runTrader(config: {
       loop = (async () => {
         const ctx = await createContext(env, {
           model: silentModel,
+          fetcher: noSources,
           log,
           pollingIntervalMs: config.pollMs,
         });

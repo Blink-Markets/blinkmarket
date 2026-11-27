@@ -51,7 +51,7 @@ const addresses: [string, boolean][] = [
   ["0:0:0:0:0:0:0:1", false],
   ["100::1", false],
   ["100:0:0:0:ffff::1", false],
-  ["100:0:0:1::1", true],
+  ["100:0:0:1::1", false], // 100:0:0:1::/64 is the dummy prefix (IANA special-purpose registry), not global unicast space
   ["2001:db8::1", false],
   ["2001:db8:ffff::1", false],
   ["2001:db9::1", true],
@@ -103,6 +103,33 @@ const addresses: [string, boolean][] = [
   ["12345::1", false],
   ["[::1]", false],
   ["::ffff:1.2.3", false],
+  // Ranges that are not globally reachable (IANA special-purpose registry) are refused ...
+  ["2001:2::1", false], // 2001:2::/48 benchmarking
+  ["2001:2:0:ffff::1", false],
+  ["2001:10::1", false], // 2001:10::/28 deprecated ORCHID
+  ["2001:5::1", false], // the rest of 2001::/23
+  ["2001:1ff::1", false],
+  ["3fff::1", false], // 3fff::/20 documentation
+  ["3fff:fff::1", false],
+  ["5f00::1", false], // 5f00::/16 SRv6 segment identifiers
+  ["::1:0:0:0", false], // reserved, outside the /96 forms judged by what they carry
+  ["4000::1", false], // outside 2000::/3
+  ["8000::1", false],
+  ["fe00::1", false],
+  // ... while the exceptions the registry marks globally reachable, and the space around them, stay open.
+  ["2001:1::1", true],
+  ["2001:1::2", true],
+  ["2001:1::3", true],
+  ["2001:1::4", false],
+  ["2001:3::", true],
+  ["2001:4:112::", true],
+  ["2001:4:113::", false],
+  ["2001:20::", true],
+  ["2001:30::", true],
+  ["2001:40::", false],
+  ["2001:200::1", true],
+  ["3fff:1000::1", true],
+  ["2620:4f:8000::1", true],
 ];
 test("isPublicAddress classifies every blocked range and fails closed on garbage", () => {
   assert.ok(addresses.length >= 25);

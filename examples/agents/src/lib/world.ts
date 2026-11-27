@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { CREATION_GROUND, parseMarketSpec, type MarketSpecV02 } from "@blink/client";
 import { ROLE_NAMES, type RoleName } from "./env.ts";
+import { MAX_URL_BYTES, isCanonicalHttpsUrl } from "./fetcher.ts";
 
 export type Belief = {
   outcome?: "YES" | "NO";
@@ -59,7 +60,16 @@ function parseQuestion(raw: unknown, path: string): WorldQuestion {
   const sources: Record<string, string> = {};
   if (q.sources !== undefined)
     for (const [url, file] of Object.entries(record(q.sources, `${path}.sources`))) {
-      if (!/^https:\/\//.test(url)) throw invalid(`${path}.sources.${url}`, "key must be an https URL");
+      if (!isCanonicalHttpsUrl(url)) {
+        const href = URL.canParse(url) ? new URL(url).href : undefined;
+        const hint =
+          href === undefined || !href.startsWith("https:")
+            ? ""
+            : isCanonicalHttpsUrl(href)
+              ? ` (${href})`
+              : ` (at most ${MAX_URL_BYTES} bytes once JSON-encoded)`;
+        throw invalid(`${path}.sources.${url}`, `key must be a canonical https URL${hint}`);
+      }
       if (typeof file !== "string" || file === "")
         throw invalid(`${path}.sources.${url}`, "must be a file name");
       sources[url] = file;

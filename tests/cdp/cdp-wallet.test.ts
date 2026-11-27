@@ -25,6 +25,7 @@ import { ROLE, agentAbi, createBlinkClient } from "../../packages/client/src/ind
 import type { AgentContext, RoleName } from "../../examples/agents/src/lib/env.ts";
 import { createLogger } from "../../examples/agents/src/lib/log.ts";
 import { runAgent, type RoleTick } from "../../examples/agents/src/lib/loop.ts";
+import { fixtureFetcher } from "../../examples/agents/src/lib/fetcher.ts";
 import { fixtureModel } from "../../examples/agents/src/lib/model.ts";
 import { onboard } from "../../examples/agents/src/lib/session.ts";
 import { loadState, saveState } from "../../examples/agents/src/lib/state.ts";
@@ -100,6 +101,7 @@ async function startAgent(
     account: who.account,
     deployment: (await client.getDeployment()).deployment,
     model: fixtureModel(world, who.name),
+    fetcher: fixtureFetcher(world),
     state: { data, save: () => saveState(stateDir, data) },
     log: createLogger(who.name, [], (line) => lines.push(JSON.parse(line) as Line)),
   };

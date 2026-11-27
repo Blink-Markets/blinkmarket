@@ -106,17 +106,24 @@ export function isPublicAddress(ip: string): boolean {
   if (g[0] === 0x64 && g[1] === 0xff9b && zeros(2, 6))
     return publicV4(embedded);
   if (zeros(0, 6)) return publicV4(embedded);
-  if (g[0] === 0x100 && zeros(1, 4)) return false; // 100::/64
-  // Transition ranges are refused outright rather than judged by what they embed.
-  if (zeros(0, 4) && g[4] === 0xffff && g[5] === 0) return false; // ::ffff:0:0:0/96 (SIIT)
-  if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 1) return false; // 64:ff9b:1::/48
+  // Everything else must be global unicast, 2000::/3. That leaves out 100::/64, the SIIT and
+  // 64:ff9b:1::/48 transition ranges, fc00::/7, fe80::/10, fec0::/10, ff00::/8, 5f00::/16 and the
+  // reserved and unallocated space.
+  if ((g[0]! & 0xe000) !== 0x2000) return false;
+  // 2001::/23 is the IETF protocol assignments block, mostly not reachable (Teredo, ORCHID,
+  // benchmarking). The registry marks these parts globally reachable: 2001:1::1 to 2001:1::3,
+  // 2001:3::/32 (AMT), 2001:4:112::/48 (AS112), 2001:20::/28 and 2001:30::/28.
+  if (g[0] === 0x2001 && g[1]! < 0x200)
+    return (
+      (g[1] === 1 && zeros(2, 7) && g[7]! >= 1 && g[7]! <= 3) ||
+      g[1] === 3 ||
+      (g[1] === 4 && g[2] === 0x112) ||
+      (g[1]! & 0xfff0) === 0x20 ||
+      (g[1]! & 0xfff0) === 0x30
+    );
+  if (g[0] === 0x2001 && g[1] === 0xdb8) return false; // 2001:db8::/32 (documentation)
   if (g[0] === 0x2002) return false; // 2002::/16 (6to4)
-  if (g[0] === 0x2001 && g[1] === 0) return false; // 2001::/32 (Teredo)
-  if (g[0] === 0x2001 && g[1] === 0xdb8) return false; // 2001:db8::/32
-  if ((g[0]! & 0xfe00) === 0xfc00) return false; // fc00::/7
-  if ((g[0]! & 0xffc0) === 0xfe80) return false; // fe80::/10
-  if ((g[0]! & 0xffc0) === 0xfec0) return false; // fec0::/10 (deprecated site-local)
-  if ((g[0]! & 0xff00) === 0xff00) return false; // ff00::/8
+  if (g[0] === 0x3fff && g[1]! < 0x1000) return false; // 3fff::/20 (documentation)
   return true;
 }
 
