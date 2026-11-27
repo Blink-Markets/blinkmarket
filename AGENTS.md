@@ -44,8 +44,8 @@ this instruction.
 These rules apply to any coding agent working in this repo, whatever the tool or
 model. Pick models by role: a strong coding model for writing and judging code,
 a cheaper fast model for read-only lookups. Name the model every time an agent
-is dispatched, so that no agent silently inherits the controller's model. With
-Claude models:
+is dispatched, so that no agent silently inherits the controller's model, and
+name its effort too: high for Sonnet, medium for Opus. With Claude models:
 
 | Role | Model |
 | --- | --- |
