@@ -94,7 +94,38 @@ Not started.
 
 ## Task 4 — reading freshness from the public routes
 
-Not started.
+**Scope.** `packages/client/src/freshness.ts` adds `getMarketFreshness`, a function that takes a client and a market id and returns the market's freshness and its windows, through the public routes only.
+- It reads the deployment once, for `generation.markets`.
+- It pages the windows, stopping at the first one that is not CLOSED, and pages the consensus. It keeps the latest 30 closed windows.
+- For each window that has answers, it lists them and ignores the withdrawn ones.
+- It fetches at most 20 notes per window, 8 at a time. `NO_CONTENT_HASH` is never fetched, and the answers past the limit are `unfetched`.
+- A note counts only if it parses and `noteBelongsTo` accepts it. Every other answer counts as an answer without a note.
+- It reduces the windows with `summarizeWindow` and `computeFreshness`.
+
+`@blink/client` re-exports the reader and its types. `apps/web/content/docs/client.md` gets a subsection and an exports row, and the method count stays at 36, because the reader is not a method of the client. `apps/web/content/docs/forecaster.md` gets a bullet under Duties, and its six H2 sections are unchanged.
+
+**Rulings during the task.** Each is a departure from the plan as first written. Plan section 2.5 notes them.
+1. The reader calls `getDeployment()` once, because `noteBelongsTo` needs the generation's `BlinkMarkets`.
+2. The parameter is a structural `FreshnessClient` type, to avoid an import cycle. A compile-time test pins that the real `createBlinkClient(...)` fits it.
+3. Windows that share a `scheduledAt` (a daily and a pre-close window on the same deadline) are one window, with the earliest `openAt`, so `windowsBehind` does not count a deadline twice.
+4. Only a missing note (a 404 from the store) or a hash mismatch counts as an answer without a note. Any other content-route failure (a 429, a 5xx, a network error) throws, as the window, consensus and answer routes do. A retry with the same `cache` fetches only what is missing.
+5. Bytes are used only if they hash to the requested hash, whether they were fetched or came from the cache.
+6. Invalid options throw a `RangeError` (`INVALID_WINDOWS`, `INVALID_NOTES_PER_WINDOW`, `INVALID_AS_OF`), and a cursor that does not move throws `CURSOR_NOT_ADVANCING`.
+7. "Closed" is the server's `status === "CLOSED"`. `asOf` only sets the time the view is for.
+
+**Verification**, with the pinned Node and pnpm, on the rebased commit:
+- `node --import tsx --test tests/client-freshness.test.ts tests/agent-docs-coverage.test.ts tests/web-docs-content.test.ts`: 40 tests, 40 pass. The freshness file has 19 tests. The new tests were seen failing first: at load (`ERR_MODULE_NOT_FOUND`) and again in the fix round.
+- `pnpm check`: 790 tests pass, and the typechecks and package boundaries pass.
+- `pnpm build` and `pnpm build:pages && node scripts/check-pages-export.mjs` (24 key files and 81 internal URLs in 266 exported files) pass.
+- Not run locally: `pnpm test:browsers`, `pnpm test:contracts`, `pnpm test:anvil` and `pnpm test:contracts:seeds`. CI runs them for the pushed commit.
+
+**Review.** The first review found 1 Medium and 4 Low findings:
+- Medium: a transient content failure counted as a missing note.
+- Low: the reader did not check hashes itself.
+- Low: regression tests were missing for the in-flight limit, for a failing route rejecting, and for the real client fitting the type.
+- Low: `asOf` was not validated.
+
+All five were fixed and approved on re-review. No Critical, High or Medium finding remains. Rulings 1, 2, 3, 6 and 7 were judged right as they were.
 
 ## Task 5 — the website shows freshness and what changed
 

@@ -359,6 +359,13 @@ export {
   type WindowSummary,
 } from "@blink/schemas";
 export {
+  DEFAULT_FRESHNESS_WINDOWS,
+  DEFAULT_NOTES_PER_WINDOW,
+  getMarketFreshness,
+  type FreshnessClient,
+  type MarketFreshnessOptions,
+} from "./freshness.ts";
+export {
   DEFAULT_MIN_VALIDITY_SECONDS,
   QuoteVerificationError,
   approvalFor,

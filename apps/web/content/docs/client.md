@@ -107,6 +107,24 @@ The client has 36 methods. Only `POST /v1/markets/{id}/forecasts` takes an `Idem
 | `listForecasters(page?)` | `GET /v1/forecasters` | Sorted by weight |
 | `getForecaster({ address })` | `GET /v1/forecasters/{address}` | One forecaster's record |
 
+### Reading how fresh a market is
+
+`getMarketFreshness(client, marketId, options?)` is a function that takes a client, not a method of it, so it is not in the table above and does not change the method count. It composes the public routes `listForecastWindows`, `getConsensus`, `listForecasts` and `getContent` (and `getDeployment`, for the generation's `BlinkMarkets`) into one summary, and needs no API key.
+
+```ts
+import { createBlinkClient, getMarketFreshness } from "@blink/client";
+
+const client = createBlinkClient(apiUrl);
+const cache = new Map<string, Uint8Array>(); // optional: notes never change
+const view = await getMarketFreshness(client, "7", { windows: 30, notesPerWindow: 20, cache });
+console.log(view.level, view.windowsBehind, view.lastAnsweredWindow, view.evidenceChangedAt);
+```
+
+- **What it reads.** The latest `windows` closed windows of the market (default 30), reading the list from its start, so a market with more than 100 windows is read in full. Open and upcoming windows are sealed or empty and are never read. Windows with the same `scheduledAt` count as one. For each window with answers it lists the answers, ignores a withdrawn one, and fetches the document that each `contentHash` names, at most `notesPerWindow` per window (default 20). `NO_CONTENT_HASH` is never fetched.
+- **What it returns.** A `FreshnessView` plus the per-window summaries in `windows`, oldest first. `lastAnsweredWindow`, `ageSeconds`, `windowsBehind` and `level` (`CURRENT` at 0 windows behind, `AGING` at 1 or 2, `STALE` at 3 or more, `NONE` when no closed window has an answer) rest on the platform's window deadlines. `analysedAt` and `evidenceChangedAt` rest on what forecasters reported in their forecast notes, so they are claims, not checked facts. `asOf` defaults to the local clock; pass it to fix the time. The reader is meant for open markets: a closed market opens no more windows, so its last window reads as current.
+- **Notes are checked on read.** A note counts only if it parses as a `blink.forecast-note/0.1` document and names the same market, `BlinkMarkets`, forecaster, horizon and window as the answer it was found behind. An answer whose note is missing (404), fails its hash check, is not valid, or belongs to another subject counts as an answer without a readable note (`noNote`). An answer beyond the `notesPerWindow` limit counts as `unfetched`, not `noNote`. A bad note never makes the call throw; a failing window, consensus, answer or content route does (a `429`, a `5xx` or a network error while fetching a note is thrown, not counted as a missing note), and a retry with the same `cache` fetches only the notes that are still missing. Bytes that do not hash to the requested hash are never used.
+- **Cache.** Pass a `Map` as `cache` to keep the bytes of fetched notes by hash, so a later call does not fetch them again.
+
 ### Quote relay and transactions
 
 | Method | Calls | Notes |
@@ -149,6 +167,7 @@ A quote is a maker's offer, and the relay is not trusted to describe it truthful
 | `forecastTypedData`, `forecastDigest`, `forecastLeaf`, `FORECAST_HORIZONS`, `NO_CONTENT_HASH` | What a forecaster signs and the leaf `BlinkAnchor` may anchor |
 | `GM_LT_V1`, `gmLtV1Outcome`, `parseGrossMargin` | The class A template and its computation. `gmLtV1Outcome` accepts only `{"thresholdBps": <int 1..9999>}` |
 | `parseMarketSpec` | Reads the bytes of a MarketSpec without importing the schemas package |
+| `getMarketFreshness`, `parseForecastNote`, `noteBelongsTo`, `summarizeWindow`, `computeFreshness` | The freshness reader described above, and the pieces it is built from: reading a forecast note, checking that it belongs to an answer, and reducing windows |
 
 ## What does a typed example look like?
 
