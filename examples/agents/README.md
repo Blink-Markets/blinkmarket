@@ -1,6 +1,6 @@
 # Reference agents
 
-`examples/agents` holds the Blink reference agents: one process per agent, each knowing only its key, the API URL, the RPC URL, a world file and its name. They are not participants run by the platform. They use the public API, `@blink/client`, `viem` and the contracts, and nothing else: `scripts/check-boundaries.mjs` fails the build when a file under `src/` imports another package, names `contracts/out`, `packages/` or `apps/`, or calls `parseAbi` (the ABIs are `agentAbi` from `@blink/client`). Base Sepolia chain ID 84532 only; bUSD has no value and nothing here is deployed anywhere.
+`examples/agents` holds the Blink reference agents: one process per agent, each knowing only its key, the API URL, the RPC URL, a world file and its name. They are not participants run by the platform. They use the public API, `@blink/client`, `viem` and the contracts, and nothing else: `scripts/check-boundaries.mjs` fails the build when a file under `src/` imports another package, names `contracts/out`, `packages/` or `apps/`, or calls `parseAbi` (the ABIs are `agentAbi` from `@blink/client`). As shipped, the process reads no page outside that API (see "The forecaster"). Base Sepolia chain ID 84532 only; bUSD has no value and nothing here is deployed anywhere.
 
 This package has the shared runtime and all eight roles: **creator**, **maker**, **trader** (the RFQ taker), **forecaster**, **proposer**, **challenger**, **juror** and **keeper**.
 
@@ -26,6 +26,7 @@ node --import tsx examples/agents/src/main.ts
 | `BLINK_AGENT_KEY` | The agent's wallet key (0x-hex). It pays gas and signs. It is never logged. |
 | `BLINK_WORLD` | The world file: the scripted questions, suggestions and beliefs a fixture model answers from. |
 | `BLINK_AGENT_STATE_DIR` | Where the agent keeps `state.json` (written to a temporary file and renamed). |
+| `BLINK_FORECAST_HEARTBEAT_HOURS` | Optional, forecaster only. The longest, in hours, that the forecaster goes without a new analysis of a market when no source changed. Default 336 (14 days). It must be a plain positive decimal; anything else stops the process with `INVALID_ENV:BLINK_FORECAST_HEARTBEAT_HOURS`, and an empty value counts as unset. |
 
 A missing variable stops the process with `MISSING_ENV:<name>`. SIGTERM (or SIGINT) stops the loop after the tick that is running.
 
@@ -54,7 +55,44 @@ The maker deposits a working balance (100 bUSD) once (it reads its pending nonce
 
 ## The forecaster
 
-For each OPEN window of an OPEN market where its model has a view, the forecaster signs the `Forecast` struct with `forecastTypedData` (bound to the deployment's BlinkAnchor and BlinkMarkets) and submits it, once per window; the window id is saved in the state.
+The forecaster analyses a market only when something changed, and otherwise signs its earlier probability again. Each tick, for each OPEN window of an OPEN market where its model has a view, it:
+
+1. checks the market's sources once for that window (`checkSources`: a conditional read of each URL, at most five at a time, and a fingerprint of the normalised page text, with no model call);
+2. decides with `decideUpdate`: **analyse** when it has no earlier forecast of its own for the market (`cold_start`), when a source is `CHANGED` or `NEW` (`change`), or when its last analysis is at least as old as the heartbeat (`heartbeat`, `BLINK_FORECAST_HEARTBEAT_HOURS`, default 14 days); otherwise **carry forward**;
+3. on analyse, calls the model's `revise` for the probability and a summary; on carry forward, takes the earlier probability;
+4. builds a salted forecast note (`blink.forecast-note/0.1`, see below), saves it with the fingerprints it is based on (an "intent"), uploads it with `uploadContent`, signs the `Forecast` struct with `forecastTypedData` (bound to the deployment's BlinkAnchor and BlinkMarkets) with `contentHash` set to the keccak256 of the note, and submits it, once per window;
+5. after a successful submit, commits the new fingerprints, the `prior` answer and the window id in one state save, so the next window sees a carry forward or a heartbeat and not a second analysis of the same change;
+6. after the platform lists the window as `CLOSED`, uploads the raw bytes of each `CHANGED` source that the note names (the snapshots), so that their hashes appear only after the deadline.
+
+A `Model` may provide `watchList(m)` (default: the spec's `sources`) and `revise(m, { prior, changes })` (default: `probabilityBps(m)` with an empty summary). The fixture model implements both from the agent's own beliefs and returns no watch list for a market it has no belief about.
+
+**The note.** `parseForecastNote` and `noteBelongsTo` of `@blink/client` read and check it. It holds the identity of the answer (`marketId`, `markets`, `forecaster`, `horizon`, `scheduledAt`), `kind` (`analysis` or `carry_forward`), a fresh 32-byte `salt`, `checkedAt`, `prior` (the digest of the previous answer, `null` only on a cold start), a `summary`, up to 20 `evidence` items (`url`, `status`, `since`, `observedAt`, `fingerprint`, `snapshot`, `note`) and `detail`. It is at most 64 KiB. The platform never reads it, so it is the forecaster's own claim. The note is uploaded before the submit and is salted, so its hash reveals nothing; the snapshots are uploaded after the deadline because anyone who reads the same page can compute their hashes. A changed source is archived only when its media type is one of the five that `/v1/content` accepts (`application/json`, `text/plain`, `text/csv`, `text/html`, `application/pdf`) and it is at most 1 MiB; otherwise its item has `snapshot: null` and the log has `snapshot_skipped`.
+
+**Bounds per tick.** `runAgent` runs one tick at a time, so the forecaster bounds its work:
+- at most two markets get real work (a fresh check, a model call or the resubmit of a saved intent), and the next tick starts with the market that was out of budget;
+- at most 20 snapshot objects and 8 MiB of them are uploaded, and one upload serves a hash that several markets share;
+- at most two markets that left OPEN are forgotten (pruned);
+- an idle market is listed again after at most 30 seconds;
+- a watch list holds at most 20 URLs, each at most 2,048 bytes once JSON-encoded, the spec's `sources` first.
+
+**Logs.** Among others: `forecast_decision` (action, reason, and how many sources were checked, changed and unreachable), `forecast_submitted`, `forecast_refused`, `snapshot_skipped`, `snapshot_upload_failed`, `watch_url_invalid`, `watch_url_too_long`, `watch_list_truncated`, `intent_dropped` and `forecaster_market_error`. A log line carries an error code and never an error message.
+
+**Where the pages come from.** `main.ts` always builds `fixtureFetcher(world)`: the reference process reads source pages only from the files its world file lists, answers `NOT_IN_WORLD` for any other URL, and so keeps the promise of line 3 as shipped. `httpsFetcher` exists for operators who embed this code with their own model and decide to read real sources. It is the operator's choice and the operator's responsibility. What an operator needs to know:
+
+- **Address checks.** It judges the URL before any lookup, judges every address the name resolves to before any connection, connects to the address it judged, checks that the socket ended there, and judges every redirect again (at most 3). A read has one 10 second deadline and a decoded body of at most 4 MiB. It sends no `User-Agent` and no cookie, and asks for `identity` encoding (`gzip` and `deflate` are still decoded; `br` is refused with `UNSUPPORTED_ENCODING`).
+- **Proxies.** It never uses a proxy. It throws `PROXY_CONFIGURED` when it is built while any of `HTTPS_PROXY`, `https_proxy`, `HTTP_PROXY`, `http_proxy` or `NODE_USE_ENV_PROXY` is set, because a proxy resolves the name itself and would defeat the address check. Pass `direct: true` to say that the direct connection is intended.
+- **Name resolution.** The default resolver asks the name servers directly (c-ares). It reads no `/etc/hosts` and applies no search domains, so a name that only a hosts file or a search domain knows is not found.
+- **Local networks.** Besides every address that is not publicly routable, it refuses an address inside a subnet of one of the machine's network interfaces. Inside a container those are the container's interfaces, not the host's: put the host's subnets, and any private network that is numbered from public space, in `extraBlockedRanges` (CIDR strings). On an IPv6-only network whose NAT64 uses a network-specific prefix, `<prefix>::<private IPv4>` passes the checks, so put that prefix's forms of the private ranges in `extraBlockedRanges` (for a /96 prefix, `<prefix>::10.0.0.0/104` covers 10.0.0.0/8).
+- **Write an IPv4 range to block every form of an address.** A range written as `::ffff:a.b.c.d/n` is read as the IPv4 range it maps to, but the NAT64 (`64:ff9b::/96`) and IPv4-compatible forms stay IPv6. The IPv4 range blocks the IPv4-mapped, NAT64 and IPv4-compatible forms of every address inside it.
+- **Fetched text is untrusted input.** A page can contain text written to steer a model (prompt injection), and anyone can write a market's `sources`. An operator who passes fetched text to a model must treat it as data: never as instructions, and never beside a tool or key that the page's words could use. The fingerprint check reads a page as text to compare and never runs it.
+- **Linkability.** A page that carries a per-request token puts that token into the fingerprint and the snapshot, which are public once an answer is revealed. The validators that are sent back (`ETag`, `Last-Modified`) let a server recognise the same agent across windows and across changes of its IP address. No header names the operator or the software, but the connection's source address is the operator's. Unlinkability needs a tunnel or an egress address around the whole process, which this code cannot provide.
+
+**Limits.**
+- A source that cannot be fetched (a login wall, a page that scripts build in the browser, a rate limit) looks `UNREACHABLE` or constant, so the agent relies on its heartbeat.
+- The cheap check reads a page that rewrites its text on every load as changed, and so analyses it every window.
+- A carried answer signs the same number again. On a question that resolves on an event by a date, the honest probability falls as days pass with no event, and a carried number does not, for up to the heartbeat.
+- One agent per state directory is the supported setup. Idle state is in memory, so a restart lists every market once.
+- A 401 or 403 loses that window, as any other final refusal does: the model has already been paid for it, and the next window runs again.
 
 ## The trader
 

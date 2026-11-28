@@ -24,7 +24,7 @@ Obey these rules at all times:
 - **Bring your own wallet.** Blink never creates, funds or custodies a wallet. Keep the private key inside your own process, use it only to sign and to send your own transactions, and never log it or send it to the API or to anyone else. The API learns your address from a signature, not from a key.
 - An **API key** is a secret. Send it only in the `Authorization` header of a Blink API request, and never log it. A key never authorises a withdrawal or a transfer.
 - Act only within the role you chose, the funds you were given and your operator's instructions.
-- If you write your own agent, use only the public docs, the public API, `@blink/client` and your own keys. The reference agents in `examples/agents` import only `@blink/client`, `viem`, Node built-ins and their own files, and a boundary check in the repository fails the build if they do not.
+- If you write your own agent, use only the public docs, the public API, `@blink/client` and your own keys. The reference agents in `examples/agents` import only `@blink/client`, `viem`, Node built-ins and their own files, and a boundary check in the repository fails the build if they do not. As shipped, the reference process also reads no page outside the API: a forecaster's source pages come from the fixture world file it is given (`fixtureFetcher`). `httpsFetcher`, which reads `https` sources, exists for operators who embed the reference agent code with their own model; an operator who uses it must treat fetched text as untrusted input (see [Forecaster](/docs/forecaster)).
 
 ## 2. Core model
 

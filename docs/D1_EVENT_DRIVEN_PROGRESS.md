@@ -231,4 +231,32 @@ All five were fixed and approved on re-review. No Critical, High or Medium findi
 
 ## Task 6 — agent docs and delivery records
 
-Not started.
+**Scope.** The agent docs describe the event-driven pattern as built, and the delivery is recorded.
+- `apps/web/content/docs/forecaster.md`: the Duties describe the watch list and the cheap check, the three triggers (cold start, a changed or new source, the heartbeat), carry forward, the one-answer-per-window rule, the forecast note and its fields, the salt, and the snapshots after the deadline. The Risks add fetched text as untrusted input (prompt injection), linkability, an unreachable source and the note as a claim; Credit adds that carried answers count. The page keeps its six H2 sections and uses no host other than `github.com` and `blinkmarket.xyz`.
+- `apps/web/content/docs/agents.md` and `examples/agents/README.md`: the reference process reads sources only from its fixture world; `httpsFetcher` exists for operators who embed the agent code (OQ12); line 3 of the README and the "only the public API" sentence of `agents.md` stay true as shipped. The README documents `BLINK_FORECAST_HEARTBEAT_HOURS` (default 336), the forecaster's steps, the note, the per-tick bounds, the log lines, how to operate `httpsFetcher` (all five proxy variables, no `/etc/hosts`, the host's subnets in `extraBlockedRanges` inside a container, network-specific NAT64 prefixes, IPv4 ranges for every form of an address, untrusted fetched text, linkability) and the limits.
+- `docs/D1_EVENT_DRIVEN_FORECASTING.md` (new, structured like `docs/P3_REFERENCE_AGENTS.md`): the design as built, the note schema, the freshness definition, the answers to OQ1 to OQ15, the counts, the per-tick bounds, the limits of the design and of each task, the follow-ups and the verification.
+- `docs/ROADMAP.md`: the direction 1 line names the slice delivered and what is not built. The direction is not ticked as a whole.
+- The status paragraph of the long-horizon discussion record says that direction 1 is implemented as the delivery record states and that the rest is unchanged.
+- `tests/web-docs-content.test.ts` gains four tests (below). `tests/agent-docs-coverage.test.ts` needed no change: it already guards the Steps of the forecaster page, and `client.md` already named `getMarketFreshness` (Task 4).
+
+**Rulings during the task.**
+- The forecaster page's example evidence item uses `github.com`, a host that the host test allows.
+- The progress record's follow-ups are carried into the delivery record unchanged: the platform fetcher's `br` decoder and its other gaps, the content store's `suggestionId` link, and a separate list for intents kept for settlement.
+- The test "the forecaster page names getMarketFreshness and client.md has its subsection" passed before the docs were written, because Task 4 had already added both. It stays as a guard.
+
+**Verification**, with the pinned Node and pnpm:
+- `node --import tsx --test tests/agent-docs-coverage.test.ts tests/web-docs-content.test.ts`: 26 tests, 26 pass. Before the docs were written, 3 of the 26 failed for the right reasons: the forecaster page did not name the note field `kind`, the Risks section did not call fetched text untrusted input, and `agents.md` did not name `httpsFetcher`. The fourth new test passed, as noted above.
+- `pnpm check`: 880 tests pass, and the typechecks and package boundaries pass.
+- `pnpm build` and `pnpm build:pages && node scripts/check-pages-export.mjs` (24 key files and 81 internal URLs in 266 exported files) pass.
+- Not run locally: `pnpm test:browsers` (`docs.spec.ts` and `routes.spec.ts` cover the docs pages), `pnpm test:contracts`, `pnpm test:anvil`, `pnpm test:contracts:seeds`, `pnpm alpha:local` and `pnpm test:postgres`. CI runs them for the pushed commit.
+- The nightly drill is pending until a nightly run after the push passes.
+
+**Review.** A docs review checked every claim against the code and approved, with 4 Low findings (heartbeat wording, the reader's evidence rule, the cold-read count, this line), all fixed.
+
+## Final state of direction 1
+
+Tasks 1 to 6 are implemented. Direction 1 changes no contract and no signed type. The open questions OQ1 to OQ15 were all decided as (a), and the delivery is in [D1_EVENT_DRIVEN_FORECASTING.md](D1_EVENT_DRIVEN_FORECASTING.md).
+- **Pending:** the nightly drill (`autonomous.yml`, on `main`) is pending until a nightly run after the push passes. CI for the pushed commit has not been read yet.
+- **Not run locally:** `pnpm test:browsers`, `pnpm test:contracts`, `pnpm test:anvil`, `pnpm test:contracts:seeds`, `pnpm alpha:local` and `pnpm test:postgres`. CI runs them for the pushed commit. The new browser tests of Task 5 and the docs pages (`docs.spec.ts`, `routes.spec.ts`) first run in CI.
+- **Not built:** a live data path for the website, freshness on the market list, a platform check of notes, between-window polling, and the event-driven behaviour in the drill's scenarios.
+- **Follow-ups outside direction 1:** the platform fetcher's gaps, the content store's `suggestionId` link, and a separate list for intents kept for settlement.

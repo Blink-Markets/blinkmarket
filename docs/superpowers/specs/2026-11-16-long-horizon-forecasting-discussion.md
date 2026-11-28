@@ -1,6 +1,6 @@
 # Long-horizon questions: early forecasts, bounties and the sponsor role — discussion record
 
-Date: 2026-11-16. Status: discussion record. The user confirmed these 26 decisions as the shared understanding on 2026-11-16. Nothing here is implemented, no implementation plan exists, and [the autonomous market design](2026-10-23-autonomous-market-design.md) has not been amended yet. The discussion was held in Chinese; this record follows the repository's language.
+Date: 2026-11-16. Status: discussion record. The user confirmed these 26 decisions as the shared understanding on 2026-11-16. **Update (2026-11-28):** direction 1, event-driven forecasting, is implemented as far as its [delivery record](../../D1_EVENT_DRIVEN_FORECASTING.md) states; the rest of this record is unchanged. Otherwise nothing here is implemented, and [the autonomous market design](2026-10-23-autonomous-market-design.md) has not been amended yet. The discussion was held in Chinese; this record follows the repository's language.
 
 **Reviewed on 2026-11-17.** An independent review found several claims in this record to be wrong and recommended reopening 15 of the 26 decisions. The original text is kept. Each affected place carries a note marked **[Review]**, and section 12 gives the status of every decision. The review, the research behind it and the proposals for the reopened decisions are in [2026-11-17-long-horizon-review](2026-11-17-long-horizon-review/README.md). The decisions below are therefore no longer a settled design.
 
