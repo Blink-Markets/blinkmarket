@@ -1408,7 +1408,7 @@ test("checkSources refuses a fractional or negative now, and input that the call
   const { answers, fetcher } = scripted();
   const url = "https://one.example/";
   answers.set(url, ok("x"));
-  for (const now of [1.5, Date.now() / 1000 + 0.5, -1, NaN, Infinity, 2 ** 53])
+  for (const now of [1.5, Math.floor(Date.now() / 1000) + 0.5, -1, NaN, Infinity, 2 ** 53])
     await assert.rejects(checkSources(fetcher, { sources: {} }, [url], now), RangeError, String(now));
   await assert.doesNotReject(checkSources(fetcher, { sources: {} }, [url], 0));
   // More than 20 URLs after de-duplication, a URL that is not https, an unparsable one, one over 2048 bytes once JSON-encoded.
