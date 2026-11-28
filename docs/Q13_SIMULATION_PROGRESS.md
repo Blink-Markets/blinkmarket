@@ -29,7 +29,47 @@ The pre-flight rulings of plan section 11 stand as decided:
 
 ## Task 1 — The package, the arithmetic and the guards
 
-Not started.
+**Status.** Done, in commit `4818c5b`. CI: pending.
+
+**Scope.** The new package `@blink/mechanism-model` (`packages/mechanism-model`) has no dependency, does no I/O and exports its source.
+- `mulDiv` takes a mandatory `Floor` or `Ceil`. It is full precision, like OpenZeppelin's, and its operands, its divisor and its result are checked as uint256.
+- `add256`, `sub256` and `mul256` are the checked helpers.
+- `Rational` is a normalized BigInt rational.
+- `VaultPort` has only `sharePrice` and `transferShares`.
+- The package is in the boundary map in `scripts/check-boundaries.mjs` with an empty dependency list.
+- The isolation tests (`tests/mechanism-model-isolation.test.ts`) cover:
+  - nothing outside the package imports it, with tracked and untracked files scanned through git;
+  - no chain or network module, and no network global, outside `scripts/q13/llm/`;
+  - no non-literal dynamic import or require;
+  - no nondeterminism in the package;
+  - none of the names that the architecture ban lists;
+  - every `q13:*` script points its entry file into `scripts/q13/`;
+  - no stray `q13` directory.
+- The arithmetic tests are in `tests/mechanism-model-arith.test.ts`.
+- The two boundary-check fixtures (`tests/agents-runtime.test.ts` and `tests/video-boundaries.test.ts`) now derive their package list from `packages/`, so a new package no longer breaks them.
+
+**Departures from the plan.**
+- `packages/mechanism-model/src/vault-port.ts` was added. The plan did not name it as a file.
+- Two existing fixture tests were changed, the two named above.
+- The wording of plan section 2.3 was corrected to full-precision `mulDiv`. The plan is updated in the same commit.
+
+**Verification**, with the pinned Node and pnpm:
+- `tests/mechanism-model-arith.test.ts` and `tests/mechanism-model-isolation.test.ts`: 43 tests, 43 pass.
+- `pnpm check`: 923 tests pass, and the typechecks and package boundaries pass.
+- `pnpm typecheck` and `pnpm check:boundaries` pass.
+- Plan section 11 ruling 1 applies: no `apps/*` or service code imports the package, so the web and service rows of the Definition of Done do not apply, and `pnpm check` is the covering command.
+- CI: pending. The CI run for the pushed commit has not been read yet.
+
+**Review.** Three rounds, ending APPROVED, with no Critical or High finding.
+- The arithmetic was checked against an oracle that follows OpenZeppelin's semantics: 400,000 fuzzed `mulDiv` calls with no mismatch, and 50,000 `Rational` pairs.
+- All 38 mutants were killed.
+
+**Known limits, accepted (Low).** The guards are static scans, not a sandbox.
+- The name scans do not catch `eval` or `Function` reached through the global object (`globalThis.eval`), or a computed name (`globalThis["fe"+"tch"]`).
+- The `q13:*` entry check does not normalize `..`, and does not split on a single `|`.
+- `Date` reached through an alias or a computed key is not caught.
+
+**Note for Task 3.** The package bans the bare name `random`, so the seeded PRNG method must use another name, such as `next` or `nextUint`.
 
 ## Task 2 — The bounty engine, the exact engine and the first vectors
 
@@ -73,4 +113,4 @@ Not started.
 
 ## State of the milestone
 
-The Q13 attack simulation is not complete. No task has started, so no gate part (G1 to G5) is met yet. Nothing here labels the milestone complete; it is complete only when the user has accepted the gate of Task 11.
+The Q13 attack simulation is not complete. Task 1 is done (CI pending) and Tasks 2 to 11 have not started, so no gate part (G1 to G5) is met yet. Nothing here labels the milestone complete; it is complete only when the user has accepted the gate of Task 11.
