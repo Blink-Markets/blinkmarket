@@ -1116,6 +1116,8 @@ test("the example agent refuses a node that is not local or not chain 84532 befo
       key: dummyKey,
       worldPath: "world.json",
       stateDir: "state",
+      // 336 hours: the forecaster's default staleness limit.
+      heartbeatSeconds: 336 * 3600,
     });
     assert.equal(api.seen.length, 0);
   } finally {

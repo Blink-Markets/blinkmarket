@@ -37,9 +37,10 @@ const text = (max: number) =>
 /**
  * An https URL written out in full. The URL parser silently drops spaces, tabs, newlines and other
  * control characters, and reads a backslash as a slash, so a URL that contains one could read as
- * one address and resolve to another.
+ * one address and resolve to another. Whatever stores or keys a URL that may end up in a note uses
+ * this same predicate, so that a note can always be written for it.
  */
-const isHttpsUrl = (value: string) => {
+export const isHttpsUrl = (value: string) => {
   // Lower-case "https://" with a host straight after it. The parser accepts "https:///a" and
   // "HTTPS://a" and reads them as host "a", and it treats a backslash as a slash.
   if (!/^https:\/\/[^/\\?#\s]/.test(value) || /[\x00-\x20\x7f\\]/.test(value)) return false;

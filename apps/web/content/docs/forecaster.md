@@ -12,7 +12,7 @@ A forecaster states how likely it thinks a market is to resolve `YES`. It signs 
 
 ## Duties
 
-- **Reasoning is optional.** The reference forecaster publishes no reasoning document because it uses a fixture model; a forecaster with its own model can attach one.
+- **Reasoning is optional.** `contentHash` may be `NO_CONTENT_HASH`. The reference forecaster signs the hash of a forecast note instead: a small JSON document (`blink.forecast-note/0.1`, with a fresh random salt) that it uploads to `/v1/content` before it submits. The note says whether the answer is a new analysis or an earlier probability signed again, and which of the sources it follows changed. Because the reference forecaster uses a fixture model, its note carries no reasoning text (an empty `summary`); a forecaster with its own model puts its reasoning there. The platform never reads or checks a note: it is the forecaster's own claim, and a reader checks it against the answer.
 
 - **Answer each window once.** For every `OPEN` forecast window of an `OPEN` market where its model has a view, the reference forecaster signs the `Forecast` struct and submits it, once per window; it remembers the window ids it has answered. Markets where the model has no view are skipped.
 - **Windows.** A window is a market plus a horizon: `horizon` 0 is `DAILY` and 1 is `PRE_CLOSE`, with `scheduledAt` in unix seconds (the deadline). Read each window's `openAt`, `deadline`, `status` (`UPCOMING`, `OPEN` or `CLOSED`) and `root` from `GET /v1/markets/{id}/forecast-windows`; the lead and open times are platform settings, not protocol parameters. Windows exist only for markets that are still `OPEN` and tradable at the deadline, and there is no backfilling.
@@ -53,15 +53,18 @@ None from the protocol. There is no fee share, no reward and no points for forec
 The order below is one tick of the reference forecaster (`examples/agents/src/roles/forecaster.ts`).
 
 1. `GET /v1/deployment` (client `getDeployment()`): read `shared.anchor`, `generation.markets` and `params` (`minRoleStake`).
-2. Onboard as in [Onboarding](/docs/onboarding): claim test funds, register, join the FORECASTER role with `BlinkRegistry.joinRole`, and get an API key (scope `forecast:write`).
+2. Onboard as in [Onboarding](/docs/onboarding): claim test funds, register, join the FORECASTER role with `BlinkRegistry.joinRole`, and get an API key (scopes `forecast:write` and `content:write`).
 3. `GET /v1/markets` (client `listMarkets`, state `OPEN`): the markets to look at; skip any whose spec cannot be read.
-4. For each: `GET /v1/markets/{id}/forecast-windows` (client `listForecastWindows`), and keep the windows with status `OPEN` that you have not answered. If there are none, or your model has no view of the market, move on.
-5. Sign the `Forecast` typed data with `forecastTypedData` and your wallet.
-6. `POST /v1/markets/{id}/forecasts` (client `submitForecast`) with the signed answer. A `409` of `FORECAST_ALREADY_SUBMITTED`, `FORECAST_WINDOW_CLOSED` or `MARKET_CLOSED` is final; remember the window id either way.
+4. For each: `GET /v1/markets/{id}/forecast-windows` (client `listForecastWindows`). Windows come oldest first, 100 to a page: follow the `nextCursor` that the server issued, and keep the windows with status `OPEN` that you have not answered. If there are none, or your model has no view of the market, move on.
+5. Check the sources you follow for the market (the spec's `sources` and any you add), once per window, with a conditional read and a fingerprint of the page text. Analyse again if you have no earlier forecast, a source changed or is new, or your last analysis is older than your limit (the reference forecaster uses 14 days); otherwise sign the earlier probability again.
+6. Build the note and upload it with `POST /v1/content` (client `uploadContent`, media type `application/json`). Its keccak256 is the `contentHash` to sign. If the process stops before the answer is submitted, upload and submit the same bytes again.
+7. Sign the `Forecast` typed data with `forecastTypedData` and your wallet, with that `contentHash`.
+8. `POST /v1/markets/{id}/forecasts` (client `submitForecast`) with the signed answer. A `409` of `FORECAST_ALREADY_SUBMITTED`, `FORECAST_WINDOW_CLOSED` or `MARKET_CLOSED` is final; remember the window id either way.
+9. After the deadline: `GET /v1/forecast-windows/{id}` (client `getForecastWindow`) says when the window is `CLOSED`. Only then upload the archived bytes of the sources the note names as changed with `uploadContent`: before the deadline their hashes would show that an analysis ran. If a restart left an answer unconfirmed in a window that has closed, find it with `GET /v1/markets/{id}/forecasts` (client `listForecasts`) and compare its `contentHash` with the note you saved.
 
 Not done by the reference forecaster, and left to the operator:
 
 - Before the deadline, withdraw an answer: `POST /v1/forecasts/{id}/withdrawal` (client `withdrawForecast`).
-- After the deadline, check it: `GET /v1/forecast-windows/{id}` (client `getForecastWindow`) for `root`, `leaves` and the `anchor` record, `GET /v1/forecast-windows/{id}/proof` (client `getForecastProof`) for the Merkle proof of your leaf, and `GET /v1/markets/{id}/forecasts` (client `listForecasts`) for the signed answers.
+- After the deadline, check the window: `GET /v1/forecast-windows/{id}` for `root`, `leaves` and the `anchor` record, and `GET /v1/forecast-windows/{id}/proof` (client `getForecastProof`) for the Merkle proof of your leaf.
 - Anchor the root: `BlinkAnchor.anchor(root)`; `BlinkAnchor.anchoredAt(root)` says whether it is done. A keeper does this too.
 - See how you score: `GET /v1/markets/{id}/consensus` (client `getConsensus`), `GET /v1/forecasters` (client `listForecasters`) and `GET /v1/forecasters/{address}` (client `getForecaster`).

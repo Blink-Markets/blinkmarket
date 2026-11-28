@@ -90,7 +90,70 @@ No Critical, High or Medium finding remains.
 
 ## Task 3 — the event-driven forecaster
 
-Not started.
+**Scope.** The reference forecaster analyses a market only when something changed, and otherwise signs its earlier probability again. Each answer signs the keccak256 of a forecast note that was uploaded before the submit.
+- `examples/agents/src/roles/forecaster.ts` exports `createForecaster({ now })`, whose tick follows plan section 2.4 for each open window. The default `forecaster` is `createForecaster()`.
+  - It checks the sources once per window, decides with `decideUpdate`, calls the model's `revise` on `analyse`, and takes `prior.probabilityBps` on `carry_forward`.
+  - It builds the note, saves the intent (the exact note bytes, with the snapshot files and the fingerprints to commit), uploads the note, signs `Forecast` with `contentHash = keccak256(note)` and submits.
+  - After a successful submit it commits the fingerprints, `prior` and the window id in one state save.
+  - After the platform lists the window as `CLOSED`, it uploads the snapshots that the note names, and settles an intent whose window closed before it could be resubmitted.
+- `examples/agents/src/lib/note.ts` builds the note bytes (a fresh 32-byte salt, the schema's limits, and the dropping order that keeps a note within 64 KiB without ever dropping a `CHANGED` item) and decides which changed sources may be archived (the five media types the content route accepts, at most 1 MiB).
+- `examples/agents/src/lib/model.ts`: `Model` gains the optional `watchList(m)` (default: the spec's `sources`) and `revise(m, { prior, changes })` (default: `probabilityBps(m)` with an empty summary). The fixture model implements both from the agent's own beliefs.
+- `examples/agents/src/lib/env.ts` reads `BLINK_FORECAST_HEARTBEAT_HOURS` (default 336, that is 14 days); the context carries `heartbeatSeconds` and `stateDir`. An empty or blank value counts as unset (the other variables are required, and an empty one counts as missing), and a value that is not a plain positive decimal is `INVALID_ENV:BLINK_FORECAST_HEARTBEAT_HOURS`.
+- `examples/agents/src/main.ts` exports `agentParts(env, world)`, which returns `{ model, fetcher, heartbeatSeconds }` and always builds `fixtureFetcher(world)`. The process never fetches from the network.
+- `examples/agents/src/lib/state.ts`: an intent also holds `next` (the fingerprints it was based on) and `sent` (saved before the first submit), both validated by `loadState`. `writeFileDurably` flushes a file before the state that names it.
+- `apps/web/content/docs/forecaster.md`: the Steps name `uploadContent`, `getForecastWindow` and `listForecasts`, name the `content:write` scope next to `forecast:write`, and say that `contentHash` is now the hash of a note. The "Reasoning is optional" bullet no longer says that the reference forecaster publishes no reasoning document. The page keeps its six H2 sections. The full rewrite is Task 6.
+- `@blink/client` also exports `isHttpsUrl` and the `ForecastNoteItem` schema; `@blink/schemas` exports `isHttpsUrl`.
+
+**Rulings during the task.** Each is a departure from the plan as first written, or a bound the plan left open. Plan section 2.4 notes the main ones.
+- The watch list is built in one place. Each URL goes through `watchableUrl`; repeats are removed after mapping; the list is capped at 20, the spec's `sources` first. The log lines are `watch_url_too_long` (an https URL over 2,048 bytes as JSON), `watch_url_invalid` (anything else that is refused) and `watch_list_truncated`. A `RangeError` from `checkSources` is a bug, not a market condition.
+- Work per tick is bounded, because `runAgent` runs one tick at a time and a check of 20 silent URLs lasts about 40 s:
+  - `MAX_MARKETS_WORKED_PER_TICK = 2`. A fresh check, a model call or the resubmit of a saved intent each count once per market. A market that is out of budget is where the next tick starts, so every market gets its turn, also after a 429 or an `INDEX_STALE`.
+  - Snapshot uploads: at most 20 objects (`SNAPSHOT_UPLOADS_PER_TICK`) or 8 MiB (`SNAPSHOT_BYTES_PER_TICK`) a tick, one upload per hash even when several markets share it, and the next tick starts with the market where the allowance ran out.
+  - `PRUNES_PER_TICK = 2`. A market whose windows cannot be read goes to the back of the order, so failing markets cannot starve the rest.
+- An idle market (everything open is answered, given up or without a view) is listed at most every `WINDOW_RECHECK_SECONDS` (30 s) and at least 5 s apart. A platform time (the next `openAt`, or the deadline) is trusted only within that horizon, and an empty window list counts as 30 s, so a skewed local clock or a short window is never missed. A clock that went back voids the skip.
+- The windows read does not stop at a page that ends with an `OPEN` window while a `nextCursor` exists: it stops at a page with an `UPCOMING` window, at the last page, or after two pages. The saved cursor moves only past pages that are wholly `CLOSED`.
+- A 4xx other than 408 and 429 from the note upload or the submit is final for the window: `forecast_refused` with the code, the window is marked, the intent and its snapshots are dropped in one save. An intent whose submit may have reached the platform (`sent`) is kept instead and settled after the window closes, so a lost response does not lose the record of the answer.
+- A resumed submit commits the intent's saved fingerprints in the same save as `prior`, so the next window sees a carry-forward or a heartbeat, not a second analysis of the same change. The settle-after-close path stays uncommitted, as the plan says.
+- Errors are caught per market and logged with a stable code (`forecaster_market_error`). A code is an API error's code, one of an allowlist of this agent's own codes, or the error's name; a message is never logged. A 429 or a 503 `INDEX_STALE` is not a market's failure and is left to the loop's wait.
+- A URL that the note schema refuses (a backslash survives in the query or the fragment of a canonical URL) is never watched: `isCanonicalHttpsUrl` also requires the schema's exported `isHttpsUrl`, and so do `watchableUrl`, `loadState` and the world-file keys. `buildNote` drops a non-`CHANGED` item that fails `ForecastNoteItem` and throws for a `CHANGED` one.
+- The subject of a saved note is checked with `noteBelongsTo` before it is signed; a mismatch drops the intent with `INTENT_SUBJECT_MISMATCH`.
+- State is written durably: the snapshot file and the state's temporary file are flushed before the rename or the reference. Housekeeping removes the files in `snapshots/` that no record names, and never one that a record names.
+- The in-memory state (memos, windows seen, window statuses, retry times, idle times, where the next tick starts) is kept per context in a `WeakMap`, so two contexts in one process never share it.
+- A 404 from `getForecastWindow` for the window of an intent or a snapshot is final: the intent or snapshot is dropped. A lookup that keeps failing for 24 hours (`SNAPSHOT_GIVE_UP_SECONDS`) gives up the same way.
+- A 400 `INVALID_CURSOR` for the saved `windowsCursor` deletes it and reads from the first page.
+- The retry spacing reads a fresh clock at the spacing test and again when an attempt fails, so a slow check does not let attempts 2 and 3 run seconds apart. A cached open window, a retry time and a spacing that lie further ahead than their interval mean that the clock went back, and count as due.
+- Pruning a market that left `OPEN` (nothing pending for it) also removes the ids of its windows from the answered list `forecaster.submitted`, so the state does not grow with every market ever seen.
+- The fixture model's `watchList` returns nothing for a market the agent has no belief about, so a page it has no use for is not fetched.
+- `analysedAt` is the note's `checkedAt`, the time of the check that the analysis was based on.
+- The content route accepts five media types (`application/json`, `text/plain`, `text/csv`, `text/html`, `application/pdf`) and at most 1 MiB (`packages/schemas/src/http.ts`); any other type is a `415`. A pending snapshot's media type is the one the fetcher reported, which already passes `isMediaType`.
+
+**Limits.**
+- One agent per state directory is the supported setup, and the directory itself is not flushed.
+- Idle state is in memory, so a restart lists every market once.
+- A long `PRE_CLOSE` window that sorts after a `DAILY` window can be picked up late, never missed.
+- One intent is saved per market, so a kept sent intent can block an overlapping window of the same market until it is settled.
+- A forward jump of the local clock can make a snapshot give up before the 24 hours have passed.
+- A 401 or 403 loses that window, as any other final refusal does: the model has already been paid for it, and the next window runs again.
+
+**Verification**, with the pinned Node and pnpm, on the rebased commit:
+- `node --import tsx --test tests/agents-forecaster-events.test.ts tests/agents-runtime.test.ts tests/web-docs-content.test.ts tests/agent-docs-coverage.test.ts tests/agents-watch.test.ts`: 188 tests, 188 pass. The events file has 72 tests.
+- `pnpm check`: 865 tests pass, and the typechecks and package boundaries pass. A Task 2 test in `tests/agents-watch.test.ts` failed in about 1 run in 1,000, because its "fractional now" value was sometimes a whole number. It is fixed in its own commit.
+- `pnpm build` passes.
+- `pnpm build:pages && node scripts/check-pages-export.mjs` passes (24 key files and 81 internal URLs in 266 exported files).
+- `pnpm build:services` and `pnpm test:service-build` (4 of 4) pass.
+- Each fix round added its tests first and saw them fail before the change.
+- Not run locally: `pnpm alpha:local` (it needs a PostgreSQL admin URL), `pnpm test:browsers`, `pnpm test:contracts`, `pnpm test:anvil` and `pnpm test:contracts:seeds`. CI runs them for the pushed commit. The case in `tests/anvil/agents-market-roles.test.ts` now expects `contentHash` to be the hash of a note that parses, belongs to the answer and has `kind` `analysis`; it first runs in CI.
+- The nightly drill is pending until a nightly run after the push passes.
+
+**Review.**
+- A conformance review approved with findings (2 Medium, 8 Low).
+- An adversarial review, round 1, found 1 High (a URL that the note schema refuses blocked a market for good after the model had run), 4 Medium and 8 Low. All were fixed.
+- Round 2 found 1 High in the new idle skip (an empty window list idled a market long enough to miss a short window), 2 Medium and 2 Low. All were fixed or accepted as limits.
+- Both reviewers approved round 2. No Critical, High or Medium finding remains.
+
+**Follow-ups outside this task.**
+- The content store links an uploaded page that is a valid MarketSpec naming a `suggestionId` to that suggestion (`packages/adapters/src/content-store.ts:57`, fed by `packages/application/src/content.ts:88`). A fetched page that an agent archives could therefore link itself to a suggestion. The platform is not changed here.
+- Optionally, a separate list for intents kept for settlement, so that a kept sent intent no longer blocks an overlapping window of its market.
 
 ## Task 4 — reading freshness from the public routes
 

@@ -5,15 +5,25 @@
 //   BLINK_RPC_URL=http://127.0.0.1:8545 BLINK_AGENT_KEY=0x... BLINK_WORLD=world.json \
 //   BLINK_AGENT_STATE_DIR=./state node --import tsx examples/agents/src/main.ts
 //
+// BLINK_FORECAST_HEARTBEAT_HOURS (optional, default 336, that is 14 days) is how long the forecaster
+// goes without a new analysis of a market when none of its sources changed.
+//
 // SIGTERM (or SIGINT) stops it after the tick that is running.
 import { pathToFileURL } from "node:url";
-import { createContext, loadAgentEnv, type AgentContext, type RoleName } from "./lib/env.ts";
+import {
+  DEFAULT_HEARTBEAT_HOURS,
+  createContext,
+  loadAgentEnv,
+  type AgentContext,
+  type AgentEnv,
+  type RoleName,
+} from "./lib/env.ts";
 import { fixtureFetcher } from "./lib/fetcher.ts";
 import { createLogger } from "./lib/log.ts";
 import { runAgent, type RoleTick } from "./lib/loop.ts";
 import { fixtureModel } from "./lib/model.ts";
 import { onboard } from "./lib/session.ts";
-import { loadWorld } from "./lib/world.ts";
+import { loadWorld, type World } from "./lib/world.ts";
 import { challenger } from "./roles/challenger.ts";
 import { juror } from "./roles/juror.ts";
 import { keeper } from "./roles/keeper.ts";
@@ -40,12 +50,24 @@ export const ROLE_TICKS: Partial<Record<RoleName, RoleTick>> = {
 /** What a role does once after the last tick, when the process is stopped. */
 export const ROLE_STOPS: Partial<Record<RoleName, (ctx: AgentContext) => Promise<void>>> = { maker: makerStop };
 
+/**
+ * What the process is given besides its key and URLs: the model, the way it reads a source and the
+ * forecaster's staleness limit. Sources are read from the world file's fixtures: this process never
+ * fetches from the network.
+ */
+export function agentParts(env: AgentEnv, world: World) {
+  return {
+    model: fixtureModel(world, env.name),
+    fetcher: fixtureFetcher(world),
+    heartbeatSeconds: env.heartbeatSeconds ?? DEFAULT_HEARTBEAT_HOURS * 3600,
+  };
+}
+
 async function main() {
   const env = await loadAgentEnv(process.env);
   const log = createLogger(env.name, [env.key]);
   const world = await loadWorld(env.worldPath);
-  // Sources are read from the world file's fixtures: this process never fetches from the network.
-  const ctx = await createContext(env, { model: fixtureModel(world, env.name), fetcher: fixtureFetcher(world), log });
+  const ctx = await createContext(env, { ...agentParts(env, world), log });
   await onboard(ctx);
   const ticks = ctx.roles.flatMap((role) => ROLE_TICKS[role] ?? []);
   const stop = new AbortController();

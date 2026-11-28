@@ -42,6 +42,7 @@
 //   that names the operator or the software is sent, but the connection's source address is the
 //   operator's. Unlinkability needs a tunnel or an egress address around the whole process, which
 //   this file cannot provide.
+import { isHttpsUrl } from "@blink/client";
 import dns from "node:dns/promises";
 import { readFile, realpath, stat } from "node:fs/promises";
 import https from "node:https";
@@ -114,12 +115,17 @@ export const isLastModified = (value: unknown): value is string => typeof value 
 export const MAX_URL_BYTES = 2048;
 /** The byte length of a string as JSON, without its quotes: a backslash or a quote costs two bytes. */
 export const jsonBytes = (value: string): number => new TextEncoder().encode(JSON.stringify(value)).length - 2;
-/** An https URL that is its own `new URL(u).href` and takes at most 2048 bytes once JSON-encoded. */
+/**
+ * An https URL that is its own `new URL(u).href`, takes at most 2048 bytes once JSON-encoded, and is
+ * accepted by the forecast note's own URL rule (`isHttpsUrl`): a URL that the note schema would refuse
+ * (the parser keeps a backslash in a query or a fragment, for one) is never watched, so that a note
+ * can always be written for a watched source.
+ */
 export const isCanonicalHttpsUrl = (value: unknown): value is string => {
   if (typeof value !== "string") return false;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && url.href === value && jsonBytes(value) <= MAX_URL_BYTES;
+    return url.protocol === "https:" && url.href === value && jsonBytes(value) <= MAX_URL_BYTES && isHttpsUrl(value);
   } catch {
     return false;
   }

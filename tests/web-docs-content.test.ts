@@ -68,3 +68,13 @@ test("only the deployment record keeps a v0.1 history notice", () => {
     assert.equal(notice, p.slug === "deployment", `${p.file}: ${notice ? "carries" : "lacks"} a v0.1 notice`);
   }
 });
+
+test("the forecaster page does not say that the reference forecaster publishes no reasoning document", () => {
+  // The reference forecaster signs the hash of a forecast note and uploads it, so the old sentence is false.
+  const forecaster = pages.find((p) => p.slug === "forecaster");
+  assert.ok(forecaster, "forecaster.md is missing");
+  assert.doesNotMatch(forecaster.body, /publishes no reasoning document/i);
+  const duties = forecaster.body.split(/^## /m).find((s) => s.startsWith("Duties\n")) ?? "";
+  assert.match(duties, /\*\*Reasoning is optional\.\*\*/);
+  assert.match(duties, /forecast note/i);
+});

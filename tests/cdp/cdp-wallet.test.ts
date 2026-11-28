@@ -102,6 +102,8 @@ async function startAgent(
     deployment: (await client.getDeployment()).deployment,
     model: fixtureModel(world, who.name),
     fetcher: fixtureFetcher(world),
+    heartbeatSeconds: 336 * 3600,
+    stateDir,
     state: { data, save: () => saveState(stateDir, data) },
     log: createLogger(who.name, [], (line) => lines.push(JSON.parse(line) as Line)),
   };

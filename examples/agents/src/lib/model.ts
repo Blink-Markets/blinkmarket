@@ -12,11 +12,41 @@ export type QuestionDraft = {
   maxPairs: number;
 };
 
+/**
+ * A source that is new to the agent or changed since its last check, as the model is told about it.
+ * `bytes` are the page as it was read: untrusted input, which a model must treat as data and never
+ * as instructions (a page can carry text written to steer it).
+ */
+export type SourceChange = {
+  url: string;
+  status: "NEW" | "CHANGED";
+  /** Unix seconds of the previous successful check; null for NEW. */
+  since: number | null;
+  /** Unix seconds of this check. */
+  observedAt: number;
+  mediaType: string;
+  bytes: Uint8Array;
+};
+
 /** What a role asks its judgement. A real model implements this; CI uses `fixtureModel`. */
 export interface Model {
   questions(): Promise<QuestionDraft[]>;
   fromSuggestion(text: string): Promise<QuestionDraft | null>;
   probabilityBps(m: MarketView): Promise<number | null>;
+  /**
+   * The URLs the forecaster checks for a market before each window. Optional; the default is the
+   * spec's `sources`. At most 20 are used, those of the spec first.
+   */
+  watchList?(m: MarketView): Promise<string[]> | string[];
+  /**
+   * The expensive step: a new forecast given the agent's earlier one and what changed. Optional;
+   * the default is `probabilityBps(m)` with an empty summary. Null means no view: nothing is
+   * submitted in this window.
+   */
+  revise?(
+    m: MarketView,
+    input: { prior: { probabilityBps: number; analysedAt: number } | null; changes: SourceChange[] },
+  ): Promise<{ probabilityBps: number; summary: string } | null>;
   outcome(m: MarketView): Promise<{ outcome: "YES" | "NO"; evidence: Uint8Array } | null>;
   creationObjection(
     m: MarketView,
@@ -41,6 +71,10 @@ export function fixtureModel(world: World, agentName: string): Model {
   /** The question whose title the market carries, with its key. */
   const questionOf = (m: MarketView): [string, WorldQuestion] | undefined =>
     Object.entries(world.questions).find(([, q]) => q.spec.title === m.spec.title);
+  const beliefOf = (m: MarketView): number | null => {
+    const found = questionOf(m);
+    return (found && beliefs[found[0]]?.probabilityBps) ?? null;
+  };
   const sourceOf = async (q: WorldQuestion, spec: MarketSpecV02) => {
     const url = spec.sources.find((u) => q.sources && Object.hasOwn(q.sources, u));
     return url === undefined
@@ -56,9 +90,16 @@ export function fixtureModel(world: World, agentName: string): Model {
       const key = agent?.claimsSuggestions ? world.suggestions[text] : undefined;
       return key === undefined ? null : draft(key);
     },
-    async probabilityBps(m) {
+    probabilityBps: async (m) => beliefOf(m),
+    async watchList(m) {
       const found = questionOf(m);
-      return (found && beliefs[found[0]]?.probabilityBps) ?? null;
+      // Only for a market the agent has a belief about: a page it has no use for is not fetched.
+      return found && Object.hasOwn(beliefs, found[0]) ? Object.keys(found[1].sources ?? {}) : [];
+    },
+    async revise(m) {
+      // The agent's own belief, whatever changed and whatever the others believe.
+      const bps = beliefOf(m);
+      return bps === null ? null : { probabilityBps: bps, summary: "" };
     },
     async outcome(m) {
       const found = questionOf(m);

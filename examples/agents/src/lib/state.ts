@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename } from "node:fs/promises";
 import { join } from "node:path";
 import type { Hex } from "viem";
 import { isCanonicalHttpsUrl, isEtag, isLastModified, isMediaType } from "./fetcher.ts";
@@ -32,7 +32,16 @@ export type WatchRecord = {
   /** The agent's last answer: the digest it signed, its window, when it last ran the model, and the probability. */
   prior?: { digest: Hex; windowId: string; analysedAt: number; answeredAt: number; probabilityBps: number };
   /** An answer decided and saved before anything was uploaded, so that a restart resends identical bytes. */
-  intent?: { windowId: string; kind: "analysis" | "carry_forward"; noteBytes: string; probabilityBps: number };
+  intent?: {
+    windowId: string;
+    kind: "analysis" | "carry_forward";
+    noteBytes: string;
+    probabilityBps: number;
+    /** The `sources` table to commit when this answer is submitted: the fingerprints the note was based on. */
+    next?: WatchRecord["sources"];
+    /** Saved before the first submit: the platform may already hold this answer. */
+    sent?: boolean;
+  };
   /** Raw source bytes to archive once their window has closed. */
   pendingSnapshots?: { hash: Hex; mediaType: string; windowId: string }[];
 };
@@ -68,9 +77,8 @@ const isOptionalString = (v: unknown): boolean => v === undefined || typeof v ==
 // A forecast is 1 to 9999 basis points, as the API takes it.
 const isBps = (v: unknown): boolean => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 9999;
 
-function validWatchRecord(v: unknown): boolean {
-  if (!isRecord(v) || !isRecord(v.sources) || !isOptionalString(v.windowsCursor)) return false;
-  for (const [url, entry] of Object.entries(v.sources))
+function validSources(sources: Record<string, unknown>): boolean {
+  for (const [url, entry] of Object.entries(sources))
     if (
       !isCanonicalHttpsUrl(url) ||
       !isRecord(entry) ||
@@ -81,6 +89,12 @@ function validWatchRecord(v: unknown): boolean {
       !(entry.finalUrl === undefined || isCanonicalHttpsUrl(entry.finalUrl))
     )
       return false;
+  return true;
+}
+
+function validWatchRecord(v: unknown): boolean {
+  if (!isRecord(v) || !isRecord(v.sources) || !isOptionalString(v.windowsCursor)) return false;
+  if (!validSources(v.sources)) return false;
   const { prior, intent, pendingSnapshots } = v;
   if (
     prior !== undefined &&
@@ -101,7 +115,9 @@ function validWatchRecord(v: unknown): boolean {
       isString(intent.windowId) &&
       (intent.kind === "analysis" || intent.kind === "carry_forward") &&
       isString(intent.noteBytes) &&
-      isBps(intent.probabilityBps)
+      isBps(intent.probabilityBps) &&
+      (intent.next === undefined || (isRecord(intent.next) && validSources(intent.next))) &&
+      (intent.sent === undefined || typeof intent.sent === "boolean")
     )
   )
     return false;
@@ -144,10 +160,21 @@ export async function loadState(dir: string): Promise<AgentState> {
   return parsed as AgentState;
 }
 
-/** Writes to a temporary file and renames it over the old one, so a crash leaves one whole file. */
+/** Writes a file and flushes it to the disk before returning, so that a later rename or reference never outlives the bytes. */
+export async function writeFileDurably(path: string, data: string | Uint8Array, mode = 0o600): Promise<void> {
+  const handle = await open(path, "w", mode);
+  try {
+    await handle.writeFile(data);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Writes to a temporary file (flushed) and renames it over the old one, so a crash leaves one whole file. */
 export async function saveState(dir: string, state: AgentState): Promise<void> {
   await mkdir(dir, { recursive: true });
   const temporary = join(dir, FILE + ".tmp");
-  await writeFile(temporary, JSON.stringify(state, null, 2) + "\n", { mode: 0o600 });
+  await writeFileDurably(temporary, JSON.stringify(state, null, 2) + "\n");
   await rename(temporary, join(dir, FILE));
 }

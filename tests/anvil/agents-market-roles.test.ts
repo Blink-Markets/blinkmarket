@@ -13,6 +13,8 @@ import {
   createBlinkClient,
   forecastDigest,
   forecastTypedData,
+  noteBelongsTo,
+  parseForecastNote,
   parseMarketSpec,
 } from "../../packages/client/src/index.ts";
 import { createContext, type AgentContext } from "../../examples/agents/src/lib/env.ts";
@@ -532,6 +534,25 @@ test("forecaster submits one signed forecast per window and the API verifies it"
     assert.equal(own.length, 1);
     assert.equal(own[0]!.probabilityBps, 6500);
     assert.equal(own[0]!.forecaster.toLowerCase(), accounts.taker2.address.toLowerCase());
+    // The answer names a forecast note by its hash: a cold start is an analysis, and the note is readable by anyone.
+    const contentHash = own[0]!.contentHash as Hex;
+    assert.notEqual(contentHash, NO_CONTENT_HASH);
+    const noteBytes = await anonymous.getContent(contentHash);
+    assert.equal(keccak256(noteBytes), contentHash);
+    const parsed = parseForecastNote(noteBytes);
+    assert.ok(parsed.ok, parsed.ok ? "" : parsed.reason);
+    assert.equal(parsed.note.kind, "analysis");
+    assert.equal(parsed.note.prior, null);
+    assert.equal(
+      noteBelongsTo(parsed.note, {
+        marketId: ids.gm!,
+        markets: markets(),
+        forecaster: accounts.taker2.address,
+        horizon: window.horizon,
+        scheduledAt: window.scheduledAt,
+      }),
+      true,
+    );
     const message = {
       forecaster: accounts.taker2.address,
       markets: markets(),
@@ -539,7 +560,7 @@ test("forecaster submits one signed forecast per window and the API verifies it"
       horizon: window.horizon,
       scheduledAt: window.scheduledAt,
       probabilityBps: 6500,
-      contentHash: NO_CONTENT_HASH,
+      contentHash,
     };
     assert.equal(own[0]!.digest, forecastDigest({ anchor, message }));
     assert.equal(

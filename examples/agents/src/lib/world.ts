@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { CREATION_GROUND, parseMarketSpec, type MarketSpecV02 } from "@blink/client";
 import { ROLE_NAMES, type RoleName } from "./env.ts";
-import { MAX_URL_BYTES, isCanonicalHttpsUrl } from "./fetcher.ts";
+import { MAX_URL_BYTES, isCanonicalHttpsUrl, jsonBytes } from "./fetcher.ts";
 
 export type Belief = {
   outcome?: "YES" | "NO";
@@ -67,7 +67,9 @@ function parseQuestion(raw: unknown, path: string): WorldQuestion {
             ? ""
             : isCanonicalHttpsUrl(href)
               ? ` (${href})`
-              : ` (at most ${MAX_URL_BYTES} bytes once JSON-encoded)`;
+              : jsonBytes(href) > MAX_URL_BYTES
+                ? ` (at most ${MAX_URL_BYTES} bytes once JSON-encoded)`
+                : "";
         throw invalid(`${path}.sources.${url}`, `key must be a canonical https URL${hint}`);
       }
       if (typeof file !== "string" || file === "")
