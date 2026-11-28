@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 test("boundary checker rejects video dependencies and cross-workspace imports", async () => {
-  const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+  const { mkdtemp, mkdir, readdir, writeFile, rm } = await import("node:fs/promises");
   const { join, resolve } = await import("node:path");
   const { spawnSync } = await import("node:child_process");
   await mkdir("tmp", { recursive: true });
@@ -12,7 +12,11 @@ test("boundary checker rejects video dependencies and cross-workspace imports", 
     await writeFile(join(dir, path), content);
   };
   try {
-    for (const name of ["schemas", "domain", "ports", "application", "adapters", "runtime", "client"]) {
+    // One fixture package per real package directory, so a new package never breaks this fixture.
+    const packageNames = (await readdir(resolve("packages"), { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+    for (const name of packageNames) {
       await put(`packages/${name}/package.json`, "{}");
       await put(`packages/${name}/src/index.ts`, "export {};\n");
     }

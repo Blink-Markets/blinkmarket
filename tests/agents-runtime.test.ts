@@ -560,7 +560,11 @@ async function fixtureTree(files: Record<string, string>) {
     await mkdir(join(dir, path, ".."), { recursive: true });
     await writeFile(join(dir, path), text);
   };
-  for (const name of ["schemas", "domain", "ports", "application", "adapters", "runtime", "client"]) {
+  // One fixture package per real package directory, so a new package never breaks this fixture.
+  const packageNames = (await readdir(join(repository, "packages"), { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
+  for (const name of packageNames) {
     await put(`packages/${name}/package.json`, "{}");
     await put(`packages/${name}/src/index.ts`, "export {};\n");
   }

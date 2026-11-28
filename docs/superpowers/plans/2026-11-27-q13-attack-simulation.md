@@ -183,7 +183,7 @@ All names follow spec 4.2; the model has no behaviour the spec does not state.
 
 ### 2.3 Exact and integer arithmetic side by side
 
-- **Integer engine.** `mulDiv(a, b, c, Floor | Ceil)` is the only multiplication-then-division primitive; every formula in spec 4.2 uses it with the direction the spec states (deposit, fee, lock and forfeit round up; baseline, G round down; L rounds up; closedBound and cap_t round up). Every intermediate is asserted below 2^256, and request and allowance values below `maxAllowance` = 2^96, so an overflow that the contracts would hit throws `Overflow` in the model.
+- **Integer engine.** `mulDiv(a, b, c, Floor | Ceil)` is the only multiplication-then-division primitive; every formula in spec 4.2 uses it with the direction the spec states (deposit, fee, lock and forfeit round up; baseline, G round down; L rounds up; closedBound and cap_t round up). The product inside `mulDiv` is full precision, as in OpenZeppelin; operands, divisor, result and every engine sum are checked (`add256`, `sub256`, `mul256`), and request and allowance values are checked below `maxAllowance` = 2^96, so an overflow that the contracts would hit throws `Overflow` in the model.
 - **Exact engine.** A `Rational` class (BigInt numerator and denominator, normalized) evaluates the same formulas with no rounding.
 - **How they are compared.**
   1. *Per-operation shadow check (I-23).* For every rounding operation the integer engine also computes the exact value of the same formula on the same integer inputs, and asserts the integer result is within one base unit in the spec's direction. This is the check spec 9.4 calls "the gap between the exact and the integer values".

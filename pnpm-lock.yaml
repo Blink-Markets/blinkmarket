@@ -223,6 +223,8 @@ importers:
         specifier: workspace:*
         version: link:../schemas
 
+  packages/mechanism-model: {}
+
   packages/ports:
     dependencies:
       '@blink/domain':

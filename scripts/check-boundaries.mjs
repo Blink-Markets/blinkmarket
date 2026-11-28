@@ -9,6 +9,8 @@ const allowed = {
   adapters: ["schemas", "ports"],
   runtime: [],
   client: ["schemas"],
+  // Pure reference model of Mechanism R: no dependency, no I/O, imported by no app or service.
+  "mechanism-model": [],
 };
 function files(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
