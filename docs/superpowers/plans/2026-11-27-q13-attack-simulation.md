@@ -148,7 +148,7 @@ Spec 9.4 says this plan "chooses the model's language and location; the implemen
 | C. Python beside the review scripts | Same JSON route | No Python step in CI (`.github/workflows/ci.yml`); a new toolchain to pin | Same as the scripts: lowest friction for the first vectors | Rejected: the verification would not run in `pnpm check`, so it could rot |
 | D. A reference Solidity contract tested in Foundry | Direct, but it is the contract, not an independent model | Needs Foundry for every run | Different | Rejected: a differential test needs an implementation independent of the contract |
 
-**Recommendation: A.** Reasons:
+**Recommendation (accepted 2026-11-28): A.** Reasons:
 
 - The model, its tests and the vectors run in the same CI job as the rest of the repository.
 - The off-chain code that must reproduce the same numbers (the baseline display, the Q19 numbers for makers, the sponsor cost estimate on the website) can import one implementation.
@@ -458,6 +458,14 @@ What the cheaper and the stronger choices buy: Haiku runs cost almost nothing an
 
 ## 10. Open questions for the user
 
+**Decided 2026-11-28.** The user answered "是，全部照建議" (English gloss: "yes, all as recommended"), so every recommendation below is accepted:
+- SQ1: option (c), the staged Option B. The stage caps are 60, 500 and 340 USD, 900 USD in total. The user puts the key in the environment when a stage starts and sets a matching spend limit in the provider's console; `scripts/q13/llm/approval.json` is written at Task 10, and the prices are re-read on the day of the run.
+- SQ2: (b), 6 hours, as the working value for the simulation only.
+- SQ3: 100 shares and 7 days, as working values; the final limits still need the user's approval.
+- SQ4: (a), the thresholds and the borderline policy as written.
+- SQ5: (a), disclose only; the simulation still measures the gain in every T-13a cell.
+- Section 2.1: option A, the model's location (package `packages/mechanism-model`, harness in `scripts/q13/`).
+
 Only what the sources leave open. The recommendation of each is worded so that "yes" accepts it.
 
 ### SQ1. The LLM budget
@@ -469,7 +477,9 @@ The spec requires LLM participants and says the user approves their cost before 
 - (c) **Option B, staged** (6 Haiku, 40 Sonnet, 12 Opus). Expected 699 USD (low 109, high 5,161). Stage 0 is a 4-run Sonnet pilot with its own cap of 60 USD; stage 1 (36 Sonnet and 6 Haiku runs) has a cap of 500 USD; stage 2 (12 Opus runs, and only after stage 1's report) has a cap of 340 USD.
 - (d) **Option C:** the strongest. Expected 2,135 USD (low 335, high 15,690).
 
-**Recommendation: (c), with the stage caps 60, 500 and 340 USD (900 USD for all LLM calls together).** The cap is about 1.3 times the expected cost: it absorbs a modest overrun but not the high case. The token counts behind the estimate are assumptions, and the pilot replaces them with measurements. After the pilot, the runner projects each later stage from the measured usage and stops for your approval again if a stage would exceed its cap. The Opus stage runs only after stage 1's report, on the cells where cheaper models found a candidate. Saying yes also means: the user provides the key in the environment when the stage starts, and sets a matching spend limit in the provider's console. The cap in force is the one written in `scripts/q13/llm/approval.json`; prices are re-read from the official page on the day of the run.
+**Recommendation (accepted 2026-11-28): (c), with the stage caps 60, 500 and 340 USD (900 USD for all LLM calls together).** The cap is about 1.3 times the expected cost: it absorbs a modest overrun but not the high case. The token counts behind the estimate are assumptions, and the pilot replaces them with measurements. After the pilot, the runner projects each later stage from the measured usage and stops for your approval again if a stage would exceed its cap. The Opus stage runs only after stage 1's report, on the cells where cheaper models found a candidate. Saying yes also means: the user provides the key in the environment when the stage starts, and sets a matching spend limit in the provider's console. The cap in force is the one written in `scripts/q13/llm/approval.json`; prices are re-read from the official page on the day of the run.
+
+**Decision (2026-11-28):** (c), as recommended.
 
 ### SQ2. The working outage tolerance for the reveal phase (OQ-19)
 
@@ -479,7 +489,9 @@ OQ-19 (a) says the reveal phase must be longer than the longest outage the proje
 - (b) **6 hours.** Cost: the next window cannot start until the longer phase ends, and capital stays locked longer.
 - (c) 24 hours. Cost: much longer windows and locks.
 
-**Recommendation: (b), as a working value for the simulation only.** The sweep reports the curve for all three, and the deployed value is set from the chosen chain's history before deployment.
+**Recommendation (accepted 2026-11-28): (b), as a working value for the simulation only.** The sweep reports the curve for all three, and the deployed value is set from the chosen chain's history before deployment.
+
+**Decision (2026-11-28):** (b), as recommended.
 
 ### SQ3. The smallest sponsor and the longest funding lead the project supports (OQ-25 (c))
 
@@ -490,6 +502,8 @@ The two limits `minAllowance` and `maxFundingLead` need a floor and a lead from 
 
 **Recommendation: 100 shares (one `creditUnit`, 100 bUSD, `packages/schemas/src/protocol-params.ts:123`) and 7 days, as working values.** The sweep prices squatting at each and reports if the working value is too cheap to squat. The user still approves the final limits (they are sybil limits, P5 R5).
 
+**Decision (2026-11-28):** 100 shares and 7 days, as recommended, as working values; the final limits still need the user's approval.
+
 ### SQ4. The pass thresholds and the borderline policy
 
 Section 1 fixes them; "Mechanism R enters only after it passes" makes them a user decision.
@@ -498,7 +512,9 @@ Section 1 fixes them; "Mechanism R enters only after it passes" makes them a use
 - (b) Looser: τ = max(5%, 10^-4 × B_1). Cost: a small systematic edge passes; for a 40,000-share allowance that is 4 shares.
 - (c) Stricter: τ = max(0.1%, 10^-6 × B_1). Cost: more cells sampled and borderline; more seeds; the exact cells are unaffected.
 
-**Recommendation: (a).**
+**Recommendation (accepted 2026-11-28): (a).**
+
+**Decision (2026-11-28):** (a), as recommended.
 
 ### SQ5. Does a source controller's gain from forecasting reopen the Q23 (c) creation-challenge ground?
 
@@ -512,11 +528,13 @@ Worked, the rain example's first window with φ = 0.1% and X = 490: A (40%) and 
 
 A rule that bars a sponsor from forecasting on its own bounty is not offered: spec 4.10 has no identity rules, and it could not be enforced against a second identity.
 
-**Recommendation: (a).** The simulation still measures the gain in every T-13a cell and reports it (section 3); the answer can be changed after the numbers are in.
+**Recommendation (accepted 2026-11-28): (a).** The simulation still measures the gain in every T-13a cell and reports it (section 3); the answer can be changed after the numbers are in.
+
+**Decision (2026-11-28):** (a), as recommended.
 
 ## 11. Pre-flight rulings (the controller records these in the decision log before Task 1)
 
-1. **Model location.** Section 2.1, option A. The controller records the user's agreement or a change (this is not a numbered question because the spec delegates the choice to this plan).
+1. **Model location.** Section 2.1, option A. Decided 2026-11-28: the user agreed, with "是，全部照建議" ("yes, all as recommended"). (This is not a numbered question because the spec delegates the choice to this plan.)
 2. **Isolation.** `@blink/mechanism-model` is imported by no `apps/*` or service code; the web and service rows of the Definition of Done do not apply; `pnpm check` is the covering command (CI job `check`).
 3. **The package is added to the boundary map** (`scripts/check-boundaries.mjs:4`) with an empty dependency list. `tests/architecture.test.ts` scans every `packages/*/src` (lines 129 and 191). It rejects the identifiers or string literals `BASELINE`, `FORECASTER_A` and `FORECASTER_B` (`:149`), and module paths or specifiers containing `keeper`, `trader`, `faucet` or `signer` (`:94`). The package's file names, imports and identifiers avoid all of them (it uses other names), and Task 1's brief states the bans.
 4. **The review scripts exist in the repository** (`docs/superpowers/specs/2026-11-17-long-horizon-review/scripts/`, eight Python files, 1,045 lines). The plan uses them only as the source of the first vectors. They are not edited.
