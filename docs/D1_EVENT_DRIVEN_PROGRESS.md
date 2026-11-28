@@ -192,7 +192,42 @@ All five were fixed and approved on re-review. No Critical, High or Medium findi
 
 ## Task 5 — the website shows freshness and what changed
 
-Not started.
+**Scope.** The market page shows how fresh the consensus is and which evidence changed. It runs on the labelled sample markets, through the same `computeFreshness` that a live reader uses.
+- `FreshnessLine` (`apps/web/components/markets/FreshnessLine.tsx`) is a server component in the consensus card. For an open market it shows the level, the latest window, the windows behind, "N of M answers reported a new analysis" and "K sources changed (reported)". The analysed count and the changed sources are marked as reported. A market that is not open reads "Forecasting ended at close; last window <date>" and shows no level.
+- `EvidenceChanges` (`apps/web/components/markets/EvidenceChanges.tsx`) is a server component in a new "What changed" section between the chart and "How it resolves".
+  - It lists the reported changes, newest first, each with the source host, "changed between X and Y (UTC)" (since and observed), one summary, the move of each forecaster, and the snapshot hash as text. Nothing links to a snapshot, because the static site cannot check one.
+  - A source checked for the first time is listed apart, never as a change. A change without a snapshot reads "Snapshot not available".
+  - The section carries the line "Reported by the forecasters; an archived snapshot can be checked against its hash."
+- `ForecastChart` draws a marker on the baseline at each window with a changed source, and a hollow point at each window where every answer was carried forward. The legend, the tooltip ("Sources changed: N (reported)", "New analysis A, carried C") and the table (the columns "New analysis / carried" and "Sources changed") say the same. The chart still receives plain numbers and imports neither `zod` nor `@blink/schemas`.
+- `apps/web/content/sample-freshness.ts` exports `sampleWindowSummaries(m)`, which turns the sample windows into the reader's window summaries, and `sampleFreshness(m)`, which runs `computeFreshness` over them (null for a market that is not open). Only the market page and the tests import it.
+- The sample-market fixtures (`apps/web/content/sample-markets.ts`): each window gains `analysed`, `carried`, `changes` and `firstChecked`, and the sample values were reworked to keep the rulings below.
+- "Sample data" is shown next to the freshness line and in the "What changed" lede, and each sample snapshot hash is marked "(sample)".
+
+**Rulings during the task.** Each is a departure from the plan as first written, or a bound the plan left open. Plan section 2.7 notes the main ones.
+- `FreshnessLine` takes `lastWindow`, `changedSources` and `sample` besides the view. The view has no date string, and a closed market has no view.
+- A change has one `summary`, with `moves: {agent, from, to}[]` for the per-forecaster moves, not one summary per forecaster.
+- Sample windows are at 16:00 UTC, the samples' close time.
+- `asOf` is the end of the `updatedAt` day.
+- `observedAt` is at most a day before the window opens, matching the schema's look-back.
+- The sample consensus moves only in windows that report an analysis change. The first and last values of each market are unchanged, and the moves chain from one change to the next.
+- The AGING colour is mixed from terracotta and ink, about 5.9:1 on the page background.
+- Task 5 was pushed only after Task 3 was on `main`, so the site never describes what no agent does.
+
+**Verification**, with the pinned Node and pnpm, on the rebased commit:
+- `pnpm check`: 876 tests pass, and the typechecks and package boundaries pass.
+- `tests/web-sample-markets.test.ts` and `tests/web-claims.test.ts` include three invariant tests, each seen failing on the first fixtures:
+  - a window whose answers were all carried forward keeps the consensus;
+  - in a change window the consensus lies between the new values;
+  - a source is first checked no later than its change.
+- `pnpm build` passes.
+- `pnpm build:pages && node scripts/check-pages-export.mjs` passes (24 key files and 81 internal URLs in 266 exported files).
+- Not run locally: `pnpm test:browsers`. The new browser tests in `tests/browser/market-detail.spec.ts` run first in CI.
+
+**Review.**
+- The first review found 1 High: the tooltip test read a stale bounding box before scrolling.
+- It also found 3 Medium: a hover before hydration, sample data that contradicted itself, and sequencing.
+- And 4 Low: the AGING contrast, a broad selector, a test that copied production code, and a duplicate 375 px test that needed no change.
+- All were fixed or settled, and the re-review approved. No Critical, High or Medium finding remains.
 
 ## Task 6 — agent docs and delivery records
 

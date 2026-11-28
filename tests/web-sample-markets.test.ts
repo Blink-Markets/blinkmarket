@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { computeFreshness } from "../packages/schemas/src/index.ts";
+import { sampleFreshness, sampleWindowSummaries } from "../apps/web/content/sample-freshness.ts";
 import {
   sampleMarkets,
   marketQuestion,
@@ -16,6 +19,8 @@ import {
   resolutionRule,
   frozenSpec,
   possessive,
+  windowScheduledAt,
+  isoToUnix,
 } from "../apps/web/content/sample-markets.ts";
 
 test("sample markets are REPLAY-only with unique ids and valid bps", () => {
@@ -189,4 +194,143 @@ test("stateDetail, resolutionRule and frozenSpec", () => {
     missingValueOutcome: "INVALID",
   });
   assert.equal(stateDetail(s6), "No qualifying value; finalized INVALID after the hard deadline");
+});
+
+const WINDOW_OPEN_SECONDS = 1800;
+const DAY = 86_400;
+
+test("every sample window has analysed + carried equal to its forecasters", () => {
+  for (const m of sampleMarkets) {
+    for (const w of m.windows) {
+      assert.ok(Number.isInteger(w.analysed) && w.analysed >= 0, `${m.id} ${w.date}`);
+      assert.ok(Number.isInteger(w.carried) && w.carried >= 0, `${m.id} ${w.date}`);
+      assert.equal(w.analysed + w.carried, w.forecasters, `${m.id} ${w.date}`);
+      assert.ok(Number.isInteger(w.firstChecked) && w.firstChecked >= 0, `${m.id} ${w.date}`);
+    }
+  }
+});
+
+test("a window with changes has at least one analysed answer", () => {
+  let windowsWithChanges = 0;
+  for (const m of sampleMarkets) {
+    for (const w of m.windows) {
+      if (w.changes.length > 0) {
+        windowsWithChanges++;
+        assert.ok(w.analysed >= 1, `${m.id} ${w.date}`);
+      }
+      if (w.firstChecked > 0) assert.ok(w.analysed >= 1, `${m.id} ${w.date} first check needs an analysis`);
+    }
+  }
+  assert.ok(windowsWithChanges >= 6, "the samples exercise changes");
+  // The samples also exercise a window where every answer was carried forward, and a heartbeat (mixed) window.
+  const all = sampleMarkets.flatMap((m) => m.windows);
+  assert.ok(all.some((w) => w.analysed === 0));
+  assert.ok(all.some((w) => w.analysed > 0 && w.carried > 0));
+});
+
+test("sample-markets.ts and ForecastChart.tsx import neither @blink/schemas nor zod", () => {
+  for (const file of ["apps/web/content/sample-markets.ts", "apps/web/components/markets/ForecastChart.tsx"]) {
+    const source = readFileSync(file, "utf8");
+    assert.doesNotMatch(source, /@blink\/schemas|["']zod["']/, file);
+  }
+});
+
+test("sampleFreshness equals computeFreshness over the sample windows", () => {
+  const open = sampleMarkets.filter((m) => m.state === "OPEN");
+  assert.ok(open.length >= 2);
+  for (const m of open) {
+    const expected = computeFreshness(sampleWindowSummaries(m), isoToUnix(`${m.updatedAt}T23:59:59Z`));
+    const got = sampleFreshness(m);
+    assert.deepEqual(got, expected, m.id);
+    assert.equal(got?.level, "CURRENT", m.id);
+    assert.equal(got?.windowsBehind, 0, m.id);
+    assert.equal(got?.lastAnsweredWindow, windowScheduledAt(m.windows.at(-1)!.date), m.id);
+    assert.equal(got?.latestWindow.answers, m.windows.at(-1)!.forecasters, m.id);
+    const observed = m.windows.flatMap((w) => w.changes.map((c) => isoToUnix(c.observedAt)));
+    assert.equal(got?.evidenceChangedAt, Math.max(...observed), m.id);
+  }
+});
+
+test("a market that is not OPEN has no freshness level", () => {
+  for (const id of ["sample-03", "sample-04", "sample-05", "sample-06"]) {
+    const m = findMarket(id);
+    assert.ok(m);
+    assert.notEqual(m.state, "OPEN");
+    assert.equal(sampleFreshness(m), null, id);
+  }
+});
+
+test("evidence change dates are ordered: since is before observedAt, and observedAt is not after the window", () => {
+  for (const m of sampleMarkets) {
+    for (const w of m.windows) {
+      const scheduledAt = windowScheduledAt(w.date);
+      for (const c of w.changes) {
+        assert.match(c.source, /^https:\/\/example\.com\/fixture-only\//, `${m.id} ${w.date}`);
+        assert.match(c.since, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+        assert.match(c.observedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+        assert.ok(isoToUnix(c.since) < isoToUnix(c.observedAt), `${m.id} ${w.date} since`);
+        assert.ok(isoToUnix(c.observedAt) <= scheduledAt, `${m.id} ${w.date} observedAt after the window`);
+        assert.ok(isoToUnix(c.observedAt) >= scheduledAt - WINDOW_OPEN_SECONDS - DAY, `${m.id} ${w.date} observedAt a day before the window`);
+        assert.ok(c.summary.trim());
+        assert.ok(c.moves.length >= 1 && c.moves.length <= w.analysed, `${m.id} ${w.date} moves`);
+        for (const mv of c.moves) {
+          assert.ok(mv.from >= 1 && mv.from <= 99 && mv.to >= 1 && mv.to <= 99);
+          assert.ok(mv.agent.trim());
+        }
+        assert.ok(c.snapshot === null || /^0x[0-9a-f]{4}…[0-9a-f]{4}$/.test(c.snapshot), `${m.id} ${w.date} snapshot`);
+      }
+    }
+  }
+  const all = sampleMarkets.flatMap((m) => m.windows.flatMap((w) => w.changes));
+  assert.ok(all.some((c) => c.snapshot === null), "one sample shows a snapshot that is not available");
+  assert.ok(all.some((c) => c.snapshot !== null));
+});
+
+test("chartAriaLabel names how many windows had a changed source", () => {
+  const s1 = findMarket("sample-01");
+  assert.ok(s1);
+  const n = s1.windows.filter((w) => w.changes.length > 0).length;
+  assert.ok(n >= 1);
+  assert.ok(chartAriaLabel(s1.windows).includes(`Sources changed (reported) in ${n} of ${s1.windows.length} windows.`), chartAriaLabel(s1.windows));
+  assert.match(chartAriaLabel(s1.windows), /^Line chart of the probability of YES/);
+});
+
+test("a window whose answers were all carried forward has the same consensus as the window before it", () => {
+  for (const m of sampleMarkets) {
+    for (const [i, w] of m.windows.entries()) {
+      const prev = m.windows[i - 1];
+      if (w.analysed === 0 && prev) assert.equal(w.consensus, prev.consensus, `${m.id} ${w.date}`);
+    }
+  }
+});
+
+test("when a change lists a move for every forecaster, the consensus lies between the lowest and the highest new value", () => {
+  let checked = 0;
+  for (const m of sampleMarkets) {
+    for (const [i, w] of m.windows.entries()) {
+      const prev = m.windows[i - 1];
+      for (const c of w.changes) {
+        if (c.moves.length !== w.forecasters) continue;
+        checked++;
+        const to = c.moves.map((mv) => mv.to);
+        assert.ok(w.consensus >= Math.min(...to) && w.consensus <= Math.max(...to), `${m.id} ${w.date}: ${w.consensus} outside ${to.join(", ")}`);
+        // The consensus does not move against the direction in which every forecaster moved.
+        if (prev && c.moves.every((mv) => mv.to >= mv.from)) assert.ok(w.consensus >= prev.consensus, `${m.id} ${w.date}: all moved up, consensus fell`);
+        if (prev && c.moves.every((mv) => mv.to <= mv.from)) assert.ok(w.consensus <= prev.consensus, `${m.id} ${w.date}: all moved down, consensus rose`);
+      }
+    }
+  }
+  assert.ok(checked >= 6, "the check must see the sample changes");
+});
+
+test("each changed source was checked for the first time in its window or an earlier one", () => {
+  for (const m of sampleMarkets) {
+    let firstChecked = 0;
+    const changed = new Set<string>();
+    for (const w of m.windows) {
+      firstChecked += w.firstChecked;
+      for (const c of w.changes) changed.add(c.source);
+      assert.ok(firstChecked >= changed.size, `${m.id} ${w.date}: ${changed.size} sources changed, ${firstChecked} first checked`);
+    }
+  }
 });

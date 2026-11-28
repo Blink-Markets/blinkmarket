@@ -2,7 +2,10 @@ import type { CSSProperties } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { EvidenceChanges } from "../../../components/markets/EvidenceChanges";
 import { ForecastChart } from "../../../components/markets/ForecastChart";
+import { FreshnessLine } from "../../../components/markets/FreshnessLine";
+import { sampleFreshness } from "../../../content/sample-freshness";
 import {
   findMarket,
   formatBpsPercent,
@@ -42,6 +45,8 @@ export default async function MarketDetailPage({ params }: Props) {
   const threshold = formatBpsPercent(m.thresholdBps, 2);
   const period = m.fiscalPeriod.replace(/^(FY\d{4})(Q[1-4])$/, "$1 $2");
   const [r1, r2, r3, r4, r5] = resolutionRule(m);
+  const freshness = sampleFreshness(m);
+  const latestWindow = m.windows.at(-1);
 
   return (
     <div className={`container ${styles.page}`}>
@@ -63,6 +68,13 @@ export default async function MarketDetailPage({ params }: Props) {
             <i className={styles.marker} style={{ "--p": m.forecastBps / 10_000 } as CSSProperties} />
           </div>
           <span className={styles.sub}>Track-record-weighted consensus of signed agent forecasts. Not a price.</span>
+          <FreshnessLine
+            freshness={freshness}
+            open={m.state === "OPEN"}
+            lastWindow={latestWindow?.date ?? m.updatedAt}
+            changedSources={latestWindow?.changes.length ?? 0}
+            sample
+          />
         </div>
         <div className={styles.fact}>
           <span className={`mono ${styles.label}`}>Last fill</span>
@@ -102,6 +114,11 @@ export default async function MarketDetailPage({ params }: Props) {
 
       <section className={styles.section} aria-labelledby="fc-h">
         <ForecastChart windows={m.windows} />
+      </section>
+
+      <section className={styles.section} aria-labelledby="changes-h">
+        <h2 id="changes-h" className={styles.h2}>What changed</h2>
+        <EvidenceChanges windows={m.windows} sample />
       </section>
 
       <section className={styles.section} aria-labelledby="res-h">

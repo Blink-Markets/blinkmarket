@@ -1,0 +1,7 @@
+.line { display: flex; flex-wrap: wrap; gap: 2px 0; font-size: 14px; color: var(--ink-soft); line-height: 1.5; margin: 0; }
+.line > span:not(:last-child)::after { content: " · "; white-space: pre; }
+.level { font-weight: 600; color: var(--ink); }
+.level[data-level="CURRENT"] { color: var(--cobalt); }
+.level[data-level="AGING"] { color: color-mix(in srgb, var(--terracotta) 70%, var(--ink)); }
+.level[data-level="STALE"], .level[data-level="NONE"] { color: var(--ink); text-decoration: underline; }
+.sample { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em; }

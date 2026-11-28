@@ -72,3 +72,25 @@ test("the form guard rejects a docs form", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("the freshness and what-changed copy has no status words, platform names, invitations or payment wording", () => {
+  const files = [
+    "components/markets/FreshnessLine.tsx",
+    "components/markets/EvidenceChanges.tsx",
+    "components/markets/ForecastChart.tsx",
+    "app/markets/[id]/page.tsx",
+    "content/sample-markets.ts",
+  ];
+  for (const file of files) {
+    const source = read(file);
+    assertShowcaseClean(source, file);
+    assert.doesNotMatch(source, /\b(bounty|bounties|sponsor|sponsors|sponsored|paid baseline|payment|reward)\b/i, file);
+    for (const phrase of banned) assert.ok(!source.toLowerCase().includes(phrase.toLowerCase()), `${file}: "${phrase}"`);
+  }
+  const line = read("components/markets/FreshnessLine.tsx");
+  assert.ok(line.includes("Sample data"));
+  assert.ok(line.includes("Forecasting ended at close"));
+  const changes = read("components/markets/EvidenceChanges.tsx");
+  assert.ok(changes.includes("Reported by the forecasters; an archived snapshot can be checked against its hash."));
+  assert.ok(changes.includes("Sample data"));
+});

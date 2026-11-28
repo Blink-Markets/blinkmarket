@@ -64,6 +64,9 @@ export function ForecastChart({ windows }: { windows: readonly ForecastWindow[] 
       <div className={styles.legend}>
         <span><i className={styles.sw} aria-hidden="true" />Consensus</span>
         <span><i className={`${styles.sw} ${styles.base}`} aria-hidden="true" />Last fill</span>
+        <span><i className={`${styles.pt} ${styles.ptFilled}`} aria-hidden="true" />New analysis</span>
+        <span><i className={`${styles.pt} ${styles.ptHollow}`} aria-hidden="true" />All answers carried forward</span>
+        <span><i className={styles.mk} aria-hidden="true" />Source changed (reported)</span>
       </div>
       <div className={styles.wrap}>
         <svg ref={svgRef} viewBox="0 0 1000 340" role="img" aria-label={chartAriaLabel(windows)}>
@@ -78,6 +81,33 @@ export function ForecastChart({ windows }: { windows: readonly ForecastWindow[] 
           ))}
           <path d={path(consensus)} fill="none" stroke="#2148B8" strokeWidth={2} strokeLinejoin="round" />
           <path d={path(windows.map((w) => w.lastFill))} fill="none" stroke="#242321" strokeWidth={2} strokeDasharray="6 5" strokeLinejoin="round" />
+          {windows.map((w, i) => (
+            <circle
+              key={w.date}
+              data-testid="chart-point"
+              data-window={w.date}
+              data-carried={w.analysed === 0 ? "true" : "false"}
+              cx={x(i)}
+              cy={y(consensus[i] ?? 0)}
+              r={4}
+              fill={w.analysed === 0 ? "#FFFFFF" : "#2148B8"}
+              stroke="#2148B8"
+              strokeWidth={2}
+              pointerEvents="none"
+            />
+          ))}
+          {windows.map((w, i) =>
+            w.changes.length === 0 ? null : (
+              <polygon
+                key={w.date}
+                data-testid="chart-change-marker"
+                data-window={w.date}
+                points={`${x(i)},${B - 12} ${x(i) - 6},${B} ${x(i) + 6},${B}`}
+                fill="#C65F38"
+                pointerEvents="none"
+              />
+            ),
+          )}
           {hover !== null && (
             <line x1={x(hover.i)} x2={x(hover.i)} y1={T} y2={B} stroke="#242321" strokeWidth={1} opacity={0.35} />
           )}
@@ -98,6 +128,8 @@ export function ForecastChart({ windows }: { windows: readonly ForecastWindow[] 
             <span className={`mono ${styles.when}`}>{hw.date}</span>
             <div><span>Consensus</span><b>{consensusForecast(hw).toFixed(1)}%</b></div>
             <div><span>Last fill</span><span>{hw.lastFill === null ? "No fill" : `${hw.lastFill.toFixed(1)}%`}</span></div>
+            <div><span>Sources changed: {hw.changes.length} (reported)</span></div>
+            <div><span>New analysis {hw.analysed}, carried {hw.carried}</span></div>
           </div>
         )}
       </div>
@@ -109,6 +141,8 @@ export function ForecastChart({ windows }: { windows: readonly ForecastWindow[] 
               <th className={styles.num}>Consensus</th>
               <th className={styles.num}>Last fill</th>
               <th className={styles.num}>Signed forecasts</th>
+              <th className={styles.num}>New analysis / carried</th>
+              <th className={styles.num}>Sources changed</th>
             </tr>
           </thead>
           <tbody>
@@ -118,12 +152,14 @@ export function ForecastChart({ windows }: { windows: readonly ForecastWindow[] 
                 <td className={styles.num}><b>{consensusForecast(w).toFixed(1)}%</b></td>
                 <td className={styles.num}>{w.lastFill === null ? "No fill" : `${w.lastFill.toFixed(1)}%`}</td>
                 <td className={styles.num}>{w.forecasters}</td>
+                <td className={styles.num}>{w.analysed} / {w.carried}</td>
+                <td className={styles.num}>{w.changes.length}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <p className={styles.note}>Consensus is track-record-weighted; last fill is a price. A gap means no fill in that window.</p>
+      <p className={styles.note}>Consensus is track-record-weighted; last fill is a price. A gap means no fill in that window. New analysis and sources changed are reported by the forecasters.</p>
     </div>
   );
 }

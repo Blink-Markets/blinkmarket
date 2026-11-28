@@ -319,9 +319,10 @@ Using the sample markets now (OQ9); the same components take live data later. `F
 
 - **Agent consensus card, OPEN markets only.** Under the number, one freshness line: "Latest window 2026-10-06 · 0 windows behind · 2 of 2 answers reported a new analysis · 1 source changed (reported)" with the level as text ("Current", "Aging", "Stale"). The time is shown in UTC; a relative age is added after hydration only for live data, because a static page cannot know the current time. For a market that is not OPEN the line reads "Forecasting ended at close; last window 2026-09-24" and shows no level.
 - **Chart.** A small marker on the baseline of the plot at each window where a source changed (`CHANGED` only); a different point style for windows where every answer was carried forward; the tooltip names "Sources changed: 1 (reported)" and "New analysis 2, carried 0". The table gains the columns "New analysis / carried" and "Sources changed". The chart's aria label mentions the count of windows with changed sources.
-- **"What changed" section**, between the chart and "How it resolves": the latest changes, newest first, each with the source host, "changed between X and Y (UTC)", the forecasters' summaries, the move in probability (from the signed values), and the snapshot's hash as text. On sample data nothing links to a snapshot, because the static site cannot check one; a live view may link to `/v1/content/<hash>` and compare the bytes with the hash. A `NEW` source is shown as "first checked", never as a change. A snapshot hash that does not resolve is shown as "snapshot not available". A line states: "Reported by the forecasters; an archived snapshot can be checked against its hash."
+- **"What changed" section**, between the chart and "How it resolves": the latest changes, newest first, each with the source host, "changed between X and Y (UTC)", one summary, each forecaster's move in probability (from the signed values, "from to"), and the snapshot's hash as text. On sample data nothing links to a snapshot, because the static site cannot check one; a live view may link to `/v1/content/<hash>` and compare the bytes with the hash. A `NEW` source is shown as "first checked", never as a change. A change with no archived snapshot is shown as "Snapshot not available". A line states: "Reported by the forecasters; an archived snapshot can be checked against its hash."
 - **Evidence and reasoning sections** are unchanged; "How agents reasoned" reads the same notes' `summary` for live data.
 - No bounty, sponsor or payment wording anywhere (U24, Mechanism R).
+- **Rulings during Task 5 (2026-11-28).** The page departs from the first text of this section in these ways: `FreshnessLine` takes `lastWindow`, `changedSources` and `sample` besides the view, because the view has no date string and a closed market has no view; a change has one `summary`, with `moves: {agent, from, to}[]` for the per-forecaster moves; the sample windows are at 16:00 UTC, the samples' close time, `asOf` is the end of the `updatedAt` day, and `observedAt` is at most a day before the window opens, matching the schema's look-back; the sample consensus moves only in windows that report an analysis change, the first and last values of each market are unchanged, and the moves chain from one change to the next; the AGING colour is mixed from terracotta and ink, about 5.9:1 on the page background; Task 5 was pushed only after Task 3 was on `main`, so the site never describes what no agent does. The [progress record](../../D1_EVENT_DRIVEN_PROGRESS.md) lists every ruling.
 
 ### 2.8 What it saves: a worked example
 
@@ -659,7 +660,7 @@ Each question lists its options, the cost of each and a recommendation. Nothing 
 
 **Files:**
 - Create:
-  - `apps/web/content/sample-freshness.ts`: `sampleFreshness(m)`, which calls `computeFreshness` with the market's `updatedAt` as `asOf`, for OPEN markets only. It is imported only by `page.tsx` and the tests, so `@blink/schemas` and `zod` stay out of the chart's client bundle (`ForecastChart.tsx` imports values from `sample-markets.ts`, and `@blink/schemas` is not marked side-effect free)
+  - `apps/web/content/sample-freshness.ts`: `sampleWindowSummaries(m)`, which turns the sample windows into the reader's window summaries, and `sampleFreshness(m)`, which calls `computeFreshness` over them with the end of the market's `updatedAt` day as `asOf`, for OPEN markets only. It is imported only by `page.tsx` and the tests, so `@blink/schemas` and `zod` stay out of the chart's client bundle (`ForecastChart.tsx` imports values from `sample-markets.ts`, and `@blink/schemas` is not marked side-effect free)
   - `apps/web/components/markets/FreshnessLine.tsx` and its CSS module (a server component)
   - `apps/web/components/markets/EvidenceChanges.tsx` and its CSS module (a server component)
 - Modify:
@@ -670,8 +671,8 @@ Each question lists its options, the cost of each and a recommendation. Nothing 
   - `tests/web-sample-markets.test.ts`, `tests/browser/market-detail.spec.ts`
 
 **Interfaces:**
-- `FreshnessLine({ freshness, open })`: for an OPEN market, renders the level word, the latest window's date in UTC, the windows behind, "N of M answers reported a new analysis" and "K sources changed (reported)". For a market that is not OPEN it renders "Forecasting ended at close; last window <date>" and no level. It carries the sample notice when it is given sample data.
-- `EvidenceChanges({ windows })` renders the newest changes first, with the line "Reported by the forecasters; an archived snapshot can be checked against its hash." and, per change, the source host, "changed between X and Y (UTC)", the summaries, the signed moves (for example "62.0% to 65.0%") and the snapshot hash as text. A first check is "first checked", never a change.
+- `FreshnessLine({ freshness, open, lastWindow, changedSources, sample })`: `freshness` is null for a market that is not OPEN, `lastWindow` is the latest window's date and `changedSources` is the number of sources its answers reported as changed. For an OPEN market it renders the level word, the latest window's date in UTC, the windows behind, "N of M answers reported a new analysis" and "K sources changed (reported)". For a market that is not OPEN it renders "Forecasting ended at close; last window <date>" and no level. It carries the sample notice when `sample` is set.
+- `EvidenceChanges({ windows, sample })` renders the newest changes first, with the line "Reported by the forecasters; an archived snapshot can be checked against its hash." and, per change, the source host, "changed between X and Y (UTC)", the summary, each forecaster's signed move (for example "forecaster-a: 56.0% to 61.0%") and the snapshot hash as text, or "Snapshot not available" when none was archived. A first check is "first checked", never a change.
 - Copy follows U24: no status words, no other platforms, no invitation. "Sample data" stays wherever sample values appear. The chart's existing aria-label prefix, "Line chart of the probability of YES", stays, because `market-detail.spec.ts` matches it.
 
 - [ ] **Step 1: Write the failing tests.**
@@ -681,7 +682,8 @@ Each question lists its options, the cost of each and a recommendation. Nothing 
     - `sample-markets.ts and ForecastChart.tsx import neither @blink/schemas nor zod` (a read of both files as text)
     - `sampleFreshness equals computeFreshness over the sample windows` and is `CURRENT` for the open sample markets at their snapshot date
     - `a market that is not OPEN has no freshness level` (sample-03 to sample-06)
-    - `evidence change dates are ordered: since is before observedAt, and observedAt is not after the window`
+    - `evidence change dates are ordered: since is before observedAt, observedAt is not after the window's deadline and at most a day before the window opens`
+    - three invariants of the sample consensus: a window whose answers were all carried forward keeps the consensus, in a change window the consensus lies between the new values, and a source is first checked no later than its change
   - `tests/browser/market-detail.spec.ts`:
     - `the consensus card of an open sample market shows the freshness line with the level and the latest window`
     - `a FINAL sample market (sample-05) and sample-06 show "Forecasting ended at close" and no level word`
